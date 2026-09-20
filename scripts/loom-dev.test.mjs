@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('development evidence compares canonical project identities', () => {
   assert.equal(canonicalProjectID('loom_dev_verify_run-1234'), 'loom_dev_verify_run/1234');
@@ -267,6 +267,194 @@ test('J01 fixture generates 1,000 distinct scalar concepts and hostile owner rec
   assert.equal(paired.component[2].code.coding[0].code, 'shared');
   assert.equal(paired.component[2].valueString, undefined);
   assert.equal(paired.component[2]._valueString.extension[0].valueBoolean, true);
+});
+
+test('J01 fixture generation rejects invalid counts and incomplete identity metadata', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-j01-invalid-fixture-'));
+  try {
+    const specPath = join(fixture, 'j01-concepts.fixture.json');
+    writeFileSync(specPath, JSON.stringify({ count: 0, system: 'urn:test', codePrefix: 'code-', displayPrefix: 'Concept' }));
+    assert.throws(() => generatedJ01ConceptNDJSON(fixture), /count must be an integer/);
+    writeFileSync(specPath, JSON.stringify({ count: 2, codePrefix: 'code-', displayPrefix: 'Concept' }));
+    assert.throws(() => generatedJ01ConceptNDJSON(fixture), /requires system, codePrefix, and displayPrefix/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('J01 semantic inventory requests use the saved snapshot and omit an absent cursor', () => {
+  assert.deepEqual(j01SemanticInventoryRequest({
+    snapshotToken: 'snapshot-1',
+    rowRoot: 'observation-node',
+    resourceType: 'Observation',
+    query: 'J01 concept',
+  }), {
+    snapshotToken: 'snapshot-1',
+    rowRoot: 'observation-node',
+    resourceType: 'Observation',
+    query: 'J01 concept',
+    limit: 50,
+  });
+  assert.deepEqual(j01SemanticInventoryRequest({
+    snapshotToken: 'snapshot-1',
+    rowRoot: 'observation-node',
+    cursor: 'cursor-2',
+  }), {
+    snapshotToken: 'snapshot-1',
+    rowRoot: 'observation-node',
+    cursor: 'cursor-2',
+    limit: 50,
+  });
+  assert.throws(() => j01SemanticInventoryRequest({ rowRoot: 'observation-node' }), /requires a catalog snapshot/);
+});
+
+test('J01 semantic pagination retains one context identity and finds each expected code exactly once', async () => {
+  const fixture = {
+    count: 5,
+    system: 'urn:loom:j01:catalog',
+    codePrefix: 'concept-',
+    displayPrefix: 'J01 concept',
+  };
+  const pages = [
+    ['0000', '0001'],
+    ['0002', '0003'],
+    ['0004'],
+  ];
+  const requests = [];
+  const inventory = await collectJ01SemanticConceptPages(async (body) => {
+    requests.push(body);
+    const pageIndex = requests.length - 1;
+    return {
+      response: { ok: true, status: 200 },
+      value: {
+        contextToken: 'ctx-1',
+        buildId: 'build-1',
+        state: 'complete',
+        sourceAvailability: 'verified',
+        entries: pages[pageIndex].map((suffix) => ({
+          conceptId: `concept-id-${suffix}`,
+          bindingId: `binding-id-${suffix}`,
+          resourceType: 'Observation',
+          system: fixture.system,
+          code: `${fixture.codePrefix}${suffix}`,
+          display: `${fixture.displayPrefix} ${suffix}`,
+        })),
+        ...(pageIndex < pages.length - 1 ? { nextCursor: `cursor-${pageIndex + 1}` } : {}),
+      },
+    };
+  }, {
+    snapshotToken: 'snapshot-1',
+    rowRoot: 'observation-node',
+    resourceType: 'Observation',
+    query: fixture.displayPrefix,
+  }, fixture);
+
+  assert.equal(inventory.count, 5);
+  assert.equal(inventory.countBasis, 'exact-paginated');
+  assert.equal(inventory.pages.length, 3);
+  assert.equal(inventory.contextToken, 'ctx-1');
+  assert.equal(inventory.buildId, 'build-1');
+  assert.deepEqual(requests.map((request) => request.cursor), [undefined, 'cursor-1', 'cursor-2']);
+  assert.deepEqual(inventory.entries.map((entry) => entry.code).sort(), [
+    'concept-0000', 'concept-0001', 'concept-0002', 'concept-0003', 'concept-0004',
+  ]);
+});
+
+test('J01 semantic pagination rejects failure, identity drift, duplicate pages, and examples', async (t) => {
+  const fixture = { count: 2, system: 'urn:loom:j01:catalog', codePrefix: 'concept-', displayPrefix: 'J01 concept' };
+  const request = { snapshotToken: 'snapshot-1', rowRoot: 'observation-node', query: fixture.displayPrefix };
+  const entry = (suffix, extra = {}) => ({
+    conceptId: `concept-id-${suffix}`,
+    bindingId: `binding-id-${suffix}`,
+    resourceType: 'Observation',
+    system: fixture.system,
+    code: `concept-${suffix}`,
+    display: `J01 concept ${suffix}`,
+    ...extra,
+  });
+  const response = (entries, nextCursor, overrides = {}) => ({
+    response: { ok: true, status: 200 },
+    value: {
+      contextToken: 'ctx-1',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      entries,
+      ...(nextCursor ? { nextCursor } : {}),
+      ...overrides,
+    },
+  });
+
+  await t.test('HTTP failure', async () => {
+    await assert.rejects(collectJ01SemanticConceptPages(async () => ({ response: { ok: false, status: 503 }, value: {} }), request, fixture), /HTTP 503/);
+  });
+  await t.test('catalog context changes between pages', async () => {
+    let page = 0;
+    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+      page += 1;
+      return page === 1
+        ? response([entry('0000')], 'cursor-1')
+        : response([entry('0001')], undefined, { contextToken: 'ctx-2' });
+    }, request, fixture), /changed its context or build identity/);
+  });
+  await t.test('cursor repeats', async () => {
+    let page = 0;
+    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+      page += 1;
+      return page === 1
+        ? response([entry('0000')], 'cursor-1')
+        : response([], 'cursor-1');
+    }, request, fixture), /repeated a pagination cursor/);
+  });
+  await t.test('duplicate generated code', async () => {
+    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000'), entry('0000')]), request, fixture), /repeated concept identity/);
+  });
+  await t.test('example values leak into browse results', async () => {
+    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000', { examples: ['private value'] })]), request, fixture), /exposed example values/);
+  });
+  await t.test('global inventory count leaks into browse response', async () => {
+    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000'), entry('0001')], undefined, { totalCount: 2 }), request, fixture), /global count field/);
+  });
+  await t.test('missing expected concept identity', async () => {
+    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000')]), request, fixture), /returned 1 of 2 expected concepts/);
+  });
+});
+
+test('J01 command evidence accepts only distinct compiler choice IDs for the selected table', () => {
+  const body = {
+    commandId: 'cmd-1',
+    snapshotToken: 'snapshot-1',
+    commands: [
+      { type: 'APPLY_CONSTRUCTION_CHOICE', outputId: 'table-1', constructionChoice: { choiceId: 'choice-id', form: 'VALUE' }, title: 'valueInteger' },
+      { type: 'APPLY_CONSTRUCTION_CHOICE', outputId: 'table-1', constructionChoice: { choiceId: 'choice-records', form: 'OWNER_RECORDS' }, title: 'shared' },
+    ],
+  };
+  assert.deepEqual(j01ConstructionChoiceCommandIdentities(body, 'table-1'), [
+    { choiceId: 'choice-id', form: 'VALUE', outputId: 'table-1', title: 'valueInteger' },
+    { choiceId: 'choice-records', form: 'OWNER_RECORDS', outputId: 'table-1', title: 'shared' },
+  ]);
+  assert.throws(() => j01ConstructionChoiceCommandIdentities({ ...body, commands: [{ ...body.commands[0], fieldPath: 'valueInteger' }] }, 'table-1'), /client-derived source field/);
+  assert.throws(() => j01ConstructionChoiceCommandIdentities(body, 'table-2'), /different table/);
+  assert.throws(() => j01ConstructionChoiceCommandIdentities({ ...body, commands: [body.commands[0], body.commands[0]] }, 'table-1'), /distinct selected choices/);
+  assert.throws(() => j01ConstructionChoiceCommandIdentities({ ...body, commands: [{ ...body.commands[0], constructionChoice: { choiceId: 'choice-id', form: 'VALUE', fieldPath: 'valueInteger' } }] }, 'table-1'), /only a compiler-issued choice identity and form/);
+});
+
+test('J01 reload identity snapshot retains exactly the renamed, reordered saved sources', () => {
+  const state = {
+    workspace: { documents: [{ output: { id: 'table-1' }, columns: [
+      { column: 'col-id', label: 'Observation identifier', table: { order: 2 }, source: { kind: 'field', field: { path: 'root.id' } } },
+      { column: 'col-int', label: 'Integer value', table: { order: 0 }, source: { kind: 'field', field: { path: 'valueInteger' } } },
+      { column: 'col-owner', label: 'Study A records', table: { order: 1 }, source: { kind: 'ownerRecords', ownerRecords: { key: { system: 'urn:study:A', code: 'shared' }, binding: { ownerPath: 'component[]', valuePath: 'valueQuantity.value' } } } },
+    ] }] },
+  };
+  const expected = [
+    { columnId: 'col-int', label: 'Integer value', order: 0, source: { kind: 'field', path: 'valueInteger' } },
+    { columnId: 'col-owner', label: 'Study A records', order: 1, source: { kind: 'ownerRecords', system: 'urn:study:A', code: 'shared', ownerPath: 'component[]', valuePath: 'valueQuantity.value' } },
+    { columnId: 'col-id', label: 'Observation identifier', order: 2, source: { kind: 'field', path: 'id' } },
+  ];
+  assert.deepEqual(j01ColumnIdentitySnapshot(state, 'table-1'), expected);
+  assert.throws(() => j01ColumnIdentitySnapshot({ workspace: { documents: [{ output: { id: 'table-1' }, columns: state.workspace.documents[0].columns.slice(1) }] } }, 'table-1'), /exactly three selected columns/);
+  assert.throws(() => j01ColumnIdentitySnapshot({ workspace: { documents: [{ output: { id: 'table-1' }, columns: state.workspace.documents[0].columns.map((column) => column.column === 'col-id' ? { ...column, table: { order: 1 } } : column) }] } }, 'table-1'), /contiguous saved column positions/);
 });
 
 test('J02 fixture contains the documented five-edge FHIR reference chain and distinct report route', () => {

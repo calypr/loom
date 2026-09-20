@@ -332,6 +332,161 @@ export const generatedJ01ConceptNDJSON = (fixtureDir) => {
   }).join('\n') + '\n';
 };
 
+export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
+  if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 inventory request requires a catalog snapshot');
+  if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 inventory request requires a row root');
+  return {
+    snapshotToken,
+    rowRoot,
+    ...(resourceType ? { resourceType } : {}),
+    ...(query ? { query } : {}),
+    ...(cursor ? { cursor } : {}),
+    limit: 50,
+  };
+};
+
+export const collectJ01SemanticConceptPages = async (readPage, request, fixture) => {
+  const seenCursors = new Set();
+  const seenCodes = new Set();
+  const pages = [];
+  const expectedCodes = new Set(Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`));
+  let cursor;
+  let contextToken;
+  let buildId;
+  let entries = [];
+  do {
+    const body = j01SemanticInventoryRequest({ ...request, cursor });
+    const { response, value } = await readPage(body);
+    if (!response?.ok) throw new Error(`J01 semantic inventory returned HTTP ${response?.status ?? 'unknown'}`);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 semantic inventory response is not an object');
+    if (value.state !== 'complete' || value.sourceAvailability !== 'verified') {
+      throw new Error(`J01 semantic inventory is not complete and verified: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'unknown'}`);
+    }
+    if (Object.keys(value).some((key) => /example|total.?count/i.test(key))) {
+      throw new Error('J01 semantic inventory exposed an example or global count field');
+    }
+    if (typeof value.contextToken !== 'string' || value.contextToken.length === 0 || typeof value.buildId !== 'string' || value.buildId.length === 0) {
+      throw new Error('J01 semantic inventory response is missing its context identity');
+    }
+    if (contextToken === undefined) {
+      contextToken = value.contextToken;
+      buildId = value.buildId;
+    } else if (value.contextToken !== contextToken || value.buildId !== buildId) {
+      throw new Error('J01 semantic inventory page changed its context or build identity');
+    }
+    if (!Array.isArray(value.entries) || value.entries.length > 50) throw new Error('J01 semantic inventory page exceeds its 50-entry contract');
+    for (const item of value.entries) {
+      if (
+        typeof item?.code !== 'string' ||
+        !expectedCodes.has(item.code) ||
+        item.resourceType !== 'Observation' ||
+        item.system !== fixture.system ||
+        !String(item.display ?? '').startsWith(`${fixture.displayPrefix} `) ||
+        typeof item.conceptId !== 'string' ||
+        !item.conceptId ||
+        typeof item.bindingId !== 'string' ||
+        !item.bindingId
+      ) {
+        throw new Error('J01 semantic inventory returned a result outside the generated Observation concept set');
+      }
+      if (Object.hasOwn(item, 'examples')) throw new Error('J01 semantic inventory exposed example values outside the page identity contract');
+      if (seenCodes.has(item.code)) throw new Error(`J01 semantic inventory repeated concept identity ${item.code}`);
+      seenCodes.add(item.code);
+      entries.push(item);
+    }
+    pages.push({ cursor, nextCursor: value.nextCursor, count: value.entries.length });
+    cursor = value.nextCursor;
+    if (cursor) {
+      if (typeof cursor !== 'string' || seenCursors.has(cursor)) throw new Error('J01 semantic inventory repeated a pagination cursor');
+      seenCursors.add(cursor);
+      if (pages.length > fixture.count) throw new Error('J01 semantic inventory exceeded its pagination safety bound');
+    }
+  } while (cursor);
+
+  const actualCodes = [...seenCodes].sort();
+  if (JSON.stringify(actualCodes) !== JSON.stringify([...expectedCodes].sort())) {
+    throw new Error(`J01 semantic inventory returned ${actualCodes.length} of ${fixture.count} expected concepts`);
+  }
+  return { contextToken, buildId, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
+};
+
+const j01ColumnSourceIdentity = (column) => {
+  switch (column?.source?.kind) {
+    case 'field':
+      return {
+        kind: 'field',
+        path: String(column.source.field?.path ?? '').replace(/^root\./, ''),
+      };
+    case 'ownerRecords':
+      return {
+        kind: 'ownerRecords',
+        system: column.source.ownerRecords?.key?.system ?? '',
+        code: column.source.ownerRecords?.key?.code ?? '',
+        ownerPath: column.source.ownerRecords?.binding?.ownerPath ?? '',
+        valuePath: column.source.ownerRecords?.binding?.valuePath ?? '',
+      };
+    default:
+      throw new Error(`J01 column ${column?.column ?? '(unknown)'} has an unsupported saved source`);
+  }
+};
+
+export const j01ColumnIdentitySnapshot = (builderState, outputId) => {
+  const documents = builderState?.workspace?.documents;
+  const document = Array.isArray(documents) ? documents.find((candidate) => candidate.output?.id === outputId) : undefined;
+  if (!document) throw new Error(`J01 table ${outputId} is missing from the saved Builder workspace`);
+  if (!Array.isArray(document.columns) || document.columns.length !== 3) {
+    throw new Error(`J01 table must retain exactly three selected columns, got ${document.columns?.length ?? 0}`);
+  }
+  const snapshot = document.columns.map((column) => ({
+    columnId: column.column,
+    label: column.label,
+    order: column.table?.order,
+    source: j01ColumnSourceIdentity(column),
+  })).sort((left, right) => left.order - right.order);
+  const columnIds = snapshot.map((column) => column.columnId);
+  const orders = snapshot.map((column) => column.order);
+  if (columnIds.some((columnId) => typeof columnId !== 'string' || !columnId) || new Set(columnIds).size !== 3) {
+    throw new Error('J01 table does not have three distinct stable column identities');
+  }
+  if (orders.some((order, index) => !Number.isInteger(order) || order !== index)) {
+    throw new Error('J01 table does not have contiguous saved column positions from zero');
+  }
+  if (snapshot.some((column) => !column.label || Object.values(column.source).some((value) => !value))) {
+    throw new Error('J01 saved column identity is missing its name or source');
+  }
+  return snapshot;
+};
+
+export const j01ConstructionChoiceCommandIdentities = (body, outputId) => {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.commands)) throw new Error('J01 authoring request has no command list');
+  const allowedCommandFields = new Set(['type', 'outputId', 'constructionChoice', 'title', 'initialPresentation']);
+  const allowedForms = new Set(['VALUE', 'FIRST', 'ALL', 'DISTINCT', 'OWNER_RECORDS']);
+  const choices = body.commands.map((command, index) => {
+    if (!command || command.type !== 'APPLY_CONSTRUCTION_CHOICE') throw new Error(`J01 command ${index} is not a compiler-choice application`);
+    if (Object.keys(command).some((key) => !allowedCommandFields.has(key))) throw new Error(`J01 command ${index} contains a client-derived source field`);
+    if (command.outputId !== outputId) throw new Error(`J01 command ${index} targets a different table`);
+    const selection = command.constructionChoice;
+    if (
+      !selection ||
+      typeof selection.choiceId !== 'string' ||
+      !selection.choiceId ||
+      !allowedForms.has(selection.form) ||
+      Object.keys(selection).some((key) => !['choiceId', 'form'].includes(key))
+    ) {
+      throw new Error(`J01 command ${index} does not contain only a compiler-issued choice identity and form`);
+    }
+    return {
+      choiceId: selection.choiceId,
+      form: selection.form,
+      outputId: command.outputId,
+      title: command.title ?? '',
+    };
+  });
+  const choiceIds = choices.map((choice) => choice.choiceId);
+  if (!choices.length || new Set(choiceIds).size !== choices.length) throw new Error('J01 choice application must contain distinct selected choices');
+  return choices;
+};
+
 export const commandEnvironment = (target) => ({
   ...process.env,
   LOOM_DEV_COMPOSE_PROJECT: target.composeProject,
@@ -1552,6 +1707,466 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
   }
 };
 
+const verifyJ01BrowserScenario = async (target, report, entryTarget = target) => {
+  const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const evidenceDir = join(target.artifacts, runID);
+  const downloadDir = join(evidenceDir, 'downloads');
+  mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDir;
+  report.target.ports = { api: target.apiPort, ui: target.uiPort };
+  recordEvidence(report, evidenceDir);
+  report.requests = [];
+  report.actions = [];
+
+  const browser = await launchBrowser(downloadDir);
+  const cdp = browser.cdp;
+  const network = [];
+  const pendingBodies = new Set();
+  const parseJSON = (raw) => {
+    try { return JSON.parse(raw ?? ''); } catch { return undefined; }
+  };
+  const bodyForPath = (path) => network.filter((item) => item.url.endsWith(path));
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (!event.request.url.includes('/authoring/v2/')) return;
+    const item = {
+      requestId: event.requestId,
+      url: new URL(event.request.url).pathname,
+      method: event.request.method,
+      xRequestId: event.request.headers?.['X-Request-ID'] ?? event.request.headers?.['x-request-id'],
+      postData: event.request.postData,
+      startedAtMs: event.wallTime ? Math.round(event.wallTime * 1000) : undefined,
+    };
+    network.push(item);
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    const item = network.find((candidate) => candidate.requestId === event.requestId);
+    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  });
+  cdp.on('Network.loadingFinished', (event) => {
+    const item = network.find((candidate) => candidate.requestId === event.requestId);
+    if (!item || !item.response?.mimeType?.includes('json')) return;
+    const capture = (async () => {
+      try {
+        const response = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+        item.responseBody = parseJSON(response.base64Encoded ? Buffer.from(response.body, 'base64').toString('utf8') : response.body);
+      } catch (error) {
+        item.responseBodyError = String(error);
+      }
+    })().finally(() => pendingBodies.delete(capture));
+    pendingBodies.add(capture);
+  });
+
+  const action = async (name, operation) => {
+    const started = Date.now();
+    await operation();
+    const elapsedMs = Date.now() - started;
+    report.actions.push({ name, elapsedMs });
+    report.timings[`j01_${name}_ms`] = elapsedMs;
+  };
+  const readState = async () => fetchBuilderState(target, report.target.explorerId);
+  const waitForState = async (predicate, label, timeout = 30000) => {
+    const started = Date.now();
+    let state;
+    while (Date.now() - started < timeout) {
+      state = await readState();
+      if (predicate(state)) return state;
+      await sleep(200);
+    }
+    throw new Error(`timed out waiting for J01 Builder state: ${label}; draft=${state?.draftVersion}`);
+  };
+  const waitForNetworkResponse = async (path, afterIndex = -1, timeout = 30000, predicate = () => true) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      const match = network.find((item, index) => index > afterIndex && item.url.endsWith(path) && item.responseBody !== undefined && predicate(item));
+      if (match) return match;
+      await sleep(50);
+    }
+    throw new Error(`timed out waiting for J01 ${path} response; observed=${JSON.stringify(bodyForPath(path).map((item) => ({ request: parseJSON(item.postData), response: item.response?.status, body: item.responseBodyError })))}`);
+  };
+  const captureDOM = async (name) => {
+    const path = join(evidenceDir, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+  };
+  const saveScreenshot = async (name) => {
+    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const path = join(evidenceDir, `${name}.png`);
+    writeFileSync(path, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, path);
+  };
+  const saveNetworkEvidence = async () => {
+    await Promise.allSettled([...pendingBodies]);
+    const path = join(evidenceDir, 'network-identities.json');
+    writeJSON(path, network);
+    recordEvidence(report, path);
+  };
+
+  try {
+    const bootstrapExplorerId = report.target.bootstrapExplorerId;
+    if (!bootstrapExplorerId) throw new Error('J01 fresh fixture bootstrap Explorer identity is missing');
+    const baseURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId)}&mode=builder`;
+    await navigate(cdp, entryTarget.uiUrl);
+    await navigate(cdp, baseURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await captureDOM('j01-builder-start');
+
+    await action('blank_explorer_and_observation_table', async () => {
+      const title = `J01 ${target.fixtureProject.slice(-18)}`;
+      await browserEval(cdp, `clickText('summary', 'New explorer')`);
+      await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
+      await browserEval(cdp, `clickButton('Create blank')`);
+      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
+      const explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+      if (!explorerId) throw new Error('J01 blank Explorer was not selected');
+      report.target.explorerId = explorerId;
+      await browserEval(cdp, `setInput('first-table-name', 'J01 Observation values')`);
+      await browserEval(cdp, `clickButton('Create table')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose Observation rows"]'))`);
+      await browserEval(cdp, `clickButton('Choose Observation rows')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+    });
+
+    let state = await readState();
+    const document = state.workspace?.documents?.find((candidate) => candidate.rootResourceType === 'Observation');
+    if (!document?.output?.id) throw new Error('J01 selected Observation row root did not create one saved table');
+    const outputId = document.output.id;
+    report.target.outputId = outputId;
+    const rootNode = state.catalog.nodes.find((node) => node.resourceType === 'Observation' && node.rowRootEligible);
+    if (!rootNode) throw new Error('J01 Observation root is missing from the authorized Builder catalog');
+    recordAssertion(report, 'j01-starts-with-empty-observation-table', [], document.columns.map((column) => column.column));
+    recordAssertion(report, 'j01-begins-in-catalog-without-advanced-graph', true,
+      await evaluate(cdp, `!document.querySelector('.react-flow__node')`));
+    await captureDOM('j01-catalog-empty-table');
+
+    const fixture = JSON.parse(readFileSync(join(target.fixtureDir, 'j01-concepts.fixture.json'), 'utf8'));
+    const catalogSearchStarted = Date.now();
+    await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(fixture.displayPrefix)})`);
+    await browserEval(cdp, `clickButton('Search')`);
+    const pageCodes = [];
+    const expectedPageCount = Math.ceil(fixture.count / 50);
+    let semanticPageCursor = -1;
+    for (let pageNumber = 1; pageNumber <= expectedPageCount; pageNumber += 1) {
+      const pageResponse = await waitForNetworkResponse('/semantic-inventory', semanticPageCursor, 60000,
+        (item) => parseJSON(item.postData)?.query === fixture.displayPrefix);
+      semanticPageCursor = network.indexOf(pageResponse);
+      const requestBody = parseJSON(pageResponse.postData);
+      if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.nodeId || requestBody?.limit !== 50) {
+        throw new Error(`J01 catalog page ${pageNumber} was not loaded through the expected visible search request: ${JSON.stringify(requestBody)}`);
+      }
+      if (Object.keys(pageResponse.responseBody ?? {}).some((key) => /example|total.?count/i.test(key))) {
+        throw new Error(`J01 semantic inventory page ${pageNumber} returned an example or global count field`);
+      }
+      await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber}') && (document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) > 0`, 60000);
+      const visibleCodes = await evaluate(cdp, `(() => {
+        const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]');
+        return [...(section?.querySelectorAll('article') || [])].map((article) => article.innerText.match(/\\bconcept-\\d{4}\\b/)?.[0]).filter(Boolean);
+      })()`);
+      recordAssertion(report, `j01-catalog-page-${pageNumber}-has-exactly-fifty-identities`, 50, visibleCodes.length);
+      pageCodes.push(...visibleCodes);
+      if (pageNumber < expectedPageCount) {
+        await browserEval(cdp, `clickButton('Next')`);
+        await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber + 1}')`, 60000);
+      }
+    }
+    const expectedCodes = Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`);
+    recordAssertion(report, 'j01-browser-discovers-every-generated-code-once-across-pages', expectedCodes, [...pageCodes].sort());
+    const generatedInventoryRequests = network.filter((item) => item.url.endsWith('/semantic-inventory') && parseJSON(item.postData)?.query === fixture.displayPrefix);
+    const collectedInventory = await collectJ01SemanticConceptPages(async (requestBody) => {
+      const item = generatedInventoryRequests[requestBody.cursor ? generatedInventoryRequests.findIndex((candidate) => parseJSON(candidate.postData)?.cursor === requestBody.cursor) : 0];
+      if (!item) throw new Error(`J01 browser did not issue inventory page for cursor ${requestBody.cursor ?? '(first)'}`);
+      const actualRequest = parseJSON(item.postData);
+      for (const key of Object.keys(requestBody)) {
+        if (actualRequest?.[key] !== requestBody[key]) throw new Error(`J01 browser inventory request ${key} differed from the verifier contract`);
+      }
+      if (Object.keys(actualRequest ?? {}).length !== Object.keys(requestBody).length) throw new Error('J01 browser inventory request included unexpected query fields');
+      return { response: { ok: item.response?.status === 200, status: item.response?.status }, value: item.responseBody };
+    }, {
+      snapshotToken: state.catalog.snapshotToken,
+      rowRoot: rootNode.nodeId,
+      query: fixture.displayPrefix,
+    }, fixture);
+    report.timings.j01_catalog_pagination_ms = Date.now() - catalogSearchStarted;
+    report.target.inventory = {
+      discovered: collectedInventory.count,
+      pageCount: collectedInventory.pages.length,
+      countBasis: collectedInventory.countBasis,
+      firstCode: collectedInventory.entries[0]?.code,
+      lastCode: collectedInventory.entries.at(-1)?.code,
+    };
+    recordAssertion(report, 'j01-paginated-inventory-reports-exact-fixture-identity-coverage', {
+      discovered: fixture.count,
+      pageCount: expectedPageCount,
+      countBasis: 'exact-paginated',
+      firstCode: `${fixture.codePrefix}0000`,
+      lastCode: `${fixture.codePrefix}${String(fixture.count - 1).padStart(4, '0')}`,
+    }, report.target.inventory);
+    state = await readState();
+    recordAssertion(report, 'j01-opening-and-paging-catalog-does-not-create-columns', [],
+      state.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.columns.map((column) => column.column));
+    await captureDOM('j01-catalog-after-generated-pagination');
+
+    const fieldChoiceFor = (path) => {
+      const candidate = state.catalog.candidates.find((item) => item.nodeId === rootNode.nodeId && item.fieldPath.replace(/^root\./, '') === path);
+      const choice = candidate?.constructionChoice;
+      const defaults = choice?.options?.filter((option) => option.decision === 'DEFAULT') ?? [];
+      if (!candidate?.candidateId || choice?.source?.kind !== 'FIELD' || defaults.length !== 1 || choice.options.length !== 1) {
+        throw new Error(`J01 Observation.${path} does not have one compiler-issued preserving default choice`);
+      }
+      return { candidate, choice, selection: { choiceId: choice.choiceId, form: defaults[0].form } };
+    };
+    const idField = fieldChoiceFor('id');
+    const integerField = fieldChoiceFor('valueInteger');
+    await action('add_ordinary_fields_from_catalog', async () => {
+      for (const field of [idField, integerField]) {
+        const path = field.candidate.fieldPath.replace(/^root\./, '');
+        await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(path)})`);
+        await browserEval(cdp, `clickButton('Search')`);
+        await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.${path}"]:not(:disabled)'))`);
+        await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select Observation.${path}`)}); if (!input || input.disabled) throw new Error('compiler-proved Observation.${path} choice is unavailable'); input.click();`);
+        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+        state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === (path === 'id' ? 1 : 2), `Observation.${path} compiler choice application`);
+      }
+    });
+
+    await action('add_preserving_semantic_owner_records', async () => {
+      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
+      await browserEval(cdp, `clickButton('Search')`);
+      const sharedRequest = await waitForNetworkResponse('/semantic-inventory', semanticPageCursor, 60000,
+        (item) => parseJSON(item.postData)?.query === 'shared');
+      semanticPageCursor = network.indexOf(sharedRequest);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
+      const sharedBody = parseJSON(sharedRequest.postData);
+      if (sharedBody?.query !== 'shared') throw new Error(`J01 semantic owner search used an unexpected query: ${JSON.stringify(sharedBody)}`);
+      const sharedEntry = (sharedRequest.responseBody?.entries ?? []).find((entry) => entry.resourceType === 'Observation' && entry.system === 'urn:study:A' && entry.code === 'shared');
+      const semanticChoice = sharedEntry?.constructionChoice;
+      if (semanticChoice?.source?.kind !== 'SEMANTIC' || semanticChoice.source.system !== 'urn:study:A' || semanticChoice.source.code !== 'shared') {
+        throw new Error(`J01 semantic inventory did not issue the selected owner-bound compiler choice: ${JSON.stringify(semanticChoice?.source)}`);
+      }
+      if (!semanticChoice.options.some((option) => option.form === 'OWNER_RECORDS')) {
+        throw new Error('J01 selected semantic choice does not advertise the preserving OWNER_RECORDS form');
+      }
+      report.target.semanticChoice = {
+        choiceId: semanticChoice.choiceId,
+        form: 'OWNER_RECORDS',
+        system: semanticChoice.source.system,
+        code: semanticChoice.source.code,
+        ownerPath: semanticChoice.source.owningScope,
+        valuePath: semanticChoice.source.fieldPath,
+      };
+      await browserEval(cdp, `const item = [...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value')); const input = item?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('Observation semantic owner choice is unavailable'); input.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      await captureDOM('j01-owner-record-choice');
+      await browserEval(cdp, `const input = inputByLabel('shared: Keep each matching record'); if (!input) throw new Error('compiler-proved OWNER_RECORDS choice is unavailable'); input.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === 3, 'three compiler choices applied to one table');
+    });
+
+    const semanticRequest = network.find((item) => item.url.endsWith('/semantic-inventory') && parseJSON(item.postData)?.query === 'shared');
+    const semanticOwnerChoice = semanticRequest?.responseBody?.entries?.find((entry) => entry.system === 'urn:study:A' && entry.code === 'shared')?.constructionChoice;
+    const expectedChoices = [
+      { choiceId: idField.selection.choiceId, form: idField.selection.form, outputId, title: 'id' },
+      { choiceId: integerField.selection.choiceId, form: integerField.selection.form, outputId, title: 'valueInteger' },
+      { choiceId: semanticOwnerChoice?.choiceId, form: 'OWNER_RECORDS', outputId, title: 'shared' },
+    ];
+    const constructionRequests = network
+      .filter((item) => item.url.endsWith('/commands') && item.response?.status === 200)
+      .flatMap((item) => {
+        const body = parseJSON(item.postData);
+        if (!body?.commands?.length || !body.commands.every((command) => command.type === 'APPLY_CONSTRUCTION_CHOICE')) return [];
+        return j01ConstructionChoiceCommandIdentities(body, outputId);
+      });
+    recordAssertion(report, 'j01-browser-adds-exactly-three-distinct-compiler-issued-choices', expectedChoices, constructionRequests);
+    report.target.selectedChoices = constructionRequests;
+    recordAssertion(report, 'j01-no-graph-or-fhir-path-entry-was-used', true,
+      await evaluate(cdp, `!document.querySelector('.react-flow__node') && ![...document.querySelectorAll('input,textarea')].some((input) => /FHIR.?Path/i.test(input.getAttribute('aria-label') || input.placeholder || ''))`));
+
+    const baseColumns = state.workspace.documents.find((candidate) => candidate.output?.id === outputId).columns;
+    const idColumn = baseColumns.find((column) => column.source.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'id');
+    const valueColumn = baseColumns.find((column) => column.source.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'valueInteger');
+    const ownerColumn = baseColumns.find((column) => column.source.kind === 'ownerRecords' && column.source.ownerRecords.key.system === 'urn:study:A' && column.source.ownerRecords.key.code === 'shared');
+    if (!idColumn || !valueColumn || !ownerColumn) throw new Error('J01 selected column source identities differ from the three compiler choices');
+    report.target.columnIds = { id: idColumn.column, valueInteger: valueColumn.column, ownerRecords: ownerColumn.column };
+
+    await action('rename_and_reorder_stable_column', async () => {
+      await browserEval(cdp, `setInput('Display name for configured id', 'Observation identifier'); inputByLabel('Display name for configured id').blur();`);
+      await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.some((column) => column.column === idColumn.column && column.label === 'Observation identifier'), 'renamed stable id column');
+      await browserEval(cdp, `clickButton('Move Observation identifier to end')`);
+      state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.find((column) => column.column === idColumn.column)?.table?.order === 2, 'id column moved to end');
+    });
+    const savedIdentity = j01ColumnIdentitySnapshot(state, outputId);
+    recordAssertion(report, 'j01-save-has-exact-three-renamed-reordered-source-identities', [
+      { columnId: valueColumn.column, label: 'valueInteger', order: 0, source: { kind: 'field', path: 'valueInteger' } },
+      { columnId: ownerColumn.column, label: 'shared', order: 1, source: { kind: 'ownerRecords', system: 'urn:study:A', code: 'shared', ownerPath: 'component[]', valuePath: 'valueQuantity.value' } },
+      { columnId: idColumn.column, label: 'Observation identifier', order: 2, source: { kind: 'field', path: 'id' } },
+    ], savedIdentity);
+    await captureDOM('j01-renamed-reordered-builder');
+    await saveScreenshot('j01-renamed-reordered-builder');
+
+    await action('reload_preserves_three_stable_columns', async () => {
+      const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.explorerId)}&mode=builder`;
+      await navigate(cdp, browserURL);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') && document.querySelector('[aria-label="Display name for configured Observation identifier"]')`, 60000);
+      const reloaded = await waitForState((value) => value.workspace?.documents?.some((candidate) => candidate.output?.id === outputId && candidate.columns.length === 3), 'reloaded J01 saved workspace');
+      const reloadedIdentity = j01ColumnIdentitySnapshot(reloaded, outputId);
+      recordAssertion(report, 'j01-reload-preserves-exact-column-identities-names-order-and-sources', savedIdentity, reloadedIdentity);
+      await captureDOM('j01-builder-after-reload');
+    });
+
+    await action('preview_literal_scalar_and_owner_evidence', async () => {
+      let previewStartIndex = network.length - 1;
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-001')))` , 60000);
+      await waitForNetworkResponse('/preview', previewStartIndex, 60000);
+      previewStartIndex = network.length - 1;
+      await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+      const previewResponse = await waitForNetworkResponse('/preview', previewStartIndex, 60000);
+      if (previewResponse.response.status !== 200 || !Array.isArray(previewResponse.responseBody?.rows)) {
+        throw new Error(`J01 preview API did not return a live row preview: HTTP ${previewResponse.response?.status} ${JSON.stringify(previewResponse.responseBody).slice(0, 300)}`);
+      }
+      const previewRows = previewResponse.responseBody.rows;
+      const zeroRow = previewRows.find((row) => Object.values(row ?? {}).some((value) => String(value) === 'dev-j01-concept-0000'));
+      const previewValueColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(valueColumn.column) || column.column === valueColumn.column);
+      const previewIdColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(idColumn.column) || column.column === idColumn.column);
+      if (!zeroRow || !previewValueColumn || !previewIdColumn) {
+        throw new Error(`J01 preview omitted the exact zero-valued generated row or selected columns: ${JSON.stringify({ rowCount: previewRows.length, columns: previewResponse.responseBody.columns?.map((column) => ({ column: column.column, label: column.label, authoredColumns: column.authoredColumns })) })}`);
+      }
+      recordAssertion(report, 'j01-preview-preserves-literal-zero-not-missing', { identifier: 'dev-j01-concept-0000', value: 0 }, {
+        identifier: zeroRow[previewIdColumn.column],
+        value: zeroRow[previewValueColumn.column],
+      });
+      const previewTable = await evaluate(cdp, `(() => {
+        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+        const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+        return {
+          headers: [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim()),
+          rowCount: ${previewRows.length},
+          zeroRendered: [...rows.slice(1)].some((row) => [...row.querySelectorAll('[role="cell"]')].some((cell) => cell.textContent.trim() === '0')),
+          tableColumns: Number(table?.getAttribute('aria-colcount') || 0),
+        };
+      })()`);
+      recordAssertion(report, 'j01-preview-renders-only-the-three-selected-columns', 3, previewTable.tableColumns);
+      recordAssertion(report, 'j01-preview-has-the-saved-column-order-and-name', ['valueInteger', 'shared', 'Observation identifier'], previewTable.headers);
+      report.target.preview = { rowSample: previewRows.length, countBasis: 'sampled-preview-limit', literalZero: 0, headers: previewTable.headers };
+      await captureDOM('j01-preview-table');
+      await saveScreenshot('j01-preview-table');
+      const ownerButton = await evaluate(cdp, `(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.title.includes('dev-pair-001')); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
+      if (!ownerButton) throw new Error('J01 Preview has no inspectable Study A owner-record cell for dev-pair-001');
+      await browserEval(cdp, `const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.title.includes('dev-pair-001')); button.click();`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`, 30000);
+      const ownerEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
+      recordAssertion(report, 'j01-preview-preserves-owner-value-unit-absence-choice-arm-and-source', true,
+        ownerEvidence.includes('111') && ownerEvidence.includes('cm') && ownerEvidence.includes('VALUE') && ownerEvidence.includes('ABSENT') && ownerEvidence.includes('urn:study:A') && ownerEvidence.includes('shared') && ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('component[0]'));
+      report.target.ownerEvidence = {
+        inspectedCell: ownerButton,
+        includesValue: ownerEvidence.includes('111'),
+        includesUnit: ownerEvidence.includes('cm'),
+        includesAbsent: ownerEvidence.includes('ABSENT'),
+        includesContributorSource: ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('component[0]'),
+        includesUnknownOwnerField: ownerEvidence.includes('unmodeledSignal'),
+      };
+      await captureDOM('j01-owner-record-evidence');
+      await browserEval(cdp, `clickButton('Close')`);
+    });
+
+    await action('publish_exact_selected_output', async () => {
+      await browserEval(cdp, `clickButton('Publish')`);
+      const publishRequest = await waitForNetworkResponse('/publish', -1, 60000);
+      if (publishRequest.response.status !== 200) throw new Error(`J01 publish returned HTTP ${publishRequest.response.status}: ${JSON.stringify(publishRequest.responseBody)}`);
+      let explorerState;
+      let runtime;
+      const started = Date.now();
+      while (Date.now() - started < 60000) {
+        try {
+          explorerState = await fetchExplorerState(target, report.target.explorerId);
+          runtime = explorerState.runtime ?? explorerState;
+          if (runtime.outputs?.length) break;
+        } catch { /* the durable publication can precede its Viewer read */ }
+        await sleep(500);
+      }
+      if (!runtime?.outputs?.length) throw new Error('J01 published Explorer runtime did not become readable');
+      recordAssertion(report, 'j01-published-explorer-has-only-one-output', 1, runtime.outputs.length);
+      const output = runtime.outputs.find((candidate) => candidate.outputId === outputId);
+      if (!output) throw new Error(`J01 publication omitted selected output ${outputId}`);
+      const runtimeColumnLabels = output.columns.map((column) => column.label);
+      recordAssertion(report, 'j01-published-output-has-exact-renamed-selected-columns', ['valueInteger', 'shared', 'Observation identifier'], runtimeColumnLabels);
+      const emittedSources = output.columns.map((column) => {
+        const emitted = emittedForPhysicalColumn(explorerState, outputId, column.column);
+        return { column: column.column, label: column.label, sourcePath: emitted?.sourcePath, sourceResourceType: emitted?.sourceResourceType, kind: emitted?.kind };
+      });
+      recordAssertion(report, 'j01-published-output-retains-three-source-evidence-identities', true,
+        emittedSources.length === 3 && emittedSources.every((column) => column.sourcePath && column.sourceResourceType === 'Observation'));
+      report.target.publication = {
+        revisionId: explorerState.active?.revisionId ?? explorerState.publication?.revisionId,
+        outputId: output.outputId,
+        outputs: runtime.outputs.map((candidate) => ({ outputId: candidate.outputId, columns: candidate.columns.map((column) => ({ column: column.column, label: column.label })) })),
+        emittedSources,
+      };
+      const materializedRows = await graphQLRows(target, output.selector, output.columns.map((column) => column.column));
+      recordAssertion(report, 'j01-published-query-uses-exact-selected-output-columns', output.columns.map((column) => column.column), materializedRows.columns);
+      recordAssertion(report, 'j01-published-query-has-a-materialized-preview-page', true,
+        Boolean(materializedRows.materialization?.id) && materializedRows.rows.length > 0);
+      report.target.publishedQuery = { materializationId: materializedRows.materialization?.id, firstPageRows: materializedRows.rows.length, totalCountBasis: 'server-reported-published-query' };
+    });
+
+    await action('download_and_verify_published_artifact', async () => {
+      await browserEval(cdp, `clickButton('Viewer')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Download training artifact'))`, 60000);
+      const exportStarted = Date.now();
+      await browserEval(cdp, `clickButton('Download training artifact')`);
+      const archivePath = await findDownloadedArchive(downloadDir, 60000);
+      report.timings.j01_export_download_ms = Date.now() - exportStarted;
+      recordEvidence(report, archivePath);
+      const archive = readStoredZip(archivePath);
+      const requiredMembers = ['data.csv', 'schema.json', 'provenance.json', 'quality.json', 'manifest.json'];
+      recordAssertion(report, 'j01-export-has-data-schema-provenance-quality-and-manifest', true, requiredMembers.every((name) => archive.has(name)));
+      const manifest = JSON.parse(archive.get('manifest.json').toString('utf8'));
+      const schema = JSON.parse(archive.get('schema.json').toString('utf8'));
+      const csvRows = parseCSV(archive.get('data.csv').toString('utf8'));
+      const runtime = report.target.publication.outputs[0];
+      const expectedColumnIDs = runtime.columns.map((column) => column.column);
+      recordAssertion(report, 'j01-export-schema-contains-exactly-the-selected-columns', expectedColumnIDs, schema.columns.map((column) => column.name));
+      recordAssertion(report, 'j01-export-header-matches-its-selected-schema', expectedColumnIDs, csvRows[0]);
+      const idIndex = csvRows[0].indexOf(report.target.columnIds.id);
+      const valueIndex = csvRows[0].indexOf(report.target.columnIds.valueInteger);
+      const ownerIndex = csvRows[0].indexOf(report.target.columnIds.ownerRecords);
+      if (idIndex < 0 || valueIndex < 0 || ownerIndex < 0) throw new Error(`J01 export omitted a selected column: ${JSON.stringify(csvRows[0])}`);
+      const fixtureRecords = readFileSync(join(target.fixtureDir, 'Observation.ndjson'), 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+      const expectedIDs = [...fixtureRecords.map((record) => record.id), ...Array.from({ length: fixture.count }, (_, index) => `dev-j01-concept-${String(index).padStart(4, '0')}`)].sort();
+      const exportedRows = csvRows.slice(1);
+      const exportedIDs = exportedRows.map((row) => row[idIndex]).sort();
+      recordAssertion(report, 'j01-export-preserves-exact-observation-row-membership', expectedIDs, exportedIDs);
+      const zeroExportRow = exportedRows.find((row) => row[idIndex] === 'dev-j01-concept-0000');
+      recordAssertion(report, 'j01-export-preserves-integer-zero-as-zero', '0', zeroExportRow?.[valueIndex]);
+      const ownerExportRow = exportedRows.find((row) => row[idIndex] === 'dev-pair-001');
+      recordAssertion(report, 'j01-export-includes-repeated-owner-contributor-evidence', true,
+        Boolean(ownerExportRow?.[ownerIndex]?.includes('111') && ownerExportRow[ownerIndex].includes('ABSENT') && ownerExportRow[ownerIndex].includes('dev-pair-001')));
+      recordAssertion(report, 'j01-artifact-is-bound-to-selected-publication-output', report.target.outputId, manifest.identity.outputId);
+      recordAssertion(report, 'j01-artifact-row-count-matches-exact-fixture-membership', expectedIDs.length, manifest.rows);
+      report.target.export = { path: archivePath, bytes: statSync(archivePath).size, rows: manifest.rows, features: manifest.features, countBasis: 'exact-exported-fixture-membership' };
+      await captureDOM('j01-viewer-published-export');
+      await saveScreenshot('j01-viewer-published-export');
+    });
+
+    recordLimitation(report, 'authorization-denial-local-stack', 'This isolated verification Compose stack uses the local AllowAll authorizer; the run proves exact fixture identity coverage and absence of examples/global counts from browse responses, but cannot exercise an unauthorized principal.');
+    report.target.otherFixtureDistinctions = {
+      observationFalsePrimitive: 'not-present-in-selected Observation fixture rows',
+      observationEmptyString: 'not-present-in selected Observation fixture rows',
+      zero: 'verified as integer 0 on dev-j01-concept-0000',
+      absence: 'verified as ABSENT in dev-pair-001 owner-record evidence',
+    };
+    recordAssertion(report, 'j01-run-never-rendered-advanced-graph', true,
+      await evaluate(cdp, `!document.querySelector('.react-flow__node')`));
+    await saveNetworkEvidence();
+  } finally {
+    try {
+      await saveNetworkEvidence();
+      await captureDOM('j01-final');
+    } catch { /* keep the main failure */ }
+    await browser.close();
+  }
+};
+
 export const readStoredZip = (path) => {
   const archive = readFileSync(path);
   let eocd = -1;
@@ -2736,7 +3351,10 @@ const main = async (argv) => {
   const command = argv[0] ?? 'dev-doctor';
   const target = createDevSession();
   const report = createVerificationReport(target,
-    command === 'verify-current' ? 'current-builder-hotreload' : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence' : undefined);
+    command === 'verify-current' ? 'current-builder-hotreload'
+      : command === 'verify-j01' ? 'S01-J01-three-column-choice-preview-persistence-export'
+        : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
+          : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
   try {
@@ -2804,6 +3422,27 @@ const main = async (argv) => {
       console.log(`DEV_J02_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
       return;
     }
+    if (command === 'verify-j01') {
+      await ensureDev(target, report);
+      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+      const verificationReport = createVerificationReport(verificationTarget, 'S01-J01-three-column-choice-preview-persistence-export');
+      activeReport = verificationReport;
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`J01 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      verificationReport.target.fixtureSeed = 'seeded';
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(verificationReport, 'j01-starts-with-fresh-isolated-fixture-and-editor-identity', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+      await verifyJ01BrowserScenario(verificationTarget, verificationReport, target);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+      console.log(`DEV_J01_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+      return;
+    }
     if (command === 'verify-fast' || command === 'verify-full') {
       await ensureDev(target, report);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`);
@@ -2831,7 +3470,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j02, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);
