@@ -2366,7 +2366,7 @@ components:
     CatalogCandidate:
       type: object
       additionalProperties: false
-      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode]
+      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode, aggregateOperations, transformations]
       properties:
         candidateId: {type: string, minLength: 1}
         nodeId: {type: string, minLength: 1}
@@ -2385,9 +2385,83 @@ components:
           type: array
           items: {$ref: '#/components/schemas/RepeatedBoundary'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+        aggregateOperations:
+          type: array
+          items: {$ref: '#/components/schemas/AggregateOperationCapability'}
+        transformations: {$ref: '#/components/schemas/AggregateTransformationCapabilities'}
         conceptCandidates:
           type: array
           items: {$ref: '#/components/schemas/ConceptCandidate'}
+    AggregateOperationCapability:
+      type: object
+      additionalProperties: false
+      required: [operation, rowContext, supported]
+      properties:
+        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, EXISTS, MIN, MAX, SUM, MEAN, CONTAINS_ALL, REQUIRE_ONE, COLLECT, FIRST_ORDERED]}
+        rowContext: {type: string, enum: [RECORDS, GROUPS, EXPANDED]}
+        supported: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
+        resultLogicalType: {type: string}
+        resultCardinality: {type: string, enum: [ONE, OPTIONAL_ONE, MANY]}
+        missingValueSemantics: {type: string}
+        contributorSemantics: {type: string}
+        requiresConfiguration:
+          type: array
+          items: {type: string}
+    AggregateTransformationCapabilities:
+      type: object
+      additionalProperties: false
+      required: [temporalReduction, unitNormalization]
+      properties:
+        temporalReduction: {$ref: '#/components/schemas/TemporalReductionCapabilities'}
+        unitNormalization: {$ref: '#/components/schemas/UnitNormalizationCapabilities'}
+    TemporalReductionCapabilities:
+      type: object
+      additionalProperties: false
+      required: [available, timestampFields, anchorFields]
+      properties:
+        available: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
+        timestampFields:
+          type: array
+          items: {$ref: '#/components/schemas/TemporalFieldChoice'}
+        anchorFields:
+          type: array
+          items: {$ref: '#/components/schemas/TemporalFieldChoice'}
+    TemporalFieldChoice:
+      type: object
+      additionalProperties: false
+      required: [candidateId, nodeId, resourceType, fieldPath, label]
+      properties:
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
+    UnitNormalizationCapabilities:
+      type: object
+      additionalProperties: false
+      required: [available, presets]
+      properties:
+        available: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
+        presets:
+          type: array
+          items: {$ref: '#/components/schemas/UnitNormalizationPresetCapability'}
+    UnitNormalizationPresetCapability:
+      type: object
+      additionalProperties: false
+      required: [policyId, version, target, available]
+      properties:
+        policyId: {type: string, minLength: 1}
+        version: {type: string, minLength: 1}
+        target: {$ref: '#/components/schemas/UnitIdentity'}
+        available: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
     ConstructionChoice:
       type: object
       additionalProperties: false
