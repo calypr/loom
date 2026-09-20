@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AggregateOperationCapability,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
@@ -88,6 +89,7 @@ const ConfiguredColumnRow = ({
   candidates,
   anchorCandidates,
   related,
+  rowContext,
   resourceLabel,
   onChange,
   onSourceChange,
@@ -107,6 +109,7 @@ const ConfiguredColumnRow = ({
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
+  readonly rowContext: AggregateOperationCapability['rowContext'] | undefined;
   readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
@@ -256,6 +259,7 @@ const ConfiguredColumnRow = ({
         candidates={candidates}
         anchorCandidates={anchorCandidates}
         related={related}
+        rowContext={rowContext}
         resourceLabel={resourceLabel}
         disabled={disabled}
         onSourceChange={(source) => onSourceChange(column.column, source)}
@@ -772,6 +776,7 @@ export const ColumnSelector = ({
                           candidate={configuredCapabilities.get(row.column.column)}
                           resolution={configuredResolutions.get(row.column.column)}
                           related={row.column.occurrenceId !== 'base'}
+                          rowContext={table?.document.rows.kind}
                           candidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
                               candidateOption.nodeId ===

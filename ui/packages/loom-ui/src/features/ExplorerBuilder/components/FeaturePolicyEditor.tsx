@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type {
+  AggregateOperationCapability,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerColumnSource,
@@ -53,43 +54,209 @@ const nestedValueLabels = {
   DISTINCT: 'Unique values',
 } as const;
 
-const resourceAggregateLabels = {
-  COUNT: 'Count matching resources',
-  EXISTS: 'Whether any resource matches',
-} as const;
-
-const fieldAggregateLabels = {
-  COUNT: 'Count values',
-  COUNT_DISTINCT: 'Count unique values',
-  DISTINCT_VALUES: 'Collect unique values',
-  MIN: 'Minimum value',
-  MAX: 'Maximum value',
-  EXISTS: 'Whether any value exists',
-} as const;
-
-const relatedValueReductionLabels = {
-  REQUIRE_ONE: 'Require zero or one value',
-  COLLECT: 'Collect every value',
-  FIRST_BY_RESOURCE_KEY: 'First record by stable resource key',
-  COUNT: fieldAggregateLabels.COUNT,
-  DISTINCT_VALUES: fieldAggregateLabels.DISTINCT_VALUES,
-  COUNT_DISTINCT: fieldAggregateLabels.COUNT_DISTINCT,
-  MIN: fieldAggregateLabels.MIN,
-  MAX: fieldAggregateLabels.MAX,
-  EXISTS: fieldAggregateLabels.EXISTS,
-  FIRST_ORDERED: 'Value nearest a date',
-} as const;
-
-type ResourceAggregateOperation = keyof typeof resourceAggregateLabels;
-type FieldAggregateOperation = keyof typeof fieldAggregateLabels;
-type RelatedValueReduction = keyof typeof relatedValueReductionLabels;
-
 type TemporalAggregateSource = Extract<
   ExplorerColumnSource,
   { kind: 'aggregate' }
 >['aggregate'] & { operation: 'FIRST_ORDERED' };
 type AggregateSource = Extract<ExplorerColumnSource, { kind: 'aggregate' }>;
+type AggregateOperation = AggregateSource['aggregate']['operation'];
+type AggregateMenuOption =
+  | {
+      readonly kind: 'capability';
+      readonly operation: AggregateOperation;
+      readonly label: string;
+      readonly capability: AggregateOperationCapability;
+    }
+  | {
+      readonly kind: 'legacy';
+      readonly operation: AggregateOperation;
+      readonly label: string;
+    }
+  | {
+      readonly kind: 'relatedSelection';
+      readonly operation: 'FIRST_BY_RESOURCE_KEY';
+      readonly label: string;
+    };
 type UnitNormalizationDraft = NonNullable<AggregateSource['aggregate']['unitNormalization']>;
+
+const aggregateOperationLabels = {
+  COUNT: 'Count values or records',
+  COUNT_DISTINCT: 'Count unique values',
+  DISTINCT_VALUES: 'Collect unique values',
+  EXISTS: 'Check whether a value exists',
+  MIN: 'Minimum value',
+  MAX: 'Maximum value',
+  SUM: 'Sum numeric values',
+  MEAN: 'Average numeric values',
+  CONTAINS_ALL: 'Contains every required value',
+  REQUIRE_ONE: 'Require zero or one value',
+  COLLECT: 'Collect every value',
+  FIRST_ORDERED: 'Value nearest a date',
+} satisfies Record<AggregateOperationCapability['operation'], string>;
+
+const legacyResourceAggregateOptions = [
+  { kind: 'legacy', operation: 'COUNT', label: 'Count matching resources' },
+  { kind: 'legacy', operation: 'EXISTS', label: 'Whether any resource matches' },
+] satisfies ReadonlyArray<AggregateMenuOption>;
+
+const legacyFieldAggregateOptions = [
+  { kind: 'legacy', operation: 'COUNT', label: 'Count values' },
+  { kind: 'legacy', operation: 'COUNT_DISTINCT', label: 'Count unique values' },
+  { kind: 'legacy', operation: 'DISTINCT_VALUES', label: 'Collect unique values' },
+  { kind: 'legacy', operation: 'MIN', label: 'Minimum value' },
+  { kind: 'legacy', operation: 'MAX', label: 'Maximum value' },
+  { kind: 'legacy', operation: 'EXISTS', label: 'Whether any value exists' },
+] satisfies ReadonlyArray<AggregateMenuOption>;
+
+const legacyRelatedAggregateOptions = [
+  { kind: 'legacy', operation: 'REQUIRE_ONE', label: 'Require zero or one value' },
+  { kind: 'legacy', operation: 'COLLECT', label: 'Collect every value' },
+  { kind: 'legacy', operation: 'COUNT', label: 'Count values' },
+  { kind: 'legacy', operation: 'DISTINCT_VALUES', label: 'Collect unique values' },
+  { kind: 'legacy', operation: 'COUNT_DISTINCT', label: 'Count unique values' },
+  { kind: 'legacy', operation: 'MIN', label: 'Minimum value' },
+  { kind: 'legacy', operation: 'MAX', label: 'Maximum value' },
+  { kind: 'legacy', operation: 'EXISTS', label: 'Whether any value exists' },
+  { kind: 'legacy', operation: 'FIRST_ORDERED', label: 'Value nearest a date' },
+] satisfies ReadonlyArray<AggregateMenuOption>;
+
+const firstByResourceKeyOption: AggregateMenuOption = {
+  kind: 'relatedSelection',
+  operation: 'FIRST_BY_RESOURCE_KEY',
+  label: 'First record by stable resource key',
+};
+
+const capabilityMenuOption = (
+  capability: AggregateOperationCapability,
+): AggregateMenuOption => ({
+  kind: 'capability',
+  operation: capability.operation,
+  label: aggregateOperationLabels[capability.operation],
+  capability,
+});
+
+const legacyAggregateOptions = (
+  path: string | undefined,
+  related: boolean,
+): ReadonlyArray<AggregateMenuOption> => {
+  if (!path) return legacyResourceAggregateOptions;
+  if (related) return [firstByResourceKeyOption, ...legacyRelatedAggregateOptions];
+  return legacyFieldAggregateOptions;
+};
+
+const aggregateOptions = (
+  candidate: ExplorerBuilderCandidate | undefined,
+  rowContext: AggregateOperationCapability['rowContext'] | undefined,
+  path: string | undefined,
+  related: boolean,
+): ReadonlyArray<AggregateMenuOption> => {
+  if (!path || !candidate?.aggregateOperations) {
+    return legacyAggregateOptions(path, related);
+  }
+  const operations = rowContext
+    ? candidate.aggregateOperations.filter((capability) => capability.rowContext === rowContext)
+    : [];
+  return [
+    ...(related ? [firstByResourceKeyOption] : []),
+    ...operations.map(capabilityMenuOption),
+  ];
+};
+
+const optionRequiresValues = (option: AggregateMenuOption): boolean =>
+  option.kind === 'capability' &&
+  option.capability.requiresConfiguration?.includes('requiredValues') === true;
+
+const optionIsDisabled = (
+  option: AggregateMenuOption,
+  selectedAggregate?: AggregateSource['aggregate'],
+): boolean => {
+  if (option.kind !== 'capability') return false;
+  if (!option.capability.supported) return true;
+  if (!optionRequiresValues(option)) return false;
+  const requiredValues = selectedAggregate && 'requiredValues' in selectedAggregate
+    ? selectedAggregate.requiredValues
+    : undefined;
+  return !(
+    selectedAggregate?.operation === option.operation &&
+    (requiredValues?.length ?? 0) > 0
+  );
+};
+
+const optionLabel = (
+  option: AggregateMenuOption,
+  selectedAggregate?: AggregateSource['aggregate'],
+): string => {
+  if (option.kind !== 'capability') return option.label;
+  if (!option.capability.supported) {
+    return `${option.label} — unavailable: ${option.capability.reason ?? 'Not supported for this input.'}`;
+  }
+  if (optionRequiresValues(option) && !optionIsDisabled(option, selectedAggregate)) {
+    return option.label;
+  }
+  if (optionRequiresValues(option)) return `${option.label} — required values needed`;
+  return option.label;
+};
+
+const selectedOperationCapability = (
+  options: ReadonlyArray<AggregateMenuOption>,
+  operation: AggregateOperation,
+): AggregateOperationCapability | undefined => {
+  const selected = options.find((option) => option.operation === operation);
+  return selected?.kind === 'capability' ? selected.capability : undefined;
+};
+
+const capabilityDetails = (
+  capability: AggregateOperationCapability,
+): React.ReactNode => (
+  <div className="grid gap-0.5 text-slate-600">
+    <p>Result shape: {resultShape(capability)}</p>
+    {capability.missingValueSemantics ? (
+      <p>Missing values: {sentence(capability.missingValueSemantics)}</p>
+    ) : null}
+    {capability.contributorSemantics ? (
+      <p>What counts: {sentence(capability.contributorSemantics)}</p>
+    ) : null}
+    {!capability.supported && capability.reason ? (
+      <p role="status" className="text-amber-800">Unavailable: {capability.reason}</p>
+    ) : null}
+    {capability.requiresConfiguration?.length ? (
+      <p>
+        Configuration needed: {capability.requiresConfiguration.map((value) =>
+          value === 'temporal' ? 'date selection' : value === 'requiredValues' ? 'required values' : value,
+        ).join(', ')}.
+      </p>
+    ) : null}
+  </div>
+);
+
+const resultTypeLabels: Readonly<Record<string, string>> = {
+  boolean: 'yes-or-no value',
+  code: 'coded value',
+  date: 'date',
+  date_time: 'date and time',
+  decimal: 'decimal number',
+  integer: 'whole number',
+  string: 'text value',
+};
+
+const resultShape = (capability: AggregateOperationCapability): string => {
+  if (!capability.resultLogicalType || !capability.resultCardinality) {
+    return 'The result shape is not available.';
+  }
+  const valueType =
+    resultTypeLabels[capability.resultLogicalType.toLowerCase()] ?? 'value';
+  switch (capability.resultCardinality) {
+    case 'ONE':
+      return `One ${valueType}`;
+    case 'OPTIONAL_ONE':
+      return `Zero or one ${valueType}`;
+    case 'MANY':
+      return `A list of ${valueType}s`;
+  }
+};
+
+const sentence = (value: string): string =>
+  value.length > 0 ? `${value[0]?.toUpperCase()}${value.slice(1)}.` : value;
 
 const approvedUnitPolicyOptions = [
   ['to-centimeters', 'Convert measurements to centimeters'],
@@ -434,6 +601,7 @@ export const FeaturePolicyEditor = ({
   candidates,
   anchorCandidates,
   related,
+  rowContext,
   resourceLabel,
   disabled,
   onSourceChange,
@@ -444,6 +612,7 @@ export const FeaturePolicyEditor = ({
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
+  readonly rowContext?: AggregateOperationCapability['rowContext'];
   readonly resourceLabel: string;
   readonly disabled: boolean;
   readonly onSourceChange: (source: ExplorerColumnSource) => void;
@@ -458,6 +627,9 @@ export const FeaturePolicyEditor = ({
     const currentMode = source.field.projectionMode ?? 'FIRST';
     const projectionModes = candidate?.projectionModes ?? [currentMode];
     const uniqueModes = [...new Set(projectionModes)];
+    const relatedOptions = source.field.relatedSelection
+      ? aggregateOptions(candidate, rowContext, source.field.path, true)
+      : [];
 
     return (
       <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
@@ -470,26 +642,32 @@ export const FeaturePolicyEditor = ({
               value="FIRST_BY_RESOURCE_KEY"
               disabled={disabled}
               onChange={(event) => {
-                const operation = event.currentTarget.value;
-                if (operation === 'FIRST_BY_RESOURCE_KEY') return;
-                if (operation === 'FIRST_ORDERED') {
+                const option = relatedOptions.find(
+                  (candidateOption) => candidateOption.operation === event.currentTarget.value,
+                );
+                if (!option || option.kind === 'relatedSelection') return;
+                if (option.operation === 'FIRST_ORDERED') {
                   setDraftTemporalPath(source.field.path);
                   return;
                 }
+                if (optionIsDisabled(option)) return;
                 onSourceChange({
                   kind: 'aggregate',
                   aggregate: {
-                    operation: operation as Exclude<
-                      RelatedValueReduction,
-                      'FIRST_BY_RESOURCE_KEY' | 'FIRST_ORDERED'
-                    >,
+                    operation: option.operation,
                     path: source.field.path,
                   },
                 });
               }}
             >
-              {Object.entries(relatedValueReductionLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+              {relatedOptions.map((option) => (
+                <option
+                  key={option.operation}
+                  value={option.operation}
+                  disabled={optionIsDisabled(option)}
+                >
+                  {optionLabel(option)}
+                </option>
               ))}
             </select>
           </label>
@@ -566,7 +744,8 @@ export const FeaturePolicyEditor = ({
     const aggregateSource = column.source;
     const path = aggregateSource.aggregate.path;
     const operation = aggregateSource.aggregate.operation;
-    const options = path && related ? relatedValueReductionLabels : path ? fieldAggregateLabels : resourceAggregateLabels;
+    const options = aggregateOptions(candidate, rowContext, path, related);
+    const operationCapability = selectedOperationCapability(options, operation);
     const editingTemporal = operation === 'FIRST_ORDERED' || draftTemporalPath === path;
     const unitNormalization = aggregateSource.aggregate.unitNormalization;
     const hasUnitEvidence = Boolean(
@@ -576,9 +755,11 @@ export const FeaturePolicyEditor = ({
       candidate.conceptCandidates?.some((concept) => (concept.observedUnits?.length ?? 0) > 0),
     );
     const canNormalizeUnits = Boolean(path && hasUnitEvidence && ['MIN', 'MAX', 'REQUIRE_ONE', 'COLLECT', 'DISTINCT_VALUES', 'FIRST_ORDERED'].includes(operation));
-    const summary = path
-      ? `${operation === 'FIRST_ORDERED' ? 'Selects one dated value' : fieldAggregateLabels[operation as FieldAggregateOperation] ?? 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
-      : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
+    const summary = operationCapability
+      ? undefined
+      : path
+        ? `${operation === 'FIRST_ORDERED' ? 'Selects one dated value' : 'Reduces values'} from ${path} across matching ${resourceLabel} resources.`
+        : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
 
     return (
       <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
@@ -590,14 +771,13 @@ export const FeaturePolicyEditor = ({
               : `Calculation for ${column.label}`}
             className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
             value={operation}
-            disabled={disabled || operation === 'CONTAINS_ALL'}
+            disabled={disabled}
             onChange={(event) => {
-              const nextOperation = event.currentTarget.value as
-                | ResourceAggregateOperation
-                | FieldAggregateOperation
-                | RelatedValueReduction
-                | 'FIRST_BY_RESOURCE_KEY';
-              if (nextOperation === 'FIRST_BY_RESOURCE_KEY') {
+              const selectedOption = options.find(
+                (option) => option.operation === event.currentTarget.value,
+              );
+              if (!selectedOption || optionIsDisabled(selectedOption, aggregateSource.aggregate)) return;
+              if (selectedOption.kind === 'relatedSelection') {
                 if (!path) return;
                 onSourceChange({
                   kind: 'field',
@@ -612,6 +792,7 @@ export const FeaturePolicyEditor = ({
                 });
                 return;
               }
+              const nextOperation = selectedOption.operation;
               if (nextOperation === 'FIRST_ORDERED') {
                 if (path) setDraftTemporalPath(path);
                 return;
@@ -620,22 +801,23 @@ export const FeaturePolicyEditor = ({
               onSourceChange({
                 kind: 'aggregate',
                 aggregate: path
-                  ? { operation: nextOperation as FieldAggregateOperation, path }
-                  : { operation: nextOperation as ResourceAggregateOperation },
+                  ? { operation: nextOperation, path }
+                  : { operation: nextOperation },
               });
             }}
           >
-            {Object.entries(options).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
+            {options.map((option) => (
+              <option
+                key={option.operation}
+                value={option.operation}
+                disabled={optionIsDisabled(option, aggregateSource.aggregate)}
+              >
+                {optionLabel(option, aggregateSource.aggregate)}
               </option>
             ))}
-            {operation === 'CONTAINS_ALL' ? (
-              <option value="CONTAINS_ALL">Contains every required value</option>
-            ) : null}
           </select>
         </label>
-        <span>{summary}</span>
+        {operationCapability ? capabilityDetails(operationCapability) : summary ? <span>{summary}</span> : null}
         {canNormalizeUnits ? (
           <button
             type="button"

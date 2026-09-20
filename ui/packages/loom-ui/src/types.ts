@@ -193,6 +193,8 @@ const aggregateColumnSourceSchema = z.object({
         'DISTINCT_VALUES',
         'MIN',
         'MAX',
+        'SUM',
+        'MEAN',
         'EXISTS',
         'CONTAINS_ALL',
         'REQUIRE_ONE',
@@ -743,6 +745,37 @@ export type ConstructionChoiceSelection = z.infer<
   typeof constructionChoiceSelectionSchema
 >;
 
+export const aggregateOperationCapabilitySchema = z
+  .object({
+    operation: z.enum([
+      'COUNT',
+      'COUNT_DISTINCT',
+      'DISTINCT_VALUES',
+      'EXISTS',
+      'MIN',
+      'MAX',
+      'SUM',
+      'MEAN',
+      'CONTAINS_ALL',
+      'REQUIRE_ONE',
+      'COLLECT',
+      'FIRST_ORDERED',
+    ]),
+    rowContext: z.enum(['RECORDS', 'GROUPS', 'EXPANDED']),
+    supported: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    resultLogicalType: z.string().optional(),
+    resultCardinality: z.enum(['ONE', 'OPTIONAL_ONE', 'MANY']).optional(),
+    missingValueSemantics: z.string().optional(),
+    contributorSemantics: z.string().optional(),
+    requiresConfiguration: z.array(z.string()).optional(),
+  })
+  .strict();
+export type AggregateOperationCapability = z.infer<
+  typeof aggregateOperationCapabilitySchema
+>;
+
 export const explorerBuilderCandidateSchema = z
   .object({
     candidateId: opaqueIdSchema,
@@ -757,6 +790,7 @@ export const explorerBuilderCandidateSchema = z
     projectionModes: z.array(projectionModeSchema).min(1),
     defaultProjectionMode: projectionModeSchema,
     constructionChoice: constructionChoiceSchema.optional(),
+    aggregateOperations: z.array(aggregateOperationCapabilitySchema),
     conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(

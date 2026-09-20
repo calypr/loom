@@ -214,6 +214,7 @@ describe('configured V2 columns', () => {
         chartable: false,
         projectionModes: ['FIRST', 'ALL', 'DISTINCT'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
       }],
     };
 
@@ -248,6 +249,7 @@ describe('configured V2 columns', () => {
       chartable: false,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
     };
     const samePathDecoy = { ...idCandidate, candidateId: 'opaque-decoy', label: 'Decoy identity', filterable: true };
     render(<ColumnSelector
@@ -283,6 +285,7 @@ describe('configured V2 columns', () => {
         chartable: false,
         projectionModes: ['FIRST', 'ALL'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
       }],
     };
     const aggregateTable: DraftTable = {
@@ -482,6 +485,26 @@ describe('configured V2 columns', () => {
         chartable: true,
         projectionModes: ['VALUE'],
         defaultProjectionMode: 'VALUE',
+        aggregateOperations: [
+          {
+            operation: 'COUNT',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'integer',
+            resultCardinality: 'ONE',
+            missingValueSemantics: 'missing values are excluded; an empty set returns zero',
+            contributorSemantics: 'each non-null value contributes once',
+          },
+          {
+            operation: 'MAX',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'decimal',
+            resultCardinality: 'OPTIONAL_ONE',
+            missingValueSemantics: 'missing values are excluded',
+            contributorSemantics: 'all non-null values are considered',
+          },
+        ],
       }],
     };
     const relatedTable: DraftTable = {
@@ -594,6 +617,7 @@ describe('configured V2 columns', () => {
           chartable: false,
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
         },
         {
           candidateId: 'c_value',
@@ -607,6 +631,7 @@ describe('configured V2 columns', () => {
           chartable: true,
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
         },
         {
           candidateId: 'c_timestamp',
@@ -620,6 +645,7 @@ describe('configured V2 columns', () => {
           chartable: false,
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
         },
       ],
     };
@@ -708,6 +734,7 @@ describe('configured V2 columns', () => {
         chartable: true,
         projectionModes: ['VALUE'],
         defaultProjectionMode: 'VALUE',
+        aggregateOperations: [],
         conceptCandidates: [{
           sourceResourceType: 'Observation',
           sourcePath: 'valueQuantity.value',
@@ -811,6 +838,7 @@ describe('configured V2 columns', () => {
       chartable: true,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
     };
     const beta: ExplorerBuilderCandidate = {
       ...alpha,
@@ -950,6 +978,7 @@ describe('configured V2 columns', () => {
       chartable: true,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
     };
     const onAdd = vi.fn();
     const onAddAll = vi.fn();
@@ -1020,6 +1049,7 @@ describe('configured V2 columns', () => {
       chartable: false,
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
     };
     render(
       <ColumnSelector
@@ -1109,6 +1139,7 @@ describe('configured V2 columns', () => {
         chartable: true,
         projectionModes: ['FIRST'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
       },
       'patient-step',
       table.document.columns,
@@ -1144,6 +1175,7 @@ describe('configured V2 columns', () => {
         chartable: false,
         projectionModes: ['FIRST', 'ALL'],
         defaultProjectionMode: 'FIRST',
+        aggregateOperations: [],
       },
       'base',
       [],

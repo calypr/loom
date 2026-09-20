@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateOperationCapabilitySchema,
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
@@ -183,16 +184,45 @@ describe('explorerColumnSourceSchema', () => {
     });
   });
 
-  it('rejects aggregate operations Loom does not support', () => {
-    expect(() =>
-      explorerColumnSourceSchema.parse({
+  it('accepts server-supported numeric aggregate operations and rejects unknown ones', () => {
+    for (const operation of ['SUM', 'MEAN'] as const) {
+      expect(explorerColumnSourceSchema.parse({
         kind: 'aggregate',
-        aggregate: {
-          operation: 'SUM',
-          path: 'valueQuantity.value',
-        },
-      }),
-    ).toThrow();
+        aggregate: { operation, path: 'valueQuantity.value' },
+      })).toEqual({
+        kind: 'aggregate',
+        aggregate: { operation, path: 'valueQuantity.value' },
+      });
+    }
+    expect(explorerColumnSourceSchema.safeParse({
+      kind: 'aggregate',
+      aggregate: { operation: 'MEDIAN', path: 'valueQuantity.value' },
+    }).success).toBe(false);
+  });
+});
+
+describe('aggregateOperationCapabilitySchema', () => {
+  it('parses strict server capability rows, including support details and required configuration', () => {
+    const capability = {
+      operation: 'SUM',
+      rowContext: 'RECORDS',
+      supported: true,
+      resultLogicalType: 'decimal',
+      resultCardinality: 'OPTIONAL_ONE',
+      missingValueSemantics: 'null inputs are ignored; no non-null inputs returns null',
+      contributorSemantics: 'every non-null numeric input contributes once, grouped by its source resource',
+      requiresConfiguration: ['temporal'],
+    } as const;
+
+    expect(aggregateOperationCapabilitySchema.parse(capability)).toEqual(capability);
+    expect(aggregateOperationCapabilitySchema.safeParse({
+      ...capability,
+      unexpected: true,
+    }).success).toBe(false);
+    expect(aggregateOperationCapabilitySchema.safeParse({
+      ...capability,
+      rowContext: 'FHIR',
+    }).success).toBe(false);
   });
 });
 

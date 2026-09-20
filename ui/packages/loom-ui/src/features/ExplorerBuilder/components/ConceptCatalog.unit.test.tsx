@@ -135,6 +135,7 @@ const rootId: ExplorerBuilderCandidate = {
   chartable: false,
   projectionModes: ['VALUE'],
   defaultProjectionMode: 'VALUE',
+  aggregateOperations: [],
   constructionChoice: fieldChoice('field-choice-id', 'candidate-id', 'patient-node', 'Patient', 'id'),
 };
 
