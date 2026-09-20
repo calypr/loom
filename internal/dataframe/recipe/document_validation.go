@@ -101,6 +101,19 @@ func (b Bundle) Validate() error {
 				return err
 			}
 		}
+		if output.GroupRows != nil {
+			if strings.TrimSpace(output.GroupRows.RevisionID) == "" || output.GroupRows.RevisionID != strings.TrimSpace(output.GroupRows.RevisionID) {
+				return validationError("invalid_group_rows", path+".groupRows.revisionId", "revisionId must be a non-empty trimmed identity")
+			}
+			switch output.GroupRows.UnassignedMemberPolicy {
+			case "ERROR", "EXCLUDE", "GROUP_AS_UNASSIGNED":
+			default:
+				return validationError("invalid_group_rows", path+".groupRows.unassignedMemberPolicy", "must be ERROR, EXCLUDE, or GROUP_AS_UNASSIGNED")
+			}
+			if output.Expand != nil {
+				return validationError("invalid_group_rows", path+".groupRows", "group rows cannot be combined with row expansion")
+			}
+		}
 		if output.Identity != nil {
 			if err := validateRecipeName(output.Identity.Name, path+".identity.name"); err != nil {
 				return err

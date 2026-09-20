@@ -118,6 +118,191 @@ func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
 	}
 }
 
+func TestExplicitGroupRowsAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	collections := []store.CollectionSpec{
+		{Name: "Observation"},
+		{Name: "loom_explorer_explicit_group_revisions"},
+		{Name: "loom_explorer_explicit_group_definitions"},
+		{Name: "loom_explorer_explicit_group_memberships"},
+		{Name: "loom_explorer_selections"},
+		{Name: "loom_explorer_selection_members"},
+	}
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "group_rows_"+uuid.NewString(), "generation_"+uuid.NewString()
+	revisionID, selectionID := "grouprev_"+uuid.NewString(), "selection_"+uuid.NewString()
+	resourceDocs := []map[string]any{
+		{"_key": "member-1", "id": "member-1", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "member-1", "component": []any{map[string]any{"valueInteger": 1}, map[string]any{"valueInteger": 2}}}},
+		{"_key": "member-2", "id": "member-2", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "member-2", "component": []any{map[string]any{"valueInteger": 3}}}},
+		{"_key": "unrelated", "id": "unrelated", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "unrelated", "component": []any{map[string]any{"valueInteger": 4}, map[string]any{"valueInteger": 5}, map[string]any{"valueInteger": 6}}}},
+	}
+	insertGroupRowsFixtureDocs(ctx, t, client, "Observation", resourceDocs)
+	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_revisions", []map[string]any{{
+		"_key": revisionID, "id": revisionID, "project": project, "generation": generation, "resourceType": "Observation",
+		"sourceSelectionRevisionId": selectionID, "sourceMembershipDigest": "source-digest", "definitionDigest": "definition-digest",
+		"membershipDigest": "membership-digest", "state": "COMPLETE",
+	}})
+	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selections", []map[string]any{{
+		"_key": selectionID, "id": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "complete": true,
+	}})
+	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_definitions", []map[string]any{
+		{"_key": "def-a-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-a", "label": "Alpha", "ordinal": 0},
+		{"_key": "def-b-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-b", "label": "Beta", "ordinal": 1},
+		{"_key": "def-empty-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-empty", "label": "Empty", "ordinal": 2},
+	})
+	selectionIDs := []string{"member-1", "member-2", "member-missing", "member-unassigned"}
+	selectionMembers := make([]map[string]any, 0, len(selectionIDs))
+	for _, id := range selectionIDs {
+		selectionMembers = append(selectionMembers, map[string]any{"_key": "sel-" + revisionID + "-" + id, "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": id})
+	}
+	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selection_members", selectionMembers)
+	groupMemberships := []map[string]any{
+		groupRowsMembership(revisionID, project, generation, "group-a", "member-1"),
+		groupRowsMembership(revisionID, project, generation, "group-a", "member-2"),
+		groupRowsMembership(revisionID, project, generation, "group-a", "member-missing"),
+		groupRowsMembership(revisionID, project, generation, "group-b", "member-1"),
+	}
+	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_memberships", groupMemberships)
+
+	execute := func(policy string) []map[string]any {
+		t.Helper()
+		queries, compileErr := compileGroupRowsQuery(project, generation, revisionID, policy)
+		if compileErr != nil {
+			t.Fatal(compileErr)
+		}
+		rows := make([]map[string]any, 0)
+		if queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+			rows = append(rows, row)
+			return nil
+		}); queryErr != nil {
+			t.Fatalf("execute explicit group rows: %v\n%s", queryErr, queries[0].Query)
+		}
+		return rows
+	}
+	rows := execute("EXCLUDE")
+	if len(rows) != 3 {
+		t.Fatalf("group rows=%#v, want two populated groups and one declared empty group", rows)
+	}
+	wantGroups := []string{"group-a", "group-b", "group-empty"}
+	wantMembers := [][]string{{"member-1", "member-2", "member-missing"}, {"member-1"}, {}}
+	identities := make([]any, len(rows))
+	for index, row := range rows {
+		if row["group_id"] != wantGroups[index] || row["group_revision_id"] != revisionID {
+			t.Fatalf("group row %d identity/order = %#v", index, row)
+		}
+		identities[index] = row["__loom_row_id"]
+		members, ok := row["members"].([]any)
+		if !ok || len(members) != len(wantMembers[index]) {
+			t.Fatalf("group %q members=%#v, want %d exact memberships", wantGroups[index], row["members"], len(wantMembers[index]))
+		}
+		for memberIndex, member := range members {
+			value := member.(map[string]any)
+			identity := value["source_identity"].(map[string]any)
+			if identity["id"] != wantMembers[index][memberIndex] {
+				t.Fatalf("group %q member order/identity = %#v, want %q", wantGroups[index], identity, wantMembers[index][memberIndex])
+			}
+			if identity["project"] != project || identity["generation"] != generation || identity["resource_type"] != "Observation" {
+				t.Fatalf("member exact source identity = %#v", identity)
+			}
+			if identity["id"] == "member-missing" && value["payload"] != nil {
+				t.Fatalf("missing resource payload = %#v, want null with membership retained", value["payload"])
+			}
+			if identity["id"] == "member-1" {
+				payload := value["payload"].(map[string]any)
+				components := payload["component"].([]any)
+				if len(components) != 2 {
+					t.Fatalf("unreduced repeated member field = %#v, want both values", payload["component"])
+				}
+			}
+		}
+	}
+	secondRun := execute("EXCLUDE")
+	for index := range identities {
+		if !reflect.DeepEqual(identities[index], secondRun[index]["__loom_row_id"]) {
+			t.Fatalf("group identity changed across runs: %#v != %#v", identities[index], secondRun[index]["__loom_row_id"])
+		}
+	}
+
+	unassignedQueries, err := compileGroupRowsQuery(project, generation, revisionID, "GROUP_AS_UNASSIGNED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unassignedRows := make([]map[string]any, 0)
+	if err := client.QueryRows(ctx, unassignedQueries[0].Query, 100, unassignedQueries[0].BindVars, func(row map[string]any) error {
+		unassignedRows = append(unassignedRows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute GROUP_AS_UNASSIGNED query: %v\n%s", err, unassignedQueries[0].Query)
+	}
+	if len(unassignedRows) != 4 || unassignedRows[3]["group_id"] != "__loom_unassigned__" {
+		t.Fatalf("unassigned group rows = %#v", unassignedRows)
+	}
+	errorQuery := mustCompileGroupRowsQuery(t, project, generation, revisionID, "ERROR")
+	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "EXPLICIT_GROUP_UNASSIGNED_MEMBER") {
+		t.Fatalf("ERROR policy query error = %v, want unassigned member assertion", err)
+	}
+}
+
+func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]CompiledQuery, error) {
+	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit groups", TranslationVersion: "test",
+		Outputs: []recipe.Output{{Name: "Grouped", RootResourceType: "Observation", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: policy}}},
+	}, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		return nil, err
+	}
+	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+}
+
+func mustCompileGroupRowsQuery(t *testing.T, project, generation, revisionID, policy string) CompiledQuery {
+	t.Helper()
+	queries, err := compileGroupRowsQuery(project, generation, revisionID, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return queries[0]
+}
+
+func groupRowsMembership(revisionID, project, generation, groupID, memberID string) map[string]any {
+	return map[string]any{
+		"_key":       "membership-" + revisionID + "-" + groupID + "-" + memberID,
+		"revisionId": revisionID, "groupId": groupID, "project": project, "generation": generation,
+		"resourceType": "Observation", "id": memberID,
+		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Observation", "id": memberID},
+	}
+}
+
+func insertGroupRowsFixtureDocs(ctx context.Context, t *testing.T, client *store.Client, collection string, docs []map[string]any) {
+	t.Helper()
+	raw := make([]json.RawMessage, 0, len(docs))
+	for _, doc := range docs {
+		encoded, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = append(raw, encoded)
+	}
+	if err := client.InsertBatchRaw(ctx, collection, raw, false, "document"); err != nil {
+		t.Fatalf("insert %s group fixture: %v", collection, err)
+	}
+}
+
 func float64Ptr(value float64) *float64 { return &value }
 
 func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {

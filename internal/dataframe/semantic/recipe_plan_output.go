@@ -20,18 +20,27 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		return OutputPlan{}, fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType)
 	}
 	grain := spec.RowGrain(output.RowGrain)
+	if grain == spec.RowGrainGroups && output.GroupRows == nil {
+		return OutputPlan{}, fmt.Errorf("groups row grain requires a pinned group revision")
+	}
+	if output.GroupRows != nil && grain != spec.RowGrainGroups {
+		return OutputPlan{}, fmt.Errorf("group rows require the groups row grain")
+	}
 	if err := spec.ValidateRootGrain(output.RootResourceType, grain); err != nil {
 		// Persisted recipes may introduce a product-specific grain when they
 		// also declare the row-shaping operation and an explicit identity. The
 		// GraphQL request contract remains strict and continues to use
 		// ValidateRootGrain above.
-		if output.Expand == nil || output.Identity == nil || !validCustomGrain(string(grain)) {
+		if (output.Expand == nil || output.Identity == nil) && output.GroupRows == nil || !validCustomGrain(string(grain)) {
 			return OutputPlan{}, err
 		}
 	}
 	scope := newRootScope(output.RootResourceType)
 	projectionScope := scope
 	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
+	if output.GroupRows != nil {
+		plan.GroupRows = &SemanticGroupRows{RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy}
+	}
 	if output.Expand != nil {
 		occurrences, err := recipeOccurrenceIndex(output)
 		if err != nil {

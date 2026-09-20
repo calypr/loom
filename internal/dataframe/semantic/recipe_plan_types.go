@@ -38,11 +38,18 @@ type OutputPlan struct {
 	Identity              *SemanticExpression
 	// RowExpansion is the sole semantic row-producing operation for an output.
 	RowExpansion       *SemanticRowExpansion
+	GroupRows          *SemanticGroupRows
 	ExpansionIdentity  bool
 	DynamicMaps        []SemanticDynamicMap
 	CatalogProjections []string
 	Collision          string
 	Population         *SemanticPopulation
+}
+
+// SemanticGroupRows pins the output row set to one immutable explicit-group revision.
+type SemanticGroupRows struct {
+	RevisionID             string
+	UnassignedMemberPolicy string
 }
 
 type SemanticPopulation struct {

@@ -48,12 +48,19 @@ type Output struct {
 	Slices                []RepresentativeSlice   `json:"slices,omitempty"`
 	Traversals            []Traversal             `json:"traversals,omitempty"`
 	Expand                *Expansion              `json:"expand,omitempty"`
+	GroupRows             *GroupRows              `json:"groupRows,omitempty"`
 	Identity              *Identity               `json:"identity,omitempty"`
 	DynamicColumns        []DynamicColumn         `json:"dynamicColumns,omitempty"`
 	ExtensionColumns      []ExtensionColumn       `json:"extensionColumns,omitempty"`
 	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
 	Population            *PopulationConstraint   `json:"population,omitempty"`
 	CollisionPolicy       string                  `json:"collisionPolicy,omitempty"`
+}
+
+// GroupRows pins an output to an immutable explicit-group revision.
+type GroupRows struct {
+	RevisionID             string `json:"revisionId"`
+	UnassignedMemberPolicy string `json:"unassignedMemberPolicy"`
 }
 
 // PopulationConstraint is a storage-neutral row-root membership constraint.

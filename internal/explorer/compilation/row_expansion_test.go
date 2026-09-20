@@ -104,6 +104,25 @@ func TestCompileExpandedRowsBindsRootOccurrenceAndMapsEmptyPolicies(t *testing.T
 	}
 }
 
+func TestCompileExplicitGroupRowsPinsRevisionAndPolicy(t *testing.T) {
+	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+	document.Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionGroups, Groups: &authoringv2.GroupedRows{Source: authoringv2.GroupSource{
+		Kind:     authoringv2.GroupSourceExplicit,
+		Explicit: &authoringv2.ExplicitGroupSource{RevisionID: "grouprev_test", UnassignedMemberPolicy: authoringv2.UnassignedMemberGroupAsUnassigned},
+	}}}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := compiled.Bundle.Outputs[0]
+	if output.RowGrain != "groups" || output.GroupRows == nil || output.GroupRows.RevisionID != "grouprev_test" || output.GroupRows.UnassignedMemberPolicy != "GROUP_AS_UNASSIGNED" {
+		t.Fatalf("compiled group rows = %#v", output)
+	}
+	if compiled.OutputContract.RowGrain != "groups" {
+		t.Fatalf("group output contract = %#v", compiled.OutputContract)
+	}
+}
+
 func TestCompileExpandedRowsRejectsStaleAmbiguousAndScalarScope(t *testing.T) {
 	tests := []struct {
 		name   string

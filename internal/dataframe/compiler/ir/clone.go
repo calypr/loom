@@ -371,6 +371,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		}
 		copy.CellTraceReturn = &traceCopy
 	}
+	if operation.GroupRows != nil {
+		groupRowsCopy := *operation.GroupRows
+		copy.GroupRows = &groupRowsCopy
+	}
 	return copy
 }
 

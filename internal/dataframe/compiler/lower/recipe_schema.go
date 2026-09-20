@@ -24,6 +24,16 @@ import (
 // metadata is used only to enrich those already-finalized projections with
 // logical type/cardinality information.
 func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata) ([]CompiledOutputColumn, error) {
+	if output.GroupRows != nil {
+		return []CompiledOutputColumn{
+			{Name: "group_revision_id", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+			{Name: "group_id", SemanticPath: "groups.group_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Identity: true},
+			{Name: "group_label", SemanticPath: "groups.label", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{Name: "group_ordinal", SemanticPath: "groups.ordinal", Kind: string(expression.KindInteger), Cardinality: string(expression.RequiredOne), Nullable: false},
+			{Name: "members", SemanticPath: "groups.members", Kind: string(expression.KindObject), Cardinality: string(expression.Many), Nullable: false},
+			{Name: "__loom_row_id", SemanticPath: "groups.identity", Kind: string(expression.KindObject), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
+		}, nil
+	}
 	logical := make(map[string]CompiledOutputColumn)
 	for _, dynamic := range dynamicMetadata {
 		kind := dynamic.ValueType

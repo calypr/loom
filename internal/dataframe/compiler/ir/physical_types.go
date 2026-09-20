@@ -73,6 +73,8 @@ const (
 	// compiled value expression and exposes pre-reduction contributors without
 	// changing ordinary dataframe execution.
 	PhysicalCellTraceReturnOp PhysicalOperationKind = "CELL_TRACE_RETURN"
+	// PhysicalGroupRowsOp emits one row per definition in a pinned immutable group revision.
+	PhysicalGroupRowsOp PhysicalOperationKind = "GROUP_ROWS"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
@@ -96,6 +98,27 @@ type PhysicalOperation struct {
 	CollectionScan          *PhysicalCollectionScan
 	PopulationMappingReturn *PhysicalPopulationMappingReturn
 	CellTraceReturn         *PhysicalCellTraceReturn
+	GroupRows               *PhysicalGroupRows
+}
+
+// PhysicalGroupRows is a typed source and terminal for grouped dataframe rows.
+// Membership references remain independent of resource lookup so missing
+// source documents do not erase group membership.
+type PhysicalGroupRows struct {
+	RevisionCollectionBindKey         string
+	SelectionCollectionBindKey        string
+	DefinitionsCollectionBindKey      string
+	MembershipsCollectionBindKey      string
+	SelectionMembersCollectionBindKey string
+	ResourceCollectionBindKey         string
+	RevisionIDBindKey                 string
+	ProjectBindKey                    string
+	DatasetGenerationBindKey          string
+	ResourceTypeBindKey               string
+	PolicyBindKey                     string
+	AuthResourcePathsBindKey          string
+	AuthUnrestrictedBindKey           string
+	LimitBindKey                      string
 }
 
 type PhysicalRootScan struct {

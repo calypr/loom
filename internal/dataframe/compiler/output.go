@@ -32,6 +32,9 @@ const genericPhysicalExecutionLimitBind = "limit"
 
 func physicalProjectionMetadata(plan ir.PhysicalPlan) ([]string, []string) {
 	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalGroupRowsOp && operation.GroupRows != nil {
+			return []string{"group_revision_id", "group_id", "group_label", "group_ordinal", "members", "__loom_row_id"}, nil
+		}
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
 			continue
 		}
@@ -65,6 +68,20 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 // and optional preview bound before any traversal LET subquery, ensuring an
 // expensive optional navigation is evaluated only for selected root rows.
 func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
+	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && plan.Operations[0].GroupRows != nil {
+		out := clonePhysicalPlan(plan)
+		if limit > 0 {
+			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
+				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
+			}
+			out.BindVars[genericPhysicalExecutionLimitBind] = limit
+			out.Operations[0].GroupRows.LimitBindKey = genericPhysicalExecutionLimitBind
+		}
+		if err := out.Validate(); err != nil {
+			return ir.PhysicalPlan{}, fmt.Errorf("validate grouped physical execution window: %w", err)
+		}
+		return out, nil
+	}
 	if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution scope: %w", err)
 	}

@@ -34,6 +34,25 @@ func TestRecipePlanStoresRootProjectionOrderOnlyOnRootNode(t *testing.T) {
 	}
 }
 
+func TestRecipePlanPinsExplicitGroupRowsToGroupIdentity(t *testing.T) {
+	output := recipe.Output{
+		Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups",
+		GroupRows: &recipe.GroupRows{RevisionID: "grouprev_a", UnassignedMemberPolicy: "EXCLUDE"},
+	}
+	plan, err := BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: 1, Name: "groups", TranslationVersion: "test", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupRows := plan.Outputs[0].GroupRows
+	if groupRows == nil || groupRows.RevisionID != "grouprev_a" || groupRows.UnassignedMemberPolicy != "EXCLUDE" {
+		t.Fatalf("group rows = %#v", groupRows)
+	}
+	output.GroupRows = nil
+	if _, err := BuildRecipePlan(recipe.Bundle{RecipeSchemaVersion: 1, Name: "groups", TranslationVersion: "test", Outputs: []recipe.Output{output}}, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), "pinned group revision") {
+		t.Fatalf("missing group revision error = %v", err)
+	}
+}
+
 func TestSemanticRowExpansionRejectsInvalidSourceAndBindings(t *testing.T) {
 	base := SemanticRowExpansion{
 		Owner:       SemanticOccurrence{OccurrenceID: "root-1", Alias: "root", ResourceType: "Patient"},

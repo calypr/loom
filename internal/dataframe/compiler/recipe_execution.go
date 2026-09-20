@@ -36,7 +36,10 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 // window, and canonical renderer to one already-lowered recipe output.
 func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	var physical ir.PhysicalPlan
-	if output.OptimizedPlan != nil {
+	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
+	if groupRows {
+		physical = clonePhysicalPlan(output.Plan)
+	} else if output.OptimizedPlan != nil {
 		physical = clonePhysicalPlan(*output.OptimizedPlan)
 	} else {
 		var err error
@@ -49,7 +52,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
 	}
-	if bindings.IncludeAuthResourcePath {
+	if bindings.IncludeAuthResourcePath && !groupRows {
 		if err := appendAuthResourcePathProjection(&physical); err != nil {
 			return CompiledQuery{}, err
 		}

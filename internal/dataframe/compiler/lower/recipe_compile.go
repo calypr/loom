@@ -167,12 +167,20 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := validateSemanticOutputNames(output); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	physical, err := buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
+	var physical ir.PhysicalPlan
+	var err error
+	if output.GroupRows != nil {
+		physical, err = buildGroupRowsPhysicalPlan(output, context)
+	} else {
+		physical, err = buildGenericPhysicalPlanWithPolicy(output, context, policy, recipeFieldProjectionLowerer(output))
+	}
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if err := appendRecipeIdentity(&physical, output); err != nil {
-		return CompiledRecipeOutput{}, err
+	if output.GroupRows == nil {
+		if err := appendRecipeIdentity(&physical, output); err != nil {
+			return CompiledRecipeOutput{}, err
+		}
 	}
 	if err := appendRecipeExpansionIdentity(&physical, output); err != nil {
 		return CompiledRecipeOutput{}, err

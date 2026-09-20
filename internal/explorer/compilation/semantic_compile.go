@@ -44,6 +44,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		return Result{}, fail("lower", "UNSUPPORTED_ROW_ROOT", "$.rootResourceType", "root resource type is not an eligible recipe row root", map[string]any{"resourceType": root.graph.ResourceType}, nil)
 	}
 	var expansion *recipe.Expansion
+	var groupRows *recipe.GroupRows
 	if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
 		compiled, err := compileExpandedRows(document.Rows.Expanded, document.Route, occurrences, snapshot)
 		if err != nil {
@@ -51,6 +52,13 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 		expansion = &compiled
 		rowGrain = spec.RowGrainExpanded
+	} else if document.Rows.Kind == authoringv2.RowDefinitionGroups {
+		if document.Rows.Groups == nil || document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil {
+			return Result{}, fail("lower", "UNSUPPORTED_GROUP_SOURCE", "$.rows.groups.source", "only pinned explicit group revisions can produce rows", nil, nil)
+		}
+		explicit := document.Rows.Groups.Source.Explicit
+		groupRows = &recipe.GroupRows{RevisionID: explicit.RevisionID, UnassignedMemberPolicy: string(explicit.UnassignedMemberPolicy)}
+		rowGrain = spec.RowGrainGroups
 	}
 
 	nodes := make(map[string]*semanticRecipeNode, len(occurrences))
@@ -416,7 +424,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, Expand: expansion, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}

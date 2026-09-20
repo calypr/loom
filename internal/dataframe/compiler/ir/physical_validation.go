@@ -18,6 +18,7 @@ func (p PhysicalPlan) Validate() error {
 	rootScans := 0
 	returns := 0
 	graphReturns := 0
+	groupRows := 0
 	for i, operation := range p.Operations {
 		if returns+graphReturns > 0 {
 			return fmt.Errorf("operation %d appears after RETURN", i)
@@ -149,6 +150,15 @@ func (p PhysicalPlan) Validate() error {
 				return fmt.Errorf("operation %d cell trace return: %w", i, err)
 			}
 			returns++
+		case PhysicalGroupRowsOp:
+			if i != len(p.Operations)-1 {
+				return fmt.Errorf("operation %d: GROUP_ROWS must be the terminal operation", i)
+			}
+			if err := validatePhysicalGroupRows(*operation.GroupRows, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d group rows: %w", i, err)
+			}
+			groupRows++
+			returns++
 		case PhysicalReturnOp:
 			returns++
 			seenNames := map[string]bool{}
@@ -163,11 +173,52 @@ func (p PhysicalPlan) Validate() error {
 			}
 		}
 	}
-	if rootScans != 1 {
+	if groupRows == 1 {
+		if rootScans != 0 || len(p.Operations) != 1 {
+			return fmt.Errorf("grouped physical plan cannot contain a root scan or other operations")
+		}
+	} else if rootScans != 1 {
 		return fmt.Errorf("physical plan requires exactly one root scan")
 	}
 	if returns+graphReturns != 1 {
 		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN")
+	}
+	return nil
+}
+
+func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) error {
+	for _, key := range []string{
+		rows.RevisionCollectionBindKey, rows.SelectionCollectionBindKey,
+		rows.DefinitionsCollectionBindKey, rows.MembershipsCollectionBindKey,
+		rows.SelectionMembersCollectionBindKey, rows.ResourceCollectionBindKey,
+	} {
+		if err := requireCollectionBind(bindVars, key); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{
+		rows.RevisionIDBindKey, rows.ProjectBindKey, rows.DatasetGenerationBindKey,
+		rows.ResourceTypeBindKey, rows.PolicyBindKey, rows.AuthResourcePathsBindKey,
+		rows.AuthUnrestrictedBindKey,
+	} {
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+	}
+	if id, ok := bindVars[rows.RevisionIDBindKey].(string); !ok || strings.TrimSpace(id) == "" {
+		return fmt.Errorf("group revision ID bind must be a non-empty string")
+	}
+	if policy, ok := bindVars[rows.PolicyBindKey].(string); !ok || (policy != "ERROR" && policy != "EXCLUDE" && policy != "GROUP_AS_UNASSIGNED") {
+		return fmt.Errorf("group unassigned-member policy bind is invalid")
+	}
+	if rows.LimitBindKey != "" {
+		if err := requireBind(bindVars, rows.LimitBindKey); err != nil {
+			return err
+		}
+		limit, ok := bindVars[rows.LimitBindKey].(int)
+		if !ok || limit <= 0 {
+			return fmt.Errorf("group rows limit bind must be a positive int")
+		}
 	}
 	return nil
 }
@@ -739,6 +790,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.CellTraceReturn != nil {
 		payloads++
 	}
+	if operation.GroupRows != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -757,7 +811,8 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil) ||
 		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
 		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
-		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil)
+		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil) ||
+		(operation.Kind == PhysicalGroupRowsOp && operation.GroupRows != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}

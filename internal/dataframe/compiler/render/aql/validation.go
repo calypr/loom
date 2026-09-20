@@ -34,6 +34,11 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 				}
 			case ir.PhysicalCollectionScanOp:
 				keys[operation.CollectionScan.CollectionBindKey] = struct{}{}
+			case ir.PhysicalGroupRowsOp:
+				groupRows := operation.GroupRows
+				for _, key := range []string{groupRows.RevisionCollectionBindKey, groupRows.SelectionCollectionBindKey, groupRows.DefinitionsCollectionBindKey, groupRows.MembershipsCollectionBindKey, groupRows.SelectionMembersCollectionBindKey, groupRows.ResourceCollectionBindKey} {
+					keys[key] = struct{}{}
+				}
 			case ir.PhysicalTraversalOp:
 				if operation.Traversal.EdgeCollectionBindKey == "" {
 					return fmt.Errorf("%s operation %d (TRAVERSAL): edge collection bind key is required", owner, index)
@@ -155,6 +160,8 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 	case ir.PhysicalRootScanOp:
 		return nil
 	case ir.PhysicalCollectionScanOp:
+		return nil
+	case ir.PhysicalGroupRowsOp:
 		return nil
 	case ir.PhysicalTraversalOp:
 		traversal := operation.Traversal

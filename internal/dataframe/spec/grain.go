@@ -24,12 +24,15 @@ const (
 	// RowGrainExpanded is a synthetic grain whose identity is supplied by a
 	// recipe expansion expression rather than by the root resource key.
 	RowGrainExpanded RowGrain = "expanded"
+	// RowGrainGroups is a synthetic grain whose identity is an immutable
+	// explicit group in a pinned group revision.
+	RowGrainGroups RowGrain = "groups"
 )
 
 func (g RowGrain) Validate() error {
 	switch g {
 	case RowGrainResource, RowGrainPatient, RowGrainSpecimen, RowGrainFile, RowGrainDiagnosis,
-		RowGrainObservation, RowGrainStudyEnrollment, RowGrainExpanded:
+		RowGrainObservation, RowGrainStudyEnrollment, RowGrainExpanded, RowGrainGroups:
 		return nil
 	case "":
 		return fmt.Errorf("row grain is required")
@@ -72,7 +75,7 @@ func RootResourceForGrain(grain RowGrain) (string, bool) {
 	switch grain {
 	case RowGrainResource:
 		return "", true
-	case RowGrainExpanded:
+	case RowGrainExpanded, RowGrainGroups:
 		return "", true
 	case RowGrainPatient:
 		return "Patient", true
@@ -119,6 +122,9 @@ func ValidateRootGrain(resourceType string, grain RowGrain) error {
 func DefaultRowIdentity(grain RowGrain) (RowIdentity, bool) {
 	if err := grain.Validate(); err != nil {
 		return RowIdentity{}, false
+	}
+	if grain == RowGrainGroups {
+		return RowIdentity{Grain: grain, Fields: []string{"group_revision_id", "group_id"}}, true
 	}
 	return RowIdentity{Grain: grain, Fields: []string{"project", "_key"}}, true
 }

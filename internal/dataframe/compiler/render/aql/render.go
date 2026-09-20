@@ -26,6 +26,9 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
+	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp {
+		return renderPhysicalGroupRows(plan, *plan.Operations[0].GroupRows)
+	}
 
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
