@@ -177,6 +177,25 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 			RoutePolicy: authoringv2.RoutePolicy{AllowRepeatedEdges: true, AllowSelfLoops: true},
 		},
 	}
+	noOperationSnapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-no-operations"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_id_no_aggregates", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", Cardinality: "optional_one",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		}},
+		nil,
+	)
+	noOperationCatalog := authoringV2Catalog(noOperationSnapshot, "default")
+	if len(noOperationCatalog.Candidates) != 1 {
+		t.Fatalf("no-operation catalog candidates = %#v, want one candidate", noOperationCatalog.Candidates)
+	}
+	if operations := noOperationCatalog.Candidates[0].AggregateOperations; operations == nil || len(operations) != 0 {
+		t.Fatalf("no-operation candidate aggregate operations = %#v, want non-nil empty slice", operations)
+	}
+	state.Catalog.Candidates = append(state.Catalog.Candidates, noOperationCatalog.Candidates[0])
 
 	generated, err := directAuthoringJSON[loomapi.BuilderState](state)
 	if err != nil {
@@ -186,14 +205,10 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 	if err != nil {
 		t.Fatalf("marshal generated Builder state: %v", err)
 	}
-	var got authoringv2.BuilderState
-	if err := json.Unmarshal(encoded, &got); err != nil {
-		t.Fatalf("decode generated Builder state: %v", err)
+	if len(generated.Catalog.Candidates) != 2 {
+		t.Fatalf("generated Builder candidates = %#v, want two candidates", generated.Catalog.Candidates)
 	}
-	if len(got.Catalog.Candidates) != 1 {
-		t.Fatalf("generated Builder candidates = %#v, want one candidate", got.Catalog.Candidates)
-	}
-	candidate := got.Catalog.Candidates[0]
+	candidate := generated.Catalog.Candidates[0]
 	if len(candidate.AggregateOperations) != 1 {
 		t.Fatalf("generated aggregate operations = %#v, want one supported SUM for RECORDS", candidate.AggregateOperations)
 	}
@@ -201,7 +216,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 	if string(aggregateOperation.Operation) != "SUM" || string(aggregateOperation.RowContext) != "RECORDS" || !aggregateOperation.Supported {
 		t.Fatalf("generated aggregate operations = %#v, want supported SUM for RECORDS", candidate.AggregateOperations)
 	}
-	temporal := candidate.Transformations.Temporal
+	temporal := candidate.Transformations.TemporalReduction
 	if !temporal.Available || len(temporal.TimestampFields) != 1 || len(temporal.AnchorFields) != 1 {
 		t.Fatalf("generated temporal capabilities = %#v, want issued timestamp and birthDate anchor", temporal)
 	}
@@ -211,7 +226,7 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 		ResourceType: "Observation",
 		FieldPath:    "issued",
 		Label:        "Issued",
-	}); got != want {
+	}); got.CandidateId != want.CandidateID || got.NodeId != want.NodeID || got.ResourceType != want.ResourceType || got.FieldPath != want.FieldPath || got.Label != want.Label {
 		t.Fatalf("generated temporal timestamp = %#v, want %#v", got, want)
 	}
 	if got, want := temporal.AnchorFields[0], (authoringv2.TemporalFieldChoice{
@@ -220,20 +235,36 @@ func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.
 		ResourceType: "Patient",
 		FieldPath:    "birthDate",
 		Label:        "Birth date",
-	}); got != want {
+	}); got.CandidateId != want.CandidateID || got.NodeId != want.NodeID || got.ResourceType != want.ResourceType || got.FieldPath != want.FieldPath || got.Label != want.Label {
 		t.Fatalf("generated temporal anchor = %#v, want %#v", got, want)
 	}
 	unitCapabilities := candidate.Transformations.UnitNormalization
 	if !unitCapabilities.Available || len(unitCapabilities.Presets) != 1 {
 		t.Fatalf("generated unit capabilities = %#v, want mm[Hg] target", unitCapabilities)
 	}
-	if got, want := unitCapabilities.Presets[0], (authoringv2.UnitNormalizationPresetCapability{
-		PolicyID:  "ucum-pressure",
+	if got, want := unitCapabilities.Presets[0], (loomapi.UnitNormalizationPresetCapability{
+		PolicyId:  "ucum-pressure",
 		Version:   "1",
-		Target:    unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
+		Target:    loomapi.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
 		Available: true,
 	}); got != want {
 		t.Fatalf("generated unit preset = %#v, want %#v", got, want)
+	}
+	if operations := generated.Catalog.Candidates[1].AggregateOperations; operations == nil || len(operations) != 0 {
+		t.Fatalf("generated no-operation candidate aggregate operations = %#v, want non-nil empty slice", operations)
+	}
+	var rawState struct {
+		Catalog struct {
+			Candidates []struct {
+				AggregateOperations json.RawMessage `json:"aggregateOperations"`
+			} `json:"candidates"`
+		} `json:"catalog"`
+	}
+	if err := json.Unmarshal(encoded, &rawState); err != nil {
+		t.Fatalf("decode generated Builder candidate JSON: %v", err)
+	}
+	if got := string(rawState.Catalog.Candidates[1].AggregateOperations); got != "[]" {
+		t.Fatalf("generated no-operation aggregateOperations JSON = %q, want []", got)
 	}
 }
 

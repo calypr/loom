@@ -557,7 +557,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
-			AggregateOperations: append([]capability.AggregateOperationCapability(nil), candidate.AggregateOperations...),
+			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
 			Populated:           candidate.Populated, Count: &count,
 			SuggestionsAvailable: len(candidate.SuggestedValues) > 0,
 			SuggestionsComplete:  candidate.SuggestionsComplete,

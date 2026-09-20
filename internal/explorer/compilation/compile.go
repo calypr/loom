@@ -566,7 +566,7 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 			Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality), Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
 			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
 			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries), ConceptCandidates: conceptCandidates,
-			AggregateOperations: append([]capability.AggregateOperationCapability(nil), candidate.AggregateOperations...),
+			AggregateOperations: append([]capability.AggregateOperationCapability{}, candidate.AggregateOperations...),
 		}
 		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
 		if err != nil {
