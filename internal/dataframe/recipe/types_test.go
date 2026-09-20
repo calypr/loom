@@ -299,3 +299,84 @@ func TestParseAcceptsDocumentExpression(t *testing.T) {
 		t.Fatalf("document expression was not parsed: %#v", bundle.Outputs[0].Fields[0].Expr)
 	}
 }
+
+func TestExpansionOccurrencePolicyAndIdentityAlternatives(t *testing.T) {
+	valid := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rootOccurrenceId":"root_1","rowGrain":"expanded","expand":{"ownerOccurrenceId":"root_1","from":{"select":"root.identifier[]"},"as":"item","ordinality":"position","emptyPolicy":"PRESERVE_PARENT"},"identity":{"name":"row","expr":{"literal":"stable"}},"traversals":[{"name":"subject","occurrenceId":"subject_1","toResourceType":"Patient"}]}]}`
+	bundle, err := Parse([]byte(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := bundle.Outputs[0]
+	if output.RootOccurrenceID != "root_1" || output.Expand.OwnerOccurrenceID != "root_1" || output.Expand.Ordinality != "position" || output.Expand.EmptyPolicy.Normalized() != ExpansionPreserveParent {
+		t.Fatalf("expanded recipe fields = %#v", output)
+	}
+	var identityLiteral string
+	if output.Identity.Expr.Literal == nil || json.Unmarshal(output.Identity.Expr.Literal, &identityLiteral) != nil || identityLiteral != "stable" {
+		t.Fatalf("literal identity = %#v", output.Identity)
+	}
+	if output.Traversals[0].OccurrenceID != "subject_1" {
+		t.Fatalf("traversal occurrence ID = %q", output.Traversals[0].OccurrenceID)
+	}
+	if (Expansion{}).EmptyPolicy.Normalized() != ExpansionExclude {
+		t.Fatal("an omitted empty policy must preserve legacy EXCLUDE behavior")
+	}
+
+	for _, test := range []struct {
+		name  string
+		field string
+		want  string
+	}{
+		{name: "unsupported policy", field: `"emptyPolicy":"CROSS"`, want: "invalid_empty_policy"},
+		{name: "ordinality collision", field: `"ordinality":"item"`, want: "binding_collision"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := strings.Replace(valid, `"ordinality":"position","emptyPolicy":"PRESERVE_PARENT"`, test.field, 1)
+			if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Parse() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	identityUnionCases := []struct {
+		name  string
+		body  string
+		valid bool
+	}{
+		{name: "typed expansion", body: `"identity":{"name":"row","expansion":{}}`, valid: true},
+		{name: "both alternatives", body: `"identity":{"name":"row","expr":{"select":"root.id"},"expansion":{}}`},
+		{name: "expansion without row expansion", body: `"identity":{"name":"row","expansion":{}}`},
+	}
+	for _, test := range identityUnionCases {
+		t.Run(test.name, func(t *testing.T) {
+			input := strings.Replace(valid, `"identity":{"name":"row","expr":{"literal":"stable"}}`, test.body, 1)
+			if test.name == "expansion without row expansion" {
+				input = strings.Replace(input, `,"expand":{"ownerOccurrenceId":"root_1","from":{"select":"root.identifier[]"},"as":"item","ordinality":"position","emptyPolicy":"PRESERVE_PARENT"}`, "", 1)
+			}
+			parsed, err := Parse([]byte(input))
+			if test.valid && err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if !test.valid && err == nil {
+				t.Fatal("Parse() unexpectedly succeeded")
+			}
+			if test.name == "both alternatives" && (err == nil || !strings.Contains(err.Error(), "expr and expansion are mutually exclusive")) {
+				t.Fatalf("Parse() error = %v, want identity alternative rejection", err)
+			}
+			if test.name == "expansion without row expansion" && (err == nil || !strings.Contains(err.Error(), "requires an output expansion")) {
+				t.Fatalf("Parse() error = %v, want missing expansion rejection", err)
+			}
+			if test.name == "typed expansion" {
+				canonical, err := parsed.CanonicalJSON()
+				if err != nil {
+					t.Fatalf("CanonicalJSON() error = %v", err)
+				}
+				if !bytes.Contains(canonical, []byte(`"identity":{"name":"row","expansion":{}}`)) || bytes.Contains(canonical, []byte(`"identity":{"name":"row","expr"`)) {
+					t.Fatalf("canonical expansion identity has wrong wire form: %s", canonical)
+				}
+				if _, err := Parse(canonical); err != nil {
+					t.Fatalf("Parse(canonical expansion identity) error = %v", err)
+				}
+			}
+		})
+	}
+}

@@ -36,6 +36,7 @@ type Bundle struct {
 type Output struct {
 	Name                  string                  `json:"name"`
 	RootResourceType      string                  `json:"rootResourceType"`
+	RootOccurrenceID      string                  `json:"rootOccurrenceId,omitempty"`
 	RowGrain              string                  `json:"rowGrain"`
 	RootColumnNaming      RootColumnNaming        `json:"rootColumnNaming,omitempty"`
 	TraversalColumnNaming TraversalColumnNaming   `json:"traversalColumnNaming,omitempty"`
@@ -490,6 +491,7 @@ func (m TraversalMatchMode) Normalized() TraversalMatchMode {
 // graph collection or edge table.
 type Traversal struct {
 	Name               string                  `json:"name"`
+	OccurrenceID       string                  `json:"occurrenceId,omitempty"`
 	ToResourceType     string                  `json:"toResourceType"`
 	Alias              string                  `json:"alias,omitempty"`
 	From               *Expression             `json:"from,omitempty"`
@@ -508,15 +510,53 @@ type Traversal struct {
 
 // Expansion turns a repeated expression into one row per element.
 type Expansion struct {
-	From Expression `json:"from"`
-	As   string     `json:"as"`
+	OwnerOccurrenceID string               `json:"ownerOccurrenceId,omitempty"`
+	From              Expression           `json:"from"`
+	As                string               `json:"as"`
+	Ordinality        string               `json:"ordinality,omitempty"`
+	EmptyPolicy       ExpansionEmptyPolicy `json:"emptyPolicy,omitempty"`
+}
+
+type ExpansionEmptyPolicy string
+
+const (
+	ExpansionError          ExpansionEmptyPolicy = "ERROR"
+	ExpansionExclude        ExpansionEmptyPolicy = "EXCLUDE"
+	ExpansionPreserveParent ExpansionEmptyPolicy = "PRESERVE_PARENT"
+)
+
+func (p ExpansionEmptyPolicy) Valid() bool {
+	return p == "" || p == ExpansionError || p == ExpansionExclude || p == ExpansionPreserveParent
+}
+
+func (p ExpansionEmptyPolicy) Normalized() ExpansionEmptyPolicy {
+	if p == "" {
+		return ExpansionExclude
+	}
+	return p
 }
 
 // Identity derives a deterministic row identity.
 type Identity struct {
-	Name string     `json:"name"`
-	Expr Expression `json:"expr"`
+	Name      string             `json:"name"`
+	Expr      Expression         `json:"expr,omitempty"`
+	Expansion *ExpansionIdentity `json:"expansion,omitempty"`
 }
+
+func (i Identity) MarshalJSON() ([]byte, error) {
+	if i.Expansion != nil && !expressionPresent(i.Expr) {
+		return json.Marshal(struct {
+			Name      string             `json:"name"`
+			Expansion *ExpansionIdentity `json:"expansion"`
+		}{Name: i.Name, Expansion: i.Expansion})
+	}
+	type identityWire Identity
+	return json.Marshal(identityWire(i))
+}
+
+// ExpansionIdentity declares that the compiler derives row identity from the
+// selected expansion occurrence and its owner-relative ordinal.
+type ExpansionIdentity struct{}
 
 // DynamicColumn discovers a bounded set of key/value columns. The compiler
 // freezes discovered keys before materialization.

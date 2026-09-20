@@ -42,6 +42,9 @@ func (b Bundle) Validate() error {
 		if strings.TrimSpace(output.RootResourceType) == "" {
 			return validationError("required", path+".rootResourceType", "rootResourceType is required")
 		}
+		if err := validateOccurrenceID(output.RootOccurrenceID, path+".rootOccurrenceId"); err != nil {
+			return err
+		}
 		if strings.TrimSpace(output.RowGrain) == "" {
 			return validationError("required", path+".rowGrain", "rowGrain is required")
 		}
@@ -77,8 +80,22 @@ func (b Bundle) Validate() error {
 			}
 		}
 		if output.Expand != nil {
+			if err := validateOccurrenceID(output.Expand.OwnerOccurrenceID, path+".expand.ownerOccurrenceId"); err != nil {
+				return err
+			}
 			if err := validateRecipeName(output.Expand.As, path+".expand.as"); err != nil {
 				return err
+			}
+			if output.Expand.Ordinality != "" {
+				if err := validateRecipeName(output.Expand.Ordinality, path+".expand.ordinality"); err != nil {
+					return err
+				}
+				if output.Expand.Ordinality == output.Expand.As {
+					return validationError("binding_collision", path+".expand.ordinality", "ordinality must differ from the item binding")
+				}
+			}
+			if !output.Expand.EmptyPolicy.Valid() {
+				return validationError("invalid_empty_policy", path+".expand.emptyPolicy", "must be ERROR, EXCLUDE, or PRESERVE_PARENT")
 			}
 			if err := validateExpressionBudget(output.Expand.From, path+".expand.from", &budget); err != nil {
 				return err
@@ -88,7 +105,14 @@ func (b Bundle) Validate() error {
 			if err := validateRecipeName(output.Identity.Name, path+".identity.name"); err != nil {
 				return err
 			}
-			if err := validateExpressionBudget(output.Identity.Expr, path+".identity.expr", &budget); err != nil {
+			if output.Identity.Expansion != nil {
+				if expressionPresent(output.Identity.Expr) {
+					return validationError("invalid_identity", path+".identity", "expr and expansion are mutually exclusive")
+				}
+				if output.Expand == nil {
+					return validationError("invalid_identity", path+".identity.expansion", "expansion identity requires an output expansion")
+				}
+			} else if err := validateExpressionBudget(output.Identity.Expr, path+".identity.expr", &budget); err != nil {
 				return err
 			}
 		}
@@ -135,6 +159,9 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		if err := validateRecipeName(t.Name, p+".name"); err != nil {
 			return err
 		}
+		if err := validateOccurrenceID(t.OccurrenceID, p+".occurrenceId"); err != nil {
+			return err
+		}
 		// The relationship label is not an output namespace: two routes may
 		// legitimately use the same edge label while targeting different FHIR
 		// resources (for example Patient -> Condition and Patient -> Specimen).
@@ -179,6 +206,17 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 		}
 	}
 	return nil
+}
+
+func validateOccurrenceID(value, path string) error {
+	if value != "" && strings.TrimSpace(value) != value {
+		return validationError("invalid_occurrence_id", path, "must equal its trimmed value")
+	}
+	return nil
+}
+
+func expressionPresent(expression Expression) bool {
+	return expression.Select != "" || expression.Call != "" || expression.Literal != nil || expression.Document != nil || len(expression.Args) != 0
 }
 
 func validateExpression(e Expression, path string) error {
