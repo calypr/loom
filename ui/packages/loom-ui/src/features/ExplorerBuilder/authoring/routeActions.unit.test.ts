@@ -52,6 +52,7 @@ const table = (resourceType = ''): DraftTable => ({
     output: { id: 'table', title: 'Table' },
     rootResourceType: resourceType,
     route: { occurrenceId: 'base', resourceType },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 });

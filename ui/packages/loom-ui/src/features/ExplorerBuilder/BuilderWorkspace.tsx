@@ -785,6 +785,7 @@ const BuilderWorkspaceContent = ({
           output: { id: outputId, title },
           rootResourceType: '',
           route: { occurrenceId: 'base', resourceType: '' },
+          rows: { kind: 'RECORDS', records: {} },
           columns: [],
         },
       },

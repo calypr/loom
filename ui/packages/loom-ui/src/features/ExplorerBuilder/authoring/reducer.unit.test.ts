@@ -23,6 +23,7 @@ const ready: ExplorerBuilderState = {
         output: { id: 'Specimen', title: 'Specimen' },
         rootResourceType: 'Specimen',
         route: { occurrenceId: 'base', resourceType: 'Specimen' },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [
           {
             column: 'specimen_identifier',
@@ -322,6 +323,7 @@ describe('semantic Builder hydration', () => {
         output: { id: 'blank-output', title: 'Blank table' },
         rootResourceType: '',
         route: { occurrenceId: 'base', resourceType: '' },
+        rows: { kind: 'RECORDS' as const, records: {} },
         columns: [],
       },
     };

@@ -1671,12 +1671,13 @@ components:
     Document:
       type: object
       additionalProperties: false
-      required: [kind, output, rootResourceType, route, columns]
+      required: [kind, output, rootResourceType, route, rows, columns]
       properties:
         kind: {type: string, enum: [ExplorerBuilderDocument]}
         output: {$ref: '#/components/schemas/Output'}
         rootResourceType: {type: string, minLength: 1}
         route: {$ref: '#/components/schemas/RouteNode'}
+        rows: {$ref: '#/components/schemas/RowDefinition'}
         population: {$ref: '#/components/schemas/Population'}
         columns:
           type: array
@@ -1687,6 +1688,72 @@ components:
         actions:
           type: array
           items: {$ref: '#/components/schemas/Action'}
+    RowDefinition:
+      x-go-type: authoringv2.RowDefinition
+      x-go-type-import:
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+        name: authoringv2
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, records]
+          properties:
+            kind: {type: string, enum: [RECORDS]}
+            records: {type: object, additionalProperties: false}
+        - type: object
+          additionalProperties: false
+          required: [kind, groups]
+          properties:
+            kind: {type: string, enum: [GROUPS]}
+            groups:
+              type: object
+              additionalProperties: false
+              required: [source]
+              properties:
+                source:
+                  oneOf:
+                    - type: object
+                      additionalProperties: false
+                      required: [kind, field]
+                      properties:
+                        kind: {type: string, enum: [FIELD]}
+                        field:
+                          type: object
+                          additionalProperties: false
+                          required: [occurrenceId, fieldPath, missingKeyPolicy]
+                          properties:
+                            occurrenceId: {type: string, minLength: 1}
+                            fieldPath: {type: string, minLength: 1}
+                            missingKeyPolicy: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_MISSING]}
+                    - type: object
+                      additionalProperties: false
+                      required: [kind, explicit]
+                      properties:
+                        kind: {type: string, enum: [EXPLICIT]}
+                        explicit:
+                          type: object
+                          additionalProperties: false
+                          required: [revisionId, unassignedMemberPolicy]
+                          properties:
+                            revisionId: {type: string, minLength: 1}
+                            unassignedMemberPolicy: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_UNASSIGNED]}
+                  discriminator:
+                    propertyName: kind
+        - type: object
+          additionalProperties: false
+          required: [kind, expanded]
+          properties:
+            kind: {type: string, enum: [EXPANDED]}
+            expanded:
+              type: object
+              additionalProperties: false
+              required: [occurrenceId, scopePath, emptyCollectionPolicy]
+              properties:
+                occurrenceId: {type: string, minLength: 1}
+                scopePath: {type: string, minLength: 1}
+                emptyCollectionPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
+      discriminator:
+        propertyName: kind
     Population:
       type: object
       additionalProperties: false

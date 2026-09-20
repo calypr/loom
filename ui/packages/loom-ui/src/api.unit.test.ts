@@ -19,6 +19,7 @@ describe('Loom project paths', () => {
         output: { id: 'patients', title: 'Patients' },
         rootResourceType: 'Patient',
         route: { occurrenceId: 'base', resourceType: 'Patient' },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [],
       }],
       tabs: [{ id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 0 }],

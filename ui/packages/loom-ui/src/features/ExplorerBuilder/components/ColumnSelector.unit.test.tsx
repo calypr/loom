@@ -37,6 +37,7 @@ const table: DraftTable = {
     output: { id: 'Patient', title: 'Patient' },
     rootResourceType: 'ResearchSubject',
     route: { occurrenceId: 'base', resourceType: 'ResearchSubject' },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [
       {
         column: 'research_subject_identifier',

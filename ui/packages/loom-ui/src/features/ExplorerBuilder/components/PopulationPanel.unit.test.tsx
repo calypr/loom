@@ -36,7 +36,8 @@ const table: DraftTable = {
   outputId: 'specimens', tabId: 'tab', title: 'Specimens',
   document: {
     kind: 'ExplorerBuilderDocument', output: { id: 'specimens', title: 'Specimens' },
-    rootResourceType: 'Specimen', route: { occurrenceId: 'base', resourceType: 'Specimen' }, columns: [],
+    rootResourceType: 'Specimen', route: { occurrenceId: 'base', resourceType: 'Specimen' },
+    rows: { kind: 'RECORDS', records: {} }, columns: [],
   },
 };
 const selection: SelectionRevision = {

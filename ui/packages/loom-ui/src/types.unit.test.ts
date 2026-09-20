@@ -2,8 +2,83 @@ import { describe, expect, it } from 'vitest';
 import {
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
+  explorerBuilderDocumentSchema,
   explorerColumnSourceSchema,
 } from './types';
+
+describe('explorerBuilderDocumentSchema', () => {
+  const document = {
+    kind: 'ExplorerBuilderDocument',
+    output: { id: 'patients', title: 'Patients' },
+    rootResourceType: 'Patient',
+    route: { occurrenceId: 'base', resourceType: 'Patient' },
+    columns: [],
+  };
+
+  it('parses every closed row-definition variant returned by the Builder API', () => {
+    const rows = [
+      { kind: 'RECORDS', records: {} },
+      {
+        kind: 'GROUPS',
+        groups: {
+          source: {
+            kind: 'FIELD',
+            field: {
+              occurrenceId: 'base',
+              fieldPath: 'identifier[].system',
+              missingKeyPolicy: 'GROUP_AS_MISSING',
+            },
+          },
+        },
+      },
+      {
+        kind: 'GROUPS',
+        groups: {
+          source: {
+            kind: 'EXPLICIT',
+            explicit: {
+              revisionId: 'group-revision-1',
+              unassignedMemberPolicy: 'GROUP_AS_UNASSIGNED',
+            },
+          },
+        },
+      },
+      {
+        kind: 'EXPANDED',
+        expanded: {
+          occurrenceId: 'base',
+          scopePath: 'identifier[]',
+          emptyCollectionPolicy: 'PRESERVE_PARENT',
+        },
+      },
+    ] as const;
+
+    for (const rowDefinition of rows) {
+      expect(
+        explorerBuilderDocumentSchema.parse({
+          ...document,
+          rows: rowDefinition,
+        }).rows,
+      ).toEqual(rowDefinition);
+    }
+  });
+
+  it('rejects a row kind whose payload belongs to another variant', () => {
+    expect(
+      explorerBuilderDocumentSchema.safeParse({
+        ...document,
+        rows: {
+          kind: 'RECORDS',
+          expanded: {
+            occurrenceId: 'base',
+            scopePath: 'identifier[]',
+            emptyCollectionPolicy: 'EXCLUDE',
+          },
+        },
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe('explorerColumnSourceSchema', () => {
   it('preserves a typed Identifier namespace/value binding', () => {

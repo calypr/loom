@@ -39,6 +39,7 @@ const table: DraftTable = {
         { occurrenceId: 'patient', resourceType: 'Patient', relationship: 'subject' },
       ],
     },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 };

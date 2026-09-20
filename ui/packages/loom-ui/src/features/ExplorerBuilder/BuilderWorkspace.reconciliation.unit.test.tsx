@@ -186,6 +186,7 @@ const workspace = {
       output: { id: 'specimens', title: 'Specimens' },
       rootResourceType: 'Specimen',
       route: { occurrenceId: 'base', resourceType: 'Specimen' },
+      rows: { kind: 'RECORDS' as const, records: {} },
       columns: [column],
     },
   ],

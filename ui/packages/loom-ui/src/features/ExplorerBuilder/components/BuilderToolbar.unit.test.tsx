@@ -14,6 +14,7 @@ const draftTable = (outputId: string, title: string): DraftTable => ({
     output: { id: outputId, title },
     rootResourceType: 'Patient',
     route: { occurrenceId: 'base', resourceType: 'Patient' },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 });

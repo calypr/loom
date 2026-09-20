@@ -154,6 +154,7 @@ const table = (rootNodeId: string): DraftTable => ({
         catalog.nodes.find((node) => node.nodeId === rootNodeId)
           ?.resourceType ?? rootNodeId,
     },
+    rows: { kind: 'RECORDS', records: {} },
     columns: [],
   },
 });
@@ -407,6 +408,7 @@ describe('GuidedGraphWorkspace', () => {
             },
           ],
         },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [],
       },
     };
@@ -519,6 +521,7 @@ describe('GuidedGraphWorkspace', () => {
             },
           ],
         },
+        rows: { kind: 'RECORDS', records: {} },
         columns: [],
       },
     };

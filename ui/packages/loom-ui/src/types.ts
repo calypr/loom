@@ -270,6 +270,56 @@ export const explorerBuilderRouteNodeSchema: z.ZodType<ExplorerBuilderRouteNode>
       })
       .strict(),
   );
+const recordRowsSchema = z.object({}).strict();
+const fieldGroupSourceSchema = z
+  .object({
+    occurrenceId: opaqueIdSchema,
+    fieldPath: opaqueIdSchema,
+    missingKeyPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING']),
+  })
+  .strict();
+const explicitGroupSourceSchema = z
+  .object({
+    revisionId: opaqueIdSchema,
+    unassignedMemberPolicy: z.enum([
+      'ERROR',
+      'EXCLUDE',
+      'GROUP_AS_UNASSIGNED',
+    ]),
+  })
+  .strict();
+const groupSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('FIELD'), field: fieldGroupSourceSchema }).strict(),
+  z
+    .object({ kind: z.literal('EXPLICIT'), explicit: explicitGroupSourceSchema })
+    .strict(),
+]);
+export const explorerRowDefinitionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('RECORDS'), records: recordRowsSchema }).strict(),
+  z
+    .object({
+      kind: z.literal('GROUPS'),
+      groups: z.object({ source: groupSourceSchema }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('EXPANDED'),
+      expanded: z
+        .object({
+          occurrenceId: opaqueIdSchema,
+          scopePath: opaqueIdSchema,
+          emptyCollectionPolicy: z.enum([
+            'ERROR',
+            'EXCLUDE',
+            'PRESERVE_PARENT',
+          ]),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+export type ExplorerRowDefinition = z.infer<typeof explorerRowDefinitionSchema>;
 export const explorerBuilderColumnSchema = z
   .object({
     column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
@@ -326,6 +376,7 @@ export const explorerBuilderDocumentSchema = z
     rootResourceType: opaqueIdSchema,
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
+    rows: explorerRowDefinitionSchema,
     columns: z.array(explorerBuilderColumnSchema),
     fixedFilters: z
       .array(
