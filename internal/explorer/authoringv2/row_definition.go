@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -213,6 +214,18 @@ func requireTrimmedIdentity(value, name string) error {
 // RecordsRowDefinition returns the default row definition for one row per root record.
 func RecordsRowDefinition() RowDefinition {
 	return RowDefinition{Kind: RowDefinitionRecords, Records: &RecordRows{}}
+}
+
+func cloneRowDefinition(rows RowDefinition) (RowDefinition, error) {
+	raw, err := json.Marshal(rows)
+	if err != nil {
+		return RowDefinition{}, fmt.Errorf("clone row definition: %w", err)
+	}
+	var cloned RowDefinition
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return RowDefinition{}, fmt.Errorf("clone row definition: %w", err)
+	}
+	return cloned, nil
 }
 
 func missingRowDefinition(rows RowDefinition) bool {

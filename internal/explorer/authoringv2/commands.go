@@ -33,6 +33,7 @@ const (
 	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
 	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
 	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
+	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
@@ -94,12 +95,14 @@ type Command struct {
 	Source                  *ColumnSource                 `json:"source,omitempty"`
 	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
 	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
+	ProposalID              string                        `json:"proposalId,omitempty"`
 	ContextToken            string                        `json:"contextToken,omitempty"`
 	SemanticSelections      []SemanticSelection           `json:"semanticSelections,omitempty"`
 	ConstructionChoice      *ConstructionChoiceSelection  `json:"constructionChoice,omitempty"`
 	ResolvedChoice          *ResolvedConstructionChoice   `json:"-"`
 	ResolvedPopulationRoute []PopulationRouteStep         `json:"-"`
 	OutputIDs               []string                      `json:"outputIds,omitempty"`
+	resolvedRowDefinition   *RowDefinition
 }
 
 // ConstructionChoiceSelection carries only the server-issued source identity
@@ -197,7 +200,41 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
+	if decoded.Type == CommandApplyRowDefinitionProposal {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		allowed := map[string]bool{"type": true, "outputId": true, "proposalId": true}
+		for name := range fields {
+			if !allowed[name] {
+				return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL does not accept field %q", name)
+			}
+		}
+	}
 	*c = Command(decoded)
+	return nil
+}
+
+// ResolveRowDefinitionProposal attaches the lifecycle-validated row definition
+// to an apply command. The resolved value is deliberately not part of the
+// browser command or its serialized payload.
+func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
+	if c == nil || c.Type != CommandApplyRowDefinitionProposal {
+		return fmt.Errorf("row definition can only be resolved for APPLY_ROW_DEFINITION_PROPOSAL")
+	}
+	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
+		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires outputId and proposalId")
+	}
+	if err := rows.Validate(); err != nil {
+		return fmt.Errorf("resolved row definition: %w", err)
+	}
+	cloned, err := cloneRowDefinition(rows)
+	if err != nil {
+		return err
+	}
+	c.resolvedRowDefinition = &cloned
 	return nil
 }
 
@@ -241,12 +278,16 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	semanticCommandCount := 0
 	constructionChoiceCommandCount := 0
+	rowDefinitionProposalCommandCount := 0
 	for i, command := range r.Commands {
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
 		}
 		if command.Type == CommandApplyConstructionChoice {
 			constructionChoiceCommandCount++
+		}
+		if command.Type == CommandApplyRowDefinitionProposal {
+			rowDefinitionProposalCommandCount++
 		}
 		if err := command.validate(); err != nil {
 			return fmt.Errorf("commands[%d]: %w", i, err)
@@ -257,6 +298,9 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	if constructionChoiceCommandCount > 0 && (constructionChoiceCommandCount != len(r.Commands) || constructionChoiceCommandCount > 100) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE commands must form the entire request and contain at most 100 choices")
+	}
+	if rowDefinitionProposalCommandCount > 0 && (rowDefinitionProposalCommandCount != 1 || len(r.Commands) != 1) {
+		return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request")
 	}
 	return nil
 }
@@ -378,6 +422,17 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.CandidateReceiptID != strings.TrimSpace(c.InterpretationCandidate.CandidateReceiptID) ||
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
+		}
+	case CommandApplyRowDefinitionProposal:
+		if !required(c.OutputID, c.ProposalID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires exact outputId and proposalId")
+		}
+		if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
+			len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.Contributor != nil ||
+			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
+			c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
+			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL accepts only outputId and proposalId")
 		}
 	case CommandAddColumnSource:
 		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
@@ -875,6 +930,20 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandApplyRowDefinitionProposal:
+		if command.resolvedRowDefinition == nil {
+			return result, fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL has no lifecycle-resolved row definition")
+		}
+		rows, err := cloneRowDefinition(*command.resolvedRowDefinition)
+		if err != nil {
+			return result, err
+		}
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		workspace.Documents[document].Rows = rows
+		return result, nil
 	case CommandUpdateColumnSource:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
