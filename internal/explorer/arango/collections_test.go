@@ -1,10 +1,13 @@
 package arango
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	s := CollectionSpecs()
-	if len(s) != 9 {
+	if len(s) != 12 {
 		t.Fatalf("specs=%#v", s)
 	}
 	for _, spec := range s {
@@ -13,6 +16,28 @@ func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 		}
 		if len(spec.Indexes) == 0 {
 			t.Fatalf("%s has no indexes", spec.Name)
+		}
+	}
+	indexes := make(map[string][][]string, len(s))
+	for _, spec := range s {
+		indexes[spec.Name] = spec.Indexes
+	}
+	for collection, required := range map[string][][]string{
+		ExplicitGroupRevisionsCollection:   {{"project", "id"}, {"project", "idempotencyKey"}, {"project", "generation", "resourceType", "createdAt"}, {"state", "createdAt"}},
+		ExplicitGroupDefinitionsCollection: {{"revisionId", "ordinal"}, {"revisionId", "groupId"}},
+		ExplicitGroupMembershipsCollection: {{"revisionId", "groupId", "id"}, {"revisionId", "project", "generation", "resourceType", "id"}},
+	} {
+		for _, want := range required {
+			found := false
+			for _, got := range indexes[collection] {
+				if reflect.DeepEqual(got, want) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s indexes %v do not include %v", collection, indexes[collection], want)
+			}
 		}
 	}
 }

@@ -17,6 +17,7 @@ var (
 	ErrExplicitGroupRevisionConflict    = errors.New("explicit group revision conflict")
 	ErrExplicitGroupRevisionIncomplete  = errors.New("explicit group revision is incomplete")
 	ErrExplicitGroupRevisionStaleSource = errors.New("explicit group revision source is stale or mismatched")
+	ErrCorruptExplicitGroupRevision     = errors.New("corrupt explicit group revision")
 )
 
 type ExplicitGroupRevisionID string
@@ -29,6 +30,22 @@ const (
 	ExplicitGroupRevisionStaging  ExplicitGroupRevisionState = "STAGING"
 	ExplicitGroupRevisionComplete ExplicitGroupRevisionState = "COMPLETE"
 )
+
+// ExplicitGroupRevisionIDFor makes the idempotency key the primary identity
+// reservation. Concurrent retries for one project and key contend on the
+// same Arango document key.
+func ExplicitGroupRevisionIDFor(project, idempotencyKey string) ExplicitGroupRevisionID {
+	project = strings.TrimSpace(project)
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if project == "" || idempotencyKey == "" {
+		return ""
+	}
+	hash := sha256.New()
+	writeDigestField(hash, "loom-explicit-group-revision-id-v1")
+	writeDigestField(hash, project)
+	writeDigestField(hash, idempotencyKey)
+	return ExplicitGroupRevisionID("grouprev_" + hex.EncodeToString(hash.Sum(nil)))
+}
 
 // ExplicitGroupDefinition preserves each declared group independently of its
 // members, so a group with no members still has a durable identity and order.
@@ -99,6 +116,9 @@ func (r ExplicitGroupRevision) Validate() error {
 	if r.ID == "" || r.Project == "" || r.Generation == "" || r.ScopeDigest == "" || r.ResourceType == "" || r.SourceSelectionRevisionID == "" || r.SourceMembershipDigest == "" || r.IdempotencyKey == "" || r.CreatedAt.IsZero() {
 		return fmt.Errorf("explicit group revision identity, project, generation, scope, resource type, source selection, idempotency key, and creation time are required")
 	}
+	if r.ID != ExplicitGroupRevisionIDFor(r.Project, r.IdempotencyKey) {
+		return fmt.Errorf("explicit group revision ID does not match its project and idempotency key")
+	}
 	switch r.State {
 	case ExplicitGroupRevisionStaging:
 		if r.DefinitionDigest != "" || r.MembershipDigest != "" || r.GroupCount != 0 || r.MemberCount != 0 || r.CompletedAt != nil {
@@ -124,6 +144,14 @@ func (r ExplicitGroupRevision) ValidateSource(selection SelectionRevision) error
 	}
 	if r.State != ExplicitGroupRevisionComplete {
 		return ErrExplicitGroupRevisionIncomplete
+	}
+	return r.ValidateSourceSelection(selection)
+}
+
+func (r ExplicitGroupRevision) ValidateSourceSelection(selection SelectionRevision) error {
+	r = r.Canonical()
+	if err := r.Validate(); err != nil {
+		return fmt.Errorf("explicit group revision is invalid: %w", err)
 	}
 	selection = selection.Canonical()
 	if err := selection.Validate(); err != nil {
@@ -216,7 +244,7 @@ func CanonicalExplicitGroupMemberships(revision ExplicitGroupRevision, groups []
 		if canonical[i].GroupID != canonical[j].GroupID {
 			return canonical[i].GroupID < canonical[j].GroupID
 		}
-		return canonical[i].Ref.key() < canonical[j].Ref.key()
+		return resourceRefLess(canonical[i].Ref, canonical[j].Ref)
 	})
 	return canonical, nil
 }
@@ -227,11 +255,15 @@ func ExplicitGroupMembershipDigest(revision ExplicitGroupRevision, groups []Expl
 		return "", err
 	}
 	hash := sha256.New()
-	writeDigestField(hash, "loom-explicit-group-membership-v1")
+	StartExplicitGroupMembershipDigest(hash)
 	for _, membership := range canonical {
 		WriteExplicitGroupMembershipFrame(hash, membership)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func StartExplicitGroupMembershipDigest(w interface{ Write([]byte) (int, error) }) {
+	writeDigestField(w, "loom-explicit-group-membership-v1")
 }
 
 // WriteExplicitGroupMembershipFrame writes the stable relation identity used
@@ -254,5 +286,21 @@ func writeDigestField(w interface{ Write([]byte) (int, error) }, value string) {
 
 func explicitGroupMembershipKey(membership ExplicitGroupMembership) string {
 	membership = membership.Canonical()
-	return string(membership.GroupID) + "\x00" + membership.Ref.key()
+	var identity strings.Builder
+	WriteExplicitGroupMembershipFrame(&identity, membership)
+	return identity.String()
+}
+
+func resourceRefLess(left, right ResourceRef) bool {
+	left, right = left.Canonical(), right.Canonical()
+	if left.Project != right.Project {
+		return left.Project < right.Project
+	}
+	if left.Generation != right.Generation {
+		return left.Generation < right.Generation
+	}
+	if left.ResourceType != right.ResourceType {
+		return left.ResourceType < right.ResourceType
+	}
+	return left.ID < right.ID
 }

@@ -206,9 +206,27 @@ func TestExplicitGroupRevisionStateIsClosedAndConsistent(t *testing.T) {
 	}
 }
 
+func TestExplicitGroupRevisionIDIsAStableIdempotencyReservation(t *testing.T) {
+	id := ExplicitGroupRevisionIDFor("project-a", "create-groups-1")
+	if id != "grouprev_1837853917e83e81b61c8715fc702d3800987862ac16a14f5e447e3b0adace6a" {
+		t.Fatalf("revision ID = %s", id)
+	}
+	if retryID := ExplicitGroupRevisionIDFor(" project-a ", " create-groups-1 "); retryID != id {
+		t.Fatalf("canonical retry ID = %s, want %s", retryID, id)
+	}
+	if ExplicitGroupRevisionIDFor("project-b", "create-groups-1") == id || ExplicitGroupRevisionIDFor("project-a", "another-key") == id {
+		t.Fatal("revision ID did not bind both project and idempotency key")
+	}
+	invalid := testExplicitGroupRevision()
+	invalid.ID = "caller-chosen-id"
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("revision ID that bypasses the idempotency reservation unexpectedly validated")
+	}
+}
+
 func testExplicitGroupRevision() ExplicitGroupRevision {
 	return ExplicitGroupRevision{
-		ID: "groups-1", Project: "project-a", Generation: "generation-a", ScopeDigest: "scope-a",
+		ID: ExplicitGroupRevisionIDFor("project-a", "create-groups-1"), Project: "project-a", Generation: "generation-a", ScopeDigest: "scope-a",
 		ResourceType: "Patient", SourceSelectionRevisionID: "selection-1", SourceMembershipDigest: "selection-membership",
 		State: ExplicitGroupRevisionStaging, IdempotencyKey: "create-groups-1", CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
