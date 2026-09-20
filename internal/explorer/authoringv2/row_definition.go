@@ -155,7 +155,6 @@ func (s GroupSource) validate() error {
 	default:
 		return fmt.Errorf("kind %q is unsupported", s.Kind)
 	}
-	return nil
 }
 
 func (f FieldGroupSource) validate() error {

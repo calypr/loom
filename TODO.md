@@ -82,7 +82,8 @@
 ### S03/UI03 task units
 
 - [x] S03-01a. Add explicit resource, grouped, and expanded row-definition variants with validation, canonicalization, cloning, and migration from existing documents. Accepted after 135 authoring tests and 447 Explorer tests.
-- [ ] S03-01b. Resolve field-group keys and repeated scopes from schema-backed capability candidates; add immutable explicit-group membership identity.
+- [x] S03-01b-schema. Resolve field-group keys and repeated scopes from generated schema facts and bind each opaque choice to one authorized route occurrence and capability snapshot.
+- [ ] S03-01b-groups. Add immutable explicit-group header and member revisions with empty-group and overlapping-membership support.
 - [ ] S03-02a. Lower expanded rows through the existing semantic UNNEST and stable item identity path.
 - [ ] S03-02b. Add a typed grouped-row semantic and physical operation that returns group identity plus exact member witnesses.
 - [ ] S03-02c. Prove independent repeated collections remain independent unless an explicit combination operation is authored.
