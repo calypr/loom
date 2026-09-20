@@ -100,7 +100,7 @@
     {
       "id": "S02",
       "title": "Choose relationships automatically or author them in the graph",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": [
         "S01"
       ],
@@ -119,22 +119,22 @@
         {
           "id": "S02-01",
           "title": "Generate compiler-checked relationship choices",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S02-02",
           "title": "Resolve defaults and preserve explicit routes",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S02-03",
           "title": "UI02: Ship Inspect source, editable graph routes, and node-local code selection",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S02-04",
           "title": "Close UI02/J02 with cancel/apply and editor parity; retire frontend planning",
-          "status": "planned"
+          "status": "in_progress"
         }
       ],
       "kpis": [
@@ -155,12 +155,15 @@
         "J02"
       ],
       "evidence": [],
-      "verification": null
+      "verification": {
+        "status": "partial",
+        "summary": "Exact route identity, source inspection, graph editing, and the J02 driver are implemented. The integrated live J02 browser journey has not run."
+      }
     },
     {
       "id": "S03",
       "title": "Define rows by records, groups, or expansion",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": [
         "S01"
       ],
@@ -177,22 +180,22 @@
         {
           "id": "S03-01",
           "title": "Model resource, grouped, and expanded rows",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S03-02",
           "title": "Compile row membership with column contributors",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S03-03",
           "title": "UI03: Ship starting-record selection and Records/Groups/Expand controls",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S03-04",
           "title": "Close UI03/J03 with membership previews, cancel/apply, and reconstruction",
-          "status": "planned"
+          "status": "in_progress"
         }
       ],
       "kpis": [
@@ -213,12 +216,15 @@
         "J03"
       ],
       "evidence": [],
-      "verification": null
+      "verification": {
+        "status": "partial",
+        "summary": "Resource, expanded, and explicit grouped-row execution is implemented with focused compiler tests. The UI03 contract, live Arango proof, and J03 browser journey remain open."
+      }
     },
     {
       "id": "S04",
       "title": "Apply explicit typed transformations",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": [
         "S02",
         "S03"
@@ -234,12 +240,12 @@
         {
           "id": "S04-01",
           "title": "UI04: Connect Values controls to compiler-supported typed operations",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S04-02",
           "title": "UI04: Connect Time and units controls and exact recoding",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S04-03",
@@ -270,12 +276,15 @@
         "J04"
       ],
       "evidence": [],
-      "verification": null
+      "verification": {
+        "status": "partial",
+        "summary": "Typed aggregate, temporal, and unit capabilities are implemented with focused backend and UI tests. Exact recoding is in progress. Pivot, derived-column controls, and J04 remain open."
+      }
     },
     {
       "id": "S05",
       "title": "Publish and export the exact constructed dataframe",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": [
         "S01",
         "S02",
@@ -298,17 +307,17 @@
         {
           "id": "S05-01",
           "title": "UI05: Connect Review dataset to pinned publication meaning",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S05-02",
           "title": "UI05: Ship explicit Download dataset representation and scope",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S05-03",
           "title": "UI05: Expose complete checks and truthful publication progress/failure",
-          "status": "planned"
+          "status": "in_progress"
         },
         {
           "id": "S05-04",
@@ -334,7 +343,10 @@
         "J05"
       ],
       "evidence": [],
-      "verification": null
+      "verification": {
+        "status": "partial",
+        "summary": "Dataset review, shape-safe artifacts, structured row identity, and explicit Viewer download details are implemented with focused tests. J05 and the integrated full gate remain open."
+      }
     }
   ],
   "reusedImplementation": [
