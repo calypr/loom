@@ -172,13 +172,8 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			if err := validatePhysicalUnnest(*operation.Unnest, defined, bindVars); err != nil {
 				return fmt.Errorf("subplan operation %d unnest: %w", index, err)
 			}
-			if err := definePhysicalVariable(defined, operation.Unnest.OutputVariable); err != nil {
-				return fmt.Errorf("subplan operation %d: %w", index, err)
-			}
-			if operation.Unnest.Ordinality != "" {
-				if err := definePhysicalVariable(defined, operation.Unnest.Ordinality); err != nil {
-					return fmt.Errorf("subplan operation %d: %w", index, err)
-				}
+			if err := definePhysicalUnnestVariables(*operation.Unnest, defined); err != nil {
+				return fmt.Errorf("subplan operation %d unnest bindings: %w", index, err)
 			}
 		default:
 			return fmt.Errorf("subplan operation %d has unsupported kind %q", index, operation.Kind)

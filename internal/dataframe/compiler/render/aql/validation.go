@@ -39,6 +39,16 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 					return fmt.Errorf("%s operation %d (TRAVERSAL): edge collection bind key is required", owner, index)
 				}
 				keys[operation.Traversal.EdgeCollectionBindKey] = struct{}{}
+			case ir.PhysicalUnnestOp:
+				for routeIndex, step := range operation.Unnest.Owner.Route {
+					if step.Traversal.EdgeCollectionBindKey == "" {
+						return fmt.Errorf("%s operation %d (UNNEST owner route step %d): edge collection bind key is required", owner, index, routeIndex)
+					}
+					keys[step.Traversal.EdgeCollectionBindKey] = struct{}{}
+					if err := collectOperations(step.Scope, owner+" UNNEST OWNER ROUTE"); err != nil {
+						return err
+					}
+				}
 			case ir.PhysicalPathExtendOp:
 				if operation.PathExtend.Traversal.EdgeCollectionBindKey == "" {
 					return fmt.Errorf("%s operation %d (PATH_EXTEND): edge collection bind key is required", owner, index)
@@ -183,6 +193,16 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		if operation.Unnest.Expression.Cardinality != ir.PhysicalArrayCardinality {
 			return fmt.Errorf("UNNEST source expression must be array-valued")
 		}
+		for index, step := range operation.Unnest.Owner.Route {
+			if step.Traversal.EdgeVariable == "" || step.Traversal.EdgeLabelBindKey == "" || step.Traversal.TargetTypeBindKey == "" {
+				return fmt.Errorf("UNNEST owner route step %d requires edge and type bindings", index)
+			}
+			for scopeIndex, scoped := range step.Scope {
+				if err := validateRenderableOperation(scoped, collectionKeys); err != nil {
+					return fmt.Errorf("UNNEST owner route step %d scope operation %d: %w", index, scopeIndex, err)
+				}
+			}
+		}
 		return nil
 	case ir.PhysicalFilterOp:
 		if operation.Filter.Expression != nil {
@@ -216,7 +236,15 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		}
 		return nil
 	case ir.PhysicalSortOp:
-		return checkValue(operation.Sort.Value)
+		if len(operation.Sort.Keys) == 0 {
+			return fmt.Errorf("SORT requires at least one key")
+		}
+		for _, key := range operation.Sort.Keys {
+			if err := checkValue(key); err != nil {
+				return err
+			}
+		}
+		return nil
 	case ir.PhysicalLimitOp:
 		if _, isCollection := collectionKeys[operation.Limit.BindKey]; isCollection {
 			return fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", operation.Limit.BindKey)

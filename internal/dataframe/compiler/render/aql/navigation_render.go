@@ -74,32 +74,54 @@ func (r *physicalPlanRenderer) renderUnnest(unnest ir.PhysicalUnnest, indent str
 	if err != nil {
 		return nil, fmt.Errorf("unnest source: %w", err)
 	}
-	if unnest.InputVariable == "" || unnest.OutputVariable == "" {
-		return nil, fmt.Errorf("unnest requires input and output variables")
+	if unnest.Owner.RootVariable == "" || unnest.Owner.OwnerVariable == "" || unnest.OutputVariable == "" || unnest.HasItemVariable == "" {
+		return nil, fmt.Errorf("unnest requires root, owner, output, and item-discriminator variables")
 	}
 	baseIndent := indent
 	if depth > 0 {
 		baseIndent = strings.Repeat("  ", depth+1)
+	}
+	lines := make([]string, 0, len(unnest.Owner.Route)*8+6)
+	parentVariable := unnest.Owner.RootVariable
+	for routeIndex, step := range unnest.Owner.Route {
+		lines = append(lines, r.renderTraversalScan(step.Traversal, parentVariable, baseIndent)...)
+		for scopeIndex, operation := range step.Scope {
+			rendered, err := r.renderScopeOperation(operation, baseIndent+"  ")
+			if err != nil {
+				return nil, fmt.Errorf("owner route step %d scope operation %d: %w", routeIndex, scopeIndex, err)
+			}
+			lines = append(lines, rendered...)
+		}
+		parentVariable = step.Traversal.TargetVariable
+	}
+	if parentVariable != unnest.Owner.OwnerVariable {
+		return nil, fmt.Errorf("unnest route terminates at %q, not owner %q", parentVariable, unnest.Owner.OwnerVariable)
 	}
 	sourceVariable := r.newInternalVariable(fmt.Sprintf("unnest_source_%d", ordinal))
 	// Selector extraction preserves one array layer per repeated path. UNNEST
 	// consumes the resulting collection, so flatten exactly one layer here;
 	// otherwise a source such as root.member[] becomes [member[]] and emits one
 	// row per parent rather than one row per member.
-	lines := []string{fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source)}
-	indexed := unnest.JoinMode == ir.PhysicalUnnestOuter || unnest.Ordinality != ""
-	if !indexed {
-		lines = append(lines, fmt.Sprintf("%sFOR %s IN %s", baseIndent, unnest.OutputVariable, sourceVariable))
-		return lines, nil
+	lines = append(lines, fmt.Sprintf("%sLET %s = (%s == null ? [] : FLATTEN(%s))", baseIndent, sourceVariable, source, source))
+	if unnest.EmptyPolicy == ir.PhysicalUnnestError {
+		errorBindKey := fmt.Sprintf("unnest_error_occurrence_%d", ordinal)
+		occurrenceID := unnest.Owner.OccurrenceID
+		if occurrenceID == "" {
+			occurrenceID = "root"
+		}
+		r.bindVars[errorBindKey] = occurrenceID
+		message := fmt.Sprintf("CONCAT(\"row expansion occurrence \", @%s, \" has no items for owner \", %s._key)", errorBindKey, unnest.Owner.OwnerVariable)
+		lines = append(lines, fmt.Sprintf("%sFILTER ASSERT(LENGTH(%s) > 0, %s)", baseIndent, sourceVariable, message))
 	}
 	indexVariable := r.newInternalVariable(fmt.Sprintf("unnest_index_%d", ordinal))
-	indices := fmt.Sprintf("LENGTH(%s) == 0 ? %s : RANGE(0, LENGTH(%s) - 1)", sourceVariable, "[]", sourceVariable)
-	if unnest.JoinMode == ir.PhysicalUnnestOuter {
+	indices := fmt.Sprintf("LENGTH(%s) == 0 ? [] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
+	if unnest.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
 		indices = fmt.Sprintf("LENGTH(%s) == 0 ? [null] : RANGE(0, LENGTH(%s) - 1)", sourceVariable, sourceVariable)
 	}
 	lines = append(lines, fmt.Sprintf("%sFOR %s IN (%s)", baseIndent, indexVariable, indices))
 	item := fmt.Sprintf("%s == null ? null : %s[%s]", indexVariable, sourceVariable, indexVariable)
 	lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.OutputVariable, item))
+	lines = append(lines, fmt.Sprintf("%sLET %s = %s != null", baseIndent, unnest.HasItemVariable, indexVariable))
 	if unnest.Ordinality != "" {
 		lines = append(lines, fmt.Sprintf("%sLET %s = %s", baseIndent, unnest.Ordinality, indexVariable))
 	}
@@ -426,8 +448,25 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 				variables[operation.Set.Prepared.Variable] = struct{}{}
 			}
 		case ir.PhysicalUnnestOp:
-			variables[operation.Unnest.InputVariable] = struct{}{}
+			variables[operation.Unnest.Owner.RootVariable] = struct{}{}
+			variables[operation.Unnest.Owner.OwnerVariable] = struct{}{}
+			for _, step := range operation.Unnest.Owner.Route {
+				variables[step.Traversal.SourceVariable] = struct{}{}
+				variables[step.Traversal.TargetVariable] = struct{}{}
+				if step.Traversal.EdgeVariable != "" {
+					variables[step.Traversal.EdgeVariable] = struct{}{}
+				}
+				for _, scoped := range step.Scope {
+					if scoped.Kind == ir.PhysicalDerivedLetOp {
+						variables[scoped.DerivedLet.Variable] = struct{}{}
+					}
+					if scoped.Kind == ir.PhysicalExpressionLetOp {
+						variables[scoped.ExpressionLet.Variable] = struct{}{}
+					}
+				}
+			}
 			variables[operation.Unnest.OutputVariable] = struct{}{}
+			variables[operation.Unnest.HasItemVariable] = struct{}{}
 			if operation.Unnest.Ordinality != "" {
 				variables[operation.Unnest.Ordinality] = struct{}{}
 			}

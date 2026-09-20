@@ -315,11 +315,23 @@ func rewritePhysicalOperationVariables(op ir.PhysicalOperation, fromTarget, toTa
 	}
 	if op.Unnest != nil {
 		u := *op.Unnest
-		if u.InputVariable == fromTarget {
-			u.InputVariable = toTarget
+		rewriteVariable := func(variable *string) {
+			if *variable == fromTarget {
+				*variable = toTarget
+			} else if *variable == fromEdge {
+				*variable = toEdge
+			}
 		}
-		if u.InputVariable == fromEdge {
-			u.InputVariable = toEdge
+		rewriteVariable(&u.Owner.RootVariable)
+		rewriteVariable(&u.Owner.OwnerVariable)
+		for routeIndex := range u.Owner.Route {
+			traversal := &u.Owner.Route[routeIndex].Traversal
+			rewriteVariable(&traversal.SourceVariable)
+			rewriteVariable(&traversal.TargetVariable)
+			rewriteVariable(&traversal.EdgeVariable)
+			for scopeIndex := range u.Owner.Route[routeIndex].Scope {
+				u.Owner.Route[routeIndex].Scope[scopeIndex] = rewritePhysicalOperationVariables(u.Owner.Route[routeIndex].Scope[scopeIndex], fromTarget, toTarget, fromEdge, toEdge)
+			}
 		}
 		u.Expression = rewritePhysicalExpressionVariables(u.Expression, fromTarget, toTarget, fromEdge, toEdge)
 		op.Unnest = &u

@@ -362,6 +362,12 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 						return err
 					}
 				}
+			case PhysicalExpressionLetOp:
+				if operation.ExpressionLet != nil {
+					if err := visitExpression(operation.ExpressionLet.Expression); err != nil {
+						return err
+					}
+				}
 			case PhysicalSetOp:
 				if operation.Set != nil {
 					if err := visitSubplan(operation.Set.Subplan); err != nil {
@@ -372,6 +378,11 @@ func validatePhysicalExpressionObjectCycles(expression PhysicalExpression) error
 				if operation.Unnest != nil {
 					if err := visitExpression(operation.Unnest.Expression); err != nil {
 						return err
+					}
+					for _, step := range operation.Unnest.Owner.Route {
+						if err := visitSubplan(PhysicalSubplan{Operations: step.Scope}); err != nil {
+							return err
+						}
 					}
 				}
 			}

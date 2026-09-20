@@ -391,7 +391,7 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 				continue
 			}
 			found = true
-			if operation.Unnest.InputVariable != "root" || operation.Unnest.OutputVariable != "member" {
+			if operation.Unnest.Owner.RootVariable != "root" || operation.Unnest.Owner.OwnerVariable != "root" || operation.Unnest.OutputVariable != "member" {
 				t.Fatalf("unexpected unnest bindings: %#v", operation.Unnest)
 			}
 		}

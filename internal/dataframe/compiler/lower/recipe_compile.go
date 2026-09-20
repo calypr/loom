@@ -150,6 +150,12 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if !ok {
 		return CompiledRecipeOutput{}, fmt.Errorf("row grain %q has no canonical identity", output.RowGrain)
 	}
+	if output.ExpansionIdentity {
+		if output.RowExpansion == nil {
+			return CompiledRecipeOutput{}, fmt.Errorf("expansion identity requires a row expansion")
+		}
+		identity.Fields = append(identity.Fields, "__loom_expansion_identity")
+	}
 	context := semantic.ExecutionContext{
 		Project:                    bindings.Project,
 		DatasetGeneration:          bindings.DatasetGeneration,
@@ -168,10 +174,8 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := appendRecipeIdentity(&physical, output); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if expansion := recipeRowExpansion(output); expansion != nil {
-		if err := appendRecipeRowExpansion(&physical, *expansion, output.RootResourceType); err != nil {
-			return CompiledRecipeOutput{}, err
-		}
+	if err := appendRecipeExpansionIdentity(&physical, output); err != nil {
+		return CompiledRecipeOutput{}, err
 	}
 	dynamicMetadata, err := appendRecipeDynamicColumns(&physical, output, resolvedColumns)
 	if err != nil {

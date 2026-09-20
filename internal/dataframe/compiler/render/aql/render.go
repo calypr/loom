@@ -215,11 +215,18 @@ func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[strin
 func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {
 	switch operation.Kind {
 	case ir.PhysicalSortOp:
-		value, err := r.renderValue(operation.Sort.Value)
-		if err != nil {
-			return nil, err
+		keys := make([]string, 0, len(operation.Sort.Keys))
+		for _, key := range operation.Sort.Keys {
+			value, err := r.renderValue(key)
+			if err != nil {
+				return nil, err
+			}
+			keys = append(keys, value+" ASC")
 		}
-		return []string{indent + "SORT " + value}, nil
+		if len(keys) == 0 {
+			return nil, fmt.Errorf("SORT requires at least one key")
+		}
+		return []string{indent + "SORT " + strings.Join(keys, ", ")}, nil
 	case ir.PhysicalLimitOp:
 		if _, collectionBinding := r.collectionKeys[operation.Limit.BindKey]; collectionBinding {
 			return nil, fmt.Errorf("limit bind key %q cannot be a collection bind", operation.Limit.BindKey)

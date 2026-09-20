@@ -94,39 +94,52 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 	if fields != nil {
 		projections = append(projections, fields...)
 	} else {
-		fields, err := lowerSemanticFieldProjections(physical, root, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, bindings, lowerer)
+		fields, err := semanticNodePhysicalProjections(physical, root, ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, bindings, lowerer, "")
 		if err != nil {
 			return nil, err
 		}
 		projections = append(projections, fields...)
 	}
-	for _, aggregate := range root.Aggregates {
-		expression, err := physicalAggregateExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, aggregate, false)
+	return projections, nil
+}
+
+func semanticNodePhysicalProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer, prefix string) ([]ir.PhysicalProjection, error) {
+	fields, err := lowerSemanticFieldProjections(physical, node, source, bindings, lowerer)
+	if err != nil {
+		return nil, err
+	}
+	projections := make([]ir.PhysicalProjection, 0, len(fields)+len(node.Aggregates)+len(node.OwnerRecords)+len(node.Slices))
+	for _, field := range fields {
+		field.Name = traversalColumnName(prefix, field.Name)
+		projections = append(projections, field)
+	}
+	for _, aggregate := range node.Aggregates {
+		expression, err := physicalAggregateExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, aggregate, false)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, ""), Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: aggregateProjectionName(aggregate, traversalColumnNamePrefix(prefix)), Expression: &expression})
 	}
-	for _, pivot := range root.Pivots {
-		pivotProjections, err := physicalPivotProjections(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, pivot, "")
+	for _, pivot := range node.Pivots {
+		pivotProjections, err := physicalPivotProjections(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, pivot, traversalColumnNamePrefix(prefix))
 		if err != nil {
 			return nil, err
 		}
 		projections = append(projections, pivotProjections...)
 	}
-	for _, ownerRecords := range root.OwnerRecords {
-		expression, err := physicalOwnerRecordsExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, ownerRecords)
+	for _, ownerRecords := range node.OwnerRecords {
+		expression, err := physicalOwnerRecordsExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, ownerRecords)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: ownerRecords.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, ownerRecords.Name), Expression: &expression})
 	}
-	for _, slice := range root.Slices {
-		expression, err := physicalSliceExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, slice)
+	for _, slice := range node.Slices {
+		expression, err := physicalSliceExpression(physical, node.ResourceType, ir.PhysicalValue{Variable: source.Variable}, slice)
 		if err != nil {
 			return nil, err
 		}
-		projections = append(projections, ir.PhysicalProjection{Name: slice.Name, Expression: &expression})
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(prefix, slice.Name), Expression: &expression})
 	}
 	return projections, nil
 }

@@ -125,7 +125,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			}
 			column.Name = projection.Name
 			column.Internal = projection.Hidden || projection.Name == "_key" || strings.HasPrefix(projection.Name, "__loom_")
-			column.Identity = projection.Name == "_key" || projection.Name == "__loom_row_id"
+			column.Identity = projection.Name == "_key" || projection.Name == "__loom_row_id" || projection.Name == "__loom_expansion_identity"
 			result = append(result, column)
 		}
 		semanticCounts := make(map[string]int, len(result))

@@ -97,6 +97,9 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 		}
 		if operation.Unnest != nil {
 			canonicalizePhysicalExpression(&operation.Unnest.Expression)
+			for routeIndex := range operation.Unnest.Owner.Route {
+				canonicalizePhysicalOperations(operation.Unnest.Owner.Route[routeIndex].Scope)
+			}
 		}
 		if operation.Return != nil {
 			for projection := range operation.Return.Projections {
@@ -267,6 +270,12 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.Unnest != nil {
 		unnestCopy := *operation.Unnest
 		unnestCopy.Expression = clonePhysicalExpression(operation.Unnest.Expression)
+		unnestCopy.Owner.Route = append([]PhysicalUnnestRouteStep(nil), operation.Unnest.Owner.Route...)
+		for routeIndex := range unnestCopy.Owner.Route {
+			step := &unnestCopy.Owner.Route[routeIndex]
+			step.Traversal.EndpointIndexFields = cloneStrings(step.Traversal.EndpointIndexFields)
+			step.Scope = clonePhysicalOperations(operation.Unnest.Owner.Route[routeIndex].Scope)
+		}
 		copy.Unnest = &unnestCopy
 	}
 	if operation.DerivedLet != nil {
@@ -284,7 +293,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	}
 	if operation.Sort != nil {
 		sortCopy := *operation.Sort
-		sortCopy.Value = clonePhysicalValue(operation.Sort.Value)
+		sortCopy.Keys = make([]PhysicalValue, len(operation.Sort.Keys))
+		for index, key := range operation.Sort.Keys {
+			sortCopy.Keys[index] = clonePhysicalValue(key)
+		}
 		copy.Sort = &sortCopy
 	}
 	if operation.Limit != nil {

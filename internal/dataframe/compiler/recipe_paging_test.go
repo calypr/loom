@@ -28,7 +28,8 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 		t.Fatal(err)
 	}
 	unnest := ir.PhysicalOperation{Kind: ir.PhysicalUnnestOp, Unnest: &ir.PhysicalUnnest{
-		InputVariable: "root", OutputVariable: "item", JoinMode: ir.PhysicalUnnestInner,
+		Owner:          ir.PhysicalUnnestOwner{ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
+		OutputVariable: "item", HasItemVariable: "has_item", EmptyPolicy: ir.PhysicalUnnestExclude,
 		Expression: ir.PhysicalExpression{
 			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 			Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}, ResourceType: "Patient", Selector: selector, ExecutionMode: ir.PhysicalSelectorConditionalArray},
@@ -50,7 +51,7 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 		t.Fatalf("root-key discovery crossed the expansion boundary:\n%s", page.RootKeysQuery)
 	}
 	keyFilter := strings.Index(page.RowsQuery, "root._key IN @"+RootPageKeysBind)
-	unnestIndex := strings.Index(page.RowsQuery, "FOR item IN")
+	unnestIndex := strings.Index(page.RowsQuery, "LET item =")
 	if keyFilter < 0 || unnestIndex < 0 || keyFilter > unnestIndex {
 		t.Fatalf("selected-root filter was not rendered before UNNEST:\n%s", page.RowsQuery)
 	}

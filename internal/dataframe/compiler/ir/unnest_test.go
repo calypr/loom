@@ -1,6 +1,10 @@
 package ir
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
 
 func unnestValueExpression(variable string) PhysicalExpression {
 	return PhysicalExpression{
@@ -11,7 +15,7 @@ func unnestValueExpression(variable string) PhysicalExpression {
 	}
 }
 
-func unnestPlan(mode PhysicalUnnestJoinMode) PhysicalPlan {
+func unnestPlan(policy PhysicalUnnestEmptyPolicy) PhysicalPlan {
 	return PhysicalPlan{
 		Version: 1,
 		BindVars: map[string]any{
@@ -20,8 +24,9 @@ func unnestPlan(mode PhysicalUnnestJoinMode) PhysicalPlan {
 		Operations: []PhysicalOperation{
 			{Kind: PhysicalRootScanOp, RootScan: &PhysicalRootScan{Variable: "root", CollectionBindKey: "collection"}},
 			{Kind: PhysicalUnnestOp, Unnest: &PhysicalUnnest{
-				InputVariable: "root", OutputVariable: "item", Ordinality: "item_index",
-				Expression: unnestValueExpression("root"), JoinMode: mode,
+				Owner:          PhysicalUnnestOwner{OccurrenceID: "root-occurrence", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
+				OutputVariable: "item", Ordinality: "item_index", HasItemVariable: "has_item",
+				Expression: unnestValueExpression("root"), EmptyPolicy: policy,
 			}},
 			{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: []PhysicalProjection{{
 				Name: "item", Expression: &PhysicalExpression{
@@ -33,13 +38,68 @@ func unnestPlan(mode PhysicalUnnestJoinMode) PhysicalPlan {
 	}
 }
 
-func TestPhysicalUnnestValidatesInnerAndOuterPlans(t *testing.T) {
-	for _, mode := range []PhysicalUnnestJoinMode{PhysicalUnnestInner, PhysicalUnnestOuter} {
-		plan := unnestPlan(mode)
+func TestPhysicalUnnestValidatesAllEmptyPolicies(t *testing.T) {
+	for _, policy := range []PhysicalUnnestEmptyPolicy{PhysicalUnnestError, PhysicalUnnestExclude, PhysicalUnnestPreserveParent} {
+		plan := unnestPlan(policy)
 		if err := plan.Validate(); err != nil {
-			t.Fatalf("mode %s: %v", mode, err)
+			t.Fatalf("policy %s: %v", policy, err)
 		}
 	}
+}
+
+func TestPhysicalUnnestValidatesTypedDepthTwoOwnerRoute(t *testing.T) {
+	plan := depthTwoUnnestPlan(t)
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	unnest := plan.Operations[1].Unnest
+	if len(unnest.Owner.Route) != 2 || unnest.Owner.OwnerVariable != "node_2" || unnest.Expression.Extract.Source.Variable != "node_2" {
+		t.Fatalf("depth-two owner route is not reflected by expansion: %#v", unnest)
+	}
+}
+
+func TestPhysicalUnnestRejectsStaleRouteOccurrenceAndSourceOwner(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		edit func(*PhysicalUnnest)
+		want string
+	}{
+		{name: "stale terminal occurrence", edit: func(unnest *PhysicalUnnest) { unnest.Owner.OccurrenceID = "other" }, want: "does not match route terminal"},
+		{name: "source uses root", edit: func(unnest *PhysicalUnnest) { unnest.Expression.Extract.Source.Variable = "root" }, want: "exact owner occurrence"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := depthTwoUnnestPlan(t)
+			test.edit(plan.Operations[1].Unnest)
+			if err := plan.Validate(); err == nil || !contains(err.Error(), test.want) {
+				t.Fatalf("Validate() = %v, want error containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func depthTwoUnnestPlan(t *testing.T) PhysicalPlan {
+	t.Helper()
+	plan := unnestPlan(PhysicalUnnestExclude)
+	plan.BindVars["edge_collection_1"] = "fhir_edge"
+	plan.BindVars["edge_collection_2"] = "fhir_edge"
+	plan.BindVars["edge_label_1"] = "subject"
+	plan.BindVars["edge_label_2"] = "guardian"
+	plan.BindVars["target_type_1"] = "Patient"
+	plan.BindVars["target_type_2"] = "Patient"
+	selector, err := spec.ParseSelector("identifier[]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unnest := plan.Operations[1].Unnest
+	unnest.Owner = PhysicalUnnestOwner{
+		OccurrenceID: "guardian-occurrence", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "node_2",
+		Route: []PhysicalUnnestRouteStep{
+			{OccurrenceID: "subject-occurrence", Traversal: PhysicalTraversal{SourceVariable: "root", TargetVariable: "node_1", EdgeVariable: "edge_1", Direction: PhysicalInbound, EdgeCollectionBindKey: "edge_collection_1", EdgeLabelBindKey: "edge_label_1", TargetTypeBindKey: "target_type_1", EdgeTargetTypeField: "from_type"}},
+			{OccurrenceID: "guardian-occurrence", Traversal: PhysicalTraversal{SourceVariable: "node_1", TargetVariable: "node_2", EdgeVariable: "edge_2", Direction: PhysicalInbound, EdgeCollectionBindKey: "edge_collection_2", EdgeLabelBindKey: "edge_label_2", TargetTypeBindKey: "target_type_2", EdgeTargetTypeField: "from_type"}},
+		},
+	}
+	unnest.Expression = PhysicalExpression{Kind: PhysicalExtractExpression, Cardinality: PhysicalArrayCardinality, NullBehavior: PhysicalEmptyOnNull, Extract: &PhysicalExtract{Source: PhysicalValue{Variable: "node_2", Path: []string{"payload"}}, ResourceType: "Patient", Selector: selector, ExecutionMode: PhysicalSelectorGeneric}}
+	return plan
 }
 
 func TestPhysicalUnnestRejectsInvalidScopeAndCardinality(t *testing.T) {
@@ -48,17 +108,17 @@ func TestPhysicalUnnestRejectsInvalidScopeAndCardinality(t *testing.T) {
 		edit func(*PhysicalPlan)
 		want string
 	}{
-		{"source out of scope", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.InputVariable = "future" }, "out of scope"},
+		{"owner out of scope", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.Owner.RootVariable = "future" }, "out of scope"},
 		{"scalar source", func(plan *PhysicalPlan) {
 			plan.Operations[1].Unnest.Expression.Cardinality = PhysicalScalarCardinality
 		}, "array-valued"},
-		{"shadowed output", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.OutputVariable = "root" }, "shadows"},
+		{"shadowed output", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.OutputVariable = "root" }, "already defined"},
 		{"unsafe ordinality", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.Ordinality = "item.index" }, "unsafe"},
-		{"unknown mode", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.JoinMode = "CROSS" }, "unsupported"},
+		{"unknown empty policy", func(plan *PhysicalPlan) { plan.Operations[1].Unnest.EmptyPolicy = "CROSS" }, "unsupported"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			plan := unnestPlan(PhysicalUnnestInner)
+			plan := unnestPlan(PhysicalUnnestExclude)
 			test.edit(&plan)
 			if err := plan.Validate(); err == nil || !contains(err.Error(), test.want) {
 				t.Fatalf("Validate() = %v, want error containing %q", err, test.want)
@@ -68,13 +128,14 @@ func TestPhysicalUnnestRejectsInvalidScopeAndCardinality(t *testing.T) {
 }
 
 func TestPhysicalUnnestCanBeNestedInSubplan(t *testing.T) {
-	plan := unnestPlan(PhysicalUnnestInner)
+	plan := unnestPlan(PhysicalUnnestExclude)
 	plan.Operations[1] = PhysicalOperation{Kind: PhysicalSetOp, Set: &PhysicalSet{
 		Variable: "items",
 		Subplan: PhysicalSubplan{
 			Captures: []string{"root"},
 			Operations: []PhysicalOperation{{Kind: PhysicalUnnestOp, Unnest: &PhysicalUnnest{
-				InputVariable: "root", OutputVariable: "item", Expression: unnestValueExpression("root"), JoinMode: PhysicalUnnestInner,
+				Owner:          PhysicalUnnestOwner{ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
+				OutputVariable: "item", HasItemVariable: "has_item", Expression: unnestValueExpression("root"), EmptyPolicy: PhysicalUnnestExclude,
 			}}},
 			Return: PhysicalExpression{Kind: PhysicalValueExpression, Cardinality: PhysicalObjectCardinality,
 				NullBehavior: PhysicalPreserveNull, Value: &PhysicalValue{Variable: "item"}},
@@ -87,7 +148,7 @@ func TestPhysicalUnnestCanBeNestedInSubplan(t *testing.T) {
 }
 
 func TestClonePhysicalUnnestClonesExpression(t *testing.T) {
-	plan := unnestPlan(PhysicalUnnestOuter)
+	plan := unnestPlan(PhysicalUnnestPreserveParent)
 	copy := ClonePhysicalPlan(plan)
 	copy.Operations[1].Unnest.Expression.Value.Path[0] = "changed"
 	if got := plan.Operations[1].Unnest.Expression.Value.Path[0]; got != "payload" {

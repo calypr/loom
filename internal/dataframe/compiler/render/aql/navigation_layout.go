@@ -67,7 +67,7 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		index++
 	}
 	if index < last && plan.Operations[index].Kind == ir.PhysicalSortOp {
-		if err := validateGenericNavigationRootSort(plan.Operations[index], layout.root.Variable); err != nil {
+		if err := validateGenericNavigationRootSort(plan.Operations[index], layout.root.Variable, layout.unnests); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: %w", index, err)
 		}
 		layout.rootWindow = append(layout.rootWindow, plan.Operations[index])
@@ -118,8 +118,15 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 	unnestVariables := map[string]struct{}{}
 	for _, unnest := range layout.unnests {
 		unnestVariables[unnest.OutputVariable] = struct{}{}
+		unnestVariables[unnest.HasItemVariable] = struct{}{}
 		if unnest.Ordinality != "" {
 			unnestVariables[unnest.Ordinality] = struct{}{}
+		}
+		for _, step := range unnest.Owner.Route {
+			unnestVariables[step.Traversal.TargetVariable] = struct{}{}
+			if step.Traversal.EdgeVariable != "" {
+				unnestVariables[step.Traversal.EdgeVariable] = struct{}{}
+			}
 		}
 	}
 	reductionVariables := map[string]struct{}{}
@@ -183,9 +190,24 @@ func validateGenericNavigationTraversal(plan ir.PhysicalPlan, traversal ir.Physi
 	return nil
 }
 
-func validateGenericNavigationRootSort(operation ir.PhysicalOperation, rootVariable string) error {
-	if operation.Sort == nil || !sameRenderPhysicalValue(operation.Sort.Value, ir.PhysicalValue{Variable: rootVariable, Path: []string{"_key"}}) {
-		return fmt.Errorf("SORT must order the root variable %s._key", rootVariable)
+func validateGenericNavigationRootSort(operation ir.PhysicalOperation, rootVariable string, unnests []ir.PhysicalUnnest) error {
+	if operation.Sort == nil {
+		return fmt.Errorf("SORT requires typed keys")
+	}
+	want := []ir.PhysicalValue{{Variable: rootVariable, Path: []string{"_key"}}}
+	if len(unnests) > 1 {
+		return fmt.Errorf("generic navigation supports one row expansion")
+	}
+	if len(unnests) == 1 {
+		want = ir.PhysicalUnnestSortKeys(unnests[0])
+	}
+	if len(operation.Sort.Keys) != len(want) {
+		return fmt.Errorf("SORT keys do not match the stable row identity tuple")
+	}
+	for index := range want {
+		if !sameRenderPhysicalValue(operation.Sort.Keys[index], want[index]) {
+			return fmt.Errorf("SORT key %d does not match the stable row identity tuple", index)
+		}
 	}
 	return nil
 }

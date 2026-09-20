@@ -91,7 +91,7 @@ func TestCompilePopulationMappingDefaultIdentityIsStableAcrossInnerOuterExpansio
 		if mode == "OUTER" {
 			for index := range output.Plan.Operations {
 				if output.Plan.Operations[index].Kind == ir.PhysicalUnnestOp && output.Plan.Operations[index].Unnest != nil {
-					output.Plan.Operations[index].Unnest.JoinMode = ir.PhysicalUnnestOuter
+					output.Plan.Operations[index].Unnest.EmptyPolicy = ir.PhysicalUnnestPreserveParent
 				}
 			}
 		}
@@ -235,7 +235,7 @@ func TestCompilePopulationMappingPreservesInnerAndOuterFinalRowSemantics(t *test
 					if output.Plan.Operations[index].Kind != ir.PhysicalUnnestOp || output.Plan.Operations[index].Unnest == nil {
 						continue
 					}
-					output.Plan.Operations[index].Unnest.JoinMode = ir.PhysicalUnnestOuter
+					output.Plan.Operations[index].Unnest.EmptyPolicy = ir.PhysicalUnnestPreserveParent
 					found = true
 				}
 				if !found {
@@ -246,13 +246,13 @@ func TestCompilePopulationMappingPreservesInnerAndOuterFinalRowSemantics(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "INNER" && !strings.Contains(compiled.Query, "FOR item IN") {
+			if mode == "INNER" && !strings.Contains(compiled.Query, "LET item =") {
 				t.Fatalf("inner mapping query lost expansion:\n%s", compiled.Query)
 			}
 			if mode == "OUTER" && !strings.Contains(compiled.Query, "LET item =") {
 				t.Fatalf("outer mapping query lost expansion:\n%s", compiled.Query)
 			}
-			if mode == "INNER" && !strings.Contains(compiled.Query, "FOR item IN __loom_physical_unnest_source_0") {
+			if mode == "INNER" && !strings.Contains(compiled.Query, "LENGTH(__loom_physical_unnest_source_0) == 0 ? [] : RANGE") {
 				t.Fatalf("inner mapping query did not preserve inner expansion:\n%s", compiled.Query)
 			}
 			if mode == "OUTER" && !strings.Contains(compiled.Query, "LENGTH(__loom_physical_unnest_source_0) == 0 ? [null]") {

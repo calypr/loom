@@ -89,10 +89,23 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 
 	out := clonePhysicalPlan(plan)
 	root := out.Operations[0].RootScan.Variable
+	rootKey := ir.PhysicalValue{Variable: root, Path: []string{"_key"}}
+	keys := []ir.PhysicalValue{rootKey}
+	unnestCount := 0
+	for _, operation := range out.Operations {
+		if operation.Kind != ir.PhysicalUnnestOp || operation.Unnest == nil {
+			continue
+		}
+		unnestCount++
+		if unnestCount > 1 {
+			return ir.PhysicalPlan{}, fmt.Errorf("generic execution window supports one row expansion")
+		}
+		keys = ir.PhysicalUnnestSortKeys(*operation.Unnest)
+	}
 	window := []ir.PhysicalOperation{{
 		Kind:   ir.PhysicalSortOp,
 		Source: ir.PhysicalSource{SemanticNode: out.Source.SemanticNode, ResourceType: out.Source.ResourceType, SemanticField: "_key"},
-		Sort:   &ir.PhysicalSort{Value: ir.PhysicalValue{Variable: root, Path: []string{"_key"}}},
+		Sort:   &ir.PhysicalSort{Keys: keys},
 	}}
 	if limit > 0 {
 		if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {

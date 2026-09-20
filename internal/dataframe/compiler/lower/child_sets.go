@@ -152,6 +152,59 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 	return set, projections, nil
 }
 
+func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child semantic.SemanticNode, edgeVariable, targetVariable, prefix string) ([]ir.PhysicalOperation, error) {
+	scope := appendProjectScope(nil, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	scope = appendDatasetGenerationScope(scope, []string{edgeVariable, targetVariable}, child.EdgeLabel, child)
+	scope = appendAuthScope(scope, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: targetVariable, Path: []string{"auth_resource_path"}}}, prefix+"_scope_allowed", child)
+	for index, filter := range child.Filters {
+		if err := spec.ValidateTypedFilterForResource(child.ResourceType, filter); err != nil {
+			return nil, fmt.Errorf("route filter %q: %w", filter.FieldRef, err)
+		}
+		if correlation := filter.Correlation; correlation != nil {
+			if len(filter.Values) != 1 || filter.Values[0].Code == nil {
+				return nil, fmt.Errorf("route correlated filter %q requires one CODE value", filter.FieldRef)
+			}
+			correlated, err := LowerCorrelatedPredicateWithIdentity(physical, child.ResourceType, *correlation, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, *filter.Values[0].Code, fmt.Sprintf("%s_filter_%d", prefix, index+1))
+			if err != nil {
+				return nil, fmt.Errorf("route filter %q correlation: %w", filter.FieldRef, err)
+			}
+			scope = append(scope, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &correlated}}})
+			continue
+		}
+		selector, err := spec.ParseSelector(filter.Selector)
+		if err != nil {
+			return nil, fmt.Errorf("route filter %q selector: %w", filter.FieldRef, err)
+		}
+		predicate := ir.PhysicalPredicate{Operator: string(filter.Operator), Quantifier: filter.Quantifier, ValueKind: filter.FieldKind, LeftExpression: &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, ResourceType: child.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(child.ResourceType, selector)}}}
+		if filter.Operator != spec.FilterExists && filter.Operator != spec.FilterMissing {
+			key := fmt.Sprintf("%s_filter_%d_value", prefix, index+1)
+			if filter.Operator == spec.FilterIn {
+				values := make([]any, 0, len(filter.Values))
+				for _, value := range filter.Values {
+					literal, err := filterLiteral(value)
+					if err != nil {
+						return nil, err
+					}
+					values = append(values, literal)
+				}
+				physical.BindVars[key] = values
+			} else {
+				if len(filter.Values) == 0 {
+					return nil, fmt.Errorf("route filter %q has no value", filter.FieldRef)
+				}
+				literal, err := filterLiteral(filter.Values[0])
+				if err != nil {
+					return nil, err
+				}
+				physical.BindVars[key] = literal
+			}
+			predicate.Right = &ir.PhysicalValue{BindKey: key}
+		}
+		scope = append(scope, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
+	}
+	return scope, nil
+}
+
 // compactPhysicalSetOutput retains graph identity and only the payload needed
 // by downstream selectors/rich consumers. Scope predicates run before this
 // projection, so project, generation, and authorization metadata do not need

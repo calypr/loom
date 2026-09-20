@@ -37,24 +37,25 @@ func TestOptimizePhysicalPlanDoesNotShareAcrossUnnestBarrier(t *testing.T) {
 	}
 }
 
-func TestRewritePhysicalOperationVariablesRewritesUnnestInputAndExpression(t *testing.T) {
+func TestRewritePhysicalOperationVariablesRewritesUnnestOwnerAndExpression(t *testing.T) {
 	op := ir.PhysicalOperation{
 		Kind: ir.PhysicalUnnestOp,
 		Unnest: &ir.PhysicalUnnest{
-			InputVariable:  "target",
+			Owner:          ir.PhysicalUnnestOwner{ResourceType: "Patient", RootVariable: "target", OwnerVariable: "target"},
 			OutputVariable: "item",
+			HasItemVariable: "has_item",
 			Expression: ir.PhysicalExpression{
 				Kind:         ir.PhysicalValueExpression,
 				Cardinality:  ir.PhysicalArrayCardinality,
 				NullBehavior: ir.PhysicalEmptyOnNull,
 				Value:        &ir.PhysicalValue{Variable: "target", Path: []string{"payload"}},
 			},
-			JoinMode: ir.PhysicalUnnestInner,
+			EmptyPolicy: ir.PhysicalUnnestExclude,
 		},
 	}
 	rewritten := rewritePhysicalOperationVariables(op, "target", "shared_item", "edge", "shared_edge")
-	if got := rewritten.Unnest.InputVariable; got != "shared_item" {
-		t.Fatalf("unnest input variable = %q, want shared_item", got)
+	if got := rewritten.Unnest.Owner.OwnerVariable; got != "shared_item" {
+		t.Fatalf("unnest owner variable = %q, want shared_item", got)
 	}
 	if got := rewritten.Unnest.Expression.Value.Variable; got != "shared_item" {
 		t.Fatalf("unnest expression source = %q, want shared_item", got)
@@ -82,15 +83,16 @@ func optimizerBarrierPlan() ir.PhysicalPlan {
 			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
 			{Kind: ir.PhysicalSetOp, Set: optimizerBarrierSet("condition_set", "condition_label", "condition_type")},
 			{Kind: ir.PhysicalUnnestOp, Unnest: &ir.PhysicalUnnest{
-				InputVariable:  "root",
+				Owner:          ir.PhysicalUnnestOwner{OccurrenceID: "root", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
 				OutputVariable: "expanded",
+				HasItemVariable: "has_expanded",
 				Expression: ir.PhysicalExpression{
 					Kind:         ir.PhysicalValueExpression,
 					Cardinality:  ir.PhysicalArrayCardinality,
 					NullBehavior: ir.PhysicalEmptyOnNull,
 					Value:        &ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
 				},
-				JoinMode: ir.PhysicalUnnestInner,
+				EmptyPolicy: ir.PhysicalUnnestExclude,
 			}},
 			{Kind: ir.PhysicalSetOp, Set: optimizerBarrierSet("specimen_set", "specimen_label", "specimen_type")},
 			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}}}},

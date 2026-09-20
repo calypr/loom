@@ -197,14 +197,7 @@ func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (strin
 	if operationIndex > len(plan.Operations) {
 		return "", fmt.Errorf("operation index %d is outside plan", operationIndex)
 	}
-	type unnestScope struct {
-		InputVariable  string
-		OutputVariable string
-		Ordinality     string
-		Expression     PhysicalExpression
-		JoinMode       PhysicalUnnestJoinMode
-	}
-	active := make([]unnestScope, 0)
+	active := make([]PhysicalUnnest, 0)
 	for index := 0; index < operationIndex; index++ {
 		operation := plan.Operations[index]
 		if operation.Kind != PhysicalUnnestOp {
@@ -214,13 +207,7 @@ func physicalUnnestScopeIdentityAt(plan PhysicalPlan, operationIndex int) (strin
 			return "", fmt.Errorf("unnest operation %d has no payload", index)
 		}
 		unnest := operation.Unnest
-		active = append(active, unnestScope{
-			InputVariable:  unnest.InputVariable,
-			OutputVariable: unnest.OutputVariable,
-			Ordinality:     unnest.Ordinality,
-			Expression:     unnest.Expression,
-			JoinMode:       unnest.JoinMode,
-		})
+		active = append(active, *unnest)
 	}
 	if len(active) == 0 {
 		return "", nil

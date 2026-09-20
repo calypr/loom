@@ -57,7 +57,23 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	if err := appendRootPhysicalFilters(&physical, output.Root); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
-	if err := appendRequiredTraversalMatchFilters(&physical, output.Root); err != nil {
+	var err error
+	var expansionPath []semanticpkg.SemanticNode
+	selectedRouteOccurrences := map[string]struct{}{}
+	if expansion := output.RowExpansion; expansion != nil {
+		expansionPath, err = semanticExpansionOwnerPath(output.Root, expansion.Owner)
+		if err != nil {
+			return ir.PhysicalPlan{}, err
+		}
+		for _, node := range expansionPath[1:] {
+			selectedRouteOccurrences[node.OccurrenceID] = struct{}{}
+		}
+	}
+	if err := appendRequiredTraversalMatchFiltersExcept(&physical, output.Root, selectedRouteOccurrences); err != nil {
+		return ir.PhysicalPlan{}, err
+	}
+	expansionBindings, err := appendRecipeRowExpansion(&physical, output, expansionPath, policy)
+	if err != nil {
 		return ir.PhysicalPlan{}, err
 	}
 
@@ -66,10 +82,31 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	rootBindings := map[string]physicalSemanticBinding{
 		"root": {ResourceType: output.Root.ResourceType, Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}},
 	}
+	if expansion := output.RowExpansion; expansion != nil {
+		itemType := expansionItemResourceType(output)
+		if itemType == "" {
+			itemType = expansion.Owner.ResourceType
+		}
+		rootBindings[expansion.ItemBinding] = physicalSemanticBinding{ResourceType: itemType, Source: ir.PhysicalValue{Variable: expansion.ItemBinding}}
+	}
 	var walk func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error
 	walk = func(parent semanticpkg.SemanticNode, parentVariable, projectionPrefix string, bindings map[string]physicalSemanticBinding) error {
 		for _, child := range parent.Children {
 			childBindings := clonePhysicalSemanticBindings(bindings)
+			if routeBinding, selectedRoute := expansionBindings[child.OccurrenceID]; selectedRoute {
+				childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
+				childSource := ir.PhysicalValue{Variable: routeBinding.Variable, Path: []string{"payload"}}
+				childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: childSource}
+				projections, err := semanticNodePhysicalProjections(&physical, child, childSource, childBindings, lowerer, childProjectionPrefix)
+				if err != nil {
+					return fmt.Errorf("selected expansion route occurrence %q: %w", child.OccurrenceID, err)
+				}
+				returnProjections = append(returnProjections, projections...)
+				if err := walk(child, routeBinding.Variable, childProjectionPrefix, childBindings); err != nil {
+					return err
+				}
+				continue
+			}
 			if child.MatchMode.Required() {
 				// Required routes are represented by the root semi-join emitted
 				// above for membership, but they may still need a materialized
@@ -93,6 +130,11 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 				continue
 			}
 			if !physicalNodeNeedsMaterializedSet(child) {
+				if output.RowExpansion != nil {
+					// An unselected leaf contributes no output. Traversing it directly
+					// would add a top-level FOR and multiply the expanded row grain.
+					continue
+				}
 				traversalIndex := 1
 				for _, operation := range physical.Operations {
 					if operation.Kind == ir.PhysicalTraversalOp {

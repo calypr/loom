@@ -146,26 +146,62 @@ const (
 	PhysicalPopulationMappingExplicitIdentityField = "__loom_population_explicit_identity"
 )
 
-// PhysicalUnnestJoinMode controls the row-preservation contract for a
-// cardinality-changing operation. The renderer chooses the equivalent AQL
-// shape; this IR never stores a query fragment.
-type PhysicalUnnestJoinMode string
+// PhysicalUnnestEmptyPolicy controls null/empty source behavior. The renderer
+// owns the AQL shape; this IR never stores a query fragment.
+type PhysicalUnnestEmptyPolicy string
 
 const (
-	PhysicalUnnestInner PhysicalUnnestJoinMode = "INNER"
-	PhysicalUnnestOuter PhysicalUnnestJoinMode = "OUTER"
+	PhysicalUnnestError          PhysicalUnnestEmptyPolicy = "ERROR"
+	PhysicalUnnestExclude        PhysicalUnnestEmptyPolicy = "EXCLUDE"
+	PhysicalUnnestPreserveParent PhysicalUnnestEmptyPolicy = "PRESERVE_PARENT"
 )
 
-// PhysicalUnnest introduces OutputVariable for each item produced by the
-// array-valued Expression. Ordinality, when present, is a stable zero-based
-// item position. InputVariable identifies the parent lexical scope used by
-// the source expression and is a cardinality/scope barrier for optimizers.
+// PhysicalUnnestOwner describes the exact root-to-owner route evaluated before
+// the selected repeated value is expanded. An empty Route means the owner is
+// the root document.
+type PhysicalUnnestOwner struct {
+	OccurrenceID  string
+	ResourceType  string
+	RootVariable  string
+	OwnerVariable string
+	Route         []PhysicalUnnestRouteStep
+}
+
+type PhysicalUnnestRouteStep struct {
+	OccurrenceID string
+	Traversal    PhysicalTraversal
+	Scope        []PhysicalOperation
+}
+
+// PhysicalUnnest is the single enriched cardinality boundary. It carries the
+// typed owner route, source, empty policy, and compiler-owned item evidence.
 type PhysicalUnnest struct {
-	InputVariable  string
-	OutputVariable string
-	Ordinality     string
-	Expression     PhysicalExpression
-	JoinMode       PhysicalUnnestJoinMode
+	Owner           PhysicalUnnestOwner
+	OutputVariable  string
+	Ordinality      string
+	HasItemVariable string
+	Expression      PhysicalExpression
+	EmptyPolicy     PhysicalUnnestEmptyPolicy
+}
+
+// PhysicalUnnestSortKeys is the compiler-owned stable ordering tuple for an
+// expanded row window. Route edges are preserved in route order so two graph
+// paths to the same owner remain distinct ordered witnesses.
+func PhysicalUnnestSortKeys(unnest PhysicalUnnest) []PhysicalValue {
+	keys := []PhysicalValue{{Variable: unnest.Owner.RootVariable, Path: []string{"_key"}}}
+	for _, step := range unnest.Owner.Route {
+		if step.Traversal.EdgeVariable != "" {
+			keys = append(keys, PhysicalValue{Variable: step.Traversal.EdgeVariable, Path: []string{"_key"}})
+		}
+	}
+	if unnest.Owner.OwnerVariable != unnest.Owner.RootVariable {
+		keys = append(keys, PhysicalValue{Variable: unnest.Owner.OwnerVariable, Path: []string{"_key"}})
+	}
+	keys = append(keys, PhysicalValue{Variable: unnest.HasItemVariable})
+	if unnest.Ordinality != "" {
+		keys = append(keys, PhysicalValue{Variable: unnest.Ordinality})
+	}
+	return keys
 }
 
 // PhysicalSetProjection is a single-materialization selector projection. The
@@ -310,11 +346,11 @@ type PhysicalExpressionLet struct {
 	Expression PhysicalExpression
 }
 
-// PhysicalSort is the deliberately small ordering primitive currently needed
-// by generic root-grain previews. Additional sort keys and directions should
-// be added only with a corresponding semantic ordering contract.
+// PhysicalSort carries one or more typed keys for a deterministic execution
+// window. Key order is semantic: expanded rows include their occurrence and
+// owner-relative item witnesses after the root identity.
 type PhysicalSort struct {
-	Value PhysicalValue
+	Keys []PhysicalValue
 }
 
 // PhysicalLimit references a positive integer bind value. Keeping the value

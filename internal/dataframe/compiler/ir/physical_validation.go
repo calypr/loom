@@ -51,39 +51,8 @@ func (p PhysicalPlan) Validate() error {
 				}
 			}
 		case PhysicalTraversalOp:
-			traversal := operation.Traversal
-			if !defined[traversal.SourceVariable] {
-				return fmt.Errorf("operation %d: traversal source variable %q is out of scope", i, traversal.SourceVariable)
-			}
-			if traversal.Direction != PhysicalOutbound && traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalAny {
-				return fmt.Errorf("operation %d: invalid traversal direction %q", i, traversal.Direction)
-			}
-			if traversal.EdgeTargetTypeField != "" && !physicalPathPartPattern.MatchString(traversal.EdgeTargetTypeField) {
-				return fmt.Errorf("operation %d: unsafe traversal edge type field %q", i, traversal.EdgeTargetTypeField)
-			}
-			if err := validatePhysicalTraversalStrategy(*traversal); err != nil {
+			if err := validateAndDefinePhysicalTraversal(*operation.Traversal, defined, p.BindVars); err != nil {
 				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			for _, key := range []string{traversal.EdgeCollectionBindKey, traversal.EdgeLabelBindKey, traversal.TargetTypeBindKey} {
-				if key != "" {
-					if err := requireBind(p.BindVars, key); err != nil {
-						return fmt.Errorf("operation %d: %w", i, err)
-					}
-				}
-			}
-			if traversal.EdgeCollectionBindKey == "" {
-				return fmt.Errorf("operation %d: traversal edge collection bind key is required", i)
-			}
-			if err := requireCollectionBind(p.BindVars, traversal.EdgeCollectionBindKey); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if err := definePhysicalVariable(defined, traversal.TargetVariable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if traversal.EdgeVariable != "" {
-				if err := definePhysicalVariable(defined, traversal.EdgeVariable); err != nil {
-					return fmt.Errorf("operation %d: %w", i, err)
-				}
 			}
 		case PhysicalFilterOp:
 			if err := validatePhysicalFilter(*operation.Filter, defined, p.BindVars); err != nil {
@@ -129,17 +98,17 @@ func (p PhysicalPlan) Validate() error {
 			if err := validatePhysicalUnnest(*operation.Unnest, defined, p.BindVars); err != nil {
 				return fmt.Errorf("operation %d unnest: %w", i, err)
 			}
-			if err := definePhysicalVariable(defined, operation.Unnest.OutputVariable); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
-			}
-			if operation.Unnest.Ordinality != "" {
-				if err := definePhysicalVariable(defined, operation.Unnest.Ordinality); err != nil {
-					return fmt.Errorf("operation %d: %w", i, err)
-				}
+			if err := definePhysicalUnnestVariables(*operation.Unnest, defined); err != nil {
+				return fmt.Errorf("operation %d unnest bindings: %w", i, err)
 			}
 		case PhysicalSortOp:
-			if err := validatePhysicalValue(operation.Sort.Value, defined, p.BindVars); err != nil {
-				return fmt.Errorf("operation %d: %w", i, err)
+			if len(operation.Sort.Keys) == 0 {
+				return fmt.Errorf("operation %d sort requires at least one key", i)
+			}
+			for keyIndex, key := range operation.Sort.Keys {
+				if err := validatePhysicalValue(key, defined, p.BindVars); err != nil {
+					return fmt.Errorf("operation %d sort key %d: %w", i, keyIndex, err)
+				}
 			}
 		case PhysicalLimitOp:
 			if err := requireBind(p.BindVars, operation.Limit.BindKey); err != nil {
@@ -545,39 +514,184 @@ func validatePhysicalSet(set PhysicalSet, parent map[string]bool, bindVars map[s
 	return validatePhysicalExpression(set.Subplan.Return, defined, bindVars)
 }
 
+func validateAndDefinePhysicalTraversal(traversal PhysicalTraversal, defined map[string]bool, bindVars map[string]any) error {
+	if !defined[traversal.SourceVariable] {
+		return fmt.Errorf("traversal source variable %q is out of scope", traversal.SourceVariable)
+	}
+	if traversal.Direction != PhysicalOutbound && traversal.Direction != PhysicalInbound && traversal.Direction != PhysicalAny {
+		return fmt.Errorf("invalid traversal direction %q", traversal.Direction)
+	}
+	if traversal.EdgeTargetTypeField != "" && !physicalPathPartPattern.MatchString(traversal.EdgeTargetTypeField) {
+		return fmt.Errorf("unsafe traversal edge type field %q", traversal.EdgeTargetTypeField)
+	}
+	if err := validatePhysicalTraversalStrategy(traversal); err != nil {
+		return err
+	}
+	for _, key := range []string{traversal.EdgeCollectionBindKey, traversal.EdgeLabelBindKey, traversal.TargetTypeBindKey} {
+		if key != "" {
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+		}
+	}
+	if traversal.EdgeCollectionBindKey == "" {
+		return fmt.Errorf("traversal edge collection bind key is required")
+	}
+	if err := requireCollectionBind(bindVars, traversal.EdgeCollectionBindKey); err != nil {
+		return err
+	}
+	if err := definePhysicalVariable(defined, traversal.TargetVariable); err != nil {
+		return err
+	}
+	if traversal.EdgeVariable != "" {
+		if err := definePhysicalVariable(defined, traversal.EdgeVariable); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validatePhysicalUnnest(unnest PhysicalUnnest, defined map[string]bool, bindVars map[string]any) error {
-	if !physicalVariablePattern.MatchString(unnest.InputVariable) {
-		return fmt.Errorf("unnest input variable %q is unsafe", unnest.InputVariable)
+	owner := unnest.Owner
+	if !physicalVariablePattern.MatchString(owner.RootVariable) || !defined[owner.RootVariable] {
+		return fmt.Errorf("unnest root variable %q is unsafe or out of scope", owner.RootVariable)
 	}
-	if !defined[unnest.InputVariable] {
-		return fmt.Errorf("unnest input variable %q is out of scope", unnest.InputVariable)
+	if !schemaDefinitionExists(owner.ResourceType) {
+		return fmt.Errorf("unnest owner has invalid resource type %q", owner.ResourceType)
 	}
-	if !physicalVariablePattern.MatchString(unnest.OutputVariable) {
-		return fmt.Errorf("unnest output variable %q is unsafe", unnest.OutputVariable)
-	}
-	if unnest.OutputVariable == unnest.InputVariable {
-		return fmt.Errorf("unnest output variable %q shadows its input variable", unnest.OutputVariable)
-	}
-	if unnest.Ordinality != "" {
-		if !physicalVariablePattern.MatchString(unnest.Ordinality) {
-			return fmt.Errorf("unnest ordinality variable %q is unsafe", unnest.Ordinality)
+	routeScope := cloneDefinedPhysicalVariables(defined)
+	previousVariable := owner.RootVariable
+	for index, step := range owner.Route {
+		if strings.TrimSpace(step.OccurrenceID) == "" {
+			return fmt.Errorf("unnest owner route step %d is missing an occurrence ID", index)
 		}
-		if unnest.Ordinality == unnest.InputVariable || unnest.Ordinality == unnest.OutputVariable {
-			return fmt.Errorf("unnest ordinality variable %q shadows an existing unnest binding", unnest.Ordinality)
+		if step.Traversal.SourceVariable != previousVariable {
+			return fmt.Errorf("unnest owner route step %d starts at %q, want %q", index, step.Traversal.SourceVariable, previousVariable)
+		}
+		if err := validateAndDefinePhysicalTraversal(step.Traversal, routeScope, bindVars); err != nil {
+			return fmt.Errorf("unnest owner route step %d: %w", index, err)
+		}
+		for scopeIndex, operation := range step.Scope {
+			if err := validatePhysicalUnnestRouteScopeOperation(operation, routeScope, bindVars); err != nil {
+				return fmt.Errorf("unnest owner route step %d scope operation %d: %w", index, scopeIndex, err)
+			}
+		}
+		previousVariable = step.Traversal.TargetVariable
+	}
+	if !physicalVariablePattern.MatchString(owner.OwnerVariable) {
+		return fmt.Errorf("unnest owner variable %q is unsafe", owner.OwnerVariable)
+	}
+	if owner.OwnerVariable != previousVariable {
+		return fmt.Errorf("unnest owner variable %q does not match route terminal %q", owner.OwnerVariable, previousVariable)
+	}
+	if len(owner.Route) == 0 {
+		if owner.OccurrenceID == "" {
+			// Legacy direct-root recipes have no authored root occurrence ID.
+			// The root variable still identifies their unique owner occurrence.
+		}
+	} else {
+		last := owner.Route[len(owner.Route)-1]
+		if owner.OccurrenceID != last.OccurrenceID {
+			return fmt.Errorf("unnest owner occurrence %q does not match route terminal %q", owner.OccurrenceID, last.OccurrenceID)
+		}
+		if targetType, ok := bindVars[last.Traversal.TargetTypeBindKey].(string); !ok || targetType != owner.ResourceType {
+			return fmt.Errorf("unnest owner resource type %q does not match route terminal type", owner.ResourceType)
 		}
 	}
-	switch unnest.JoinMode {
-	case PhysicalUnnestInner, PhysicalUnnestOuter:
+	if !physicalVariablePattern.MatchString(unnest.OutputVariable) || !physicalVariablePattern.MatchString(unnest.HasItemVariable) {
+		return fmt.Errorf("unnest output and item discriminator variables must be safe")
+	}
+	if unnest.Ordinality != "" && !physicalVariablePattern.MatchString(unnest.Ordinality) {
+		return fmt.Errorf("unnest ordinality variable %q is unsafe", unnest.Ordinality)
+	}
+	switch unnest.EmptyPolicy {
+	case PhysicalUnnestError, PhysicalUnnestExclude, PhysicalUnnestPreserveParent:
 	default:
-		return fmt.Errorf("unsupported unnest join mode %q", unnest.JoinMode)
+		return fmt.Errorf("unsupported unnest empty policy %q", unnest.EmptyPolicy)
 	}
 	if unnest.Expression.Cardinality != PhysicalArrayCardinality {
 		return fmt.Errorf("unnest source expression must be array-valued, got %q", unnest.Expression.Cardinality)
 	}
-	if err := validatePhysicalExpression(unnest.Expression, defined, bindVars); err != nil {
+	if unnest.Expression.Extract != nil && len(owner.Route) > 0 {
+		if unnest.Expression.Extract.Source.Variable != owner.OwnerVariable || unnest.Expression.Extract.ResourceType != owner.ResourceType {
+			return fmt.Errorf("unnest source expression is not bound to its exact owner occurrence")
+		}
+	}
+	if err := validatePhysicalExpression(unnest.Expression, routeScope, bindVars); err != nil {
 		return fmt.Errorf("unnest source expression: %w", err)
 	}
+	if err := definePhysicalUnnestOutputs(unnest, routeScope); err != nil {
+		return fmt.Errorf("unnest output bindings: %w", err)
+	}
 	return nil
+}
+
+func validatePhysicalUnnestRouteScopeOperation(operation PhysicalOperation, defined map[string]bool, bindVars map[string]any) error {
+	if err := operation.validatePayload(); err != nil {
+		return err
+	}
+	switch operation.Kind {
+	case PhysicalFilterOp:
+		return validatePhysicalFilter(*operation.Filter, defined, bindVars)
+	case PhysicalDerivedLetOp:
+		if err := validatePhysicalDerivedLet(*operation.DerivedLet, defined, bindVars); err != nil {
+			return err
+		}
+		return definePhysicalVariable(defined, operation.DerivedLet.Variable)
+	case PhysicalExpressionLetOp:
+		if err := validatePhysicalExpression(operation.ExpressionLet.Expression, defined, bindVars); err != nil {
+			return err
+		}
+		return definePhysicalVariable(defined, operation.ExpressionLet.Variable)
+	default:
+		return fmt.Errorf("unsupported route scope operation %q", operation.Kind)
+	}
+}
+
+func definePhysicalUnnestVariables(unnest PhysicalUnnest, defined map[string]bool) error {
+	for _, step := range unnest.Owner.Route {
+		if err := definePhysicalVariable(defined, step.Traversal.TargetVariable); err != nil {
+			return err
+		}
+		if step.Traversal.EdgeVariable != "" {
+			if err := definePhysicalVariable(defined, step.Traversal.EdgeVariable); err != nil {
+				return err
+			}
+		}
+		for _, operation := range step.Scope {
+			switch operation.Kind {
+			case PhysicalDerivedLetOp:
+				if err := definePhysicalVariable(defined, operation.DerivedLet.Variable); err != nil {
+					return err
+				}
+			case PhysicalExpressionLetOp:
+				if err := definePhysicalVariable(defined, operation.ExpressionLet.Variable); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return definePhysicalUnnestOutputs(unnest, defined)
+}
+
+func definePhysicalUnnestOutputs(unnest PhysicalUnnest, defined map[string]bool) error {
+	for _, variable := range []string{unnest.OutputVariable, unnest.HasItemVariable, unnest.Ordinality} {
+		if variable == "" {
+			continue
+		}
+		if err := definePhysicalVariable(defined, variable); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cloneDefinedPhysicalVariables(defined map[string]bool) map[string]bool {
+	copy := make(map[string]bool, len(defined))
+	for variable, present := range defined {
+		copy[variable] = present
+	}
+	return copy
 }
 
 func (operation PhysicalOperation) validatePayload() error {
