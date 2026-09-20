@@ -43,6 +43,15 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if !ok || !root.graph.RowRootEligible {
 		return Result{}, fail("lower", "UNSUPPORTED_ROW_ROOT", "$.rootResourceType", "root resource type is not an eligible recipe row root", map[string]any{"resourceType": root.graph.ResourceType}, nil)
 	}
+	var expansion *recipe.Expansion
+	if document.Rows.Kind == authoringv2.RowDefinitionExpanded {
+		compiled, err := compileExpandedRows(document.Rows.Expanded, document.Route, occurrences, snapshot)
+		if err != nil {
+			return Result{}, err
+		}
+		expansion = &compiled
+		rowGrain = spec.RowGrainExpanded
+	}
 
 	nodes := make(map[string]*semanticRecipeNode, len(occurrences))
 	for id := range occurrences {
@@ -51,7 +60,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
 	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
-	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: "none", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
+	rowMultiplication := "none"
+	if expansion != nil {
+		rowMultiplication = "expand"
+	}
+	contract := explorer.PublicOutputContract{OutputID: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RowMultiplication: rowMultiplication, Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: make([]explorer.PublicOutputColumn, 0, len(document.Columns))}
 	countEmissions := map[string]int{}
 	presentationOrder := 0
 
@@ -351,7 +364,10 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, Expand: expansion, CollisionPolicy: "error"}
+	if expansion != nil {
+		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
+	}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
 	if err := bundle.Validate(); err != nil {
@@ -570,7 +586,7 @@ func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]sema
 		if child.MatchMode.Normalized() == authoringv2.RouteMatchRequired {
 			matchMode = recipe.MatchRequired
 		}
-		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, OwnerRecords: node.ownerRecords, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
+		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), OccurrenceID: child.OccurrenceID, Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, OwnerRecords: node.ownerRecords, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
 	}
 	return result
 }

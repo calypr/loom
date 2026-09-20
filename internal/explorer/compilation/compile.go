@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const TranslationVersion = "authoring-v2-native-9"
+const TranslationVersion = "authoring-v2-native-10"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // remain transport-neutral so adapters never parse error strings.

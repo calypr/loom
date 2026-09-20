@@ -207,7 +207,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 	if c.RowGrain != "" && c.RowGrain != compiledOutput.RowGrain {
 		return invalidOutputContract("rowGrain %q does not match compiled recipe %q", c.RowGrain, compiledOutput.RowGrain)
 	}
-	if c.RowMultiplication != "" && c.RowMultiplication != "none" {
+	if c.RowMultiplication != "" && c.RowMultiplication != "none" && c.RowMultiplication != "expand" {
 		return invalidOutputContract("unsupported rowMultiplication %q", c.RowMultiplication)
 	}
 	if len(c.Columns) != len(emitted) {
