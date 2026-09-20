@@ -155,7 +155,12 @@ UPSERT {_key: doc._key}
 INSERT doc
 UPDATE {}
 IN @@c
-RETURN NEW._key`, len(docs), map[string]any{"@c": ExplicitGroupDefinitionsCollection, "docs": docs}, func(map[string]any) error { return nil }); err != nil {
+RETURN {key: NEW._key}`, len(docs), map[string]any{"@c": ExplicitGroupDefinitionsCollection, "docs": docs}, func(row map[string]any) error {
+			if _, ok := row["key"].(string); !ok {
+				return explorer.ErrCorruptExplicitGroupRevision
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
 		stored, err = listExplicitGroupDefinitions(txCtx, tx, *header)
