@@ -27,6 +27,10 @@ import type {
   RowChangeUnresolvedReference,
 } from '../../types';
 import { BuilderToolbar } from './components/BuilderToolbar';
+import {
+  DatasetReviewPanel,
+  type DatasetReviewTarget,
+} from './components/DatasetReviewPanel';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
 import { ConceptCatalog } from './components/ConceptCatalog';
@@ -267,6 +271,12 @@ const BuilderWorkspaceContent = ({
   const [firstTableName, setFirstTableName] = useState('');
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewFocusTarget, setReviewFocusTarget] =
+    useState<Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }>>();
+  const [reviewFocusColumn, setReviewFocusColumn] = useState<
+    Extract<DatasetReviewTarget, { readonly kind: 'column' }>
+  >();
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
@@ -474,7 +484,7 @@ const BuilderWorkspaceContent = ({
     return targetTable && column ? { table: targetTable, column } : undefined;
   }, [featureFocus, state.tables]);
   useEffect(() => {
-    if (!focusedFeature) return;
+    if (!focusedFeature || reviewFocusTarget) return;
     if (state.selectedOutputId !== focusedFeature.table.outputId) {
       dispatch({ type: 'selectTable', outputId: focusedFeature.table.outputId });
       return;
@@ -482,7 +492,58 @@ const BuilderWorkspaceContent = ({
     if (state.selectedOccurrenceId !== focusedFeature.column.occurrenceId) {
       dispatch({ type: 'selectOccurrence', occurrenceId: focusedFeature.column.occurrenceId });
     }
-  }, [dispatch, focusedFeature, state.selectedOccurrenceId, state.selectedOutputId]);
+  }, [dispatch, focusedFeature, reviewFocusTarget, state.selectedOccurrenceId, state.selectedOutputId]);
+  const focusDatasetReviewTarget = useCallback((target: DatasetReviewTarget) => {
+    if (target.kind === 'new-table') {
+      setReviewOpen(false);
+      setReviewFocusColumn(undefined);
+      setReviewFocusTarget(undefined);
+      window.setTimeout(() => document.getElementById('first-table-name')?.focus(), 0);
+      return;
+    }
+    dispatch({ type: 'selectTable', outputId: target.outputId });
+    setReviewOpen(false);
+    setReviewFocusTarget(target);
+    if (target.kind === 'column') {
+      setFeatureMode('catalog');
+      setReviewFocusColumn(target);
+      dispatch({ type: 'selectOccurrence', occurrenceId: target.occurrenceId });
+      return;
+    }
+    setReviewFocusColumn(undefined);
+    if (target.kind === 'table' || (target.kind === 'row' && target.control === 'row-type')) {
+      setFeatureMode('catalog');
+    }
+  }, [dispatch]);
+  useEffect(() => {
+    if (!reviewFocusTarget || state.selectedOutputId !== reviewFocusTarget.outputId) return;
+    const focusTarget = reviewFocusTarget;
+    const timer = window.setTimeout(() => {
+      if (focusTarget.kind === 'column') {
+        document
+          .querySelector<HTMLElement>('[data-feature-focus="true"]')
+          ?.scrollIntoView({ block: 'center' });
+        return;
+      }
+      if (focusTarget.kind === 'row') {
+        const selector = focusTarget.control === 'row-type'
+          ? '[aria-label="Search row types"]'
+          : '[aria-label="One row per"]';
+        const control = document.querySelector<HTMLElement>(selector);
+        control?.closest('section')?.scrollIntoView({ block: 'center' });
+        control?.focus();
+        return;
+      }
+      const targetTable = state.tables.find((candidate) => candidate.outputId === focusTarget.outputId);
+      const selector = targetTable?.document.rootResourceType
+        ? '[aria-label="Search columns"]'
+        : '[aria-label="Search row types"]';
+      const control = document.querySelector<HTMLElement>(selector);
+      control?.closest('section')?.scrollIntoView({ block: 'center' });
+      control?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [reviewFocusTarget, state.selectedOutputId, state.tables]);
   const handedOffPopulationSelectionID = populationSelection?.id;
   useEffect(() => {
     setActivePopulationSelection(populationSelection);
@@ -1240,6 +1301,8 @@ const BuilderWorkspaceContent = ({
         void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
       }}
       onPreview={() => void preview()}
+      onReview={() => setReviewOpen((open) => !open)}
+      reviewExpanded={reviewOpen}
       onPublish={() => void publish()}
       previewDisabled={previewDisabled}
       publishDisabled={publishDisabled}
@@ -1253,6 +1316,18 @@ const BuilderWorkspaceContent = ({
   return (
     <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
+      {reviewOpen ? (
+        <DatasetReviewPanel
+          tables={state.tables}
+          catalog={state.catalog}
+          receipt={state.receipt}
+          preview={state.preview}
+          diagnostics={state.diagnostics}
+          reconciliation={state.reconciliation}
+          onFocus={focusDatasetReviewTarget}
+          onClose={() => setReviewOpen(false)}
+        />
+      ) : null}
       <div className="mx-auto max-w-[1920px] space-y-3">
         {(message ||
           blockingDiagnostics ||
@@ -1526,7 +1601,13 @@ const BuilderWorkspaceContent = ({
                 interpretationContext={interpretationContext}
                 table={table}
                 occurrenceId={state.selectedOccurrenceId}
-                focusColumn={focusedFeature && focusedFeature.table.outputId === table?.outputId ? focusedFeature.column.column : undefined}
+                focusColumn={
+                  reviewFocusColumn && reviewFocusColumn.outputId === table?.outputId
+                    ? reviewFocusColumn.column
+                    : focusedFeature && focusedFeature.table.outputId === table?.outputId
+                      ? focusedFeature.column.column
+                      : undefined
+                }
                 disabled={!occurrence}
                 showAvailable={featureMode === 'graph'}
                 loadingCandidates={suggestionsStatus.isLoading}

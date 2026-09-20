@@ -23,6 +23,8 @@ interface BuilderToolbarProps {
   onDeleteTable: () => void;
   onReorderTable: (outputId: string, before?: string) => void;
   onPreview: () => void;
+  onReview: () => void;
+  reviewExpanded: boolean;
   onPublish: () => void;
   previewDisabled: boolean;
   publishDisabled: boolean;
@@ -196,6 +198,8 @@ export function BuilderToolbar({
   onDeleteTable,
   onReorderTable,
   onPreview,
+  onReview,
+  reviewExpanded,
   onPublish,
   previewDisabled,
   publishDisabled,
@@ -363,6 +367,16 @@ export function BuilderToolbar({
             className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
           >
             Preview
+          </button>
+          <button
+            type="button"
+            onClick={onReview}
+            aria-expanded={reviewExpanded}
+            aria-controls="dataset-review-panel"
+            className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+            disabled={busy}
+          >
+            Review dataset
           </button>
           <button
             type="button"

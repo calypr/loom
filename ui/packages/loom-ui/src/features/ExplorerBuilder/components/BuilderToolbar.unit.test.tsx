@@ -47,6 +47,8 @@ describe('BuilderToolbar', () => {
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
         onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
         previewDisabled={false}
         publishDisabled={false}
@@ -107,6 +109,8 @@ describe('BuilderToolbar', () => {
         onDeleteTable={vi.fn()}
         onReorderTable={onReorderTable}
         onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
         previewDisabled={false}
         publishDisabled={false}
@@ -154,6 +158,8 @@ describe('BuilderToolbar', () => {
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
         onPreview={vi.fn()}
+        onReview={vi.fn()}
+        reviewExpanded={false}
         onPublish={vi.fn()}
         previewDisabled={false}
         publishDisabled={false}
@@ -165,5 +171,44 @@ describe('BuilderToolbar', () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('aria-busy', 'true');
     expect(button.querySelector('.animate-spin')).not.toBeNull();
+  });
+
+  it('offers dataset review before the existing Publish action', () => {
+    const onReview = vi.fn();
+    const onPublish = vi.fn();
+    render(
+      <BuilderToolbar
+        explorers={[]}
+        selectedExplorerId="default"
+        onExplorerChange={vi.fn()}
+        onCreateExplorer={vi.fn()}
+        deleteSupported={false}
+        onDeleteExplorer={vi.fn()}
+        tables={[draftTable('Patient', 'Patient')]}
+        selectedOutputId="Patient"
+        onSelectTable={vi.fn()}
+        onRenameTable={vi.fn()}
+        onNewTable={vi.fn()}
+        onDuplicateTable={vi.fn()}
+        onDeleteTable={vi.fn()}
+        onReorderTable={vi.fn()}
+        onPreview={vi.fn()}
+        onReview={onReview}
+        reviewExpanded
+        onPublish={onPublish}
+        previewDisabled={false}
+        publishDisabled={false}
+        publishing={false}
+      />,
+    );
+
+    const review = screen.getByRole('button', { name: 'Review dataset' });
+    const publish = screen.getByRole('button', { name: 'Publish' });
+    expect(review).toHaveAttribute('aria-expanded', 'true');
+    expect(review).toHaveAttribute('aria-controls', 'dataset-review-panel');
+    expect(review.compareDocumentPosition(publish) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(publish).toBeEnabled();
+    fireEvent.click(review);
+    expect(onReview).toHaveBeenCalledTimes(1);
   });
 });

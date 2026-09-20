@@ -11,7 +11,7 @@ const lossLabels: Readonly<Record<string, string>> = {
   AGGREGATE_REDUCTION: 'Records are summarized. Individual input values are not retained.',
   RELATED_LOOKUP_REDUCTION: 'The lookup does not preserve every related record.',
 };
-const lossLabel = (reason: string): string => lossLabels[reason] ?? reason;
+export const lossLabel = (reason: string): string => lossLabels[reason] ?? reason;
 const structureLabels = {
   scalar: 'Scalar columns',
   array: 'Includes arrays',
