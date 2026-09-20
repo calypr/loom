@@ -30,50 +30,153 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		}
 	}
 	scope := newRootScope(output.RootResourceType)
-	var rowExpansion *SemanticRowExpansion
+	projectionScope := scope
+	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
 	if output.Expand != nil {
-		if ownerID := output.Expand.OwnerOccurrenceID; ownerID != "" && ownerID != output.RootOccurrenceID {
-			return OutputPlan{}, fmt.Errorf("expand owner occurrence %q does not identify the root occurrence %q", ownerID, output.RootOccurrenceID)
+		occurrences, err := recipeOccurrenceIndex(output)
+		if err != nil {
+			return OutputPlan{}, err
 		}
-		// The source is checked in the parent lexical scope first, then its
-		// selector path becomes the prefix for the expansion item alias.
-		from, err := scope.expression(output.Expand.From, "expand.from")
+		owner, ownerScope, ownerRoute, err := expansionOwner(output, occurrences)
+		if err != nil {
+			return OutputPlan{}, err
+		}
+		from, err := ownerScope.expression(output.Expand.From, "expand.from")
 		if err != nil {
 			return OutputPlan{}, err
 		}
 		if from.Expression.Selector == nil || from.Type.Cardinality != expression.Many {
-			return OutputPlan{}, fmt.Errorf("expand.from must be a repeated selector")
+			return OutputPlan{}, fmt.Errorf("expand.from must be a repeated selector on owner occurrence %q", owner.OccurrenceID)
 		}
 		ref := from.Expression.Selector
-		binding, err := scopeBindingForSelector(scope, *ref)
-		if err != nil {
-			return OutputPlan{}, err
+		selectorOwner := ref.Context
+		if selectorOwner == "" {
+			selectorOwner = "root"
 		}
-		prefix := binding.Prefix
-		if prefix != "" {
-			prefix += "."
+		if selectorOwner != owner.Alias {
+			return OutputPlan{}, fmt.Errorf("expand.from selector context %q does not match owner occurrence %q", selectorOwner, owner.OccurrenceID)
 		}
-		// The expansion alias denotes one item, not the repeated collection.
-		// An explicit index keeps schema cardinality scalar while retaining the
-		// canonical array path for generated metadata.
-		prefix += strings.TrimSuffix(strings.TrimPrefix(ref.Path, "."), "[]") + "[0]"
-		scope, err = scope.child(output.Expand.As, scopeBinding{ResourceType: binding.ResourceType, Prefix: prefix, ExpandedItem: true})
-		if err != nil {
-			return OutputPlan{}, err
-		}
-		rowExpansion = &SemanticRowExpansion{
-			Owner:  SemanticOccurrence{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType},
-			Source: from, ItemBinding: output.Expand.As, Ordinality: output.Expand.Ordinality,
+		rowExpansion := &SemanticRowExpansion{
+			Owner: owner, Source: from, ItemBinding: output.Expand.As,
+			Ordinality:  output.Expand.Ordinality,
 			EmptyPolicy: ExpansionEmptyPolicy(output.Expand.EmptyPolicy.Normalized()),
 		}
 		if err := rowExpansion.Validate(); err != nil {
 			return OutputPlan{}, fmt.Errorf("expand: %w", err)
 		}
-		plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy, RowExpansion: rowExpansion}
-		return finishRecipeOutput(plan, output, scope)
+		projectionScope, err = expansionItemScope(ownerScope, *rowExpansion)
+		if err != nil {
+			return OutputPlan{}, err
+		}
+		if err := validateExpansionRouteIDs(ownerRoute); err != nil {
+			return OutputPlan{}, err
+		}
+		plan.RowExpansion = rowExpansion
+		if owner.Alias == "root" {
+			scope = projectionScope
+		}
 	}
-	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
-	return finishRecipeOutput(plan, output, scope)
+	return finishRecipeOutput(plan, output, scope, projectionScope)
+}
+
+type recipeOccurrenceBinding struct {
+	Occurrence SemanticOccurrence
+	Scope      scopeFrame
+	Route      []SemanticOccurrence
+}
+
+func recipeOccurrenceIndex(output recipe.Output) (map[string]recipeOccurrenceBinding, error) {
+	root := SemanticOccurrence{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType}
+	rootBinding := recipeOccurrenceBinding{Occurrence: root, Scope: newRootScope(output.RootResourceType), Route: []SemanticOccurrence{root}}
+	occurrences := make(map[string]recipeOccurrenceBinding)
+	seen := make(map[string]string)
+	if root.OccurrenceID != "" {
+		occurrences[root.OccurrenceID] = rootBinding
+		seen[root.OccurrenceID] = "root"
+	}
+	if err := indexRecipeTraversalOccurrences(output.Traversals, rootBinding.Scope, rootBinding.Route, "traversals", occurrences, seen); err != nil {
+		return nil, err
+	}
+	for id, path := range seen {
+		if strings.Contains(path, ", ") {
+			return nil, fmt.Errorf("occurrence ID %q is ambiguous at %s", id, path)
+		}
+	}
+	return occurrences, nil
+}
+
+func indexRecipeTraversalOccurrences(items []recipe.Traversal, parent scopeFrame, route []SemanticOccurrence, path string, occurrences map[string]recipeOccurrenceBinding, seen map[string]string) error {
+	for index, traversal := range items {
+		stepPath := fmt.Sprintf("%s[%d]", path, index)
+		if !fhirschema.HasResource(traversal.ToResourceType) {
+			return fmt.Errorf("%s: target resource type %q is not represented by the active generated FHIR schema", stepPath, traversal.ToResourceType)
+		}
+		alias := traversal.Alias
+		if strings.TrimSpace(alias) == "" {
+			alias = traversal.Name
+		}
+		childScope, err := parent.child(alias, scopeBinding{ResourceType: traversal.ToResourceType})
+		if err != nil {
+			return fmt.Errorf("%s: %w", stepPath, err)
+		}
+		occurrence := SemanticOccurrence{OccurrenceID: traversal.OccurrenceID, Alias: alias, ResourceType: traversal.ToResourceType}
+		childRoute := append(append([]SemanticOccurrence(nil), route...), occurrence)
+		if occurrence.OccurrenceID != "" {
+			if previous, duplicate := seen[occurrence.OccurrenceID]; duplicate {
+				seen[occurrence.OccurrenceID] = previous + ", " + stepPath
+			} else {
+				seen[occurrence.OccurrenceID] = stepPath
+			}
+			occurrences[occurrence.OccurrenceID] = recipeOccurrenceBinding{Occurrence: occurrence, Scope: childScope, Route: childRoute}
+		}
+		if err := indexRecipeTraversalOccurrences(traversal.Traversals, childScope, childRoute, stepPath+".traversals", occurrences, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func expansionOwner(output recipe.Output, occurrences map[string]recipeOccurrenceBinding) (SemanticOccurrence, scopeFrame, []SemanticOccurrence, error) {
+	root := SemanticOccurrence{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType}
+	rootBinding := recipeOccurrenceBinding{Occurrence: root, Scope: newRootScope(output.RootResourceType), Route: []SemanticOccurrence{root}}
+	ownerID := output.Expand.OwnerOccurrenceID
+	if ownerID == "" {
+		return rootBinding.Occurrence, rootBinding.Scope, rootBinding.Route, nil
+	}
+	owner, ok := occurrences[ownerID]
+	if !ok {
+		return SemanticOccurrence{}, scopeFrame{}, nil, fmt.Errorf("expand owner occurrence %q does not exist in the output route", ownerID)
+	}
+	return owner.Occurrence, owner.Scope, owner.Route, nil
+}
+
+func validateExpansionRouteIDs(route []SemanticOccurrence) error {
+	if len(route) <= 1 {
+		return nil
+	}
+	for _, occurrence := range route {
+		if occurrence.OccurrenceID == "" {
+			return fmt.Errorf("expansion route occurrence %q is missing an occurrence ID", occurrence.Alias)
+		}
+	}
+	return nil
+}
+
+func expansionItemScope(ownerScope scopeFrame, expansion SemanticRowExpansion) (scopeFrame, error) {
+	selector := expansion.Source.Expression.Selector
+	if selector == nil {
+		return scopeFrame{}, fmt.Errorf("row expansion source must be a selector")
+	}
+	binding, err := scopeBindingForSelector(ownerScope, *selector)
+	if err != nil {
+		return scopeFrame{}, err
+	}
+	prefix := binding.Prefix
+	if prefix != "" {
+		prefix += "."
+	}
+	prefix += strings.TrimSuffix(strings.TrimPrefix(selector.Path, "."), "[]") + "[0]"
+	return ownerScope.child(expansion.ItemBinding, scopeBinding{ResourceType: binding.ResourceType, Prefix: prefix, ExpandedItem: true})
 }
 
 func validCustomGrain(value string) bool {
@@ -89,7 +192,7 @@ func validCustomGrain(value string) bool {
 	return true
 }
 
-func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame) (OutputPlan, error) {
+func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projectionScope scopeFrame) (OutputPlan, error) {
 	if output.Population != nil {
 		route := make([]SemanticPopulationRouteStep, len(output.Population.Route))
 		for index, step := range output.Population.Route {
@@ -110,7 +213,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 		return OutputPlan{}, fmt.Errorf("root filters: %w", err)
 	}
 	plan.Root.Filters = rootFilters
-	plan.Root.Pivots, plan.Root.Aggregates, plan.Root.Slices, err = lowerRecipeRichShaping(output.RootResourceType, "root", scope, output.Pivots, output.Aggregates, output.Slices)
+	plan.Root.Pivots, plan.Root.Aggregates, plan.Root.Slices, err = lowerRecipeRichShaping(output.RootResourceType, "root", projectionScope, output.Pivots, output.Aggregates, output.Slices)
 	if err != nil {
 		return OutputPlan{}, fmt.Errorf("root rich shaping: %w", err)
 	}
@@ -119,14 +222,14 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 		return OutputPlan{}, fmt.Errorf("root owner records: %w", err)
 	}
 	for index, field := range output.Fields {
-		normalized, err := normalizeRecipeProjection(field, scope, fmt.Sprintf("fields[%d]", index))
+		normalized, err := normalizeRecipeProjection(field, projectionScope, fmt.Sprintf("fields[%d]", index))
 		if err != nil {
 			return OutputPlan{}, fmt.Errorf("field %q: %w", field.Name, err)
 		}
 		plan.Root.Fields = append(plan.Root.Fields, normalized)
 	}
 	for index, traversal := range output.Traversals {
-		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index))
+		child, err := buildRecipeTraversal(traversal, scope, fmt.Sprintf("traversals[%d]", index), plan.RowExpansion)
 		if err != nil {
 			return OutputPlan{}, err
 		}
@@ -139,7 +242,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 			}
 			plan.ExpansionIdentity = true
 		} else {
-			x, err := scope.expression(output.Identity.Expr, "identity.expr")
+			x, err := projectionScope.expression(output.Identity.Expr, "identity.expr")
 			if err != nil {
 				return OutputPlan{}, err
 			}
@@ -149,13 +252,13 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 			plan.Identity = &x
 		}
 	}
-	dynamicMaps, err := buildRecipeDynamicMaps(output.DynamicColumns, scope, "dynamicColumns", "", output.RootResourceType)
+	dynamicMaps, err := buildRecipeDynamicMaps(output.DynamicColumns, projectionScope, "dynamicColumns", "", output.RootResourceType)
 	if err != nil {
 		return OutputPlan{}, err
 	}
 	plan.DynamicMaps = append(plan.DynamicMaps, dynamicMaps...)
 	plan.Root.DynamicMaps = append(plan.Root.DynamicMaps, dynamicMaps...)
-	extensionMaps, err := buildRecipeExtensionMaps(output.ExtensionColumns, scope, "extensionColumns", "", output.RootResourceType)
+	extensionMaps, err := buildRecipeExtensionMaps(output.ExtensionColumns, projectionScope, "extensionColumns", "", output.RootResourceType)
 	if err != nil {
 		return OutputPlan{}, err
 	}
@@ -164,7 +267,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 	return plan, nil
 }
 
-func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string) (SemanticNode, error) {
+func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string, expansion *SemanticRowExpansion) (SemanticNode, error) {
 	if !fhirschema.HasResource(input.ToResourceType) {
 		return SemanticNode{}, fmt.Errorf("%s: target resource type %q is not represented by the active generated FHIR schema", path, input.ToResourceType)
 	}
@@ -172,11 +275,17 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	if strings.TrimSpace(alias) == "" {
 		alias = input.Name
 	}
-	input = qualifyTraversalLocals(input, alias, parent.aliases)
 	scope, err := parent.child(alias, scopeBinding{ResourceType: input.ToResourceType})
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if expansion != nil && expansion.Owner.OccurrenceID != "" && expansion.Owner.OccurrenceID == input.OccurrenceID {
+		scope, err = expansionItemScope(scope, *expansion)
+		if err != nil {
+			return SemanticNode{}, fmt.Errorf("%s expansion scope: %w", path, err)
+		}
+	}
+	input = qualifyTraversalLocals(input, alias, scope.aliases)
 	matchMode, err := NormalizeRecipeMatchMode(input.MatchMode)
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s.matchMode: %w", path, err)
@@ -219,7 +328,7 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 		node.Fields = append(node.Fields, normalized)
 	}
 	for index, child := range input.Traversals {
-		nested, err := buildRecipeTraversal(child, scope, fmt.Sprintf("%s.traversals[%d]", path, index))
+		nested, err := buildRecipeTraversal(child, scope, fmt.Sprintf("%s.traversals[%d]", path, index), expansion)
 		if err != nil {
 			return SemanticNode{}, err
 		}

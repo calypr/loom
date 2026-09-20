@@ -134,7 +134,79 @@ func TestRootOccurrenceExpansionAndTypedIdentity(t *testing.T) {
 
 func TestRootExpansionRejectsStaleOwnerOccurrence(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "stale-owner", TranslationVersion: "1", Outputs: []recipe.Output{{Name: "x", RootResourceType: "Patient", RootOccurrenceID: "current-root", RowGrain: "expanded", Expand: &recipe.Expansion{OwnerOccurrenceID: "stale-root", From: recipe.Expression{Select: "identifier[]"}, As: "item"}, Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}}}}}
-	if _, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), "does not identify the root occurrence") {
+	if _, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), "does not exist in the output route") {
 		t.Fatalf("expected stale owner occurrence rejection, got %v", err)
+	}
+}
+
+func TestDeepExpansionSelectsExactSameTypedOccurrence(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1, Name: "deep-expansion", TranslationVersion: "1",
+		Outputs: []recipe.Output{{
+			Name: "x", RootResourceType: "Patient", RootOccurrenceID: "root-patient", RowGrain: "expanded",
+			Expand:   &recipe.Expansion{OwnerOccurrenceID: "guardian-patient", From: recipe.Expression{Select: "guardian.identifier[]"}, As: "item", EmptyPolicy: recipe.ExpansionExclude},
+			Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+			Traversals: []recipe.Traversal{{
+				Name: "subject", OccurrenceID: "subject-patient", ToResourceType: "Patient",
+				Traversals: []recipe.Traversal{{Name: "guardian", OccurrenceID: "guardian-patient", ToResourceType: "Patient"}},
+			}},
+		}},
+	}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := plan.Outputs[0]
+	if got := output.RowExpansion.Owner; got != (SemanticOccurrence{OccurrenceID: "guardian-patient", Alias: "guardian", ResourceType: "Patient"}) {
+		t.Fatalf("expansion owner = %#v", got)
+	}
+	if output.RowExpansion.Source.Context != "guardian" {
+		t.Fatalf("expansion source context = %q, want exact owner alias", output.RowExpansion.Source.Context)
+	}
+	if output.Root.Children[0].OccurrenceID != "subject-patient" || output.Root.Children[0].Children[0].OccurrenceID != "guardian-patient" {
+		t.Fatalf("semantic route lost authored occurrence IDs: %#v", output.Root.Children)
+	}
+}
+
+func TestExpansionRejectsAmbiguousMissingAndOutOfScopeOwnerIntent(t *testing.T) {
+	base := recipe.Bundle{
+		RecipeSchemaVersion: 1, Name: "invalid-owner", TranslationVersion: "1",
+		Outputs: []recipe.Output{{
+			Name: "x", RootResourceType: "Patient", RootOccurrenceID: "root-patient", RowGrain: "expanded",
+			Expand:   &recipe.Expansion{OwnerOccurrenceID: "guardian-patient", From: recipe.Expression{Select: "guardian.identifier[]"}, As: "item"},
+			Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+			Traversals: []recipe.Traversal{{
+				Name: "subject", OccurrenceID: "subject-patient", ToResourceType: "Patient",
+				Traversals: []recipe.Traversal{{Name: "guardian", OccurrenceID: "guardian-patient", ToResourceType: "Patient"}},
+			}},
+		}},
+	}
+	tests := []struct {
+		name   string
+		mutate func(*recipe.Output)
+		want   string
+	}{
+		{name: "stale occurrence", mutate: func(output *recipe.Output) { output.Expand.OwnerOccurrenceID = "stale" }, want: "does not exist"},
+		{name: "scalar source", mutate: func(output *recipe.Output) { output.Expand.From = recipe.Expression{Select: "guardian.gender"} }, want: "repeated selector"},
+		{name: "source outside owner", mutate: func(output *recipe.Output) { output.Expand.From = recipe.Expression{Select: "root.identifier[]"} }, want: "does not match owner occurrence"},
+		{name: "missing route occurrence", mutate: func(output *recipe.Output) { output.RootOccurrenceID = "" }, want: "missing an occurrence ID"},
+		{name: "duplicate occurrence", mutate: func(output *recipe.Output) {
+			output.Traversals = append(output.Traversals, recipe.Traversal{Name: "other", OccurrenceID: "guardian-patient", ToResourceType: "Patient"})
+		}, want: "ambiguous"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bundle := base
+			bundle.Outputs = append([]recipe.Output(nil), base.Outputs...)
+			output := bundle.Outputs[0]
+			expansion := *base.Outputs[0].Expand
+			output.Expand = &expansion
+			output.Traversals = append([]recipe.Traversal(nil), base.Outputs[0].Traversals...)
+			test.mutate(&output)
+			bundle.Outputs[0] = output
+			if _, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"}); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("BuildRecipePlan() error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
