@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
@@ -632,4 +633,252 @@ func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	if len(requiredRows) != 1 || requiredRows[0]["patient_id"] != "p1" || requiredRows[0]["registered_count"] != float64(1) || requiredRows[0]["cancelled_count"] != float64(2) {
 		t.Fatalf("required-match rows=%#v, want only p1 with independent contributor counts 1 and 2", requiredRows)
 	}
+}
+
+func TestRecipeOccurrenceExpansionLiteralRowsAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	key := func(prefix string) string { return prefix + strings.ReplaceAll(uuid.NewString(), "-", "") }
+	project, generation := key("loom_expansion_project_"), key("generation_")
+	patientKey, emptyPatientKey := key("patient_"), key("patient_empty_")
+	sharedSpecimenKey, emptySpecimenKey := key("specimen_shared_"), key("specimen_empty_")
+	observationKeys := []string{key("observation_"), key("observation_"), key("observation_"), key("observation_")}
+	documents := map[string][]json.RawMessage{"Patient": {}, "Observation": {}, "Specimen": {}}
+	edges := []json.RawMessage{}
+	appendJSON := func(collection string, value map[string]any) {
+		t.Helper()
+		raw, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		documents[collection] = append(documents[collection], raw)
+	}
+	appendResource := func(collection, documentKey, resourceType string, payload map[string]any) {
+		payload["id"], payload["resourceType"] = documentKey, resourceType
+		appendJSON(collection, map[string]any{
+			"_key": documentKey, "id": documentKey, "project": project, "project_id": project,
+			"resourceType": resourceType, "dataset_generation": generation, "payload": payload,
+		})
+	}
+	appendEdge := func(edgeKey, from, to, label, fromType, toType string) {
+		raw, marshalErr := json.Marshal(map[string]any{
+			"_key": edgeKey, "_from": from, "_to": to, "project": project, "project_id": project,
+			"dataset_generation": generation, "label": label, "from_type": fromType, "to_type": toType,
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		edges = append(edges, raw)
+	}
+	appendResource("Patient", patientKey, "Patient", map[string]any{
+		"name":       []any{map[string]any{"text": "duplicate"}, map[string]any{"text": "duplicate"}},
+		"identifier": []any{map[string]any{"value": "id-one"}, map[string]any{"value": "id-two"}},
+	})
+	appendResource("Patient", emptyPatientKey, "Patient", map[string]any{"name": []any{}})
+	for _, observationKey := range observationKeys {
+		appendResource("Observation", observationKey, "Observation", map[string]any{})
+	}
+	appendResource("Specimen", sharedSpecimenKey, "Specimen", map[string]any{
+		"container": []any{map[string]any{"description": "same-container"}, map[string]any{"description": "same-container"}},
+	})
+	appendResource("Specimen", emptySpecimenKey, "Specimen", map[string]any{"container": []any{}})
+	for index, observationKey := range observationKeys {
+		appendEdge(key("patient_observation_edge_"), "Observation/"+observationKey, "Patient/"+patientKey, "subject_Patient", "Observation", "Patient")
+		if index < 2 {
+			appendEdge(key("observation_shared_specimen_edge_"), "Observation/"+observationKey, "Specimen/"+sharedSpecimenKey, "specimen_Specimen", "Observation", "Specimen")
+		} else if index == 2 {
+			appendEdge(key("observation_empty_specimen_edge_"), "Observation/"+observationKey, "Specimen/"+emptySpecimenKey, "specimen_Specimen", "Observation", "Specimen")
+		}
+	}
+	for _, collection := range []string{"Patient", "Observation", "Specimen"} {
+		if err := client.InsertBatchRaw(ctx, collection, documents[collection], false, "document"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+
+	rootOutput := recipe.Output{
+		Name: "ExpandedPatientNames", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "identifier_values", Expr: recipe.Expression{Select: "root.identifier[].value"}, ValueMode: recipe.ValueModeAll},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "patient-root", From: recipe.Expression{Select: "root.name[]"}, As: "expanded_name", Ordinality: "position", EmptyPolicy: recipe.ExpansionExclude},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	}
+	rootRows := runRecipeExpansionQuery(t, ctx, client, project, generation, rootOutput)
+	if len(rootRows) != 2 {
+		t.Fatalf("EXCLUDE root rows = %#v, want two repeated values and no row for the empty root", rootRows)
+	}
+	rootOrdinals := map[float64]bool{}
+	for _, row := range rootRows {
+		if row["patient_id"] != patientKey {
+			t.Fatalf("expanded root row = %#v, want only the populated root", row)
+		}
+		if got := row["identifier_values"]; !reflect.DeepEqual(got, []any{"id-one", "id-two"}) {
+			t.Fatalf("unrelated repeated identifier collection = %#v, want both values without multiplying rows", got)
+		}
+		identity := expansionIdentityFromRow(t, row)
+		if identity["root_id"] != "Patient/"+patientKey || identity["occurrence_id"] != "patient-root" || identity["owner_id"] != "Patient/"+patientKey || identity["item_present"] != true {
+			t.Fatalf("root expansion identity = %#v", identity)
+		}
+		ordinal, ok := identity["ordinal"].(float64)
+		if !ok || ordinal > 1 || rootOrdinals[ordinal] {
+			t.Fatalf("root ordinal = %#v, seen=%#v", identity["ordinal"], rootOrdinals)
+		}
+		rootOrdinals[ordinal] = true
+	}
+	if !rootOrdinals[0] || !rootOrdinals[1] {
+		t.Fatalf("duplicate equal root items did not retain distinct ordinals: %#v", rootOrdinals)
+	}
+	t.Logf("root expansion rows: %#v", rootRows)
+
+	rootOutput.Expand.EmptyPolicy = recipe.ExpansionPreserveParent
+	preservedRootRows := runRecipeExpansionQuery(t, ctx, client, project, generation, rootOutput)
+	if len(preservedRootRows) != 3 {
+		t.Fatalf("PRESERVE_PARENT root rows = %#v, want two items plus one empty-owner row", preservedRootRows)
+	}
+	var preservedEmptyRoot bool
+	for _, row := range preservedRootRows {
+		identity := expansionIdentityFromRow(t, row)
+		if identity["owner_id"] == "Patient/"+emptyPatientKey {
+			preservedEmptyRoot = true
+			if identity["item_present"] != false || identity["ordinal"] != nil {
+				t.Fatalf("empty root identity = %#v, want no item and null ordinal", identity)
+			}
+		}
+	}
+	if !preservedEmptyRoot {
+		t.Fatalf("PRESERVE_PARENT omitted the existing empty root: %#v", preservedRootRows)
+	}
+
+	deepOutput := recipe.Output{
+		Name: "ExpandedSpecimenContainers", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",
+		TraversalColumnNaming: recipe.TraversalColumnNamingAlias,
+		Fields:                []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Expand:                &recipe.Expansion{OwnerOccurrenceID: "specimen-owner", From: recipe.Expression{Select: "specimen.container[]"}, As: "container_item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity:              &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", OccurrenceID: "observation-owner", Alias: "observation", ToResourceType: "Observation",
+			Traversals: []recipe.Traversal{{Name: "specimen_Specimen", OccurrenceID: "specimen-owner", Alias: "specimen", ToResourceType: "Specimen"}},
+		}},
+	}
+	deepRows := runRecipeExpansionQuery(t, ctx, client, project, generation, deepOutput)
+	secondDeepRows := runRecipeExpansionQuery(t, ctx, client, project, generation, deepOutput)
+	if len(deepRows) != 5 || len(secondDeepRows) != 5 {
+		t.Fatalf("deep preserve rows = %d / %d, want four path-item rows and one existing-empty-owner row", len(deepRows), len(secondDeepRows))
+	}
+	firstIdentities := make([]map[string]any, 0, len(deepRows))
+	secondIdentities := make([]map[string]any, 0, len(secondDeepRows))
+	for _, row := range deepRows {
+		firstIdentities = append(firstIdentities, expansionIdentityFromRow(t, row))
+	}
+	for _, row := range secondDeepRows {
+		secondIdentities = append(secondIdentities, expansionIdentityFromRow(t, row))
+	}
+	if !reflect.DeepEqual(firstIdentities, secondIdentities) {
+		t.Fatalf("hidden expansion identities changed across identical executions: %#v != %#v", firstIdentities, secondIdentities)
+	}
+	t.Logf("related expansion identities: %#v", firstIdentities)
+	pathWitnesses := map[float64]map[string]bool{0: {}, 1: {}}
+	itemCounts := map[float64]int{}
+	var emptyOwnerRows int
+	for index, row := range deepRows {
+		identity := firstIdentities[index]
+		if identity["root_id"] != "Patient/"+patientKey || identity["occurrence_id"] != "specimen-owner" {
+			t.Fatalf("deep expansion identity = %#v", identity)
+		}
+		if identity["owner_id"] == "Specimen/"+emptySpecimenKey {
+			emptyOwnerRows++
+			if identity["item_present"] != false || identity["ordinal"] != nil {
+				t.Fatalf("empty related owner row=%#v identity=%#v", row, identity)
+			}
+			continue
+		}
+		if identity["owner_id"] != "Specimen/"+sharedSpecimenKey || identity["item_present"] != true {
+			t.Fatalf("expanded related row=%#v identity=%#v", row, identity)
+		}
+		ordinal, ok := identity["ordinal"].(float64)
+		if !ok || (ordinal != 0 && ordinal != 1) {
+			t.Fatalf("deep ordinal = %#v", identity["ordinal"])
+		}
+		path := fmt.Sprint(identity["edge_0_id"], "|", identity["edge_1_id"])
+		pathWitnesses[ordinal][path] = true
+		itemCounts[ordinal]++
+	}
+	if emptyOwnerRows != 1 || itemCounts[0] != 2 || itemCounts[1] != 2 || len(pathWitnesses[0]) != 2 || len(pathWitnesses[1]) != 2 {
+		t.Fatalf("deep owner/item/path witnesses: empty=%d counts=%#v paths=%#v", emptyOwnerRows, itemCounts, pathWitnesses)
+	}
+	for ordinal, paths := range pathWitnesses {
+		if len(paths) != 2 {
+			t.Fatalf("duplicate graph paths to one owner collapsed for ordinal %v: %#v", ordinal, paths)
+		}
+	}
+
+	deepOutput.Expand.EmptyPolicy = recipe.ExpansionError
+	queries, err := compileRecipeExpansionQuery(t, project, generation, deepOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(map[string]any) error { return nil })
+	if queryErr == nil || !strings.Contains(queryErr.Error(), "specimen-owner") || !strings.Contains(queryErr.Error(), emptySpecimenKey) {
+		t.Fatalf("ERROR policy error = %v, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", queryErr, emptySpecimenKey, queries[0].Query)
+	}
+}
+
+func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *store.Client, project, generation string, output recipe.Output) []map[string]any {
+	t.Helper()
+	queries, err := compileRecipeExpansionQuery(t, project, generation, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := make([]map[string]any, 0)
+	if err := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute occurrence expansion query: %v\n%s", err, queries[0].Query)
+	}
+	return rows
+}
+
+func compileRecipeExpansionQuery(t *testing.T, project, generation string, output recipe.Output) ([]CompiledQuery, error) {
+	t.Helper()
+	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "literal-occurrence-expansion", TranslationVersion: "test", Outputs: []recipe.Output{output},
+	}, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		return nil, err
+	}
+	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+}
+
+func expansionIdentityFromRow(t *testing.T, row map[string]any) map[string]any {
+	t.Helper()
+	identity, ok := row["__loom_expansion_identity"].(map[string]any)
+	if !ok {
+		t.Fatalf("hidden expansion identity = %#v, want object", row["__loom_expansion_identity"])
+	}
+	return identity
 }
