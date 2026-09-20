@@ -73,7 +73,11 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	if len(columns) == 0 {
 		return ArtifactResult{}, unprocessable("artifact", "NO_EXPORTABLE_COLUMNS", "the published output has no exportable columns", nil)
 	}
-	format, err := dataframepublished.ResolveArtifactFormat(dataframepublished.ArtifactFormatAuto, columns)
+	requestedFormat := dataframepublished.ArtifactFormatAuto
+	if !artifactColumnsContainRowIdentity(descriptor, columns) {
+		requestedFormat = dataframepublished.ArtifactFormatJSONL
+	}
+	format, err := dataframepublished.ResolveArtifactFormat(requestedFormat, columns)
 	if err != nil {
 		return ArtifactResult{}, malformed("artifact", err.Error(), err)
 	}
@@ -423,6 +427,19 @@ func artifactColumnNames(columns []dataframepublished.ArtifactColumn) []string {
 		names[i] = columns[i].Name
 	}
 	return names
+}
+
+func artifactColumnsContainRowIdentity(descriptor dataframepublished.ArtifactDescriptor, columns []dataframepublished.ArtifactColumn) bool {
+	identityColumn := strings.TrimSpace(descriptor.RowIdentity.SourceIDColumn)
+	if identityColumn == "" {
+		return false
+	}
+	for _, column := range columns {
+		if column.Name == identityColumn || column.OutputKey == identityColumn {
+			return true
+		}
+	}
+	return false
 }
 
 func artifactQualityReport(revision explorer.Revision, outputID string, receipt explorer.CompilationReceipt) (publication.QualityReport, error) {

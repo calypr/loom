@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
@@ -184,6 +185,39 @@ func TestPrepareArtifactCommitsExactOutputAndIsIdempotent(t *testing.T) {
 	if err != nil || !bytes.HasPrefix(archive, []byte("PK")) {
 		t.Fatalf("archive read err=%v prefix=%q", err, archive[:minInt(len(archive), 2)])
 	}
+}
+
+func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
+	backend, artifacts, reader, snapshot, receipt := artifactTestFixture(t)
+	reader.materialization.SourceRow = nil
+	reader.rows[0]["__loom_row_id"] = map[string]any{"groupRevisionId": "groups-1", "groupId": "group-1"}
+	domain, err := explorer.NewService(backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(domain, Config{ArtifactStore: artifacts, PublishedReader: reader, Capability: CapabilityResolver{ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.PrepareArtifact(context.Background(), ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "group-download"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Record == nil || result.Record.Format != dataframepublished.ArtifactFormatJSONL {
+		t.Fatalf("artifact record = %#v, want JSONL", result.Record)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(artifacts.data[result.Record.ID]), int64(len(artifacts.data[result.Record.ID])))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range archive.File {
+		if member.Name == "data.jsonl" {
+			return
+		}
+	}
+	t.Fatal("typed artifact omitted data.jsonl")
 }
 
 func TestArtifactQualityAcceptsLegacyStorageProjectIdentity(t *testing.T) {

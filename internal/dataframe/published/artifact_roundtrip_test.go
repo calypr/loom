@@ -45,7 +45,7 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 			"items":      []any{"x", json.Number("2"), false}, "present_null": nil,
 		},
 		{
-			artifactRowIdentityKey: "row-0002", "observation_id": "obs-2",
+			artifactRowIdentityKey: map[string]any{"groupRevisionId": "groups-1", "groupId": "group-2"}, "observation_id": "obs-2",
 			"count":      uint64(18446744073709551615),
 			"code_value": map[string]any{"system": "https://example.test/codes", "code": "B-2", "display": "Beta"},
 			"detail":     map[string]any{"nested": map[string]any{"enabled": false}, "rank": json.Number("4")},
@@ -111,12 +111,12 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 	decoder := json.NewDecoder(bytes.NewReader(jsonl))
 	decoder.UseNumber()
 	decoded := make([]struct {
-		RowID  string         `json:"rowId"`
+		RowID  any            `json:"rowId"`
 		Values map[string]any `json:"values"`
 	}, 0, 2)
 	for decoder.More() {
 		var row struct {
-			RowID  string         `json:"rowId"`
+			RowID  any            `json:"rowId"`
 			Values map[string]any `json:"values"`
 		}
 		if err := decoder.Decode(&row); err != nil {
@@ -127,8 +127,8 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 	if len(decoded) != 2 {
 		t.Fatalf("decoded rows = %d, want 2", len(decoded))
 	}
-	if got := []string{decoded[0].RowID, decoded[1].RowID}; !reflect.DeepEqual(got, []string{"row-0001", "row-0002"}) {
-		t.Fatalf("row membership identity = %#v", got)
+	if decoded[0].RowID != "row-0001" || !reflect.DeepEqual(decoded[1].RowID, map[string]any{"groupRevisionId": "groups-1", "groupId": "group-2"}) {
+		t.Fatalf("row membership identity = %#v / %#v", decoded[0].RowID, decoded[1].RowID)
 	}
 	first, second := decoded[0].Values, decoded[1].Values
 	if first["count"] != json.Number("9007199254740993") || second["count"] != json.Number("18446744073709551615") {

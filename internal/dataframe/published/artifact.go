@@ -542,8 +542,11 @@ func artifactValueString(value any) (string, error) {
 }
 
 func writeArtifactJSONLRow(writer io.Writer, row map[string]any, columns []ArtifactColumn) error {
-	rowID, ok := row[artifactRowIdentityKey].(string)
-	if !ok || strings.TrimSpace(rowID) == "" {
+	rowID, ok := row[artifactRowIdentityKey]
+	if !ok || isNilArtifactValue(rowID) {
+		return fmt.Errorf("typed artifact row is missing stable identity")
+	}
+	if text, isText := rowID.(string); isText && strings.TrimSpace(text) == "" {
 		return fmt.Errorf("typed artifact row is missing stable identity")
 	}
 	values := make(map[string]any, len(columns))
