@@ -10,7 +10,9 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
@@ -112,6 +114,126 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	fieldSource, err := generated.ConstructionChoice.Source.AsFieldChoiceSource()
 	if err != nil || fieldSource.Kind != loomapi.FieldChoiceSourceKindFIELD || fieldSource.CandidateId != "c_patient_birth_date" || fieldSource.Path != "birthDate" {
 		t.Fatalf("generated field choice source=%#v err=%v", fieldSource, err)
+	}
+}
+
+func TestBuilderStateGeneratedContractPreservesCandidateCapabilities(t *testing.T) {
+	state := authoringv2.BuilderState{
+		APIVersion:     authoringv2.APIVersion,
+		Kind:           authoringv2.StateKind,
+		LifecycleState: "NEW",
+		Catalog: authoringv2.CatalogSnapshot{
+			SourceGeneration:         "generation-a",
+			AuthorizationScopeDigest: "scope-a",
+			SnapshotToken:            "snapshot-a",
+			Complete:                 true,
+			Nodes:                    []authoringv2.CatalogNode{},
+			Edges:                    []authoringv2.CatalogEdge{},
+			Candidates: []authoringv2.CatalogCandidate{{
+				ID:                    "c_height_value",
+				NodeID:                "n_observation",
+				FieldPath:             "valueQuantity.value",
+				Label:                 "Height",
+				LogicalType:           "decimal",
+				Cardinality:           "optional_one",
+				Filterable:            true,
+				Chartable:             true,
+				ProjectionModes:       []string{"VALUE"},
+				DefaultProjectionMode: "VALUE",
+				AggregateOperations: []capability.AggregateOperationCapability{{
+					Operation:  capability.AggregateSum,
+					RowContext: capability.AggregateRowsRecords,
+					Supported:  true,
+				}},
+				Transformations: authoringv2.AggregateTransformationCapabilities{
+					Temporal: authoringv2.TemporalReductionCapabilities{
+						Available: true,
+						TimestampFields: []authoringv2.TemporalFieldChoice{{
+							CandidateID:  "c_observation_issued",
+							NodeID:       "n_observation",
+							ResourceType: "Observation",
+							FieldPath:    "issued",
+							Label:        "Issued",
+						}},
+						AnchorFields: []authoringv2.TemporalFieldChoice{{
+							CandidateID:  "c_patient_birth_date",
+							NodeID:       "n_patient",
+							ResourceType: "Patient",
+							FieldPath:    "birthDate",
+							Label:        "Birth date",
+						}},
+					},
+					UnitNormalization: authoringv2.UnitNormalizationCapabilities{
+						Available: true,
+						Presets: []authoringv2.UnitNormalizationPresetCapability{{
+							PolicyID:  "ucum-pressure",
+							Version:   "1",
+							Target:    unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
+							Available: true,
+						}},
+					},
+				},
+			}},
+			RoutePolicy: authoringv2.RoutePolicy{AllowRepeatedEdges: true, AllowSelfLoops: true},
+		},
+	}
+
+	generated, err := directAuthoringJSON[loomapi.BuilderState](state)
+	if err != nil {
+		t.Fatalf("convert Builder state through generated contract: %v", err)
+	}
+	encoded, err := json.Marshal(generated)
+	if err != nil {
+		t.Fatalf("marshal generated Builder state: %v", err)
+	}
+	var got authoringv2.BuilderState
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("decode generated Builder state: %v", err)
+	}
+	if len(got.Catalog.Candidates) != 1 {
+		t.Fatalf("generated Builder candidates = %#v, want one candidate", got.Catalog.Candidates)
+	}
+	candidate := got.Catalog.Candidates[0]
+	if len(candidate.AggregateOperations) != 1 {
+		t.Fatalf("generated aggregate operations = %#v, want one supported SUM for RECORDS", candidate.AggregateOperations)
+	}
+	aggregateOperation := candidate.AggregateOperations[0]
+	if string(aggregateOperation.Operation) != "SUM" || string(aggregateOperation.RowContext) != "RECORDS" || !aggregateOperation.Supported {
+		t.Fatalf("generated aggregate operations = %#v, want supported SUM for RECORDS", candidate.AggregateOperations)
+	}
+	temporal := candidate.Transformations.Temporal
+	if !temporal.Available || len(temporal.TimestampFields) != 1 || len(temporal.AnchorFields) != 1 {
+		t.Fatalf("generated temporal capabilities = %#v, want issued timestamp and birthDate anchor", temporal)
+	}
+	if got, want := temporal.TimestampFields[0], (authoringv2.TemporalFieldChoice{
+		CandidateID:  "c_observation_issued",
+		NodeID:       "n_observation",
+		ResourceType: "Observation",
+		FieldPath:    "issued",
+		Label:        "Issued",
+	}); got != want {
+		t.Fatalf("generated temporal timestamp = %#v, want %#v", got, want)
+	}
+	if got, want := temporal.AnchorFields[0], (authoringv2.TemporalFieldChoice{
+		CandidateID:  "c_patient_birth_date",
+		NodeID:       "n_patient",
+		ResourceType: "Patient",
+		FieldPath:    "birthDate",
+		Label:        "Birth date",
+	}); got != want {
+		t.Fatalf("generated temporal anchor = %#v, want %#v", got, want)
+	}
+	unitCapabilities := candidate.Transformations.UnitNormalization
+	if !unitCapabilities.Available || len(unitCapabilities.Presets) != 1 {
+		t.Fatalf("generated unit capabilities = %#v, want mm[Hg] target", unitCapabilities)
+	}
+	if got, want := unitCapabilities.Presets[0], (authoringv2.UnitNormalizationPresetCapability{
+		PolicyID:  "ucum-pressure",
+		Version:   "1",
+		Target:    unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "mm[Hg]"},
+		Available: true,
+	}); got != want {
+		t.Fatalf("generated unit preset = %#v, want %#v", got, want)
 	}
 }
 
