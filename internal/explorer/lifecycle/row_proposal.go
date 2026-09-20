@@ -153,15 +153,35 @@ func (r RowDefinitionProposalRequest) Validate() error {
 
 type RowDefinitionComparisonStatus string
 
-const RowDefinitionComparisonDeferred RowDefinitionComparisonStatus = "DEFERRED"
+const (
+	RowDefinitionComparisonAvailable   RowDefinitionComparisonStatus = "AVAILABLE"
+	RowDefinitionComparisonUnavailable RowDefinitionComparisonStatus = "UNAVAILABLE"
+)
+
+type RowDefinitionPreviewSummary struct {
+	RowCount int  `json:"rowCount"`
+	Sampled  bool `json:"sampled"`
+}
+
+type RowDefinitionComparisonExample struct {
+	RowIdentity      string `json:"rowIdentity"`
+	BasePresent      bool   `json:"basePresent"`
+	CandidatePresent bool   `json:"candidatePresent"`
+}
 
 type RowDefinitionComparison struct {
-	Status RowDefinitionComparisonStatus `json:"status"`
-	Reason string                        `json:"reason,omitempty"`
+	Status          RowDefinitionComparisonStatus    `json:"status"`
+	ReasonCode      string                           `json:"reasonCode,omitempty"`
+	Reason          string                           `json:"reason,omitempty"`
+	Base            *RowDefinitionPreviewSummary     `json:"base,omitempty"`
+	Candidate       *RowDefinitionPreviewSummary     `json:"candidate,omitempty"`
+	AffectedColumns []string                         `json:"affectedColumns"`
+	Notices         []string                         `json:"notices"`
+	Examples        []RowDefinitionComparisonExample `json:"examples"`
 }
 
 type RowDefinitionProposal struct {
-	ProposalID               string                     `json:"proposalId"`
+	ProposalID               string                     `json:"proposalId,omitempty"`
 	BaseReceiptID            string                     `json:"baseReceiptId"`
 	OutputID                 string                     `json:"outputId"`
 	SnapshotToken            string                     `json:"snapshotToken"`
@@ -187,6 +207,7 @@ type RowChoiceResolveRequest struct {
 	ExplorerID   string
 	OutputID     string
 	Snapshot     capability.Snapshot
+	Route        authoringv2.RouteNode
 	RowChoiceID  string
 	ExpectedKind RowChoiceKind
 }
@@ -200,6 +221,10 @@ type ResolvedRowChoice struct {
 
 type RowChoiceResolver interface {
 	ResolveRowChoiceID(context.Context, RowChoiceResolveRequest) (ResolvedRowChoice, error)
+}
+
+type RowChoicePlanner interface {
+	ListRowChoices(context.Context, capability.Snapshot, authoringv2.Document) ([]capability.RowChoice, error)
 }
 
 type ExplicitGroupRevisionResolveRequest struct {
@@ -238,12 +263,16 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := request.Validate(); err != nil {
 		return RowDefinitionProposal{}, malformed("row-definition-proposal", err.Error(), err)
 	}
-	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
 		return RowDefinitionProposal{}, unavailable("row-definition-proposal", "PROPOSAL_UNAVAILABLE", "row definition proposal compilation is not configured", nil)
 	}
-	snapshot, err := s.config.Capability.Token(ctx, request.Project, request.SnapshotToken)
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	snapshot := authorized.Snapshot
 	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+	}
+	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
 	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
 	if err != nil {
@@ -305,6 +334,17 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := s.validateExplicitGroupReceipt(ctx, baseGroupProof, baseReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
+	if request.Selection.Kind == RowDefinitionSelectionFieldGroup || request.Selection.Kind == RowDefinitionSelectionExplicitGroup {
+		comparison, err := s.previewUnavailableRowDefinitionComparison(ctx, request, snapshot, baseReceipt, "GROUPED_ROW_COMPILER_UNAVAILABLE", "Grouped row execution is unavailable until the grouped-row compiler operation is implemented.", limit)
+		if err != nil {
+			return RowDefinitionProposal{}, err
+		}
+		return RowDefinitionProposal{
+			BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID, SnapshotToken: request.SnapshotToken,
+			DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, BaseDocumentDigest: baseDocumentDigest,
+			CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind, Comparison: comparison,
+		}, nil
+	}
 	binding := &explorer.RowDefinitionProposalBinding{
 		DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
@@ -324,18 +364,16 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := s.validateExplicitGroupReceipt(ctx, candidateGroupProof, candidateReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
+	comparison, err := s.compareRowDefinitionReceipts(ctx, request, snapshot, baseReceipt, candidateReceipt, limit)
+	if err != nil {
+		return RowDefinitionProposal{}, err
+	}
 	return RowDefinitionProposal{
 		ProposalID: candidateReceipt.ID, BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID,
 		SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest, Mode: request.Selection.Kind,
-		Comparison: compareRowDefinitionReceipts(baseReceipt, candidateReceipt, request.OutputID, limit),
+		Comparison: comparison,
 	}, nil
-}
-
-// compareRowDefinitionReceipts is the remaining execution seam. Expansion and
-// grouping receipt preview execution is owned by the compiler integration.
-func compareRowDefinitionReceipts(_, _ *explorer.CompilationReceipt, _ string, _ int) RowDefinitionComparison {
-	return RowDefinitionComparison{Status: RowDefinitionComparisonDeferred, Reason: "row-grain preview execution is not configured"}
 }
 
 func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, document authoringv2.Document) (authoringv2.RowDefinition, *ExplicitGroupRevisionProof, error) {
@@ -348,7 +386,7 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 		}
 		resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
-			Snapshot: snapshot.Clone(), RowChoiceID: request.Selection.FieldGroup.RowChoiceID, ExpectedKind: RowChoiceFieldGroup,
+			Snapshot: snapshot.Clone(), Route: document.Route, RowChoiceID: request.Selection.FieldGroup.RowChoiceID, ExpectedKind: RowChoiceFieldGroup,
 		})
 		if err != nil || validateResolvedRowChoice(document.Route, resolved, RowChoiceFieldGroup) != nil {
 			return authoringv2.RowDefinition{}, nil, conflict("row-definition-proposal", "STALE_ROW_CHOICE", "the selected field grouping choice is stale or unavailable", nil, err)
@@ -378,7 +416,7 @@ func (s *Service) resolveRowDefinitionSelection(ctx context.Context, request Row
 		}
 		resolved, err := s.config.RowChoiceResolver.ResolveRowChoiceID(ctx, RowChoiceResolveRequest{
 			Project: request.Project, ExplorerID: request.ExplorerID, OutputID: request.OutputID,
-			Snapshot: snapshot.Clone(), RowChoiceID: request.Selection.Expanded.RowChoiceID, ExpectedKind: RowChoiceExpanded,
+			Snapshot: snapshot.Clone(), Route: document.Route, RowChoiceID: request.Selection.Expanded.RowChoiceID, ExpectedKind: RowChoiceExpanded,
 		})
 		if err != nil || validateResolvedRowChoice(document.Route, resolved, RowChoiceExpanded) != nil {
 			return authoringv2.RowDefinition{}, nil, conflict("row-definition-proposal", "STALE_ROW_CHOICE", "the selected expansion choice is stale or unavailable", nil, err)

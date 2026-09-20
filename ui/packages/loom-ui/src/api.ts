@@ -11,6 +11,8 @@ import {
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
   populationRoutesResponseSchema,
+  rowDefinitionChoicesResponseSchema,
+  rowDefinitionProposalSchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
   type ExplorerBuilderCatalog,
@@ -24,6 +26,9 @@ import {
   type ConstructionChoiceSearchResponse,
   type ConstructionChoiceSearchSource,
   type PopulationRoutesResponse,
+  type RowDefinitionChoicesResponse,
+  type RowDefinitionProposal,
+  type RowDefinitionSelection,
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
   type SemanticInventoryBrowseResponse,
@@ -287,6 +292,21 @@ export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
+export interface ListRowDefinitionChoicesArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
+}
+
+export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly selection: RowDefinitionSelection;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
 export interface CreateExplorerArgs extends ExplorerAuthoringProjectArgs {
   readonly name: string;
   readonly title?: string;
@@ -449,6 +469,14 @@ export interface LoomClient {
     args: SearchPopulationRoutesArgs,
     signal?: AbortSignal,
   ) => Promise<PopulationRoutesResponse>;
+  readonly listRowDefinitionChoices: (
+    args: ListRowDefinitionChoicesArgs,
+    signal?: AbortSignal,
+  ) => Promise<RowDefinitionChoicesResponse>;
+  readonly proposeRowDefinition: (
+    args: ProposeRowDefinitionArgs,
+    signal?: AbortSignal,
+  ) => Promise<RowDefinitionProposal>;
   readonly preview: (
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -999,6 +1027,20 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => populationRoutesResponseSchema.parse(value));
+  const listRowDefinitionChoices = (args: ListRowDefinitionChoicesArgs, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ outputId: args.outputId, snapshotToken: args.snapshotToken });
+    return request(`${authoringPath(args, '/row-definition-choices')}?${query.toString()}`, { signal })
+      .then((value) => rowDefinitionChoicesResponseSchema.parse(value));
+  };
+  const proposeRowDefinition = (args: ProposeRowDefinitionArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/row-definition-proposals'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      selection: args.selection,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => rowDefinitionProposalSchema.parse(value));
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
@@ -1222,6 +1264,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     inspectColumnSource,
     searchConstructionChoices,
     searchPopulationRoutes,
+    listRowDefinitionChoices,
+    proposeRowDefinition,
     preview,
     populationMapping,
     cellTrace,

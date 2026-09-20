@@ -14,10 +14,17 @@ import (
 type rowProposalChoiceResolver struct{}
 
 func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request RowChoiceResolveRequest) (ResolvedRowChoice, error) {
-	if request.ExpectedKind != RowChoiceFieldGroup {
+	if request.Route.OccurrenceID != authoringv2.RootOccurrenceID {
 		return ResolvedRowChoice{}, context.Canceled
 	}
-	return ResolvedRowChoice{Kind: RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
+	switch request.ExpectedKind {
+	case RowChoiceFieldGroup:
+		return ResolvedRowChoice{Kind: RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
+	case RowChoiceExpanded:
+		return ResolvedRowChoice{Kind: RowChoiceExpanded, OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]"}, nil
+	default:
+		return ResolvedRowChoice{}, context.Canceled
+	}
 }
 
 type rowProposalExplicitGroupResolver struct {
@@ -72,18 +79,36 @@ func TestProposeExplicitGroupRequiresInjectedRevisionAndReceiptProof(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
+	if len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 0 {
 		t.Fatalf("resolver calls: resolve=%d receipt=%d", len(resolver.resolveReqs), len(resolver.receipts))
 	}
 	resolved := resolver.resolveReqs[0]
 	if resolved.Project != request.Project || resolved.ExplorerID != request.ExplorerID || resolved.OutputID != request.OutputID || resolved.Snapshot.Token != snapshot.Token || resolved.RevisionID != "group-revision-1" || resolved.RootResourceType != "Patient" {
 		t.Fatalf("explicit group resolver received unbound request: %#v", resolved)
 	}
-	if resolver.receipts[0].ID != proposal.ProposalID || resolver.receipts[0].ID != store.receipt.ID {
-		t.Fatalf("receipt proof checked unexpected candidate: proposal=%q receipt=%#v", proposal.ProposalID, resolver.receipts[0])
+	if proposal.ProposalID != "" || proposal.Comparison.Status != RowDefinitionComparisonUnavailable || proposal.Comparison.ReasonCode != "GROUPED_ROW_COMPILER_UNAVAILABLE" {
+		t.Fatalf("grouped proposal incorrectly advertised execution: %#v", proposal)
 	}
 	if store.saveDraftCalls != 0 {
 		t.Fatalf("proposal persisted a draft %d times", store.saveDraftCalls)
+	}
+}
+
+func TestProposeFieldGroupReportsGroupedExecutionUnavailable(t *testing.T) {
+	service, store, snapshot, _ := rowProposalService(t)
+	request := rowProposalRequest(store.created, snapshot)
+	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionFieldGroup, FieldGroup: &FieldGroupSelection{
+		RowChoiceID: "opaque-choice-1", MissingKeyPolicy: authoringv2.MissingKeyError,
+	}}
+	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalID != "" || proposal.Comparison.Status != RowDefinitionComparisonUnavailable || proposal.Comparison.ReasonCode != "GROUPED_ROW_COMPILER_UNAVAILABLE" {
+		t.Fatalf("field-group proposal advertised unsupported grouped execution: %#v", proposal)
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatalf("field-group proposal mutated the draft %d times", store.saveDraftCalls)
 	}
 }
 
@@ -121,10 +146,10 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.ProposalID == "" || proposal.CandidateWorkspaceDigest == "" || proposal.Mode != RowDefinitionSelectionFieldGroup {
+	if proposal.ProposalID == "" || proposal.CandidateWorkspaceDigest == "" || proposal.Mode != RowDefinitionSelectionExpanded {
 		t.Fatalf("proposal identity = %#v", proposal)
 	}
-	if proposal.Comparison.Status != RowDefinitionComparisonDeferred {
+	if proposal.Comparison.Status != RowDefinitionComparisonUnavailable || proposal.Comparison.ReasonCode != "PREVIEW_UNAVAILABLE" {
 		t.Fatalf("comparison status = %#v", proposal.Comparison)
 	}
 	if len(compileBindings) != 2 || compileBindings[0] != nil || compileBindings[1] == nil {
@@ -300,8 +325,8 @@ func rowProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot) 
 	return RowDefinitionProposalRequest{
 		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest, OutputID: "patients",
-		Selection: RowDefinitionSelection{Kind: RowDefinitionSelectionFieldGroup, FieldGroup: &FieldGroupSelection{
-			RowChoiceID: "opaque-choice-1", MissingKeyPolicy: authoringv2.MissingKeyError,
+		Selection: RowDefinitionSelection{Kind: RowDefinitionSelectionExpanded, Expanded: &ExpandedSelection{
+			RowChoiceID: "opaque-choice-1", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
 		}},
 	}
 }

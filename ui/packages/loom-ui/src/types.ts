@@ -322,6 +322,116 @@ export const explorerRowDefinitionSchema = z.discriminatedUnion('kind', [
     .strict(),
 ]);
 export type ExplorerRowDefinition = z.infer<typeof explorerRowDefinitionSchema>;
+
+const rowDefinitionChoiceFieldPolicySchema = z
+  .object({
+    name: z.literal('missingKeyPolicy'),
+    options: z.array(z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING'])).min(1),
+  })
+  .strict();
+const rowDefinitionChoiceExpandedPolicySchema = z
+  .object({
+    name: z.literal('emptyCollectionPolicy'),
+    options: z.array(z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT'])).min(1),
+  })
+  .strict();
+const rowDefinitionChoiceBaseSchema = z.object({
+  choiceId: opaqueIdSchema,
+  label: z.string().min(1),
+  description: z.string(),
+  occurrenceSummary: z.string().min(1),
+  routeSummary: z.string().min(1),
+});
+export const rowDefinitionChoiceSchema = z.discriminatedUnion('kind', [
+  rowDefinitionChoiceBaseSchema.extend({
+    kind: z.literal('FIELD_GROUP'),
+    valueType: z.enum(['STRING', 'NUMBER', 'BOOLEAN']),
+    policies: z.array(rowDefinitionChoiceFieldPolicySchema).length(1),
+  }).strict(),
+  rowDefinitionChoiceBaseSchema.extend({
+    kind: z.literal('EXPANDED'),
+    valueType: z.literal('ARRAY'),
+    policies: z.array(rowDefinitionChoiceExpandedPolicySchema).length(1),
+  }).strict(),
+]);
+export type RowDefinitionChoice = z.infer<typeof rowDefinitionChoiceSchema>;
+export const rowDefinitionChoicesResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    choices: z.array(rowDefinitionChoiceSchema),
+  })
+  .strict();
+export type RowDefinitionChoicesResponse = z.infer<typeof rowDefinitionChoicesResponseSchema>;
+
+export const rowDefinitionSelectionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('RECORDS') }).strict(),
+  z.object({
+    kind: z.literal('FIELD_GROUP'),
+    fieldGroup: z.object({
+      rowChoiceId: opaqueIdSchema,
+      missingKeyPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPLICIT_GROUP'),
+    explicitGroup: z.object({
+      revisionId: opaqueIdSchema,
+      unassignedMemberPolicy: z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPANDED'),
+    expanded: z.object({
+      rowChoiceId: opaqueIdSchema,
+      emptyCollectionPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']),
+    }).strict(),
+  }).strict(),
+]);
+export type RowDefinitionSelection = z.infer<typeof rowDefinitionSelectionSchema>;
+export const rowDefinitionPreviewSummarySchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  sampled: z.boolean(),
+}).strict();
+const rowDefinitionComparisonExampleSchema = z.object({
+  rowIdentity: opaqueIdSchema,
+  basePresent: z.boolean(),
+  candidatePresent: z.boolean(),
+}).strict();
+const rowDefinitionComparisonCommonSchema = z.object({
+  affectedColumns: z.array(opaqueIdSchema),
+  notices: z.array(z.string()),
+  examples: z.array(rowDefinitionComparisonExampleSchema).max(10),
+});
+export const rowDefinitionComparisonSchema = z.discriminatedUnion('status', [
+  rowDefinitionComparisonCommonSchema.extend({
+    status: z.literal('AVAILABLE'),
+    base: rowDefinitionPreviewSummarySchema,
+    candidate: rowDefinitionPreviewSummarySchema,
+  }).strict(),
+  rowDefinitionComparisonCommonSchema.extend({
+    status: z.literal('UNAVAILABLE'),
+    reasonCode: opaqueIdSchema,
+    reason: z.string().min(1),
+    base: rowDefinitionPreviewSummarySchema.optional(),
+    candidate: rowDefinitionPreviewSummarySchema.optional(),
+  }).strict(),
+]);
+export type RowDefinitionComparison = z.infer<typeof rowDefinitionComparisonSchema>;
+export const rowDefinitionProposalSchema = z.object({
+  proposalId: opaqueIdSchema.optional(),
+  baseReceiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: opaqueIdSchema,
+  baseDocumentDigest: opaqueIdSchema,
+  candidateWorkspaceDigest: opaqueIdSchema,
+  mode: z.enum(['RECORDS', 'FIELD_GROUP', 'EXPLICIT_GROUP', 'EXPANDED']),
+  comparison: rowDefinitionComparisonSchema,
+}).strict();
+export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
+
 export const explorerBuilderColumnSchema = z
   .object({
     column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
@@ -1008,6 +1118,7 @@ export const explorerBuilderCommandSchema = z
       'REMOVE_COLUMN',
       'ADD_SEMANTIC_SELECTIONS',
       'APPLY_CONSTRUCTION_CHOICE',
+      'APPLY_ROW_DEFINITION_PROPOSAL',
     ]),
     outputId: opaqueIdSchema.optional(),
     sourceOutputId: opaqueIdSchema.optional(),
@@ -1035,6 +1146,7 @@ export const explorerBuilderCommandSchema = z
       })
       .strict()
       .optional(),
+    proposalId: opaqueIdSchema.optional(),
     contextToken: opaqueIdSchema.optional(),
     semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
     constructionChoice: constructionChoiceSelectionSchema.optional(),

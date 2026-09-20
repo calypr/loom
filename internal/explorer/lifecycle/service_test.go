@@ -244,6 +244,9 @@ func testConfig(snapshot capability.Snapshot) Config {
 	cursorCodec, _ := NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
 	return Config{Capability: CapabilityResolver{
 		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		},
 		ForExecution: func(context.Context, string, string) (AuthorizedCapability, error) {
 			return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
 		},

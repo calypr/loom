@@ -781,13 +781,13 @@ func (e ContributorPredicateQuantifier) Valid() bool {
 
 // Defines values for ContributorStringValueKind.
 const (
-	STRING ContributorStringValueKind = "STRING"
+	ContributorStringValueKindSTRING ContributorStringValueKind = "STRING"
 )
 
 // Valid indicates whether the value is a known member of the ContributorStringValueKind enum.
 func (e ContributorStringValueKind) Valid() bool {
 	switch e {
-	case STRING:
+	case ContributorStringValueKindSTRING:
 		return true
 	default:
 		return false
@@ -1124,6 +1124,246 @@ func (e RowChangeUnresolvedReferenceKind) Valid() bool {
 	case RowChangeUnresolvedReferenceKindColumn:
 		return true
 	case RowChangeUnresolvedReferenceKindRoute:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoiceKind.
+const (
+	RowDefinitionChoiceKindEXPANDED   RowDefinitionChoiceKind = "EXPANDED"
+	RowDefinitionChoiceKindFIELDGROUP RowDefinitionChoiceKind = "FIELD_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoiceKind enum.
+func (e RowDefinitionChoiceKind) Valid() bool {
+	switch e {
+	case RowDefinitionChoiceKindEXPANDED:
+		return true
+	case RowDefinitionChoiceKindFIELDGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoiceValueType.
+const (
+	RowDefinitionChoiceValueTypeARRAY   RowDefinitionChoiceValueType = "ARRAY"
+	RowDefinitionChoiceValueTypeBOOLEAN RowDefinitionChoiceValueType = "BOOLEAN"
+	RowDefinitionChoiceValueTypeNUMBER  RowDefinitionChoiceValueType = "NUMBER"
+	RowDefinitionChoiceValueTypeOBJECT  RowDefinitionChoiceValueType = "OBJECT"
+	RowDefinitionChoiceValueTypeSTRING  RowDefinitionChoiceValueType = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoiceValueType enum.
+func (e RowDefinitionChoiceValueType) Valid() bool {
+	switch e {
+	case RowDefinitionChoiceValueTypeARRAY:
+		return true
+	case RowDefinitionChoiceValueTypeBOOLEAN:
+		return true
+	case RowDefinitionChoiceValueTypeNUMBER:
+		return true
+	case RowDefinitionChoiceValueTypeOBJECT:
+		return true
+	case RowDefinitionChoiceValueTypeSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionChoicePolicyName.
+const (
+	EmptyCollectionPolicy RowDefinitionChoicePolicyName = "emptyCollectionPolicy"
+	MissingKeyPolicy      RowDefinitionChoicePolicyName = "missingKeyPolicy"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionChoicePolicyName enum.
+func (e RowDefinitionChoicePolicyName) Valid() bool {
+	switch e {
+	case EmptyCollectionPolicy:
+		return true
+	case MissingKeyPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionComparisonAvailableStatus.
+const (
+	AVAILABLE RowDefinitionComparisonAvailableStatus = "AVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionComparisonAvailableStatus enum.
+func (e RowDefinitionComparisonAvailableStatus) Valid() bool {
+	switch e {
+	case AVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionComparisonUnavailableStatus.
+const (
+	UNAVAILABLE RowDefinitionComparisonUnavailableStatus = "UNAVAILABLE"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionComparisonUnavailableStatus enum.
+func (e RowDefinitionComparisonUnavailableStatus) Valid() bool {
+	switch e {
+	case UNAVAILABLE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy.
+const (
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyERROR          RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "ERROR"
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyEXCLUDE        RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "EXCLUDE"
+	RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyPRESERVEPARENT RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy = "PRESERVE_PARENT"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy enum.
+func (e RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyERROR:
+		return true
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyEXCLUDE:
+		return true
+	case RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicyPRESERVEPARENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExpandedSelectionKind.
+const (
+	RowDefinitionExpandedSelectionKindEXPANDED RowDefinitionExpandedSelectionKind = "EXPANDED"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExpandedSelectionKind enum.
+func (e RowDefinitionExpandedSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionExpandedSelectionKindEXPANDED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy.
+const (
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyERROR             RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "ERROR"
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyEXCLUDE           RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "EXCLUDE"
+	RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyGROUPASUNASSIGNED RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy = "GROUP_AS_UNASSIGNED"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy enum.
+func (e RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyERROR:
+		return true
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyEXCLUDE:
+		return true
+	case RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicyGROUPASUNASSIGNED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionExplicitGroupSelectionKind.
+const (
+	RowDefinitionExplicitGroupSelectionKindEXPLICITGROUP RowDefinitionExplicitGroupSelectionKind = "EXPLICIT_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionExplicitGroupSelectionKind enum.
+func (e RowDefinitionExplicitGroupSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionExplicitGroupSelectionKindEXPLICITGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy.
+const (
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyERROR          RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "ERROR"
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyEXCLUDE        RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "EXCLUDE"
+	RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyGROUPASMISSING RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy = "GROUP_AS_MISSING"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy enum.
+func (e RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy) Valid() bool {
+	switch e {
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyERROR:
+		return true
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyEXCLUDE:
+		return true
+	case RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicyGROUPASMISSING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionFieldGroupSelectionKind.
+const (
+	RowDefinitionFieldGroupSelectionKindFIELDGROUP RowDefinitionFieldGroupSelectionKind = "FIELD_GROUP"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionFieldGroupSelectionKind enum.
+func (e RowDefinitionFieldGroupSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionFieldGroupSelectionKindFIELDGROUP:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionProposalMode.
+const (
+	RowDefinitionProposalModeEXPANDED      RowDefinitionProposalMode = "EXPANDED"
+	RowDefinitionProposalModeEXPLICITGROUP RowDefinitionProposalMode = "EXPLICIT_GROUP"
+	RowDefinitionProposalModeFIELDGROUP    RowDefinitionProposalMode = "FIELD_GROUP"
+	RowDefinitionProposalModeRECORDS       RowDefinitionProposalMode = "RECORDS"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionProposalMode enum.
+func (e RowDefinitionProposalMode) Valid() bool {
+	switch e {
+	case RowDefinitionProposalModeEXPANDED:
+		return true
+	case RowDefinitionProposalModeEXPLICITGROUP:
+		return true
+	case RowDefinitionProposalModeFIELDGROUP:
+		return true
+	case RowDefinitionProposalModeRECORDS:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RowDefinitionRecordsSelectionKind.
+const (
+	RowDefinitionRecordsSelectionKindRECORDS RowDefinitionRecordsSelectionKind = "RECORDS"
+)
+
+// Valid indicates whether the value is a known member of the RowDefinitionRecordsSelectionKind enum.
+func (e RowDefinitionRecordsSelectionKind) Valid() bool {
+	switch e {
+	case RowDefinitionRecordsSelectionKindRECORDS:
 		return true
 	default:
 		return false
@@ -2718,6 +2958,173 @@ type RowChangeUnresolvedReferenceKind string
 // RowDefinition defines model for RowDefinition.
 type RowDefinition = authoringv2.RowDefinition
 
+// RowDefinitionChoice defines model for RowDefinitionChoice.
+type RowDefinitionChoice struct {
+	ChoiceId          string                       `json:"choiceId"`
+	Description       string                       `json:"description"`
+	Kind              RowDefinitionChoiceKind      `json:"kind"`
+	Label             string                       `json:"label"`
+	OccurrenceSummary string                       `json:"occurrenceSummary"`
+	Policies          []RowDefinitionChoicePolicy  `json:"policies"`
+	RouteSummary      string                       `json:"routeSummary"`
+	ValueType         RowDefinitionChoiceValueType `json:"valueType"`
+}
+
+// RowDefinitionChoiceKind defines model for RowDefinitionChoice.Kind.
+type RowDefinitionChoiceKind string
+
+// RowDefinitionChoiceValueType defines model for RowDefinitionChoice.ValueType.
+type RowDefinitionChoiceValueType string
+
+// RowDefinitionChoicePolicy defines model for RowDefinitionChoicePolicy.
+type RowDefinitionChoicePolicy struct {
+	Name    RowDefinitionChoicePolicyName `json:"name"`
+	Options []string                      `json:"options"`
+}
+
+// RowDefinitionChoicePolicyName defines model for RowDefinitionChoicePolicy.Name.
+type RowDefinitionChoicePolicyName string
+
+// RowDefinitionChoicesResponse defines model for RowDefinitionChoicesResponse.
+type RowDefinitionChoicesResponse struct {
+	Choices       []RowDefinitionChoice `json:"choices"`
+	OutputId      string                `json:"outputId"`
+	SnapshotToken string                `json:"snapshotToken"`
+}
+
+// RowDefinitionComparison defines model for RowDefinitionComparison.
+type RowDefinitionComparison struct {
+	union json.RawMessage
+}
+
+// RowDefinitionComparisonAvailable defines model for RowDefinitionComparisonAvailable.
+type RowDefinitionComparisonAvailable struct {
+	AffectedColumns []string                               `json:"affectedColumns"`
+	Base            RowDefinitionPreviewSummary            `json:"base"`
+	Candidate       RowDefinitionPreviewSummary            `json:"candidate"`
+	Examples        []RowDefinitionComparisonExample       `json:"examples"`
+	Notices         []string                               `json:"notices"`
+	Status          RowDefinitionComparisonAvailableStatus `json:"status"`
+}
+
+// RowDefinitionComparisonAvailableStatus defines model for RowDefinitionComparisonAvailable.Status.
+type RowDefinitionComparisonAvailableStatus string
+
+// RowDefinitionComparisonExample defines model for RowDefinitionComparisonExample.
+type RowDefinitionComparisonExample struct {
+	BasePresent      bool   `json:"basePresent"`
+	CandidatePresent bool   `json:"candidatePresent"`
+	RowIdentity      string `json:"rowIdentity"`
+}
+
+// RowDefinitionComparisonUnavailable defines model for RowDefinitionComparisonUnavailable.
+type RowDefinitionComparisonUnavailable struct {
+	AffectedColumns []string                                 `json:"affectedColumns"`
+	Base            *RowDefinitionPreviewSummary             `json:"base,omitempty"`
+	Candidate       *RowDefinitionPreviewSummary             `json:"candidate,omitempty"`
+	Examples        []RowDefinitionComparisonExample         `json:"examples"`
+	Notices         []string                                 `json:"notices"`
+	Reason          string                                   `json:"reason"`
+	ReasonCode      string                                   `json:"reasonCode"`
+	Status          RowDefinitionComparisonUnavailableStatus `json:"status"`
+}
+
+// RowDefinitionComparisonUnavailableStatus defines model for RowDefinitionComparisonUnavailable.Status.
+type RowDefinitionComparisonUnavailableStatus string
+
+// RowDefinitionExpandedSelection defines model for RowDefinitionExpandedSelection.
+type RowDefinitionExpandedSelection struct {
+	Expanded struct {
+		EmptyCollectionPolicy RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy `json:"emptyCollectionPolicy"`
+		RowChoiceId           string                                                      `json:"rowChoiceId"`
+	} `json:"expanded"`
+	Kind RowDefinitionExpandedSelectionKind `json:"kind"`
+}
+
+// RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy defines model for RowDefinitionExpandedSelection.Expanded.EmptyCollectionPolicy.
+type RowDefinitionExpandedSelectionExpandedEmptyCollectionPolicy string
+
+// RowDefinitionExpandedSelectionKind defines model for RowDefinitionExpandedSelection.Kind.
+type RowDefinitionExpandedSelectionKind string
+
+// RowDefinitionExplicitGroupSelection defines model for RowDefinitionExplicitGroupSelection.
+type RowDefinitionExplicitGroupSelection struct {
+	ExplicitGroup struct {
+		RevisionId             string                                                                 `json:"revisionId"`
+		UnassignedMemberPolicy RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy `json:"unassignedMemberPolicy"`
+	} `json:"explicitGroup"`
+	Kind RowDefinitionExplicitGroupSelectionKind `json:"kind"`
+}
+
+// RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy defines model for RowDefinitionExplicitGroupSelection.ExplicitGroup.UnassignedMemberPolicy.
+type RowDefinitionExplicitGroupSelectionExplicitGroupUnassignedMemberPolicy string
+
+// RowDefinitionExplicitGroupSelectionKind defines model for RowDefinitionExplicitGroupSelection.Kind.
+type RowDefinitionExplicitGroupSelectionKind string
+
+// RowDefinitionFieldGroupSelection defines model for RowDefinitionFieldGroupSelection.
+type RowDefinitionFieldGroupSelection struct {
+	FieldGroup struct {
+		MissingKeyPolicy RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+		RowChoiceId      string                                                     `json:"rowChoiceId"`
+	} `json:"fieldGroup"`
+	Kind RowDefinitionFieldGroupSelectionKind `json:"kind"`
+}
+
+// RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy defines model for RowDefinitionFieldGroupSelection.FieldGroup.MissingKeyPolicy.
+type RowDefinitionFieldGroupSelectionFieldGroupMissingKeyPolicy string
+
+// RowDefinitionFieldGroupSelectionKind defines model for RowDefinitionFieldGroupSelection.Kind.
+type RowDefinitionFieldGroupSelectionKind string
+
+// RowDefinitionPreviewSummary defines model for RowDefinitionPreviewSummary.
+type RowDefinitionPreviewSummary struct {
+	RowCount int  `json:"rowCount"`
+	Sampled  bool `json:"sampled"`
+}
+
+// RowDefinitionProposal defines model for RowDefinitionProposal.
+type RowDefinitionProposal struct {
+	BaseDocumentDigest       string                    `json:"baseDocumentDigest"`
+	BaseReceiptId            string                    `json:"baseReceiptId"`
+	CandidateWorkspaceDigest string                    `json:"candidateWorkspaceDigest"`
+	Comparison               RowDefinitionComparison   `json:"comparison"`
+	DraftDigest              string                    `json:"draftDigest"`
+	DraftVersion             int                       `json:"draftVersion"`
+	Mode                     RowDefinitionProposalMode `json:"mode"`
+	OutputId                 string                    `json:"outputId"`
+
+	// ProposalId Present only when a candidate receipt can be applied through the existing proposal command.
+	ProposalId    *string `json:"proposalId,omitempty"`
+	SnapshotToken string  `json:"snapshotToken"`
+}
+
+// RowDefinitionProposalMode defines model for RowDefinitionProposal.Mode.
+type RowDefinitionProposalMode string
+
+// RowDefinitionProposalRequest defines model for RowDefinitionProposalRequest.
+type RowDefinitionProposalRequest struct {
+	ExpectedDraftDigest  string                                 `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                                    `json:"expectedDraftVersion"`
+	Limit                *int                                   `json:"limit,omitempty"`
+	OutputId             string                                 `json:"outputId"`
+	Selection            RowDefinitionProposalRequest_Selection `json:"selection"`
+	SnapshotToken        string                                 `json:"snapshotToken"`
+}
+
+// RowDefinitionProposalRequest_Selection defines model for RowDefinitionProposalRequest.Selection.
+type RowDefinitionProposalRequest_Selection struct {
+	union json.RawMessage
+}
+
+// RowDefinitionRecordsSelection defines model for RowDefinitionRecordsSelection.
+type RowDefinitionRecordsSelection struct {
+	Kind RowDefinitionRecordsSelectionKind `json:"kind"`
+}
+
+// RowDefinitionRecordsSelectionKind defines model for RowDefinitionRecordsSelection.Kind.
+type RowDefinitionRecordsSelectionKind string
+
 // SelectionBaseRevision defines model for SelectionBaseRevision.
 type SelectionBaseRevision struct {
 	SelectionRevisionId string `json:"selectionRevisionId"`
@@ -3203,6 +3610,12 @@ type ReconcileExplorerBuilderParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// ListExplorerRowDefinitionChoicesParams defines parameters for ListExplorerRowDefinitionChoices.
+type ListExplorerRowDefinitionChoicesParams struct {
+	OutputId      string `form:"outputId" json:"outputId"`
+	SnapshotToken string `form:"snapshotToken" json:"snapshotToken"`
+}
+
 // CreateExplorerSelectionParams defines parameters for CreateExplorerSelection.
 type CreateExplorerSelectionParams struct {
 	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
@@ -3274,6 +3687,9 @@ type ReconcileExplorerBuilderJSONRequestBody = ReconcileRequest
 
 // AssessExplorerRowChangeJSONRequestBody defines body for AssessExplorerRowChange for application/json ContentType.
 type AssessExplorerRowChangeJSONRequestBody = AssessRowChangeRequest
+
+// ProposeExplorerRowDefinitionJSONRequestBody defines body for ProposeExplorerRowDefinition for application/json ContentType.
+type ProposeExplorerRowDefinitionJSONRequestBody = RowDefinitionProposalRequest
 
 // BrowseExplorerSemanticInventoryJSONRequestBody defines body for BrowseExplorerSemanticInventory for application/json ContentType.
 type BrowseExplorerSemanticInventoryJSONRequestBody = SemanticInventoryBrowseRequest
@@ -3965,6 +4381,280 @@ func (t *LegacyErrorResponse_Error) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsRowDefinitionComparisonAvailable returns the union data inside the RowDefinitionComparison as a RowDefinitionComparisonAvailable
+func (t RowDefinitionComparison) AsRowDefinitionComparisonAvailable() (RowDefinitionComparisonAvailable, error) {
+	var body RowDefinitionComparisonAvailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionComparisonAvailable overwrites any union data inside the RowDefinitionComparison as the provided RowDefinitionComparisonAvailable
+func (t *RowDefinitionComparison) FromRowDefinitionComparisonAvailable(v RowDefinitionComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonAvailable"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionComparisonAvailable performs a merge with any union data inside the RowDefinitionComparison, using the provided RowDefinitionComparisonAvailable
+func (t *RowDefinitionComparison) MergeRowDefinitionComparisonAvailable(v RowDefinitionComparisonAvailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonAvailable"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionComparisonUnavailable returns the union data inside the RowDefinitionComparison as a RowDefinitionComparisonUnavailable
+func (t RowDefinitionComparison) AsRowDefinitionComparisonUnavailable() (RowDefinitionComparisonUnavailable, error) {
+	var body RowDefinitionComparisonUnavailable
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionComparisonUnavailable overwrites any union data inside the RowDefinitionComparison as the provided RowDefinitionComparisonUnavailable
+func (t *RowDefinitionComparison) FromRowDefinitionComparisonUnavailable(v RowDefinitionComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonUnavailable"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionComparisonUnavailable performs a merge with any union data inside the RowDefinitionComparison, using the provided RowDefinitionComparisonUnavailable
+func (t *RowDefinitionComparison) MergeRowDefinitionComparisonUnavailable(v RowDefinitionComparisonUnavailable) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"RowDefinitionComparisonUnavailable"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RowDefinitionComparison) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"status"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RowDefinitionComparison) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "RowDefinitionComparisonAvailable":
+		return t.AsRowDefinitionComparisonAvailable()
+	case "RowDefinitionComparisonUnavailable":
+		return t.AsRowDefinitionComparisonUnavailable()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RowDefinitionComparison) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RowDefinitionComparison) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsRowDefinitionRecordsSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionRecordsSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionRecordsSelection() (RowDefinitionRecordsSelection, error) {
+	var body RowDefinitionRecordsSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionRecordsSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionRecordsSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionRecordsSelection(v RowDefinitionRecordsSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"RECORDS"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionRecordsSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionRecordsSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionRecordsSelection(v RowDefinitionRecordsSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"RECORDS"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionFieldGroupSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionFieldGroupSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionFieldGroupSelection() (RowDefinitionFieldGroupSelection, error) {
+	var body RowDefinitionFieldGroupSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionFieldGroupSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionFieldGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionFieldGroupSelection(v RowDefinitionFieldGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD_GROUP"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionFieldGroupSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionFieldGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionFieldGroupSelection(v RowDefinitionFieldGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD_GROUP"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionExplicitGroupSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionExplicitGroupSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionExplicitGroupSelection() (RowDefinitionExplicitGroupSelection, error) {
+	var body RowDefinitionExplicitGroupSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionExplicitGroupSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionExplicitGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionExplicitGroupSelection(v RowDefinitionExplicitGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPLICIT_GROUP"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionExplicitGroupSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionExplicitGroupSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionExplicitGroupSelection(v RowDefinitionExplicitGroupSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPLICIT_GROUP"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsRowDefinitionExpandedSelection returns the union data inside the RowDefinitionProposalRequest_Selection as a RowDefinitionExpandedSelection
+func (t RowDefinitionProposalRequest_Selection) AsRowDefinitionExpandedSelection() (RowDefinitionExpandedSelection, error) {
+	var body RowDefinitionExpandedSelection
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromRowDefinitionExpandedSelection overwrites any union data inside the RowDefinitionProposalRequest_Selection as the provided RowDefinitionExpandedSelection
+func (t *RowDefinitionProposalRequest_Selection) FromRowDefinitionExpandedSelection(v RowDefinitionExpandedSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPANDED"}`))
+	t.union = b
+	return err
+}
+
+// MergeRowDefinitionExpandedSelection performs a merge with any union data inside the RowDefinitionProposalRequest_Selection, using the provided RowDefinitionExpandedSelection
+func (t *RowDefinitionProposalRequest_Selection) MergeRowDefinitionExpandedSelection(v RowDefinitionExpandedSelection) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"EXPANDED"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RowDefinitionProposalRequest_Selection) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t RowDefinitionProposalRequest_Selection) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "EXPANDED":
+		return t.AsRowDefinitionExpandedSelection()
+	case "EXPLICIT_GROUP":
+		return t.AsRowDefinitionExplicitGroupSelection()
+	case "FIELD_GROUP":
+		return t.AsRowDefinitionFieldGroupSelection()
+	case "RECORDS":
+		return t.AsRowDefinitionRecordsSelection()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t RowDefinitionProposalRequest_Selection) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RowDefinitionProposalRequest_Selection) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetRecipeExecution Read public metadata for a dataframe recipe execution.
@@ -4039,6 +4729,12 @@ type ServerInterface interface {
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change)
 	AssessExplorerRowChange(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices)
+	ListExplorerRowDefinitionChoices(c fiber.Ctx, project Project, explorerId ExplorerId, params ListExplorerRowDefinitionChoicesParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals)
+	ProposeExplorerRowDefinition(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
 	BrowseExplorerSemanticInventory(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -5086,6 +5782,103 @@ func (siw *ServerInterfaceWrapper) AssessExplorerRowChange(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// ListExplorerRowDefinitionChoices operation middleware
+func (siw *ServerInterfaceWrapper) ListExplorerRowDefinitionChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExplorerRowDefinitionChoicesParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "outputId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "outputId", query, &params.OutputId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter outputId: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "snapshotToken" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "snapshotToken", query, &params.SnapshotToken, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter snapshotToken: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ListExplorerRowDefinitionChoices(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ProposeExplorerRowDefinition operation middleware
+func (siw *ServerInterfaceWrapper) ProposeExplorerRowDefinition(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ProposeExplorerRowDefinition(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // BrowseExplorerSemanticInventory operation middleware
 func (siw *ServerInterfaceWrapper) BrowseExplorerSemanticInventory(c fiber.Ctx) error {
 
@@ -5632,6 +6425,10 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/semantic-inventory", wrapper.BrowseExplorerSemanticInventory)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-choices", wrapper.SearchExplorerConstructionChoices)
+
+	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-choices", wrapper.ListExplorerRowDefinitionChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-proposals", wrapper.ProposeExplorerRowDefinition)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-routes", wrapper.SearchExplorerPopulationRoutes)
 
@@ -8008,6 +8805,208 @@ func (response AssessExplorerRowChange503JSONResponse) VisitAssessExplorerRowCha
 	return ctx.JSON(&response)
 }
 
+type ListExplorerRowDefinitionChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     ListExplorerRowDefinitionChoicesParams
+}
+
+type ListExplorerRowDefinitionChoicesResponseObject interface {
+	VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error
+}
+
+type ListExplorerRowDefinitionChoices200JSONResponse RowDefinitionChoicesResponse
+
+func (response ListExplorerRowDefinitionChoices200JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices400JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices401JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices403JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices404JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ListExplorerRowDefinitionChoices409JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices422JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices500JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ListExplorerRowDefinitionChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ListExplorerRowDefinitionChoices503JSONResponse) VisitListExplorerRowDefinitionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinitionRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ProposeExplorerRowDefinitionJSONRequestBody
+}
+
+type ProposeExplorerRowDefinitionResponseObject interface {
+	VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error
+}
+
+type ProposeExplorerRowDefinition200JSONResponse RowDefinitionProposal
+
+func (response ProposeExplorerRowDefinition200JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition400JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition401JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ProposeExplorerRowDefinition403JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ProposeExplorerRowDefinition404JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ProposeExplorerRowDefinition409JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition422JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition500JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ProposeExplorerRowDefinition503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ProposeExplorerRowDefinition503JSONResponse) VisitProposeExplorerRowDefinitionResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type BrowseExplorerSemanticInventoryRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -9046,6 +10045,12 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-change)
 	AssessExplorerRowChange(ctx context.Context, request AssessExplorerRowChangeRequestObject) (AssessExplorerRowChangeResponseObject, error)
 
+	// (GET /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices)
+	ListExplorerRowDefinitionChoices(ctx context.Context, request ListExplorerRowDefinitionChoicesRequestObject) (ListExplorerRowDefinitionChoicesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals)
+	ProposeExplorerRowDefinition(ctx context.Context, request ProposeExplorerRowDefinitionRequestObject) (ProposeExplorerRowDefinitionResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/semantic-inventory)
 	BrowseExplorerSemanticInventory(ctx context.Context, request BrowseExplorerSemanticInventoryRequestObject) (BrowseExplorerSemanticInventoryResponseObject, error)
 
@@ -9874,6 +10879,69 @@ func (sh *strictHandler) AssessExplorerRowChange(ctx fiber.Ctx, project Project,
 	return nil
 }
 
+// ListExplorerRowDefinitionChoices operation middleware
+func (sh *strictHandler) ListExplorerRowDefinitionChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ListExplorerRowDefinitionChoicesParams) error {
+	var request ListExplorerRowDefinitionChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ListExplorerRowDefinitionChoices(ctx.Context(), request.(ListExplorerRowDefinitionChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListExplorerRowDefinitionChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ListExplorerRowDefinitionChoicesResponseObject); ok {
+		if err := validResponse.VisitListExplorerRowDefinitionChoicesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ProposeExplorerRowDefinition operation middleware
+func (sh *strictHandler) ProposeExplorerRowDefinition(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ProposeExplorerRowDefinitionRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ProposeExplorerRowDefinitionJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ProposeExplorerRowDefinition(ctx.Context(), request.(ProposeExplorerRowDefinitionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProposeExplorerRowDefinition")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ProposeExplorerRowDefinitionResponseObject); ok {
+		if err := validResponse.VisitProposeExplorerRowDefinitionResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // BrowseExplorerSemanticInventory operation middleware
 func (sh *strictHandler) BrowseExplorerSemanticInventory(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request BrowseExplorerSemanticInventoryRequestObject
@@ -10323,235 +11391,250 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"RS08edFJaTh4N7gYfP389f8HAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

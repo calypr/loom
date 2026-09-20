@@ -37,6 +37,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
@@ -377,6 +378,14 @@ func run(ctx context.Context, serverConfig Config) error {
 			artifactPublishedReader = artifactDelayReader{next: artifactPublishedReader, delay: serverConfig.Server.DevArtifactRowDelay}
 		}
 	}
+	schemaIndex, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		return fmt.Errorf("load generated schema index for row choices: %w", err)
+	}
+	rowChoiceResolver, err := lifecycle.NewSchemaRowChoiceResolver(schemaIndex)
+	if err != nil {
+		return fmt.Errorf("configure row-choice schema resolver: %w", err)
+	}
 	lifecycleConfig := lifecycle.Config{
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
@@ -385,6 +394,8 @@ func run(ctx context.Context, serverConfig Config) error {
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
 		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},
 		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
+		RowChoiceResolver:                  rowChoiceResolver,
+		RowChoicePlanner:                   rowChoiceResolver,
 		CompileReceipt:                     compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {

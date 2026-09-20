@@ -7,6 +7,8 @@ import {
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
   explorerColumnSourceSchema,
+  rowDefinitionChoicesResponseSchema,
+  rowDefinitionProposalSchema,
 } from './types';
 
 describe('explorerBuilderDocumentSchema', () => {
@@ -80,6 +82,65 @@ describe('explorerBuilderDocumentSchema', () => {
         },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('row-definition contract schemas', () => {
+  it('keeps empty descriptions, zero counts, false flags, and empty collections intact', () => {
+    const choices = {
+      snapshotToken: 'snapshot-token',
+      outputId: 'output',
+      choices: [{
+        choiceId: 'opaque-choice',
+        label: 'Grouping key',
+        description: '',
+        occurrenceSummary: 'Root occurrence',
+        routeSummary: 'Root',
+        kind: 'FIELD_GROUP',
+        valueType: 'STRING',
+        policies: [{ name: 'missingKeyPolicy', options: ['ERROR'] }],
+      }],
+    } as const;
+    expect(rowDefinitionChoicesResponseSchema.parse(choices)).toEqual(choices);
+
+    const proposal = {
+      proposalId: 'proposal-receipt',
+      baseReceiptId: 'base-receipt',
+      outputId: 'output',
+      snapshotToken: 'snapshot-token',
+      draftVersion: 1,
+      draftDigest: 'draft-digest',
+      baseDocumentDigest: 'document-digest',
+      candidateWorkspaceDigest: 'workspace-digest',
+      mode: 'EXPANDED',
+      comparison: {
+        status: 'AVAILABLE',
+        base: { rowCount: 0, sampled: false },
+        candidate: { rowCount: 0, sampled: false },
+        affectedColumns: [],
+        notices: [],
+        examples: [],
+      },
+    } as const;
+    expect(rowDefinitionProposalSchema.parse(proposal)).toEqual(proposal);
+  });
+
+  it('rejects row choices that contain raw schema selectors or unsupported policy fields', () => {
+    expect(rowDefinitionChoicesResponseSchema.safeParse({
+      snapshotToken: 'snapshot-token',
+      outputId: 'output',
+      choices: [{
+        choiceId: 'opaque-choice',
+        label: 'Grouping key',
+        description: '',
+        occurrenceSummary: 'Root occurrence',
+        routeSummary: 'Root',
+        kind: 'FIELD_GROUP',
+        valueType: 'STRING',
+        policies: [{ name: 'missingKeyPolicy', options: ['ERROR'] }],
+        fieldPath: 'not-in-the-public-contract',
+      }],
+    }).success).toBe(false);
   });
 });
 

@@ -128,6 +128,7 @@ type Config struct {
 	SelectionSourceResolver     SelectionSourceResolver
 	SelectionReferenceValidator SelectionReferenceValidator
 	RowChoiceResolver           RowChoiceResolver
+	RowChoicePlanner            RowChoicePlanner
 	ExplicitGroupResolver       ExplicitGroupRevisionResolver
 
 	CompileReceipt               ReceiptCompiler

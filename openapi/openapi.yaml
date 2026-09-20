@@ -209,6 +209,60 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    get:
+      operationId: listExplorerRowDefinitionChoices
+      parameters:
+        - name: outputId
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+        - name: snapshotToken
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Schema-derived row choices for exact occurrences in the saved output route.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RowDefinitionChoicesResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerRowDefinition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RowDefinitionProposalRequest'}
+      responses:
+        '200':
+          description: A receipt-backed candidate with bounded before-and-after row comparison evidence when execution is available.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RowDefinitionProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2463,6 +2517,182 @@ components:
         boundaryPath: {type: string, minLength: 1}
         index: {type: integer, minimum: 0}
         width: {type: integer, minimum: 1}
+    RowDefinitionChoicesResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/RowDefinitionChoice'}
+    RowDefinitionChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, label, description, occurrenceSummary, routeSummary, kind, valueType, policies]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        label: {type: string}
+        description: {type: string}
+        occurrenceSummary: {type: string, minLength: 1}
+        routeSummary: {type: string, minLength: 1}
+        kind: {type: string, enum: [FIELD_GROUP, EXPANDED]}
+        valueType: {type: string, enum: [STRING, NUMBER, BOOLEAN, ARRAY, OBJECT]}
+        policies:
+          type: array
+          items: {$ref: '#/components/schemas/RowDefinitionChoicePolicy'}
+    RowDefinitionChoicePolicy:
+      type: object
+      additionalProperties: false
+      required: [name, options]
+      properties:
+        name: {type: string, enum: [missingKeyPolicy, emptyCollectionPolicy]}
+        options:
+          type: array
+          items: {type: string, minLength: 1}
+    RowDefinitionProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, selection]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+        selection:
+          oneOf:
+            - {$ref: '#/components/schemas/RowDefinitionRecordsSelection'}
+            - {$ref: '#/components/schemas/RowDefinitionFieldGroupSelection'}
+            - {$ref: '#/components/schemas/RowDefinitionExplicitGroupSelection'}
+            - {$ref: '#/components/schemas/RowDefinitionExpandedSelection'}
+          discriminator:
+            propertyName: kind
+            mapping:
+              RECORDS: '#/components/schemas/RowDefinitionRecordsSelection'
+              FIELD_GROUP: '#/components/schemas/RowDefinitionFieldGroupSelection'
+              EXPLICIT_GROUP: '#/components/schemas/RowDefinitionExplicitGroupSelection'
+              EXPANDED: '#/components/schemas/RowDefinitionExpandedSelection'
+    RowDefinitionRecordsSelection:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [RECORDS]}
+    RowDefinitionFieldGroupSelection:
+      type: object
+      additionalProperties: false
+      required: [kind, fieldGroup]
+      properties:
+        kind: {type: string, enum: [FIELD_GROUP]}
+        fieldGroup:
+          type: object
+          additionalProperties: false
+          required: [rowChoiceId, missingKeyPolicy]
+          properties:
+            rowChoiceId: {type: string, minLength: 1}
+            missingKeyPolicy: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_MISSING]}
+    RowDefinitionExplicitGroupSelection:
+      type: object
+      additionalProperties: false
+      required: [kind, explicitGroup]
+      properties:
+        kind: {type: string, enum: [EXPLICIT_GROUP]}
+        explicitGroup:
+          type: object
+          additionalProperties: false
+          required: [revisionId, unassignedMemberPolicy]
+          properties:
+            revisionId: {type: string, minLength: 1}
+            unassignedMemberPolicy: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_UNASSIGNED]}
+    RowDefinitionExpandedSelection:
+      type: object
+      additionalProperties: false
+      required: [kind, expanded]
+      properties:
+        kind: {type: string, enum: [EXPANDED]}
+        expanded:
+          type: object
+          additionalProperties: false
+          required: [rowChoiceId, emptyCollectionPolicy]
+          properties:
+            rowChoiceId: {type: string, minLength: 1}
+            emptyCollectionPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
+    RowDefinitionPreviewSummary:
+      type: object
+      additionalProperties: false
+      required: [rowCount, sampled]
+      properties:
+        rowCount: {type: integer, minimum: 0}
+        sampled: {type: boolean}
+    RowDefinitionComparisonExample:
+      type: object
+      additionalProperties: false
+      required: [rowIdentity, basePresent, candidatePresent]
+      properties:
+        rowIdentity: {type: string, minLength: 1}
+        basePresent: {type: boolean}
+        candidatePresent: {type: boolean}
+    RowDefinitionComparisonAvailable:
+      type: object
+      additionalProperties: false
+      required: [status, base, candidate, affectedColumns, notices, examples]
+      properties:
+        status: {type: string, enum: [AVAILABLE]}
+        base: {$ref: '#/components/schemas/RowDefinitionPreviewSummary'}
+        candidate: {$ref: '#/components/schemas/RowDefinitionPreviewSummary'}
+        affectedColumns:
+          type: array
+          items: {type: string}
+        notices:
+          type: array
+          items: {type: string}
+        examples:
+          type: array
+          maxItems: 10
+          items: {$ref: '#/components/schemas/RowDefinitionComparisonExample'}
+    RowDefinitionComparisonUnavailable:
+      type: object
+      additionalProperties: false
+      required: [status, reasonCode, reason, affectedColumns, notices, examples]
+      properties:
+        status: {type: string, enum: [UNAVAILABLE]}
+        reasonCode: {type: string, minLength: 1}
+        reason: {type: string, minLength: 1}
+        base: {$ref: '#/components/schemas/RowDefinitionPreviewSummary'}
+        candidate: {$ref: '#/components/schemas/RowDefinitionPreviewSummary'}
+        affectedColumns:
+          type: array
+          items: {type: string}
+        notices:
+          type: array
+          items: {type: string}
+        examples:
+          type: array
+          maxItems: 10
+          items: {$ref: '#/components/schemas/RowDefinitionComparisonExample'}
+    RowDefinitionComparison:
+      oneOf:
+        - {$ref: '#/components/schemas/RowDefinitionComparisonAvailable'}
+        - {$ref: '#/components/schemas/RowDefinitionComparisonUnavailable'}
+      discriminator:
+        propertyName: status
+    RowDefinitionProposal:
+      type: object
+      additionalProperties: false
+      required: [baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
+      properties:
+        proposalId: {type: string, minLength: 1, description: Present only when a candidate receipt can be applied through the existing proposal command.}
+        baseReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        mode: {type: string, enum: [RECORDS, FIELD_GROUP, EXPLICIT_GROUP, EXPANDED]}
+        comparison: {$ref: '#/components/schemas/RowDefinitionComparison'}
     RoutePolicy:
       type: object
       additionalProperties: false

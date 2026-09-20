@@ -9,6 +9,88 @@ import {
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 
 describe('Loom project paths', () => {
+  it('lists opaque row choices and proposes an exact selected row definition', async () => {
+    const choices = {
+      snapshotToken: 'snapshot-token',
+      outputId: 'output',
+      choices: [{
+        choiceId: 'opaque-choice',
+        label: 'Expanded collection',
+        description: '',
+        occurrenceSummary: 'Root occurrence',
+        routeSummary: 'Root',
+        kind: 'EXPANDED',
+        valueType: 'ARRAY',
+        policies: [{ name: 'emptyCollectionPolicy', options: ['PRESERVE_PARENT'] }],
+      }],
+    } as const;
+    const proposal = {
+      proposalId: 'proposal-receipt',
+      baseReceiptId: 'base-receipt',
+      outputId: 'output',
+      snapshotToken: 'snapshot-token',
+      draftVersion: 3,
+      draftDigest: 'draft-digest',
+      baseDocumentDigest: 'document-digest',
+      candidateWorkspaceDigest: 'candidate-digest',
+      mode: 'EXPANDED',
+      comparison: {
+        status: 'AVAILABLE',
+        base: { rowCount: 0, sampled: false },
+        candidate: { rowCount: 0, sampled: false },
+        affectedColumns: [],
+        notices: [],
+        examples: [],
+      },
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(choices), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.listRowDefinitionChoices({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      snapshotToken: 'snapshot-token',
+      outputId: 'output',
+    })).resolves.toEqual(choices);
+    await expect(client.proposeRowDefinition({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      snapshotToken: 'snapshot-token',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-digest',
+      outputId: 'output',
+      selection: {
+        kind: 'EXPANDED',
+        expanded: { rowChoiceId: 'opaque-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' },
+      },
+    })).resolves.toEqual(proposal);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/row-definition-choices?outputId=output&snapshotToken=snapshot-token',
+      expect.objectContaining({ signal: undefined, credentials: 'same-origin' }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/row-definition-proposals',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-token',
+          expectedDraftVersion: 3,
+          expectedDraftDigest: 'draft-digest',
+          outputId: 'output',
+          selection: {
+            kind: 'EXPANDED',
+            expanded: { rowChoiceId: 'opaque-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' },
+          },
+        }),
+      }),
+    );
+  });
+
   it('posts construction-choice commands with only the selected compiler choice', async () => {
     const workspace = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',

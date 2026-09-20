@@ -55,6 +55,9 @@ type RowChoiceOccurrence struct {
 type RowChoice struct {
 	ChoiceID     string
 	Kind         RowChoiceKind
+	Label        string
+	Description  string
+	ValueType    string
 	OccurrenceID string
 	NodeID       string
 	ResourceType string
@@ -132,9 +135,14 @@ func NewRowChoice(snapshot Snapshot, occurrences []RowChoiceOccurrence, occurren
 	if err != nil {
 		return RowChoice{}, err
 	}
-	summary := strings.TrimSpace(facts.Title)
-	if summary == "" {
-		summary = occurrence.ResourceType + "." + facts.CanonicalPath
+	label := strings.TrimSpace(facts.Title)
+	if label == "" {
+		switch kind {
+		case RowChoiceFieldGroupKey:
+			label = "Grouping field"
+		case RowChoiceExpandedScope:
+			label = "Expanded collection"
+		}
 	}
 	presentationFacts := []ConstructionChoiceFact{
 		{Label: "Occurrence", Value: occurrence.OccurrenceID},
@@ -146,11 +154,29 @@ func NewRowChoice(snapshot Snapshot, occurrences []RowChoiceOccurrence, occurren
 		presentationFacts = append(presentationFacts, ConstructionChoiceFact{Label: "Description", Value: description})
 	}
 	return RowChoice{
-		ChoiceID: choiceID, Kind: kind, OccurrenceID: occurrence.OccurrenceID, NodeID: occurrence.NodeID,
+		ChoiceID: choiceID, Kind: kind, Label: label, Description: strings.TrimSpace(facts.Description),
+		ValueType: rowChoiceValueType(facts), OccurrenceID: occurrence.OccurrenceID, NodeID: occurrence.NodeID,
 		ResourceType: occurrence.ResourceType, Route: cloneConstructionRoute(occurrence.Route), Path: facts.CanonicalPath,
 		FHIRType: facts.FHIRType, Cardinality: facts.Cardinality,
-		Presentation: ConstructionChoicePresentation{Summary: summary, Facts: presentationFacts},
+		Presentation: ConstructionChoicePresentation{Summary: label, Facts: presentationFacts},
 	}, nil
+}
+
+func rowChoiceValueType(facts RowChoiceFacts) string {
+	if facts.Shape == RowChoiceArray {
+		return "ARRAY"
+	}
+	if facts.Shape == RowChoiceObject {
+		return "OBJECT"
+	}
+	switch strings.ToLower(facts.FHIRType) {
+	case "boolean":
+		return "BOOLEAN"
+	case "integer", "decimal":
+		return "NUMBER"
+	default:
+		return "STRING"
+	}
 }
 
 // ResolveRowChoiceID rechecks a choice against the current schema and route.
