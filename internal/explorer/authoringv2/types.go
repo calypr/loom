@@ -6,6 +6,8 @@ package authoringv2
 import (
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 const (
@@ -15,7 +17,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 4
+	CurrentSemanticsVersion = 7
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a
@@ -26,6 +28,7 @@ type Document struct {
 	Output           Output        `json:"output"`
 	RootResourceType string        `json:"rootResourceType,omitempty"`
 	Route            RouteNode     `json:"route,omitempty"`
+	Rows             RowDefinition `json:"rows"`
 	Population       *Population   `json:"population,omitempty"`
 	Columns          []Column      `json:"columns"`
 	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
@@ -33,17 +36,16 @@ type Document struct {
 }
 
 // Population constrains an output's row roots to resources reachable from a
-// completed immutable selection. Route steps contain semantic resource
-// identities only. Catalog edge IDs are accepted at the command boundary but
-// are never persisted into the workspace.
+// completed immutable selection.
 type Population struct {
 	SelectionRevisionID string                `json:"selectionRevisionId"`
 	Route               []PopulationRouteStep `json:"route"`
 }
 
 type PopulationRouteStep struct {
-	ResourceType string `json:"resourceType"`
-	Relationship string `json:"relationship"`
+	ResourceType  string `json:"resourceType"`
+	Relationship  string `json:"relationship"`
+	CatalogEdgeID string `json:"catalogEdgeId,omitempty"`
 }
 
 func (p Population) Validate() error {
@@ -148,27 +150,28 @@ type CatalogEdge struct {
 }
 
 type CatalogCandidate struct {
-	ID                    string             `json:"candidateId"`
-	NodeID                string             `json:"nodeId"`
-	FieldPath             string             `json:"fieldPath"`
-	Label                 string             `json:"label"`
-	LogicalType           string             `json:"logicalType"`
-	Cardinality           string             `json:"cardinality"`
-	Repeated              bool               `json:"repeated"`
-	Filterable            bool               `json:"filterable"`
-	Chartable             bool               `json:"chartable"`
-	ProjectionModes       []string           `json:"projectionModes"`
-	DefaultProjectionMode string             `json:"defaultProjectionMode"`
-	RepeatedBoundaries    []RepeatedBoundary `json:"repeatedBoundaries,omitempty"`
-	FilterOperators       []string           `json:"-"`
-	ChartOperations       []string           `json:"-"`
-	Populated             bool               `json:"-"`
-	Count                 *int64             `json:"-"`
-	SuggestionsAvailable  bool               `json:"-"`
-	SuggestionsComplete   bool               `json:"-"`
-	SuggestionsTruncated  bool               `json:"-"`
-	SuggestionCount       int                `json:"-"`
-	ConceptCandidates     []ConceptCandidate `json:"conceptCandidates,omitempty"`
+	ID                    string                         `json:"candidateId"`
+	NodeID                string                         `json:"nodeId"`
+	FieldPath             string                         `json:"fieldPath"`
+	Label                 string                         `json:"label"`
+	LogicalType           string                         `json:"logicalType"`
+	Cardinality           string                         `json:"cardinality"`
+	Repeated              bool                           `json:"repeated"`
+	Filterable            bool                           `json:"filterable"`
+	Chartable             bool                           `json:"chartable"`
+	ProjectionModes       []string                       `json:"projectionModes"`
+	DefaultProjectionMode string                         `json:"defaultProjectionMode"`
+	RepeatedBoundaries    []RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
+	ConstructionChoice    *capability.ConstructionChoice `json:"constructionChoice"`
+	FilterOperators       []string                       `json:"-"`
+	ChartOperations       []string                       `json:"-"`
+	Populated             bool                           `json:"-"`
+	Count                 *int64                         `json:"-"`
+	SuggestionsAvailable  bool                           `json:"-"`
+	SuggestionsComplete   bool                           `json:"-"`
+	SuggestionsTruncated  bool                           `json:"-"`
+	SuggestionCount       int                            `json:"-"`
+	ConceptCandidates     []ConceptCandidate             `json:"conceptCandidates,omitempty"`
 }
 
 // ConceptCandidate is an observed structural terminology/value candidate.

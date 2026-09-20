@@ -46,13 +46,18 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 			choiceSelectors = append(choiceSelectors, selector)
 		}
 	}
-	return ir.PhysicalCorrelation{
+	correlation := ir.PhysicalCorrelation{
 		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, KeyResource: checked.KeyResource,
 		KeySelector: checked.KeySelector, SystemSelector: checked.SystemSelector, CodeSelector: checked.CodeSelector,
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,
-	}, nil
+	}
+	if checked.UnitSelector != nil {
+		unit := *checked.UnitSelector
+		correlation.UnitSelector = &unit
+	}
+	return correlation, nil
 }
 
 // LowerExtensionBinding converts the checked ancestor-aware extension shape

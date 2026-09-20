@@ -1,130 +1,106 @@
-# Acceptance protocol for the ML dataframe workbench
+# Verify schema-driven dataframe construction
 
-Use this protocol to execute revision 3 of the [C01-C12 plan](../ML_DATAFRAMER_DELIVERY_PLAN.md). Every threshold is a target until a run records a result. The [runbook](RUNBOOK.md) defines package checkpoints and the [contracts](CONTRACTS.md) define six readiness experiments. Prototype checks are not product acceptance. Validate planning records with:
+Use [the active plan](../ML_DATAFRAMER_DELIVERY_PLAN.md) and [ledger](execution.json). Targets below are not measurements. A package needs focused tests, its live DOM journey, literal output and negative-case checks, measured performance, and one coherent review.
 
-```bash
-rtk proxy node scripts/validate_ml_dataframer_plan.mjs
-```
+## Establish the actual target
 
-That command checks plan consistency only. It cannot certify user capability or data correctness.
+Record the source checkout, exact HEAD and dirty-diff fingerprint, Compose project, mounted paths, API/UI URLs, fixture generation, authorization scope, and serving build identity before testing. Check the source watcher rather than trusting a port number. Preserve the populated CDA volumes and existing user Explorers.
 
-## Set up the right local target
-
-1. Confirm the integration worktree, branch, source SHA, Docker source mounts, API port, UI port, and dataset generation. Run `rtk proxy make dev-doctor` with the same environment used to start the isolated stack.
-2. Reuse `make dev` and the mounted Go/Vite watchers. Run `make dev-rebuild` only for dependency, toolchain, or image changes. Do not replace the canonical `loom-demo` volumes.
-3. Read the current project-local `verify` skill before runtime verification. Default ports in that skill may differ from the active instance. Use doctor output, not an assumed localhost URL.
-4. Use a unique owned test project for each destructive authoring journey. Ingest raw FHIR and establish authentication. Never reset the populated working project as test setup.
-
-For the real-data run, use the existing external-fixture workflow with `LOOM_DEV_FIXTURE_DIR=/Users/peterkor/Desktop/BMEG/loom/CDA-FHIR/META` and a recorded project/generation. The source is outside the integration worktree. Validate availability and manifest before ingestion. `verify-current` checks the populated Builder and watchers; it does not by itself certify a complete research workflow.
-
-## Require user-reachable state
-
-Start at the ordinary project entry screen. Browser setup may create a test account/session and seed source records. It may not precreate collections, graph routes, columns, interpretation revisions, check results, or published user dataframes needed by the task.
-
-Drive accessible roles, labels, and visible controls. Browser JavaScript may interact with DOM controls; it must not call application stores, hidden component handlers, or authoring APIs directly. Do not replace a failing control with a direct backend call. Read-only API probes are encouraged to verify the effects independently.
-
-Fault tests may inject server-side failures through isolated test configuration. Label those tests separately. Existing API-prepared UI tests remain useful component/contract checks, but are not C-package user-task acceptance.
-
-Assert literal expected values from checked-in source fixtures. Do not derive the expected answer from the same compiler, preview, or publication under test. For larger data, compare complete counts and a deterministic independently calculated subset. Record that distinction.
-
-## Release journeys
-
-| ID | Starts with | DOM actions | Required evidence |
-|---|---|---|---|
-| J01 | 1,000 observed concepts, no selected columns | Choose rows, search/page, select three ready concepts, Add selected, switch to graph and back, preview/export/reload | All 1,000 discoverable; exactly three chosen outputs; zero mandatory construction forms or auto-generated columns; graph/catalog share saved intent and preserve existing advanced constructions |
-| J02 | Same project | Browse files, select across pages/all matching, exclude, map to specimen rows, inspect/remove unmatched | Literal membership and source-to-row counts, persisted immutable selection |
-| J03 | Standard pairs and known/unknown defined extensions | Browse recognized concepts, import missing definition, search enriched label/code, select/add | Correct same-owner values; known extension recognized without manual pairing; definition versions pinned; conflicts remain visible |
-| J04 | Selected concept with alternative routes and multiple contributors | Inspect construction, trace a row, change route/policy, explicitly add count | 9 related / 4 code matches / 1 ordered result; literal alternate result; only requested outputs; unchanged population |
-| J05 | Dated measurements with mixed units | Choose row anchor, bounded window, latest policy, unit conversion, inspect excluded contributors | Add the 2-in-window stage to J04's example; exact boundary/tie behavior and compatible conversions; future records excluded |
-| J06 | Unresolved raw structure with no concept candidate or selected column | Open unresolved inventory, define pairing, preview/save, find in catalog, select/add/reuse | Mapping approval creates zero columns; explicit add works; raw values unchanged; no repeat mapping required |
-| J07 | Mixed study category values | Define exact recoding, choose unknown policy, preview/apply, reuse | Expected categories, null/empty/unknown retained or explicitly handled, no row deletion |
-| J08 | Authored features | Assign roles, missing indicators, category vocabulary, research/matrix representation | Correct X/y/identifier membership, stable physical columns, list-policy blocker |
-| J09 | Bad record beyond preview window | Run Check, navigate away/reload, open problem, repair, recheck, publish | Full counts, actionable issue, no stale check reuse or early activation |
-| J10 | Published dataframe plus newer generation | Copy, edit copy, review refresh diff, cancel/apply, recheck | Original unchanged, explicit membership/type drift, retained old artifact |
-| J11 | Checked publication | Choose export scope/mode, download, load through supplied Python example | Exact typed values, schema, roles, quality, provenance, checksum, null-marker collision case |
-| J12 | Open-access CDA-FHIR, no prepared user dataframe | Complete two available research tasks from project entry with distinct row types | At least one non-Patient start, real related feature, full Check, typed export, recorded manifest and independent reference subset |
-
-J12 does not require CDA to contain every hostile case or DocumentReference. Choose actual available concepts and record why those tasks are meaningful. The synthetic fixture supplies error cases absent from the real data.
-
-## Define the fixtures before implementing their features
-
-Extend `testdata/devloop-fixture` with small, explicit records. Its existing population and correlated-binding literals are documented in its README. Add new cases only for missing behaviors, with expected rows alongside the source.
-
-Required additions include 1,000 distinct concepts on one profiled field to cross the existing 512 observation bound, exact expected inventory, terminology/extension definition fixtures with provenance, same code in different systems, a missing definition that resolves after import, and an initially unpaired structure with no concept candidate. Add temporal boundaries/ties, compatible and incompatible units, exact recoding, zero/multiple contributors, null/empty/zero/false, large integers, literal null-marker text, list values, unauthorized records, and a two-generation drift case. Keep new records isolated from existing tests by explicit population/source identity.
-
-Use a generated larger fixture for pagination, a bad record beyond preview limits, 100,000-member selection, and memory tests. Record generator parameters and seed. Do not hand-maintain a large copied dataset.
-
-## Measure interpretation coverage without hiding unknown data
-
-Use a checked inventory of structural binding groups keyed by resource/profile, owning scope, code system/code or extension ancestry, and value shape. A group has one recognition disposition: recognized, unresolved, conflicting, or unsupported. Keep ordinary uncoded fields visible. Do not count a definition-backed label alone as a valid extraction mapping.
-
-Report group counts and occurrence counts separately, with the observed universe, authorization scope, dataset generation, definition-set identity, and scan completeness. Groups with no safe mapping remain in the denominator. Bounded examples are not a complete inventory. The fixture must reconcile all groups; the real-data report must disclose incomplete enumeration instead of producing a misleading coverage percentage.
-
-Definition fixtures can be provisioned as trusted environment setup just like a FHIR schema. The import/retry user journey itself must use visible controls. No setup script may create human interpretation revisions for J06. Adding definitions or mappings must create zero user dataframe columns.
-
-## Use risk-based checks during implementation
-
-| Change | Inner loop | Package closure |
-|---|---|---|
-| Layout, labels, editor states | Focused component tests and targeted live DOM action | Package journey, keyboard/focus and narrow-width inspection |
-| Go domain or compiler semantics | Changed-package tests and direct importers; literal executed case for changed extraction | Live Arango/ClickHouse case plus affected package journey |
-| Wire schema or migrations | Generated contract checks and caller compile/tests | Reload old draft, stale-client/CAS cases, and affected DOM journey |
-| Selection, interpretation persistence, Check, artifacts | Lifecycle/storage tests and relevant fault tests | Real database probe, authorization/generation failures, package journey |
-| Shared orchestration/watcher code | Driver tests and source identity checks | `verify-full` recovery/timing plus affected journeys |
-
-Use existing commands where applicable:
+Use the [local verification skill](../../../.codex/skills/verify/SKILL.md). Existing commands are:
 
 ```bash
-rtk proxy go test ./internal/explorer/...
-rtk proxy go test ./internal/dataframe/...
-rtk proxy go test ./internal/server
-rtk proxy make openapi-check graphql-check dataframe-boundaries
-rtk proxy npm --prefix ui test
-rtk proxy npm --prefix ui run build
-rtk proxy make verify-fast
+rtk make dev
+rtk make dev-doctor
+rtk make verify-current
+rtk make verify-fast
+rtk make verify-full
 ```
 
-Run narrower package/test selectors inside the edit loop. At M1-M3, run the completed milestone journeys together. At C12, run `go test ./...`, applicable race tests for changed concurrent lifecycles, generated-contract checks, UI tests/build, `verify-full`, and all release journeys once on the integrated SHA. Do not rerun the full suite per small issue.
+`make dev` uses the isolated development workflow, not permission to replace the canonical demo. `dev-rebuild` is for dependency/toolchain changes, not routine source edits. `verify-fast` creates an isolated owned test project. Reuse the populated CDA project for real-data checks; do not reingest the corpus on every iteration.
 
-Update the existing browser driver with selectable C journeys. A future `--journey J06` selector is a proposed implementation task, not a currently available command. Do not document it as runnable until implemented.
+S01 adds selectable new journeys to the existing driver or adjacent driver modules. Those selectors are planned, not existing commands. UI setup may ingest source fixtures and establish authentication, but it may not pre-create columns, traversals, groups, transformations, or a successful publication that the journey is supposed to author.
 
-## Measure responsiveness and iteration speed
+## Execute the package journeys
 
-Use a recorded machine/Docker allocation and dataset manifest. Separate cold startup, warm interactions, and long-running operations. Record run counts, failures, median, p95 where meaningful, and memory limits.
+| Journey | User actions | Required evidence |
+| --- | --- | --- |
+| J01 | Use Add columns from an empty Builder; search concepts and ordinary fields across pages; add three outputs; open Column details and a repeated cell; rename/reorder; Preview, save, reload, export | Zero automatically added feature columns; exactly three requested outputs and stable identities; literal same-owner values, units, choices, and absence; unfamiliar schema-defined path supported without resource-specific UI or graph/path entry |
+| J02 | Add a related column without the graph; use Inspect source and Edit in graph; author a five-edge traversal; select a node-local code; cancel a change, then apply, switch views, reload | Actual selected route and code owner preserved; exact alternative values/contributors; inbound direction works; canceled edits change nothing; meaningful ambiguity is not silently resolved by shortest path |
+| J03 | Choose starting records; distinguish selected records from all filtered matches; preview/apply Groups; inspect memberships; cancel another change; Expand repeated values; reload/export | Exact selected scope, group membership, and stable identities; explicit overlapping-group behavior; no accidental product of independent arrays; reconstruction of preserved selected source tuples |
+| J04 | Use Values, Time and units, and Table shape controls; compare before/after; recode categories; pivot/unpivot; add a typed derived column; cancel and apply, then reload | Every enabled operator has an independent literal oracle; declared order and loss; sample labels; no unknown-unit coercion, hidden vocabulary learning, population change, or mutation of an unrelated column |
+| J05 | Use Review dataset; navigate to a blocking column; correct it; Publish; reload Viewer; Explain this value; filter; Download dataset with explicit scope/representation | Same values, row/group membership, output types, and contributors across consumers; exact generation and descriptor/checksum identity; truthful check completeness and export preservation |
 
-| Metric | Target | Measurement |
-|---|---|---|
-| UI acknowledgment | Visible loading/saved/error feedback within 250 ms for local actions | Browser timestamps, 30 warm interactions, p95 |
-| Cached source/feature search | First useful page within 2 s | Same authorized scope and warm snapshot, 30 searches, p95 |
-| Small-fixture preview | Updated rows within 5 s after request | 30 warm previews, p95; assert current receipt, not stale rows |
-| Long operation submission | Operation ID/status within 1 s | Source freeze, Check, artifact preparation; 20 warm submits, p95 |
-| Warm development loop | Median at most 30 s | Five source-edit-to-observed-result repetitions; include Go and UI edits |
-| Large selection | No complete member list transferred to browser | 100,000-member fixture, network payload and paging evidence |
-| Full Check/export throughput | No unexplained repeatable median regression over 20% against equivalent existing candidate execution | Five interleaved runs of same dataset/query/policy on baseline and candidate, when comparable |
-| Large-operation memory | Stay within recorded container limits and avoid linear full-row accumulation in browser/application memory | 10x input scale comparison, peak RSS and browser heap; database memory measured separately |
+At package closure save DOM snapshots, screenshots of the changed interaction, exact request/result identities, and the independent literal comparison. A human review or video is optional unless the user requests it. Automated interaction success is not a usability-study result.
 
-For new operations without a comparable baseline, record absolute elapsed time, throughput, peak memory, and limiting stage in the first owning package. Set the release budget there before optimization, with rationale. Do not fabricate an equivalent baseline or promise millions of rows complete within 30 seconds. A complete Check can run asynchronously while the editor remains usable.
+UI01-UI05 are mandatory parts of S01-S05, not a later acceptance phase. Use the controls named in the plan through the DOM. J01 starts with New table and its initial resource-row choice, not a preconfigured table or a graph-created root. Backend setup may prepare source data but must not perform the user action being proved. A passing API test or isolated component test does not substitute for the paired journey.
 
-A failed target is evidence to fix or an explicit release exception requiring scope review. Never rename a failure "acceptable" after seeing the measurement. Noise needs reruns under the same conditions, not a bigger arbitrary threshold.
+For changed controls, test keyboard focus/activation and accessible names. Exercise loading, no results, unsupported choices, a recoverable request failure, and stale resolution. Keep drafted edits distinguishable from saved results, prevent duplicate apply, and show a retry path. Confirm that a delayed response for an older selection cannot overwrite the latest table or inspector. Capture wide and narrow layouts for the changed workspace; the table and inspector must remain reachable without clipping the controls.
 
-## Separate functional proof from usability evidence
+Each slice owns rendering and existing consumer support for its new shapes. Do not defer a broken Viewer or export shape to S05. Keep browser selectors in the existing driver modules, and narrow the local watcher loop to the changed interaction before running the package journey.
 
-Automation proves that a known sequence works, not that a new researcher can discover it. At each package closure, inspect labels, visible choices, error recovery, focus order, scrolling, and a screenshot of the actual running page. A human is not required in the execution loop.
+## Use small fixtures with independent expected outputs
 
-The optional user-study target is four of five representative bioinformaticians finishing the basic population/feature/check/export task within 15 minutes without FHIR assistance. Record completion, errors, requests for help, and time. Until tested, report "human usability unmeasured". Do not convert a scripted browser pass into that claim.
+Extend `testdata/devloop-fixture` and its fixture generators, without changing existing cases invisibly. Add only records needed by the owning package.
 
-## Close a work package honestly
+- S01 covers an unfamiliar schema-defined root with reusable datatypes under unfamiliar property names, same code in different systems, multiple coding translations, quantity members, string/integer choice arms, recorded absence, nested equal leaf Extension URLs under different parents, primitive metadata without a value, unknown fields, and 1,000 concepts beyond the old 512 bound.
+- S02 covers two semantically different routes, a five-edge route, inbound fan-out, a finite repeated/self-loop route if compiler-supported, an unavailable reference, and explicit search truncation. Same resource types do not make two routes equivalent.
+- S03 covers missing group keys, typed key collisions, overlapping explicit groups, empty members, unlinked resources, equal-valued distinct members, and independent repeated scopes of lengths two and three. Specify which operations preserve order/membership and which deliberately change it.
+- S04 covers zero/one/many contributors, tied timestamps, missing anchors, compatible/incompatible units, category code versus label changes, unexpected categories, pivot duplicates, new categories after pinning, numeric precision, and division by zero.
+- S05 covers false, zero, empty string/list, absent values, explicit recorded absence, large integers, literal export-null-marker text, unauthorized records, stale source generation, interrupted publication, and retained old artifact reads.
 
-Write one evidence report per package containing:
+Keep expected selected tuples and output rows authored independently from the implementation. For a preserving operator, reconstruct and compare the selected values, types, multiplicity, owner/member identities, and coordinates. Comparing counts alone fails. For a reducing operator, compare the exact result and declared contributing records and identify the information discarded.
 
-- source SHA and dirty-diff hash if verification preceded commit;
-- fixture manifest, project/generation, scope, machine, ports, and serving build identity;
-- commands and exit codes, plus DOM journey identifier;
-- each KPI ID, target, observed value, pass/fail/unmeasured, and raw evidence location;
-- independent expected rows versus actual rows/artifact checksums;
-- negative cases, performance results, known limitations, and replaced/deleted code;
-- final review outcome.
+On `/Users/peterkor/Desktop/BMEG/loom/CDA-FHIR/META`, choose at least two observed tasks with different supported row roots and one related/repeated feature. Record the actual available paths/codes and dataset manifest. The synthetic fixture supplies hostile cases absent from CDA. Do not require Patient, DocumentReference, or a particular specimen relationship.
 
-Set a ledger package to `accepted` only when all four implementation units and its required KPIs pass and evidence exists. Every measured KPI row carries a nonempty `observation` describing actual results and an `evidence` array of repository-local evidence files; pass/fail alone is invalid. Resolve that package's readiness gates with evidence before acceptance. Preserve failed attempts and any accepted scope changes in that report. A report's existence is not proof of its contents; the foreground reviewer must read it and inspect the actual results.
+## Keep the inner loop proportional
 
-The ledger validator checks IDs, source paths, dependencies, anchors, and evidence references. It does not interpret screenshots, certify tests, or turn `planned` into `accepted`. Never mark C12 complete merely because all earlier backend tasks are done.
+| Change | Inner loop | Closure |
+| --- | --- | --- |
+| Schema or semantic extraction | Focused generated-metadata/walker/association tests | Executed owner-record values and trace, then J01 |
+| Query/row/operator semantics | Changed package and direct-importer tests; one literal executed fixture | Owning journey and independent membership/value checks |
+| API or persisted intent | Generated-contract checks, positive/negative parse fixtures, migration/CAS tests | Old draft reload, retry/stale cases, and owning DOM journey |
+| UI only | Focused component tests plus the changed DOM action | Owning journey and visual/keyboard inspection |
+| Watchers or test orchestration | Existing driver safety tests | `verify-full` recovery and source-to-result timing |
+
+Run relevant existing commands, narrowed to changed packages during iteration:
+
+```bash
+rtk go test ./internal/fhir/schema ./internal/fhir/semantic
+rtk go test ./internal/explorer/... ./internal/dataframe/... ./internal/server
+rtk make openapi-check graphql-check dataframe-boundaries
+rtk npm --prefix ui test
+rtk npm --prefix ui run build
+```
+
+At S05 run `rtk go test ./...`, applicable race tests for changed concurrent lifecycles, generated checks, UI tests/build, all J01-J05 journeys, `rtk make verify-full`, and the populated CDA proof at one integrated checkpoint. Add an actual artifact reader round trip with typed comparison. Do not merely compare Preview to another consumer of the same faulty query.
+
+## Measure the user-visible result
+
+Record fixture, source/build identities, machine/Docker allocation, run count, errors, median, and p95 where applicable. Measure cold startup separately from warm interactions.
+
+| Metric | Release target | Probe |
+| --- | --- | --- |
+| Catalog or construction-choice response | Warm p95 at most 2 seconds | 30 requests in the same authorization, generation, and table context |
+| Small-fixture Preview | Warm p95 at most 5 seconds | 30 requests; wait for current-result identity and literal rows, not a loading-state change |
+| Local feedback | Warm p95 at most 250 milliseconds | 30 actions; visible pending/saved/error acknowledgement |
+| Warm development loop | Median at most 30 seconds | Five source-edit-to-asserted-result cycles covering both Go rebuild and frontend HMR |
+| Comparable query/export work | No repeatable median regression above 20 percent | Five interleaved baseline/head pairs on identical data, intent, authorization, and result correctness |
+
+If the baseline cannot perform the new operation, record that fact. Measure the added work and complete user wait against an absolute budget fixed before optimization. Never compare a lossy baseline result with a correct preserving result as if they were equivalent. Large CDA ingestion or full export is not promised within 30 seconds.
+
+Read catalog pages server-side, bound examples, and cache by schema/semantic revision plus the appropriate dataset/authorization/context identities. Do not transmit all source members or enumerate all routes into browser memory. Record peak application/browser memory for a generated 10x-scale case when grouping, pivoting, or artifact buffering changes.
+
+## Record acceptance without inventing completion
+
+For each package retain an evidence report with exact source/build identities, fixture/generation/scope, commands and exits, journey results, screenshots/DOM, literal comparisons, negative cases, performance, support limits, and reviewer judgment.
+
+Store reports under `docs/product/ml-dataframer/evidence/` when accepted. Large DOM/screenshots/artifacts may remain in `.artifacts/loom-dev/` with stable hashes and pointers in the report. A measured KPI needs a nonempty observation and repository-local evidence. An accepted package needs every task accepted, all KPIs passed, all six gates passed at `verification.sha`, and accepted prerequisites.
+
+Validate plan structure with:
+
+```bash
+rtk node --test scripts/validate_ml_dataframer_plan.test.mjs
+rtk node scripts/validate_ml_dataframer_plan.mjs
+```
+
+The validator checks document/ledger agreement, dependencies, evidence references, acceptance fields, and archive integrity. It does not certify the contents of a screenshot or claim a runtime feature is finished.

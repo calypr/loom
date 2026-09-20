@@ -197,20 +197,25 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 			return checkedBindingValue{}, fmt.Errorf("choiceArms[%d] is empty", index)
 		}
 	}
-	validChoiceArms := map[string]bool{}
-	for _, option := range ChoiceValueSelectorOptions(valueResource) {
-		path := CanonicalPath(option)
-		if path == "" {
-			continue
-		}
-		validChoiceArms[strings.TrimSuffix(strings.Split(path, ".")[0], "[]")] = true
+	valueArm := strings.TrimSuffix(strings.Split(valuePath, ".")[0], "[]")
+	valueArmMetadata, valueArmExists := ResolvePath(valueResource, valueArm)
+	valueChoiceGroup := ""
+	if valueArmExists {
+		valueChoiceGroup = strings.TrimSpace(valueArmMetadata.Property.ChoiceGroup)
 	}
 	for index, arm := range choiceArms {
-		if !validChoiceArms[arm] {
-			return checkedBindingValue{}, fmt.Errorf("choiceArms[%d] %q is not a value[x] arm of %s", index, arm, valueResource)
+		resolved, exists := ResolvePath(valueResource, arm)
+		choiceGroup := ""
+		if exists {
+			choiceGroup = strings.TrimSpace(resolved.Property.ChoiceGroup)
+		}
+		if choiceGroup == "" {
+			return checkedBindingValue{}, fmt.Errorf("choiceArms[%d] %q is not a choice arm of %s", index, arm, valueResource)
+		}
+		if valueChoiceGroup == "" || choiceGroup != valueChoiceGroup {
+			return checkedBindingValue{}, fmt.Errorf("choiceArms[%d] %q is outside valuePath %q choice group", index, arm, valuePath)
 		}
 	}
-	valueArm := strings.TrimSuffix(strings.Split(valuePath, ".")[0], "[]")
 	if len(choiceArms) > 0 && !containsCorrelatedString(choiceArms, valueArm) {
 		return checkedBindingValue{}, fmt.Errorf("valuePath %q is outside declared choiceArms", valuePath)
 	}
@@ -241,7 +246,11 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		fallbacks = append(fallbacks, fallback)
 	}
 	var unit *Selector
-	if strings.TrimSpace(unitPath) != "" {
+	if strings.TrimSpace(unitPath) == "" {
+		if inferred, ok := inferQuantityUnitSelector(valueResource, valuePath); ok {
+			unit = &inferred
+		}
+	} else {
 		unitSelector, parseErr := ParseSelector(CanonicalizePath(unitPath))
 		if parseErr != nil {
 			return checkedBindingValue{}, fmt.Errorf("unitPath: %w", parseErr)
@@ -256,6 +265,30 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		unit = &unitSelector
 	}
 	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
+}
+
+// inferQuantityUnitSelector retains the display unit owned by the same FHIR
+// Quantity as a selected numeric value. The generated datatype reference is
+// the authority; a coincidental sibling named "unit" on another structure is
+// not treated as a measurement unit.
+func inferQuantityUnitSelector(valueResource, valuePath string) (Selector, bool) {
+	valuePath = CanonicalizePath(valuePath)
+	separator := strings.LastIndex(valuePath, ".")
+	if separator < 1 || valuePath[separator+1:] != "value" {
+		return Selector{}, false
+	}
+	parentPath := valuePath[:separator]
+	parent, ok := ResolvePath(valueResource, parentPath)
+	if !ok || parent.PropertyRef != "Quantity" {
+		return Selector{}, false
+	}
+	unitPath := parentPath + ".unit"
+	metadata, ok := ResolveTerminalScalarMetadata(valueResource, unitPath)
+	if !ok || metadata.Primitive != PrimitiveString {
+		return Selector{}, false
+	}
+	unit, err := ParseSelector(unitPath)
+	return unit, err == nil
 }
 
 // ValidateExtensionBinding validates the ancestor chain and terminal value

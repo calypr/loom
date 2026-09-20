@@ -16,11 +16,13 @@ const (
 	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
 	SemanticInventorySchemaVersion     = 1
 	SemanticInventoryEntryIndexVersion = 2
-	SemanticObservationRuleVersion     = 3
+	SemanticObservationRuleVersion     = 4
 	SemanticInventoryPageLimit         = 50
 	SemanticInventorySourceFile        = "file"
 	SemanticInventorySourceRetained    = "retained_vertex"
 )
+
+const SemanticRuleHintCodedValueV1 = "CODED_VALUE_V1"
 
 var ErrSemanticInventoryCursorMismatch = errors.New("semantic inventory cursor does not match request")
 

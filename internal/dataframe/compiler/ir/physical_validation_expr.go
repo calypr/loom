@@ -32,6 +32,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Pivot != nil {
 		payloads++
 	}
+	if expression.OwnerRecords != nil {
+		payloads++
+	}
 	if expression.Slice != nil {
 		payloads++
 	}
@@ -88,6 +91,22 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalPivot(*expression.Pivot, defined, bindVars)
+	case PhysicalOwnerRecordsExpression:
+		if expression.OwnerRecords == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if err := validatePhysicalCorrelation(expression.OwnerRecords.Correlation, defined, bindVars); err != nil {
+			return fmt.Errorf("owner records correlation: %w", err)
+		}
+		for _, key := range []string{expression.OwnerRecords.OwnerPathBindKey, expression.OwnerRecords.ChoiceArmBindKey, expression.OwnerRecords.LogicalTypeBindKey} {
+			if err := requireBind(bindVars, key); err != nil {
+				return err
+			}
+			if _, ok := bindVars[key].(string); !ok {
+				return fmt.Errorf("owner records bind %q must be a string", key)
+			}
+		}
+		return nil
 	case PhysicalSliceExpression:
 		if expression.Slice == nil {
 			return fmt.Errorf("expression payload does not match kind")

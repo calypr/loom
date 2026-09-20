@@ -325,6 +325,7 @@ export const builderAuthoringReducer = (
             {
               occurrenceId: action.occurrenceId,
               resourceType: target.resourceType,
+              catalogEdgeId: edge.edgeId,
               relationship: edge.label,
             },
           ],

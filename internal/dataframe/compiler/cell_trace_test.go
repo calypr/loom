@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
@@ -75,6 +76,31 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "resourceType:", "resourceId:", ".payload.valueQuantity.value"} {
 		if !strings.Contains(compiled.Query, want) {
 			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, compiled.Query)
+		}
+	}
+}
+
+func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Observations", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		OwnerRecords: []recipe.OwnerRecordProjection{{
+			Name: "height_records", FieldRef: "component[].valueQuantity.value",
+			Binding: fhirschema.CorrelatedBinding{
+				OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+				SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
+				ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal",
+			},
+			Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+		}},
+	})
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "height_records", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"trace_owner_record", ".source.resourceType", ".source.resourceId", "ownerOrdinal", "INVALID_CHOICE_ARM"} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("owner-record trace query missing %q:\n%s", want, compiled.Query)
 		}
 	}
 }

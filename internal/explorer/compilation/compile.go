@@ -20,7 +20,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const TranslationVersion = "authoring-v2-native-8"
+const TranslationVersion = "authoring-v2-native-9"
 
 // Error is a structured translation failure. Stage, Code, Path, and Details
 // remain transport-neutral so adapters never parse error strings.
@@ -560,12 +560,22 @@ func catalogFromCapability(snapshot capability.Snapshot, explorerID string) auth
 				Completeness: concept.Completeness, Status: concept.Status, Population: concept.Population, Examples: append([]string(nil), concept.Examples...), ExamplesTruncated: concept.ExamplesTruncated, RuleHint: concept.RuleHint, RuleVersion: concept.RuleVersion,
 			}
 		}
-		catalog.Candidates = append(catalog.Candidates, authoringv2.CatalogCandidate{
+		wire := authoringv2.CatalogCandidate{
 			ID: candidate.ID, NodeID: candidate.NodeID, Label: candidate.Label, LogicalType: candidate.LogicalType,
-			Repeated: capability.IsRepeatedCardinality(candidate.Cardinality), Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
+			Cardinality: candidate.Cardinality, Repeated: capability.IsRepeatedCardinality(candidate.Cardinality), Filterable: supportsOperation(candidate.SupportedOperations, capability.OperationFilter), Chartable: supportsOperation(candidate.SupportedOperations, capability.OperationChart),
 			FieldPath: candidate.FieldPath, ProjectionModes: modes, DefaultProjectionMode: defaultMode, Populated: candidate.Populated,
 			RepeatedBoundaries: authoringRepeatedBoundaries(candidate.RepeatedBoundaries), ConceptCandidates: conceptCandidates,
-		})
+		}
+		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+		if err != nil {
+			catalog.Diagnostics = append(catalog.Diagnostics, authoringv2.CatalogDiagnostic{
+				Severity: "WARNING", Code: "CONSTRUCTION_CHOICE_UNAVAILABLE",
+				Message: "A catalog candidate was omitted because no compiler-proved construction output is available.",
+			})
+			continue
+		}
+		wire.ConstructionChoice = &choice
+		catalog.Candidates = append(catalog.Candidates, wire)
 	}
 	return catalog
 }

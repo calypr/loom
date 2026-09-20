@@ -91,6 +91,17 @@ type CandidateRequest struct {
 	Chart            *Chart
 }
 
+// OwnerRecordsRequest asks whether one repeated FHIR owner binding can be
+// preserved as an ordered list of structured records at an occurrence.
+type OwnerRecordsRequest struct {
+	Scope
+	RootResourceType string
+	ResourceType     string
+	Route            []Traversal
+	Binding          fhirschema.CorrelatedBinding
+	Key              fhirschema.CorrelatedKey
+}
+
 // Options controls the explicitly authorized physical rewrite. The default is
 // the same conservative policy used by normal recipe compilation.
 type Options struct {
@@ -148,11 +159,19 @@ type CandidateCapability struct {
 	Rendered        Rendered
 }
 
+type OwnerRecordsCapability struct {
+	ResourceType string
+	Binding      fhirschema.CorrelatedBinding
+	Key          fhirschema.CorrelatedKey
+	Rendered     Rendered
+}
+
 type Result struct {
-	Root      *RootCapability
-	Traversal *TraversalCapability
-	Candidate *CandidateCapability
-	Rendered  Rendered
+	Root         *RootCapability
+	Traversal    *TraversalCapability
+	Candidate    *CandidateCapability
+	OwnerRecords *OwnerRecordsCapability
+	Rendered     Rendered
 }
 
 // ProbeRoot compiles and renders a zero-hop concrete row root.
@@ -272,6 +291,39 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	return Result{Candidate: &metadata, Rendered: rendered}, nil
 }
 
+// ProbeOwnerRecords compiles the exact binding and terminology key through
+// semantic lowering, physical validation, optimization, and AQL rendering.
+func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options ...Options) (Result, error) {
+	if err := contextErr(ctx); err != nil {
+		return Result{}, err
+	}
+	root, target, resourceType, err := routedRoot(request.RootResourceType, request.ResourceType, request.Route)
+	if err != nil {
+		return Result{}, err
+	}
+	checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, request.Binding)
+	if err != nil {
+		return Result{}, fmt.Errorf("owner records binding: %w", err)
+	}
+	if checked.OwnerSelector.CanonicalPath() == "" {
+		return Result{}, fmt.Errorf("owner records require a repeated owner selector")
+	}
+	if strings.TrimSpace(request.Key.System) == "" || strings.TrimSpace(request.Key.Code) == "" {
+		return Result{}, fmt.Errorf("owner records require a terminology system and code")
+	}
+	target.OwnerRecords = []semantic.SemanticOwnerRecords{{
+		Name: "owner_records", FieldRef: resourceType + "." + checked.ValueSelector.CanonicalPath(),
+		Binding: request.Binding, Key: request.Key,
+	}}
+	physical, rendered, err := compile(ctx, request.Scope, semantic.OutputPlan{RootResourceType: root.ResourceType, Root: *root}, optionsFor(options))
+	if err != nil {
+		return Result{}, err
+	}
+	_ = physical
+	capability := OwnerRecordsCapability{ResourceType: resourceType, Binding: request.Binding, Key: request.Key, Rendered: rendered}
+	return Result{OwnerRecords: &capability, Rendered: rendered}, nil
+}
+
 type preparedCandidate struct {
 	scope        Scope
 	resourceType string
@@ -322,28 +374,47 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if repeated {
 		cardinality = spec.CardinalityMany
 	}
-	root := semantic.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
-	current := &root
-	for index, route := range request.Route {
-		if strings.TrimSpace(route.FromResourceType) == "" {
-			route.FromResourceType = current.ResourceType
-		}
-		if err := validateTraversalRequest(current.ResourceType, route); err != nil {
-			return preparedCandidate{}, err
-		}
-		toType, _ := fhirschema.ConcreteResourceType(route.ToResourceType)
-		child := semantic.SemanticNode{Alias: routeAlias(route.Alias, index+1), ResourceType: toType, EdgeLabel: route.EdgeLabel, MatchMode: route.MatchMode}
-		current.Children = append(current.Children, child)
-		current = &current.Children[len(current.Children)-1]
-	}
-	if current.ResourceType != resourceType {
-		return preparedCandidate{}, fmt.Errorf("candidate resource type %q does not match route terminal %q", resourceType, current.ResourceType)
+	root, _, _, err := routedRoot(canonicalRoot, resourceType, request.Route)
+	if err != nil {
+		return preparedCandidate{}, err
 	}
 	fieldRef := strings.TrimSpace(request.FieldRef)
 	if fieldRef == "" {
 		fieldRef = resourceType + "." + selector.CanonicalPath()
 	}
-	return preparedCandidate{scope: request.Scope, resourceType: resourceType, fieldRef: fieldRef, selector: selector, fieldKind: fieldKind, primitive: terminal.Primitive, cardinality: cardinality, repeated: repeated, root: root}, nil
+	return preparedCandidate{scope: request.Scope, resourceType: resourceType, fieldRef: fieldRef, selector: selector, fieldKind: fieldKind, primitive: terminal.Primitive, cardinality: cardinality, repeated: repeated, root: *root}, nil
+}
+
+func routedRoot(rootResourceType, resourceType string, route []Traversal) (*semantic.SemanticNode, *semantic.SemanticNode, string, error) {
+	rootType := strings.TrimSpace(rootResourceType)
+	if rootType == "" {
+		rootType = strings.TrimSpace(resourceType)
+	}
+	canonicalRoot, ok := fhirschema.ConcreteResourceType(rootType)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("resource type %q is not a concrete generated FHIR resource", rootType)
+	}
+	canonicalResource, ok := fhirschema.ConcreteResourceType(resourceType)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("candidate resource type %q is not a concrete generated FHIR resource", resourceType)
+	}
+	root := semantic.SemanticNode{Alias: "root", ResourceType: canonicalRoot}
+	current := &root
+	for index, traversal := range route {
+		if strings.TrimSpace(traversal.FromResourceType) == "" {
+			traversal.FromResourceType = current.ResourceType
+		}
+		if err := validateTraversalRequest(current.ResourceType, traversal); err != nil {
+			return nil, nil, "", err
+		}
+		toType, _ := fhirschema.ConcreteResourceType(traversal.ToResourceType)
+		current.Children = append(current.Children, semantic.SemanticNode{Alias: routeAlias(traversal.Alias, index+1), ResourceType: toType, EdgeLabel: traversal.EdgeLabel, MatchMode: traversal.MatchMode})
+		current = &current.Children[len(current.Children)-1]
+	}
+	if current.ResourceType != canonicalResource {
+		return nil, nil, "", fmt.Errorf("candidate resource type %q does not match route terminal %q", canonicalResource, current.ResourceType)
+	}
+	return &root, current, canonicalResource, nil
 }
 
 func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec.ProjectionMode, filter *Filter, chart *Chart, options Options) (ir.PhysicalPlan, Rendered, error) {

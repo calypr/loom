@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import type { ConfiguredColumnContextResponse } from '../../../interpretation';
 import { ColumnSelector, columnFromCandidate } from './ColumnSelector';
 
 const catalog: ExplorerBuilderCatalog = {
@@ -53,7 +54,138 @@ const table: DraftTable = {
   },
 };
 
+const contextFor = (
+  outputId: string,
+  column: string,
+  candidateIds: ReadonlyArray<string>,
+): ConfiguredColumnContextResponse => ({
+  snapshotToken: 'snapshot',
+  draftVersion: 1,
+  draftDigest: 'draft-digest',
+  libraries: [],
+  pinnedRevisions: [],
+  columns: [{
+    outputId,
+    column,
+    occurrenceId: 'base',
+    resolution: { state: 'READY', capabilityCandidateIds: [...candidateIds], applicableRevisionIds: [] },
+  }],
+});
+
 describe('configured V2 columns', () => {
+  it('shows the exact FHIR source and saved route, then hands the column to the graph', async () => {
+    const onEditInGraph = vi.fn();
+    const height = {
+      column: 'height',
+      label: 'Height',
+      logicalType: 'decimal',
+      occurrenceId: 'observations',
+      source: {
+        kind: 'codedValue' as const,
+        lookup: {
+          binding: {
+            ownerPath: 'component[]',
+            keyPath: 'code',
+            systemPath: 'code.coding[].system',
+            codePath: 'code.coding[].code',
+            valuePath: 'valueQuantity.value',
+            logicalType: 'decimal',
+            unitPath: 'valueQuantity.unit',
+          },
+          key: { system: 'http://loinc.org', code: '8302-2' },
+          projectionMode: 'FIRST' as const,
+        },
+      },
+      table: { visible: true, order: 0 },
+    };
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 4,
+        },
+      ],
+      edges: [{
+        edgeId: 'subject-observation',
+        fromNodeId: 'research-subject',
+        toNodeId: 'observation',
+        label: 'subject_Observation',
+      }],
+    };
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        route: {
+          ...table.document.route,
+          children: [{
+            occurrenceId: 'observations',
+            resourceType: 'Observation',
+            relationship: 'subject_Observation',
+          }],
+        },
+        columns: [height],
+      },
+    };
+
+    render(
+      <ColumnSelector
+        catalog={relatedCatalog}
+        table={relatedTable}
+        occurrenceId="base"
+        showAvailable={false}
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+        onInspectSource={vi.fn().mockResolvedValue({
+          snapshotToken: 'snapshot',
+          outputId: relatedTable.outputId,
+          column: height.column,
+          summary: 'LOINC height from Observation component',
+          route: [
+            { occurrenceId: 'base', resourceType: 'ResearchSubject' },
+            {
+              occurrenceId: 'observations',
+              resourceType: 'Observation',
+              relationship: 'subject_Observation',
+              storageDirection: 'INBOUND',
+              matchMode: 'OPTIONAL',
+            },
+          ],
+          facts: [
+            { label: 'FHIR owner', value: 'component[]' },
+            { label: 'Code', value: 'http://loinc.org · 8302-2' },
+            { label: 'Value member', value: 'valueQuantity.value' },
+            { label: 'Unit member', value: 'valueQuantity.unit' },
+          ],
+        })}
+        onEditInGraph={onEditInGraph}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect source' }));
+
+    const inspector = await screen.findByRole('region', { name: 'Source for Height' });
+    expect(inspector).toHaveTextContent('ResearchSubject');
+    expect(inspector).toHaveTextContent('Observation');
+    expect(inspector).toHaveTextContent('via subject_Observation');
+    expect(inspector).toHaveTextContent('http://loinc.org · 8302-2');
+    expect(inspector).toHaveTextContent('component[]');
+    expect(inspector).toHaveTextContent('valueQuantity.value');
+    expect(inspector).toHaveTextContent('valueQuantity.unit');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit in graph' }));
+    expect(onEditInGraph).toHaveBeenCalledWith(height);
+  });
+
   it('narrows and highlights the exact feature handed off for repair', async () => {
     render(<ColumnSelector catalog={catalog} table={table} occurrenceId="base"
       focusColumn="research_subject_identifier" disabled={false} onAdd={vi.fn()}
@@ -83,7 +215,7 @@ describe('configured V2 columns', () => {
       }],
     };
 
-    render(<ColumnSelector catalog={repeatedCatalog} table={table} occurrenceId="base"
+    render(<ColumnSelector catalog={repeatedCatalog} interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])} table={table} occurrenceId="base"
       disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
       onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
@@ -99,6 +231,37 @@ describe('configured V2 columns', () => {
       },
     });
     expect(screen.getByText(/within each Research Subject/)).toBeInTheDocument();
+  });
+
+  it('uses only the server candidate ID when a source path has multiple candidates', () => {
+    const idCandidate: ExplorerBuilderCandidate = {
+      candidateId: 'opaque-selected',
+      nodeId: 'research-subject',
+      fieldPath: 'identifier[].value',
+      label: 'Selected identity',
+      logicalType: 'string',
+      cardinality: 'many',
+      repeated: true,
+      filterable: false,
+      chartable: false,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+    };
+    const samePathDecoy = { ...idCandidate, candidateId: 'opaque-decoy', label: 'Decoy identity', filterable: true };
+    render(<ColumnSelector
+      catalog={{ ...catalog, candidates: [idCandidate, samePathDecoy] }}
+      interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['opaque-selected'])}
+      table={table}
+      occurrenceId="base"
+      disabled={false}
+      onAdd={vi.fn()}
+      onAddAll={vi.fn()}
+      onChange={vi.fn()}
+      onSourceChange={vi.fn()}
+      onRemove={vi.fn()}
+    />);
+
+    expect(screen.getByRole('checkbox', { name: 'Use Research Subject ID as filter' })).toBeDisabled();
   });
 
   it('edits an existing resource reduction without changing its scope', () => {
@@ -348,7 +511,7 @@ describe('configured V2 columns', () => {
       },
     };
 
-    const { rerender } = render(<ColumnSelector catalog={relatedCatalog} table={relatedTable}
+    const { rerender } = render(<ColumnSelector catalog={relatedCatalog} interpretationContext={contextFor(relatedTable.outputId, 'observation_value', ['c_value'])} table={relatedTable}
       occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
       onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
@@ -378,7 +541,7 @@ describe('configured V2 columns', () => {
         }],
       },
     };
-    rerender(<ColumnSelector catalog={relatedCatalog} table={aggregateTable}
+    rerender(<ColumnSelector catalog={relatedCatalog} interpretationContext={contextFor(aggregateTable.outputId, 'observation_value', ['c_value'])} table={aggregateTable}
       occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
       onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
@@ -568,7 +731,7 @@ describe('configured V2 columns', () => {
       },
     };
 
-    render(<ColumnSelector catalog={measurementCatalog} table={measurementTable}
+    render(<ColumnSelector catalog={measurementCatalog} interpretationContext={contextFor(measurementTable.outputId, 'height', ['c_height'])} table={measurementTable}
       occurrenceId="base" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
       onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
@@ -671,6 +834,7 @@ describe('configured V2 columns', () => {
       return (
         <ColumnSelector
           catalog={{ ...catalog, candidates: [alpha, beta] }}
+          interpretationContext={contextFor(initialTable.outputId, 'alpha', ['c_alpha'])}
           table={currentTable}
           occurrenceId="base"
           disabled={false}
@@ -729,6 +893,7 @@ describe('configured V2 columns', () => {
             },
           ],
         }}
+        interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])}
         table={table}
         occurrenceId="base"
         disabled={false}
@@ -795,6 +960,7 @@ describe('configured V2 columns', () => {
             },
           ],
         }}
+        interpretationContext={contextFor(table.outputId, 'research_subject_identifier', ['c_identifier'])}
         table={table}
         occurrenceId="base"
         disabled={false}

@@ -91,6 +91,16 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 		}
 		lossy := aggregate.Operation == ir.PhysicalFirstAggregate || aggregate.Operation == ir.PhysicalRequireOneAggregate
 		return r.renderTraceContributorQueries(items, *aggregate.Value, terminal, lossy)
+	case ir.PhysicalOwnerRecordsExpression:
+		records, renderErr := r.renderExpression(expression)
+		if renderErr != nil {
+			return "", "", false, "", renderErr
+		}
+		record := r.newInternalVariable("trace_owner_record")
+		contribution := fmt.Sprintf(`{ resourceType: %s.source.resourceType, resourceId: %s.source.resourceId, value: %s }`, record, record, record)
+		page := fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s RETURN %s)", record, records, terminal.OffsetBindKey, terminal.FetchLimitBindKey, contribution)
+		status := fmt.Sprintf("(FOR %s IN %s LIMIT 2 RETURN %s)", record, records, contribution)
+		return page, status, false, "", nil
 	default:
 		return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
@@ -18,13 +19,30 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+func TestGeneratedColumnSourceKindHasOnlySupportedGenericSources(t *testing.T) {
+	for _, supported := range []loomapi.ColumnSourceKind{loomapi.CodedValue, loomapi.OwnerRecords} {
+		if !supported.Valid() {
+			t.Errorf("generated API enum does not recognize %q", supported)
+		}
+	}
+	for _, retired := range []loomapi.ColumnSourceKind{"codingBySystem", "observationComponentByCode"} {
+		if retired.Valid() {
+			t.Errorf("generated API enum still accepts retired source kind %q", retired)
+		}
+	}
+}
+
 func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
 	digest := sha256.Sum256([]byte(string(scope.Mode) + "\x00/allowed"))
 	snapshot := capability.Snapshot{
 		Token: "snapshot", Status: capability.StatusReady, Complete: true,
 		Identity: capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: hex.EncodeToString(digest[:])},
-		Nodes:    []capability.Node{{ResourceType: "Observation", RowRootEligible: true}},
+		Nodes:    []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Candidates: []capability.Candidate{{
+			ID: "observation-value", NodeID: "observation", ResourceType: "Observation", FieldPath: "valueQuantity.value",
+			Cardinality: "optional_one", LogicalType: "decimal", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		}},
 	}
 	domain, err := explorer.NewService(newTestExplorerStore())
 	if err != nil {
@@ -40,7 +58,14 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 			if opts.AuthResourcePathsUnrestricted == nil || *opts.AuthResourcePathsUnrestricted || len(opts.AuthResourcePaths) != 1 || opts.AuthResourcePaths[0] != "/allowed" || opts.Query != "glucose" || opts.Limit != 2 {
 				t.Fatalf("unsafe or lost browse options: %#v", opts)
 			}
-			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: "build", Checkpoint: "secret-checkpoint", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: catalog.SemanticObservation{Population: 7, Key: catalog.SemanticObservationKey{Code: "glucose", System: "system"}}}}}, nil
+			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: "build", Checkpoint: "secret-checkpoint", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{{ConceptID: "concept", BindingID: "binding", Observation: catalog.SemanticObservation{
+				SchemaVersion: catalog.SemanticObservationSchemaVersion,
+				Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+				Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", Code: "glucose", System: "system"},
+				Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+				ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
+				Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), Population: 7,
+			}}}}, nil
 		},
 	}
 	denied := false
@@ -61,8 +86,12 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(response.Body), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entries) != 1 || result.Entries[0].Occurrences != 7 || result.Entries[0].Code != "glucose" || result.ContextToken == "" {
+	if len(result.Entries) != 1 || result.Entries[0].Occurrences != 7 || result.Entries[0].Code != "glucose" || result.ContextToken == "" || result.Entries[0].ConstructionChoice == nil || len(result.Entries[0].ConstructionChoice.Options) != 1 || result.Entries[0].ConstructionChoice.Options[0].Form != loomapi.ConstructionChoiceOptionFormVALUE {
 		t.Fatalf("result=%#v", result)
+	}
+	semanticSource, err := result.Entries[0].ConstructionChoice.Source.AsSemanticBindingChoiceSource()
+	if err != nil || semanticSource.Kind != loomapi.SemanticBindingChoiceSourceKindSEMANTIC || semanticSource.ConceptId != "concept" || semanticSource.BindingId != "binding" || semanticSource.FieldPath != "valueQuantity.value" {
+		t.Fatalf("semantic choice source=%#v err=%v", semanticSource, err)
 	}
 	for _, test := range []struct {
 		body   string

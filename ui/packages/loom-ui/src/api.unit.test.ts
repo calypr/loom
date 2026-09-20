@@ -1,10 +1,390 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
+import {
+  EXPLORER_AUTHORING_SEMANTICS_VERSION,
+  type ExplorerBuilderCommand,
+} from './types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 
 describe('Loom project paths', () => {
+  it('posts construction-choice commands with only the selected compiler choice', async () => {
+    const workspace = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderWorkspace',
+      explorer: { title: 'Patients' },
+      documents: [{
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'patients', title: 'Patients' },
+        rootResourceType: 'Patient',
+        route: { occurrenceId: 'base', resourceType: 'Patient' },
+        columns: [],
+      }],
+      tabs: [{ id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 0 }],
+    };
+    const response = {
+      commandId: 'command-1',
+      workspace,
+      draftVersion: 2,
+      draftDigest: 'digest-2',
+      results: [],
+      diagnostics: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+    const commands = [{
+      type: 'APPLY_CONSTRUCTION_CHOICE',
+      outputId: 'patients',
+      constructionChoice: { choiceId: 'choice-id', form: 'VALUE' },
+      title: 'Patient ID',
+    } satisfies ExplorerBuilderCommand];
+
+    await expect(client.applyCommands({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      commandId: 'command-1',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'digest-1',
+      commands,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/commands',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          commandId: 'command-1',
+          semanticsVersion: EXPLORER_AUTHORING_SEMANTICS_VERSION,
+          snapshotToken: 'snapshot-1',
+          expectedDraftVersion: 1,
+          expectedDraftDigest: 'digest-1',
+          commands: [{
+            type: 'APPLY_CONSTRUCTION_CHOICE',
+            outputId: 'patients',
+            constructionChoice: { choiceId: 'choice-id', form: 'VALUE' },
+            title: 'Patient ID',
+          }],
+        }),
+      }),
+    );
+  });
+
+  it('browses a validated semantic inventory page with exact search context', async () => {
+    const response = {
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'unproven',
+      entries: [{
+        conceptId: 'concept-1',
+        bindingId: 'binding-1',
+        resourceType: 'Observation',
+        sourcePath: 'code.coding[]',
+        system: 'http://loinc.org',
+        code: '4548-4',
+        codingVersion: '2.77',
+        display: 'Hemoglobin A1c',
+        valueSelector: 'valueQuantity.value',
+        valueType: 'decimal',
+        owningScope: 'Observation',
+        occurrences: 91,
+        readiness: { status: 'READY', code: 'READY', message: 'This semantic field is ready to add.' },
+      }],
+      nextCursor: 'cursor-2',
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+      resourceType: 'Observation',
+      query: '4548-4',
+      cursor: 'cursor-1',
+      limit: 50,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/semantic-inventory',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          rowRoot: 'Specimen',
+          resourceType: 'Observation',
+          query: '4548-4',
+          cursor: 'cursor-1',
+          limit: 50,
+        }),
+      }),
+    );
+  });
+
+  it('loads a server-described column source without sending FHIR selectors', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      column: 'height',
+      summary: 'LOINC height from Observation',
+      facts: [
+        { label: 'Code', value: 'http://loinc.org · 8302-2' },
+        { label: 'Value member', value: 'valueQuantity.value' },
+      ],
+      route: [
+        { occurrenceId: 'base', resourceType: 'Patient' },
+        {
+          occurrenceId: 'observations',
+          resourceType: 'Observation',
+          relationship: 'subject_Observation',
+          storageDirection: 'INBOUND',
+          matchMode: 'OPTIONAL',
+        },
+      ],
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.inspectColumnSource({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      column: 'height',
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/column-source',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          outputId: 'patients',
+          column: 'height',
+        }),
+      }),
+    );
+  });
+
+  it('requests an exact authored occurrence without sending a browser route', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      complete: true,
+      truncated: false,
+      choices: [{
+        choiceId: 'choice-related-height',
+        source: {
+          kind: 'FIELD',
+          candidateId: 'candidate-height',
+          nodeId: 'observation-node',
+          resourceType: 'Observation',
+          path: 'valueQuantity.value',
+          cardinality: 'optional_one',
+        },
+        route: [{
+          edgeId: 'patient-observation-subject',
+          fromNodeId: 'patient-node',
+          toNodeId: 'observation-node',
+          fromResourceType: 'Patient',
+          toResourceType: 'Observation',
+          relationship: 'subject',
+          storageDirection: 'INBOUND',
+          matchMode: 'OPTIONAL',
+        }],
+        presentation: {
+          summary: 'Observation through subject',
+          facts: [{ label: 'Field', value: 'valueQuantity.value' }],
+        },
+        options: [{
+          form: 'VALUE',
+          shape: 'SCALAR',
+          decision: 'DEFAULT',
+          preservation: 'PRESERVING',
+          rowEffect: 'PRESERVES_ROW_GRAIN',
+          support: 'SUPPORTED',
+          reason: 'The compiler proved a scalar value at the current row grain.',
+        }],
+      }],
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.searchConstructionChoices({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      occurrenceId: 'observations',
+      source: { kind: 'FIELD', candidateId: 'candidate-height' },
+      limit: 50,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/construction-choices',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          outputId: 'patients',
+          occurrenceId: 'observations',
+          source: { kind: 'FIELD', candidateId: 'candidate-height' },
+          limit: 50,
+        }),
+      }),
+    );
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
+  });
+
+  it('searches server-proved population routes without sending browser-selected edges', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      selectionRevisionId: 'selection-1',
+      complete: true,
+      truncated: false,
+      choices: [{
+        routeChoiceId: 'population-route-1',
+        route: [{
+          edgeId: 'patient-specimen-subject',
+          fromNodeId: 'patient-node',
+          toNodeId: 'specimen-node',
+          fromResourceType: 'Patient',
+          toResourceType: 'Specimen',
+          relationship: 'subject',
+          storageDirection: 'INBOUND',
+          matchMode: 'OPTIONAL',
+        }],
+        presentation: {
+          summary: 'Use selected Specimen records related to Patient',
+          facts: [{ label: 'Selected records', value: 'Specimen' }],
+        },
+      }],
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.searchPopulationRoutes({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      selectionRevisionId: 'selection-1',
+      limit: 50,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/population-routes',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          outputId: 'patients',
+          selectionRevisionId: 'selection-1',
+          limit: 50,
+        }),
+      }),
+    );
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
+  });
+
+  it('rejects invalid semantic occurrence counts at the client boundary', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        contextToken: 'context-1',
+        buildId: 'build-1',
+        state: 'complete',
+        sourceAvailability: 'verified',
+        entries: [{
+          conceptId: 'concept-1',
+          bindingId: 'binding-1',
+          resourceType: 'Observation',
+          sourcePath: 'code',
+          system: 'http://loinc.org',
+          code: '4548-4',
+          codingVersion: '',
+          display: '',
+          valueSelector: 'valueQuantity.value',
+          valueType: 'decimal',
+          owningScope: 'Observation',
+          occurrences: -1,
+          readiness: { status: 'READY', code: 'READY', message: 'This semantic field is ready to add.' },
+        }],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Specimen',
+    })).rejects.toThrow();
+  });
+
+  it('rejects unknown semantic readiness states at the client boundary', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({
+        contextToken: 'context-1',
+        buildId: 'build-1',
+        state: 'complete',
+        sourceAvailability: 'verified',
+        entries: [{
+          conceptId: 'concept-1',
+          bindingId: 'binding-1',
+          resourceType: 'Observation',
+          sourcePath: 'code',
+          system: 'http://loinc.org',
+          code: '4548-4',
+          codingVersion: '',
+          display: '',
+          valueSelector: 'valueQuantity.value',
+          valueType: 'decimal',
+          owningScope: '',
+          occurrences: 1,
+          readiness: { status: 'AVAILABLE', code: 'READY', message: 'Ready' },
+        }],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseSemanticInventory({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Observation',
+    })).rejects.toThrow();
+  });
+
   it('parses a receipt-bound cell explanation as a typed status', () => {
     expect(cellTraceResponseSchema.parse({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1' },
@@ -209,7 +589,7 @@ describe('Loom project paths', () => {
     ]);
     expect(JSON.parse(String(fetch.mock.calls[1][1]?.body))).toEqual({
       commandId: 'command-1',
-      semanticsVersion: 4,
+      semanticsVersion: EXPLORER_AUTHORING_SEMANTICS_VERSION,
       snapshotToken: 'snapshot-1',
       expectedDraftVersion: 1,
       commands: [],
@@ -678,5 +1058,151 @@ describe('Loom project paths', () => {
       columns: ['id'],
     })).rejects.toMatchObject({ status: 409, code: 'PUBLICATION_CONFLICT' });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('configured-column interpretation APIs', () => {
+  const context = {
+    snapshotToken: 'snapshot-1',
+    draftVersion: 3,
+    draftDigest: 'draft-digest-3',
+    libraries: [{
+      id: 'vitals',
+      headRevisionId: 'revision-1',
+      headDigest: 'revision-digest-1',
+      head: {
+        id: 'revision-1',
+        libraryId: 'vitals',
+        contentDigest: 'revision-digest-1',
+        author: 'researcher',
+        explanation: 'Vital signs',
+        createdAt: '2026-09-20T00:00:00Z',
+      },
+      updatedAt: '2026-09-20T00:00:00Z',
+    }],
+    pinnedRevisions: [{
+      id: 'revision-pinned',
+      libraryId: 'legacy',
+      contentDigest: 'revision-digest-pinned',
+      author: 'researcher',
+      explanation: 'Pinned legacy meaning',
+      createdAt: '2026-09-19T00:00:00Z',
+    }],
+    columns: [
+      { outputId: 'patients', column: 'ready', occurrenceId: 'base', resolution: { state: 'READY', capabilityCandidateIds: ['opaque-candidate-1'], applicableRevisionIds: ['revision-1'] } },
+      { outputId: 'patients', column: 'missing', occurrenceId: 'base', resolution: { state: 'MISSING', reason: 'No matching configured source.' } },
+      { outputId: 'patients', column: 'ambiguous', occurrenceId: 'base', resolution: { state: 'AMBIGUOUS', reason: 'The configured source is ambiguous.' } },
+      { outputId: 'patients', column: 'unsupported', occurrenceId: 'base', resolution: { state: 'UNSUPPORTED', reason: 'This configured source is unsupported.' } },
+    ],
+  } as const;
+
+  it('loads one validated context for the saved snapshot and draft without client selectors', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(context), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.resolveConfiguredColumnContexts({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-digest-3',
+    })).resolves.toEqual(context);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/configured-column-context',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          expectedDraftVersion: 3,
+          expectedDraftDigest: 'draft-digest-3',
+        }),
+      }),
+    );
+  });
+
+  it('creates from a saved column and forwards write scope without client rules', async () => {
+    const revision = {
+      id: 'revision-2',
+      project: 'project-a',
+      libraryId: 'vitals',
+      parentRevisionId: 'revision-1',
+      contentDigest: 'revision-digest-2',
+      applicability: {},
+      rules: [],
+      author: 'researcher',
+      explanation: 'Updated vital signs',
+      createdAt: '2026-09-20T00:00:00Z',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(revision), { status: 201 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.createInterpretationRevisionFromColumn({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      authResourcePath: '/programs/org-a/projects/project-a',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-digest-3',
+      outputId: 'patients',
+      column: 'ready',
+      libraryId: 'vitals',
+      parentRevisionId: 'revision-1',
+      explanation: 'Updated vital signs',
+    })).resolves.toEqual(revision);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/interpretation-revisions?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          expectedDraftVersion: 3,
+          expectedDraftDigest: 'draft-digest-3',
+          outputId: 'patients',
+          column: 'ready',
+          libraryId: 'vitals',
+          parentRevisionId: 'revision-1',
+          explanation: 'Updated vital signs',
+        }),
+      }),
+    );
+  });
+
+  it('rejects malformed ready and unavailable resolutions at the response boundary', async () => {
+    const malformedResolutions = [
+      { state: 'READY', applicableRevisionIds: ['revision-1'] },
+      { state: 'READY', capabilityCandidateIds: ['opaque-candidate-1'], applicableRevisionIds: [], reason: 'extra semantic field' },
+      { state: 'MISSING', reason: 'No matching source.', applicableRevisionIds: ['revision-1'] },
+      { state: 'UNSUPPORTED', reason: 'Unsupported source.', capabilityCandidateIds: ['opaque-candidate-1'] },
+    ];
+    for (const resolution of malformedResolutions) {
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+        ...context,
+        columns: [{ outputId: 'patients', column: 'ready', occurrenceId: 'base', resolution }],
+      }), { status: 200 }));
+      const client = createLoomClient({ fetch });
+      await expect(client.resolveConfiguredColumnContexts({
+        project: 'project-a',
+        explorerId: 'explorer-a',
+        snapshotToken: 'snapshot-1',
+        expectedDraftVersion: 3,
+        expectedDraftDigest: 'draft-digest-3',
+      })).rejects.toThrow();
+    }
+  });
+
+  it('rejects a context that echoes another snapshot or draft', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      ...context,
+      snapshotToken: 'old-snapshot',
+    }), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.resolveConfiguredColumnContexts({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 3,
+      expectedDraftDigest: 'draft-digest-3',
+    })).rejects.toThrow('different saved draft');
   });
 });

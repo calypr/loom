@@ -183,11 +183,13 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	selected := path[len(path)-1]
 	reversed := path[0]
 	reversed.OccurrenceID = selected.OccurrenceID
+	reversed.CatalogEdgeID = choices[path[0].OccurrenceID].ID
 	reversed.Relationship = choices[path[0].OccurrenceID].Label
 	reversed.MatchMode = path[1].MatchMode
 	reversed.Children = routeChildrenWithout(path[0], path[1].OccurrenceID)
 	for index := 1; index < len(path)-1; index++ {
 		parent := path[index]
+		parent.CatalogEdgeID = choices[parent.OccurrenceID].ID
 		parent.Relationship = choices[parent.OccurrenceID].Label
 		parent.MatchMode = path[index+1].MatchMode
 		parent.Children = append(routeChildrenWithout(parent, path[index+1].OccurrenceID), reversed)
@@ -196,6 +198,7 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 
 	newRoot := selected
 	newRoot.OccurrenceID = RootOccurrenceID
+	newRoot.CatalogEdgeID = ""
 	newRoot.Relationship = ""
 	newRoot.MatchMode = ""
 	newRoot.Children = append(append([]RouteNode(nil), selected.Children...), reversed)
@@ -213,7 +216,8 @@ func applyRowChange(document Document, catalog CatalogSnapshot, proposal RowChan
 	if document.Population != nil {
 		prefix := make([]PopulationRouteStep, 0, len(path)-1)
 		for index := len(path) - 2; index >= 0; index-- {
-			prefix = append(prefix, PopulationRouteStep{ResourceType: path[index].ResourceType, Relationship: choices[path[index].OccurrenceID].Label})
+			edge := choices[path[index].OccurrenceID]
+			prefix = append(prefix, PopulationRouteStep{ResourceType: path[index].ResourceType, Relationship: edge.Label, CatalogEdgeID: edge.ID})
 		}
 		document.Population.Route = append(prefix, document.Population.Route...)
 	}
@@ -332,20 +336,20 @@ func validateRebasedRoute(document Document, catalog CatalogSnapshot) error {
 			maxDepth = depth
 		}
 		for _, child := range node.Children {
-			matches := []CatalogEdge{}
-			for _, edge := range catalog.Edges {
-				from, fromOK := catalogNode(catalog, edge.FromNodeID)
-				to, toOK := catalogNode(catalog, edge.ToNodeID)
-				if fromOK && toOK && from.ResourceType == node.ResourceType && to.ResourceType == child.ResourceType && edge.Label == child.Relationship {
-					matches = append(matches, edge)
-				}
+			parentNodeID, parentFound := catalogNodeIDForOccurrence(document.Route, node.OccurrenceID, catalog)
+			if !parentFound {
+				return fmt.Errorf("rebased occurrence %q has no exact catalog parent", child.OccurrenceID)
 			}
-			if len(matches) == 0 {
-				return fmt.Errorf("rebased occurrence %q has no catalog relationship from %s to %s", child.OccurrenceID, node.ResourceType, child.ResourceType)
+			edge, err := resolveCatalogRouteEdge(catalog, parentNodeID, node, child)
+			if err != nil {
+				return fmt.Errorf("rebased occurrence %q has no unique catalog relationship from %s to %s: %w", child.OccurrenceID, node.ResourceType, child.ResourceType, err)
 			}
-			edgeID := matches[0].ID
+			edgeID := edge.ID
 			if used[edgeID] && !catalog.RoutePolicy.AllowRepeatedEdges {
 				return fmt.Errorf("rebased route repeats edge %q", edgeID)
+			}
+			if !catalog.RoutePolicy.AllowSelfLoops && edge.FromNodeID == edge.ToNodeID {
+				return fmt.Errorf("rebased route uses disallowed self-loop edge %q", edgeID)
 			}
 			next := make(map[string]bool, len(used)+1)
 			for id, value := range used {

@@ -41,3 +41,13 @@ Its two `urn:leaf` extensions sit under different parent URLs and contain exactl
 quantity. `dev-pair-003` supplies 333 cm with a missing coding system. The former
 must not be coerced to a numeric value, and the latter must not be treated as
 known A/shared or B/shared. Both raw records remain available.
+
+The J02 relationship journey uses a separate schema-backed reference chain.
+`dev-patient-001` is a member of `dev-j02-group`; `dev-j02-specimen` names that
+Group as its subject; `dev-observation-001` references that Specimen;
+`dev-j02-report` references the Observation as a result; and
+`dev-j02-study` references the DiagnosticReport as a result. The five graph
+edges are Patient → Group → Specimen → Observation → DiagnosticReport →
+ResearchStudy. The diagnostic report also names the Patient directly, so its
+catalog source has semantically distinct routes. `ResearchStudy.title` is the
+literal `J02 route study`; existing value fields keep their current literals.

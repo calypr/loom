@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestAggregateSourceAcceptsClosedOrderedTemporalReduction(t *testing.T) {
@@ -25,6 +27,18 @@ func TestAggregateSourceRejectsLegacyWhereOnCurrentWire(t *testing.T) {
 	err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"status","equals":"final"}}}`), &source)
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("legacy aggregate where was writable: %v", err)
+	}
+}
+
+func TestRetiredCodedLookupKindsAreNotWritable(t *testing.T) {
+	for _, kind := range []string{"codingBySystem", "observationComponentByCode"} {
+		t.Run(kind, func(t *testing.T) {
+			raw := `{"kind":"` + kind + `","lookup":{"binding":{"keyPath":"code.coding[]","systemPath":"system","codePath":"code","valuePath":"valueQuantity.value","logicalType":"decimal"},"key":{"system":"urn:study","code":"height"}}}`
+			var source ColumnSource
+			if err := json.Unmarshal([]byte(raw), &source); err == nil || !strings.Contains(err.Error(), `unsupported source kind "`+kind+`"`) {
+				t.Fatalf("retired source was accepted by the current JSON decoder: %v", err)
+			}
+		})
 	}
 }
 
@@ -65,11 +79,22 @@ func testCatalog() CatalogSnapshot {
 		SourceGeneration: "g", AuthorizationScopeDigest: "scope", SnapshotToken: "sha256:snapshot",
 		Complete: true, Nodes: nodes, Edges: edges,
 		Candidates: []CatalogCandidate{
-			{ID: "patient-id", NodeID: "patient", Label: "ID", LogicalType: "string", ProjectionModes: []string{"SCALAR"}, DefaultProjectionMode: "SCALAR"},
-			{ID: "encounter-id", NodeID: "encounter", Label: "ID", LogicalType: "string", ProjectionModes: []string{"SCALAR"}, DefaultProjectionMode: "SCALAR"},
+			{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)},
+			{ID: "encounter-id", NodeID: "encounter", FieldPath: "id", Cardinality: "optional_one", Label: "ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "encounter-id", "encounter", "Encounter", "id", "optional_one", capability.ProjectionScalar)},
 		},
 		RoutePolicy: RoutePolicy{Unbounded: true, AllowRepeatedEdges: true, AllowSelfLoops: true},
 	}
+}
+
+func testFieldConstructionChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
+	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
+		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
+		Cardinality: cardinality, ProjectionModes: []capability.ProjectionMode{projection},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return &choice
 }
 
 func TestEmptyBuilderStateAndBackendLeakage(t *testing.T) {
@@ -85,6 +110,14 @@ func TestEmptyBuilderStateAndBackendLeakage(t *testing.T) {
 		if strings.Contains(string(raw), forbidden) {
 			t.Fatalf("backend field leaked: %q in %s", forbidden, raw)
 		}
+	}
+}
+
+func TestCatalogRejectsSelectableCandidateWithoutConstructionChoice(t *testing.T) {
+	catalog := testCatalog()
+	catalog.Candidates[0].ConstructionChoice = nil
+	if err := catalog.Validate(); err == nil || !strings.Contains(err.Error(), "constructionChoice is required") {
+		t.Fatalf("catalog validation error=%v, want missing constructionChoice", err)
 	}
 }
 
@@ -114,7 +147,7 @@ func TestContributorPredicateValidationUsesCatalogCardinalityAndKind(t *testing.
 		})
 	}
 	repeatedCatalog := catalog
-	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}})
+	repeatedCatalog.Candidates = append(repeatedCatalog.Candidates, CatalogCandidate{ID: "patient-family", NodeID: "patient", FieldPath: "name[].family", Cardinality: "many", LogicalType: "string", Repeated: true, ProjectionModes: []string{"ALL"}, ConstructionChoice: testFieldConstructionChoice("sha256:snapshot", "patient-family", "patient", "Patient", "name[].family", "many", capability.ProjectionArray)})
 	repeated := ContributorPredicate{CandidateID: "patient-family", Operator: ContributorEquals, Value: &ContributorValue{Kind: ContributorString, String: stringPtr("Smith")}}
 	if err := ValidateContributorForCatalog(document, repeatedCatalog, RootOccurrenceID, document.Columns[1].Source, repeated); err == nil || !strings.Contains(err.Error(), "requires explicit ANY") {
 		t.Fatalf("repeated predicate error=%v", err)

@@ -9,9 +9,12 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func (w Workspace) CanonicalJSON() ([]byte, error) {
+	w = migratePreV7MissingRows(w)
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
@@ -186,6 +189,7 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		n.Candidates[i].FilterOperators = append([]string(nil), n.Candidates[i].FilterOperators...)
 		n.Candidates[i].ChartOperations = append([]string(nil), n.Candidates[i].ChartOperations...)
 		n.Candidates[i].ConceptCandidates = cloneConceptCandidates(n.Candidates[i].ConceptCandidates)
+		n.Candidates[i].ConstructionChoice = cloneConstructionChoice(n.Candidates[i].ConstructionChoice)
 		sort.Strings(n.Candidates[i].ProjectionModes)
 		sort.Strings(n.Candidates[i].FilterOperators)
 		sort.Strings(n.Candidates[i].ChartOperations)
@@ -200,6 +204,24 @@ func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 		return n.Diagnostics[i].Message < n.Diagnostics[j].Message
 	})
 	return json.Marshal(n)
+}
+
+func cloneConstructionChoice(in *capability.ConstructionChoice) *capability.ConstructionChoice {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Options = append([]capability.ConstructionChoiceOption(nil), in.Options...)
+	switch source := in.Source.(type) {
+	case capability.FieldChoiceSource:
+		source.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), source.RepeatedBoundaries...)
+		out.Source = source
+	case capability.SemanticBindingChoiceSource:
+		source.ExtensionURLPath = append([]string(nil), source.ExtensionURLPath...)
+		source.RepeatedBoundaries = append([]capability.RepeatedBoundary(nil), source.RepeatedBoundaries...)
+		out.Source = source
+	}
+	return &out
 }
 
 func cloneConceptCandidates(in []ConceptCandidate) []ConceptCandidate {
@@ -265,6 +287,7 @@ func (s BuilderState) Digest() (string, error) {
 func DecodeWorkspace(raw []byte) (Workspace, error) {
 	var out Workspace
 	if err := strictDecode(raw, &out); err == nil {
+		out = migratePreV7MissingRows(out)
 		if err := out.Validate(); err != nil {
 			return out, err
 		}
@@ -285,6 +308,7 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 		out = migrated
 	}
+	out = migratePreV7MissingRows(out)
 	if err := out.Validate(); err != nil {
 		return out, err
 	}
@@ -313,6 +337,7 @@ type persistedDocumentWire struct {
 	Output           Output                `json:"output"`
 	RootResourceType string                `json:"rootResourceType,omitempty"`
 	Route            RouteNode             `json:"route,omitempty"`
+	Rows             RowDefinition         `json:"rows"`
 	Columns          []persistedColumnWire `json:"columns"`
 	FixedFilters     []FixedFilter         `json:"fixedFilters,omitempty"`
 	Actions          []Action              `json:"actions,omitempty"`
@@ -354,7 +379,7 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 		Documents: make([]Document, 0, len(wire.Documents)),
 	}
 	for documentIndex, document := range wire.Documents {
-		converted := Document{Kind: document.Kind, Output: document.Output, RootResourceType: document.RootResourceType, Route: document.Route, FixedFilters: document.FixedFilters, Actions: document.Actions, Columns: make([]Column, 0, len(document.Columns))}
+		converted := Document{Kind: document.Kind, Output: document.Output, RootResourceType: document.RootResourceType, Route: document.Route, Rows: document.Rows, FixedFilters: document.FixedFilters, Actions: document.Actions, Columns: make([]Column, 0, len(document.Columns))}
 		for columnIndex, column := range document.Columns {
 			source, err := decodePersistedSource(column.Source)
 			if err != nil {
@@ -371,6 +396,16 @@ func decodePersistedSource(raw json.RawMessage) (ColumnSource, error) {
 	var current ColumnSource
 	if err := strictDecode(raw, &current); err == nil {
 		return current, nil
+	}
+	var typedLegacy struct {
+		Kind   string        `json:"kind"`
+		Lookup *LookupSource `json:"lookup,omitempty"`
+	}
+	if err := strictDecode(raw, &typedLegacy); err == nil && typedLegacy.Lookup != nil && typedLegacy.Lookup.Binding != nil && typedLegacy.Lookup.Key != nil {
+		switch typedLegacy.Kind {
+		case "codingBySystem", "observationComponentByCode":
+			return ColumnSource{Kind: SourceCodedValue, Lookup: typedLegacy.Lookup}, nil
+		}
 	}
 	var legacy legacyColumnSource
 	if err := strictDecode(raw, &legacy); err == nil {
@@ -410,7 +445,7 @@ func decodeLegacyFlatSource(legacy legacyColumnSource) (ColumnSource, error) {
 	switch legacy.Kind {
 	case SourceField:
 		return ColumnSource{Kind: SourceField, Field: &FieldSource{Path: legacy.FieldPath, ProjectionMode: mode}}, nil
-	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
+	case SourceIdentifierBySystem, SourceExtensionByURL:
 		return ColumnSource{Kind: legacy.Kind, Lookup: &LookupSource{Match: legacy.Match, Path: legacy.FieldPath, ProjectionMode: mode}}, nil
 	case SourceAggregate:
 		aggregate := &AggregateSource{Operation: strings.ToUpper(strings.TrimSpace(legacy.Operation)), Path: legacy.FieldPath, RequiredValues: append([]string(nil), legacy.RequiredValues...)}

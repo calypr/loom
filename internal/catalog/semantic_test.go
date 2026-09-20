@@ -80,6 +80,49 @@ func TestSemanticObservationsUseGeneratedDatePrimitive(t *testing.T) {
 	t.Fatal("date-time semantic observation was not retained")
 }
 
+func TestSemanticObservationProjectionNeedsObservedScalar(t *testing.T) {
+	tests := []struct {
+		name     string
+		arm      string
+		value    map[string]any
+		selector string
+		status   string
+	}{
+		{name: "coding-only CodeableConcept", arm: "valueCodeableConcept", value: map[string]any{"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: SemanticStatusUnsupportedValueProjection},
+		{name: "blank CodeableConcept text", arm: "valueCodeableConcept", value: map[string]any{"text": "  ", "coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: SemanticStatusUnsupportedValueProjection},
+		{name: "Quantity without value", arm: "valueQuantity", value: map[string]any{"unit": "days"}, selector: "valueQuantity.value", status: SemanticStatusUnsupportedValueProjection},
+		{name: "Period without start", arm: "valuePeriod", value: map[string]any{"end": "2026-09-01"}, selector: "valuePeriod.start", status: SemanticStatusUnsupportedValueProjection},
+		{name: "Range without low value", arm: "valueRange", value: map[string]any{"low": map[string]any{"unit": "days"}}, selector: "valueRange.low.value", status: SemanticStatusUnsupportedValueProjection},
+		{name: "Ratio without numerator value", arm: "valueRatio", value: map[string]any{"numerator": map[string]any{"unit": "mg"}}, selector: "valueRatio.numerator.value", status: SemanticStatusUnsupportedValueProjection},
+		{name: "CodeableConcept with text", arm: "valueCodeableConcept", value: map[string]any{"text": "Stage I"}, selector: "valueCodeableConcept.text", status: "SUPPORTED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			p := NewProfilerForGeneration("project", "generation", "scope", "Observation", nil)
+			p.ObservePayload(map[string]any{
+				"resourceType": "Observation",
+				"code": map[string]any{"coding": []any{
+					map[string]any{"system": "urn:study", "code": "stage", "display": "Stage"},
+				}},
+				test.arm: test.value,
+			}, map[string]float64{})
+
+			for _, document := range p.Documents() {
+				for _, observation := range document.SemanticObservations {
+					if observation.RuleHint != SemanticRuleHintCodedValueV1 || observation.Key.Code != "stage" {
+						continue
+					}
+					if observation.Value.Selector != test.selector || observation.Status != test.status {
+						t.Fatalf("profiled value projection = %#v, want selector %q and status %q", observation, test.selector, test.status)
+					}
+					return
+				}
+			}
+			t.Fatal("Observation value was not retained in the semantic catalog")
+		})
+	}
+}
+
 func TestSemanticObservationMergeDoesNotDoubleCountNewKey(t *testing.T) {
 	newPayload := func(system, code string, value float64) map[string]any {
 		return map[string]any{

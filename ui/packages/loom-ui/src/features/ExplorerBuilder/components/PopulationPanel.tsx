@@ -1,58 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { usePopulationMappingMutation } from '../../../react';
+import { useLoomClient, usePopulationMappingMutation } from '../../../react';
 import type { PopulationMappingResponse } from '../../../api';
 import type { SelectionRevision } from '../../../selection';
 import type { ResourceRef } from '../../../selection';
-import type { ExplorerBuilderCatalog } from '../../../types';
+import type {
+  ConstructionRouteStep,
+  PopulationRouteChoice,
+} from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import { matchesSavedPopulationRoute } from '../populationRoutes';
 
-type PopulationPath = {
-  readonly edgeIds: ReadonlyArray<string>;
-  readonly label: string;
-  readonly steps: ReadonlyArray<{ readonly resourceType: string; readonly relationship: string }>;
-};
-
-const populationPaths = (
-  catalog: ExplorerBuilderCatalog,
-  rootResourceType: string,
-  selectionResourceType: string,
-): ReadonlyArray<PopulationPath> => {
-  const root = catalog.nodes.find((node) => node.resourceType === rootResourceType);
-  const target = catalog.nodes.find((node) => node.resourceType === selectionResourceType);
-  if (!root || !target) return [];
-  if (root.nodeId === target.nodeId) {
-    return [{ edgeIds: [], label: rootResourceType, steps: [] }];
-  }
-  const result: PopulationPath[] = [];
-  const queue: Array<{ readonly nodeId: string; readonly edges: ReadonlyArray<string>; readonly labels: ReadonlyArray<string>; readonly steps: PopulationPath['steps'] }> = [
-    { nodeId: root.nodeId, edges: [], labels: [rootResourceType], steps: [] },
-  ];
-  const shortestByNode = new Map<string, number>([[root.nodeId, 0]]);
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || current.edges.length >= 4) continue;
-    for (const edge of catalog.edges.filter((candidate) => candidate.fromNodeId === current.nodeId && candidate.populated !== false)) {
-      const node = catalog.nodes.find((candidate) => candidate.nodeId === edge.toNodeId);
-      if (!node) continue;
-      const edges = [...current.edges, edge.edgeId];
-      const labels = [...current.labels, `${node.resourceType} via ${edge.label}`];
-      const steps = [...current.steps, { resourceType: node.resourceType, relationship: edge.label }];
-      if (node.nodeId === target.nodeId) {
-        result.push({ edgeIds: edges, label: labels.join(' → '), steps });
-        continue;
-      }
-      const known = shortestByNode.get(node.nodeId);
-      if (known !== undefined && known < edges.length) continue;
-      shortestByNode.set(node.nodeId, edges.length);
-      queue.push({ nodeId: node.nodeId, edges, labels, steps });
-    }
-  }
-  const shortest = Math.min(...result.map((path) => path.edgeIds.length));
-  return result.filter((path) => path.edgeIds.length === shortest);
-};
+type RouteLoadState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly truncated: boolean }
+  | { readonly status: 'error'; readonly message: string };
 
 export const PopulationPanel = ({
-  catalog,
   table,
   selection,
   loading,
@@ -61,38 +25,90 @@ export const PopulationPanel = ({
   project,
   explorerId,
   authResourcePath,
+  snapshotToken,
   receiptId,
   onAttach,
   onClear,
   onExclude,
 }: {
-  readonly catalog: ExplorerBuilderCatalog;
   readonly table: DraftTable;
   readonly selection?: SelectionRevision;
   readonly loading: boolean;
   readonly error?: string;
   readonly disabled: boolean;
-  readonly project?: string;
-  readonly explorerId?: string;
+  readonly project: string;
+  readonly explorerId: string;
   readonly authResourcePath?: string;
+  readonly snapshotToken: string;
   readonly receiptId?: string;
-  readonly onAttach: (edgeIds: ReadonlyArray<string>) => void;
+  readonly onAttach: (routeChoiceId: string) => void;
   readonly onClear: () => void;
-  readonly onExclude?: (ref: ResourceRef, edgeIds: ReadonlyArray<string>) => void;
+  readonly onExclude?: (
+    ref: ResourceRef,
+    route: ReadonlyArray<ConstructionRouteStep>,
+  ) => void;
 }) => {
-  const paths = useMemo(
-    () => selection ? populationPaths(catalog, table.document.rootResourceType, selection.resourceType) : [],
-    [catalog, selection, table.document.rootResourceType],
-  );
+  const client = useLoomClient();
+  const [routeChoices, setRouteChoices] = useState<ReadonlyArray<PopulationRouteChoice>>([]);
+  const [routeLoadState, setRouteLoadState] = useState<RouteLoadState>({ status: 'idle' });
   const [pathIndex, setPathIndex] = useState(0);
   const [checkPopulation, checkStatus] = usePopulationMappingMutation();
   const [coverage, setCoverage] = useState<PopulationMappingResponse>();
   const [coverageError, setCoverageError] = useState<string>();
   const reportRequestEpoch = useRef(0);
+  const routeRequestEpoch = useRef(0);
   const attached = table.document.population;
-  const attachedPath = attached
-    ? paths.find((path) => JSON.stringify(path.steps) === JSON.stringify(attached.route))
-    : undefined;
+  const selectionRevisionId = selection?.id;
+  const attachedChoices = useMemo(
+    () => attached
+      ? routeChoices.filter((choice) => matchesSavedPopulationRoute(choice.route, attached.route))
+      : [],
+    [attached, routeChoices],
+  );
+  const attachedChoice = attachedChoices.length === 1 ? attachedChoices[0] : undefined;
+  const selectedChoice = routeChoices[pathIndex];
+  useEffect(() => {
+    routeRequestEpoch.current += 1;
+    setRouteChoices([]);
+    setPathIndex(0);
+    if (!selectionRevisionId) {
+      setRouteLoadState({ status: 'idle' });
+      return;
+    }
+    const requestEpoch = routeRequestEpoch.current;
+    const controller = new AbortController();
+    setRouteLoadState({ status: 'loading' });
+    void client.searchPopulationRoutes({
+      project,
+      explorerId,
+      authResourcePath,
+      snapshotToken,
+      outputId: table.outputId,
+      selectionRevisionId,
+      limit: 50,
+      requestId: `population-routes-${window.crypto.randomUUID()}`,
+    }, controller.signal).then((response) => {
+      if (controller.signal.aborted || requestEpoch !== routeRequestEpoch.current) return;
+      if (
+        response.snapshotToken !== snapshotToken ||
+        response.outputId !== table.outputId ||
+        response.selectionRevisionId !== selectionRevisionId
+      ) {
+        throw new Error('Loom returned population routes for another table or collection.');
+      }
+      setRouteChoices(response.choices);
+      setRouteLoadState({ status: 'ready', truncated: response.truncated });
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted || requestEpoch !== routeRequestEpoch.current) return;
+      setRouteLoadState({
+        status: 'error',
+        message: error instanceof Error
+          ? error.message
+          : 'Loom could not find a supported population route.',
+      });
+    });
+    return () => controller.abort();
+  }, [authResourcePath, client, explorerId, project, selectionRevisionId, snapshotToken, table.outputId]);
   useEffect(() => {
     reportRequestEpoch.current += 1;
     setCoverage(undefined);
@@ -166,24 +182,43 @@ export const PopulationPanel = ({
               </button>
             ) : null}
           </div>
-        ) : selection && paths.length > 0 ? (
+        ) : selection && routeChoices.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
-            {paths.length > 1 ? (
+            {routeChoices.length > 1 ? (
               <label className="flex items-center gap-2">
                 <span className="font-medium">Connection</span>
                 <select aria-label="Population connection" value={pathIndex} onChange={(event) => setPathIndex(Number(event.currentTarget.value))} className="rounded border border-slate-300 bg-white px-2 py-2">
-                  {paths.map((path, index) => <option key={path.label} value={index}>{path.label}</option>)}
+                  {routeChoices.map((choice, index) => <option key={choice.routeChoiceId} value={index}>{choice.presentation.summary}</option>)}
                 </select>
               </label>
-            ) : <span className="text-xs text-slate-600">{paths[0].label}</span>}
-            <button type="button" disabled={disabled} onClick={() => onAttach(paths[pathIndex]?.edgeIds ?? [])} className="rounded-md bg-indigo-700 px-3 py-2 font-semibold text-white hover:bg-indigo-800 disabled:opacity-40">
+            ) : <span className="text-xs text-slate-600">{routeChoices[0]?.presentation.summary}</span>}
+            <button type="button" disabled={disabled || !selectedChoice} onClick={() => selectedChoice && onAttach(selectedChoice.routeChoiceId)} className="rounded-md bg-indigo-700 px-3 py-2 font-semibold text-white hover:bg-indigo-800 disabled:opacity-40">
               Use selected resources
             </button>
           </div>
-        ) : selection && !loading ? (
+        ) : selection && routeLoadState.status === 'loading' ? (
+          <p className="font-medium text-slate-600">Finding compiler-proved connections…</p>
+        ) : selection && routeLoadState.status === 'error' ? (
+          <p role="alert" className="font-medium text-red-700">{routeLoadState.message}</p>
+        ) : selection && !loading && routeLoadState.status === 'ready' ? (
           <p role="alert" className="font-medium text-amber-800">No supported path connects {table.document.rootResourceType} rows to {selection.resourceType}.</p>
         ) : null}
       </div>
+      {routeLoadState.status === 'ready' && routeLoadState.truncated ? (
+        <p role="status" className="mt-2 text-amber-800">
+          Loom reached the automatic route-search limit. The listed connections are valid, but additional routes may be available in Advanced graph.
+        </p>
+      ) : null}
+      {!attached && selectedChoice && selectedChoice.presentation.facts.length > 0 ? (
+        <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+          {selectedChoice.presentation.facts.map((fact) => (
+            <div key={`${fact.label}:${fact.value}`} className="flex gap-1">
+              <dt className="font-semibold">{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
       {coverageError ? <p role="alert" className="mt-2 text-red-700">{coverageError}</p> : null}
       {coverage?.status === 'COMPLETE' && coverage.counts ? (
         <div className="mt-3 border-t border-indigo-200 pt-3" data-testid="population-coverage-report">
@@ -192,8 +227,8 @@ export const PopulationPanel = ({
             <ul className="mt-2 space-y-1 text-slate-700">
               {coverage.unmapped.map((ref) => <li key={`${ref.resourceType}:${ref.id}`} className="flex flex-wrap items-center gap-2">
                 <span>{ref.resourceType}/{ref.id}</span>
-                {onExclude && attachedPath ? (
-                  <button type="button" disabled={disabled} onClick={() => onExclude(ref, attachedPath.edgeIds)} className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-semibold text-amber-900 disabled:opacity-40">
+                {onExclude && attachedChoice ? (
+                  <button type="button" disabled={disabled} onClick={() => onExclude(ref, attachedChoice.route)} className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-semibold text-amber-900 disabled:opacity-40">
                     Remove from collection
                   </button>
                 ) : null}

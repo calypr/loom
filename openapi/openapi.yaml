@@ -184,6 +184,80 @@ paths:
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerConstructionChoices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionChoiceSearchRequest'}
+      responses:
+        '200':
+          description: Compiler-proved construction routes for one exact field or semantic source identity.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionChoiceSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerPopulationRoutes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PopulationRoutesRequest'}
+      responses:
+        '200':
+          description: Compiler-proved choices for connecting one immutable selected resource set to a table row root.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PopulationRoutesResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerColumnSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ColumnSourceRequest'}
+      responses:
+        '200':
+          description: Generic explanation and authorized route for one saved column, derived on read.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ColumnSourceResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/builder:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -374,6 +448,58 @@ paths:
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
         '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: resolveConfiguredColumnContext
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfiguredColumnContextRequest'}
+      responses:
+        '200':
+          description: Server-resolved reusable-mapping context for every column in one exact saved draft.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfiguredColumnContextResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: createInterpretationRevisionFromColumn
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InterpretationRevisionFromColumnRequest'}
+      responses:
+        '201':
+          description: Immutable interpretation revision derived from the exact saved column by the server.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InterpretationRevision'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1222,7 +1348,7 @@ components:
         kind: {type: string, enum: [ExplorerAuthoringCapabilities]}
         operations:
           type: array
-          items: {type: string, enum: [builder, suggestions, rowChange, preview, interpretationPreview, publish, commands, reconcile]}
+          items: {type: string, enum: [builder, suggestions, rowChange, preview, interpretationPreview, configuredColumnContext, interpretationCreate, publish, commands, reconcile]}
         previewLimits:
           type: array
           items: {type: integer, minimum: 1, maximum: 1000}
@@ -1339,6 +1465,108 @@ components:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/InterpretationRule'}
+        explanation: {type: string, minLength: 1}
+    ConfiguredColumnContextRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+    InterpretationRevisionSummary:
+      type: object
+      additionalProperties: false
+      required: [id, libraryId, contentDigest, author, explanation, createdAt]
+      properties:
+        id: {type: string, minLength: 1}
+        libraryId: {type: string, minLength: 1}
+        contentDigest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        author: {type: string, minLength: 1}
+        explanation: {type: string, minLength: 1}
+        createdAt: {type: string, format: date-time}
+    InterpretationLibrarySummary:
+      type: object
+      additionalProperties: false
+      required: [id, updatedAt]
+      properties:
+        id: {type: string, minLength: 1}
+        headRevisionId: {type: string, minLength: 1}
+        headDigest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+        head:
+          allOf:
+            - $ref: '#/components/schemas/InterpretationRevisionSummary'
+          nullable: true
+        updatedAt: {type: string, format: date-time}
+    ConfiguredColumnReadyResolution:
+      type: object
+      additionalProperties: false
+      required: [state, capabilityCandidateIds, applicableRevisionIds]
+      properties:
+        state: {type: string, enum: [READY]}
+        capabilityCandidateIds:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        applicableRevisionIds:
+          type: array
+          items: {type: string, minLength: 1}
+    ConfiguredColumnUnavailableResolution:
+      type: object
+      additionalProperties: false
+      required: [state, reason]
+      properties:
+        state: {type: string, enum: [MISSING, AMBIGUOUS, UNSUPPORTED]}
+        reason: {type: string, minLength: 1}
+    ConfiguredColumnResolution:
+      oneOf:
+        - $ref: '#/components/schemas/ConfiguredColumnReadyResolution'
+        - $ref: '#/components/schemas/ConfiguredColumnUnavailableResolution'
+      discriminator:
+        propertyName: state
+        mapping:
+          READY: '#/components/schemas/ConfiguredColumnReadyResolution'
+          MISSING: '#/components/schemas/ConfiguredColumnUnavailableResolution'
+          AMBIGUOUS: '#/components/schemas/ConfiguredColumnUnavailableResolution'
+          UNSUPPORTED: '#/components/schemas/ConfiguredColumnUnavailableResolution'
+    ConfiguredColumnContext:
+      type: object
+      additionalProperties: false
+      required: [outputId, column, occurrenceId, resolution]
+      properties:
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        resolution: {$ref: '#/components/schemas/ConfiguredColumnResolution'}
+    ConfiguredColumnContextResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, libraries, pinnedRevisions, columns]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, format: int64, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        libraries:
+          type: array
+          items: {$ref: '#/components/schemas/InterpretationLibrarySummary'}
+        pinnedRevisions:
+          type: array
+          items: {$ref: '#/components/schemas/InterpretationRevisionSummary'}
+        columns:
+          type: array
+          items: {$ref: '#/components/schemas/ConfiguredColumnContext'}
+    InterpretationRevisionFromColumnRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, column, libraryId, explanation]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        libraryId: {type: string, minLength: 1}
+        parentRevisionId: {type: string, minLength: 1}
         explanation: {type: string, minLength: 1}
     InterpretationCandidatePayload:
       type: object
@@ -1475,6 +1703,7 @@ components:
       properties:
         resourceType: {type: string, minLength: 1}
         relationship: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
     Output:
       type: object
       additionalProperties: false
@@ -1490,6 +1719,7 @@ components:
       properties:
         occurrenceId: {type: string, minLength: 1}
         resourceType: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
         relationship: {type: string}
         matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
         children:
@@ -1502,10 +1732,11 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, aggregate, identifierBySystem, extensionByUrl, codingBySystem, observationComponentByCode, projectId]
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId]
         field: {$ref: '#/components/schemas/FieldSource'}
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}
+        ownerRecords: {$ref: '#/components/schemas/OwnerRecordsSource'}
     FieldSource:
       type: object
       additionalProperties: false
@@ -1606,14 +1837,25 @@ components:
     LookupSource:
       type: object
       additionalProperties: false
-      description: Exactly one legacy match/path, correlated binding/key, or ancestor-aware extension payload is required. Legacy payloads remain readable; new concept lookup commands require typed bindings.
+      description: Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
       properties:
         match: {type: string, minLength: 1}
         path: {type: string}
         projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+        identifier: {$ref: '#/components/schemas/IdentifierBinding'}
         binding: {$ref: '#/components/schemas/CorrelatedBinding'}
         key: {$ref: '#/components/schemas/TerminologyKey'}
         extension: {$ref: '#/components/schemas/ExtensionBinding'}
+    IdentifierBinding:
+      type: object
+      additionalProperties: false
+      required: [ownerPath, systemPath, valuePath, systemURI, logicalType]
+      properties:
+        ownerPath: {type: string, minLength: 1}
+        systemPath: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        systemURI: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
     ExtensionBinding:
       type: object
       additionalProperties: false
@@ -1640,6 +1882,13 @@ components:
       properties:
         system: {type: string, minLength: 1}
         code: {type: string, minLength: 1}
+    OwnerRecordsSource:
+      type: object
+      additionalProperties: false
+      required: [binding, key]
+      properties:
+        binding: {$ref: '#/components/schemas/CorrelatedBinding'}
+        key: {$ref: '#/components/schemas/TerminologyKey'}
     CorrelatedBinding:
       type: object
       additionalProperties: false
@@ -1770,15 +2019,13 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
         rootNodeId: {type: string, minLength: 1}
         selectionRevisionId: {type: string, minLength: 1}
-        edgeIds:
-          type: array
-          items: {type: string, minLength: 1}
+        routeChoiceId: {type: string, minLength: 1, maxLength: 16384}
         parentOccurrenceId: {type: string, minLength: 1}
         occurrenceId: {type: string, minLength: 1}
         edgeId: {type: string, minLength: 1}
@@ -1798,9 +2045,17 @@ components:
           minItems: 1
           maxItems: 100
           items: {$ref: '#/components/schemas/SemanticSelectionIntent'}
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoiceSelection'}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    ConstructionChoiceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, form]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
     SemanticSelectionIntent:
       type: object
       additionalProperties: false
@@ -2008,9 +2263,92 @@ components:
         repeatedBoundaries:
           type: array
           items: {$ref: '#/components/schemas/RepeatedBoundary'}
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
         conceptCandidates:
           type: array
           items: {$ref: '#/components/schemas/ConceptCandidate'}
+    ConstructionChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, source, route, presentation, options]
+      properties:
+        choiceId: {type: string, minLength: 1, maxLength: 16384}
+        source:
+          oneOf:
+            - {$ref: '#/components/schemas/FieldChoiceSource'}
+            - {$ref: '#/components/schemas/SemanticBindingChoiceSource'}
+          discriminator:
+            propertyName: kind
+            mapping:
+              FIELD: '#/components/schemas/FieldChoiceSource'
+              SEMANTIC: '#/components/schemas/SemanticBindingChoiceSource'
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        presentation: {$ref: '#/components/schemas/ConstructionChoicePresentation'}
+        options:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionChoiceOption'}
+    ConstructionChoiceOption:
+      type: object
+      additionalProperties: false
+      required: [form, shape, decision, preservation, rowEffect, support, reason]
+      properties:
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        shape: {type: string, enum: [SCALAR, LIST]}
+        decision: {type: string, enum: [DEFAULT, REQUIRES_DECISION]}
+        preservation: {type: string, enum: [PRESERVING, REDUCING]}
+        rowEffect: {type: string, enum: [PRESERVES_ROW_GRAIN]}
+        support: {type: string, enum: [SUPPORTED]}
+        reason: {type: string, minLength: 1}
+    FieldChoiceSource:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId, nodeId, resourceType, path, cardinality]
+      properties:
+        kind: {type: string, enum: [FIELD]}
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        path: {type: string, minLength: 1}
+        cardinality: {type: string}
+        repeatedBoundaries:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedBoundary'}
+    SemanticBindingChoiceSource:
+      type: object
+      additionalProperties: false
+      required: [kind, conceptId, bindingId, candidateId, nodeId, resourceType, sourcePath, fieldPath, valueSelector, logicalType, ruleVersion, schemaVersion, cardinality]
+      properties:
+        kind: {type: string, enum: [SEMANTIC]}
+        conceptId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        sourcePath: {type: string, minLength: 1}
+        sourceCanonical: {type: string}
+        sourceProfile: {type: string}
+        fieldPath: {type: string, minLength: 1}
+        owningScope: {type: string}
+        extensionUrlPath:
+          type: array
+          items: {type: string}
+        keySelector: {type: string}
+        system: {type: string}
+        version: {type: string}
+        code: {type: string}
+        valueSelector: {type: string, minLength: 1}
+        choiceArm: {type: string}
+        logicalType: {type: string, minLength: 1}
+        ruleHint: {type: string}
+        ruleVersion: {type: string, minLength: 1}
+        schemaVersion: {type: integer, minimum: 1}
+        cardinality: {type: string}
+        repeatedBoundaries:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedBoundary'}
     ConceptCandidate:
       type: object
       additionalProperties: false
@@ -2077,6 +2415,154 @@ components:
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
         limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+    ConstructionChoiceSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, source]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1, description: "When present, resolve this saved output occurrence's route on the server and return only its exact route-bound choice."}
+        source:
+          oneOf:
+            - {$ref: '#/components/schemas/FieldConstructionChoiceSearchSource'}
+            - {$ref: '#/components/schemas/SemanticConstructionChoiceSearchSource'}
+          discriminator:
+            propertyName: kind
+            mapping:
+              FIELD: '#/components/schemas/FieldConstructionChoiceSearchSource'
+              SEMANTIC: '#/components/schemas/SemanticConstructionChoiceSearchSource'
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    FieldConstructionChoiceSearchSource:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId]
+      properties:
+        kind: {type: string, enum: [FIELD]}
+        candidateId: {type: string, minLength: 1}
+    SemanticConstructionChoiceSearchSource:
+      type: object
+      additionalProperties: false
+      required: [kind, contextToken, buildId, conceptId, bindingId]
+      properties:
+        kind: {type: string, enum: [SEMANTIC]}
+        contextToken: {type: string, minLength: 1}
+        buildId: {type: string, minLength: 1}
+        conceptId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
+    ConstructionRouteStep:
+      type: object
+      additionalProperties: false
+      required: [edgeId, fromNodeId, toNodeId, fromResourceType, toResourceType, relationship, storageDirection, matchMode]
+      properties:
+        edgeId: {type: string, minLength: 1}
+        fromNodeId: {type: string, minLength: 1}
+        toNodeId: {type: string, minLength: 1}
+        fromResourceType: {type: string, minLength: 1}
+        toResourceType: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    ConstructionChoicePresentation:
+      type: object
+      additionalProperties: false
+      required: [summary, facts]
+      properties:
+        summary: {type: string, minLength: 1}
+        facts:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionChoiceFact'}
+    ConstructionChoiceFact:
+      type: object
+      additionalProperties: false
+      required: [label, value]
+      properties:
+        label: {type: string, minLength: 1}
+        value: {type: string, minLength: 1}
+    ConstructionChoiceSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, complete, truncated, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string}
+        choices:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/ConstructionChoice'}
+    PopulationRoutesRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, selectionRevisionId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        selectionRevisionId: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    PopulationRoutesResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, selectionRevisionId, complete, truncated, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        selectionRevisionId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string}
+        choices:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/PopulationRouteChoice'}
+    PopulationRouteChoice:
+      type: object
+      additionalProperties: false
+      required: [routeChoiceId, route, presentation]
+      properties:
+        routeChoiceId: {type: string, minLength: 1, maxLength: 16384}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        presentation: {$ref: '#/components/schemas/ConstructionChoicePresentation'}
+    ColumnSourceRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, column]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+    ColumnSourceResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, column, route, summary, facts]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ColumnSourceRouteStep'}
+        summary: {type: string, minLength: 1}
+        facts:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionChoiceFact'}
+    ColumnSourceRouteStep:
+      type: object
+      additionalProperties: false
+      required: [occurrenceId, resourceType]
+      properties:
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        catalogEdgeId: {type: string, minLength: 1}
+        relationship: {type: string}
+        storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
+        matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
     SemanticInventoryBrowseResponse:
       type: object
       additionalProperties: false
@@ -2094,7 +2580,7 @@ components:
     SemanticInventoryItem:
       type: object
       additionalProperties: false
-      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences]
+      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, readiness]
       properties:
         conceptId: {type: string}
         bindingId: {type: string}
@@ -2108,6 +2594,16 @@ components:
         valueType: {type: string}
         owningScope: {type: string}
         occurrences: {type: integer, format: int64, minimum: 0}
+        readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+    SemanticSelectionReadiness:
+      type: object
+      additionalProperties: false
+      required: [status, code, message]
+      properties:
+        status: {type: string, enum: [READY, READY_WITH_WARNING, NEEDS_MAPPING, UNSUPPORTED]}
+        code: {type: string, minLength: 1}
+        message: {type: string, minLength: 1}
     CandidateSearchRequest:
       type: object
       additionalProperties: false

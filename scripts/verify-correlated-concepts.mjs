@@ -36,27 +36,27 @@ const observation = builder.catalog.nodes.find((node) => node.resourceType === '
 assert.ok(observation, 'Observation fixture catalog is required');
 const created = await command([{ type: 'CREATE_TABLE', title: 'Paired concepts', rootNodeId: observation.nodeId }]);
 const outputId = created.results.find((result) => result.type === 'TABLE_CREATED').outputId;
-for (const [kind, path, match] of [
-  ['extensionByUrl', 'extension[].extension[]', 'urn:leaf'],
-  ['observationComponentByCode', 'component[]', 'shared'],
-  ['codingBySystem', 'code.coding[]', 'urn:study:A'],
-]) {
-  const rejected = await json(`${authoring}/commands`, {
-    commandId: randomUUID(), semanticsVersion: 4, snapshotToken: builder.catalog.snapshotToken,
-    expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest,
-    commands: [{ type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Legacy ambiguous lookup', source: { kind, lookup: { path, match } } }],
-  }, 422);
-  assert.equal(rejected.error.code, 'INVALID_AUTHORING_COMMAND');
-}
 const binding = {
   ownerPath: 'component[]', keyPath: 'component[].code.coding[]', systemPath: 'system', codePath: 'code',
   valuePath: 'valueQuantity.value', logicalType: 'decimal', choiceArms: ['valueQuantity'], unitPath: 'valueQuantity.unit',
 };
+for (const source of [
+  { kind: 'extensionByUrl', lookup: { path: 'extension[].extension[]', match: 'urn:leaf' } },
+  { kind: 'observationComponentByCode', lookup: { binding, key: { system: 'urn:study:A', code: 'shared' }, projectionMode: 'ALL' } },
+  { kind: 'codingBySystem', lookup: { binding, key: { system: 'urn:study:A', code: 'shared' }, projectionMode: 'ALL' } },
+]) {
+  const rejected = await json(`${authoring}/commands`, {
+    commandId: randomUUID(), semanticsVersion: 4, snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion, expectedDraftDigest: builder.draftDigest,
+    commands: [{ type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Retired or ambiguous lookup', source }],
+  }, 422);
+  assert.equal(rejected.error.code, 'INVALID_AUTHORING_COMMAND');
+}
 await command([
   { type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title: 'Resource ID', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } } },
   ...[['System A', 'urn:study:A', 'shared'], ['System B', 'urn:study:B', 'shared'], ['Cross coding', 'urn:study:B', 'other']].map(([title, system, code]) => ({
     type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title,
-    source: { kind: 'observationComponentByCode', lookup: { binding, key: { system, code }, projectionMode: 'ALL' } },
+    source: { kind: 'codedValue', lookup: { binding, key: { system, code }, projectionMode: 'ALL' } },
   })),
   ...[['Left extension', 'urn:parent:left'], ['Right extension', 'urn:parent:right'], ['Missing parent', 'urn:parent:missing']].map(([title, parent]) => ({
     type: 'ADD_COLUMN_SOURCE', outputId, occurrenceId: 'base', title,

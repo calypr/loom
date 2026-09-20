@@ -9,7 +9,7 @@ func TestValidateCorrelatedBindingKeepsCodingWithinComponent(t *testing.T) {
 	binding := CorrelatedBinding{
 		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
 		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
-		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
+		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal",
 	}
 	checked, err := ValidateCorrelatedBinding("Observation", binding)
 	if err != nil {
@@ -18,8 +18,35 @@ func TestValidateCorrelatedBindingKeepsCodingWithinComponent(t *testing.T) {
 	if checked.OwnerResource != "ObservationComponent" || checked.KeyResource != "Coding" || checked.KeySelector.CanonicalPath() != "code.coding[]" {
 		t.Fatalf("checked binding = %#v", checked)
 	}
-	if checked.ValueSelector.CanonicalPath() != "valueQuantity.value" || checked.UnitSelector == nil {
+	if checked.ValueSelector.CanonicalPath() != "valueQuantity.value" || checked.UnitSelector == nil || checked.UnitSelector.CanonicalPath() != "valueQuantity.unit" {
 		t.Fatalf("checked value selectors = %#v", checked)
+	}
+}
+
+func TestValidateCorrelatedBindingUsesGeneratedChoiceMetadataForAnyOwner(t *testing.T) {
+	binding := CorrelatedBinding{
+		OwnerPath:  "dosageInstruction[].doseAndRate[]",
+		KeyPath:    "dosageInstruction[].doseAndRate[].type.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "doseQuantity.value",
+		ChoiceArms: []string{"doseQuantity"}, LogicalType: "decimal",
+	}
+	checked, err := ValidateCorrelatedBinding("MedicationRequest", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.OwnerResource != "DosageDoseAndRate" || checked.KeyResource != "Coding" || checked.ValueSelector.CanonicalPath() != "doseQuantity.value" || checked.UnitSelector == nil || checked.UnitSelector.CanonicalPath() != "doseQuantity.unit" {
+		t.Fatalf("checked MedicationRequest binding = %#v", checked)
+	}
+
+	binding.ChoiceArms = []string{"type"}
+	if _, err := ValidateCorrelatedBinding("MedicationRequest", binding); err == nil || !strings.Contains(err.Error(), "not a choice arm") {
+		t.Fatalf("non-choice field error = %v", err)
+	}
+
+	binding.ChoiceArms = []string{"doseQuantity", "rateQuantity"}
+	binding.LogicalType = "string"
+	if _, err := ValidateCorrelatedBinding("MedicationRequest", binding); err == nil || !strings.Contains(err.Error(), "outside valuePath") {
+		t.Fatalf("cross-group choice error = %v", err)
 	}
 }
 

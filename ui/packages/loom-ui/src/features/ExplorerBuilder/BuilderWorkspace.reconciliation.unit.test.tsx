@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
@@ -18,7 +18,11 @@ import {
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 
-const mockLoomClient = vi.hoisted(() => ({ getSelection: vi.fn(), createSelection: vi.fn() }));
+const mockLoomClient = vi.hoisted(() => ({
+  getSelection: vi.fn(),
+  createSelection: vi.fn(),
+  resolveConfiguredColumnContexts: vi.fn(),
+}));
 
 vi.mock('../../react', () => ({
   useLoomClient: () => mockLoomClient,
@@ -93,6 +97,35 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
         Change rows
       </button>
     </>
+  ),
+}));
+
+vi.mock('./components/ConceptCatalog', () => ({
+  ConceptCatalog: ({
+    onAddSelected,
+  }: {
+    readonly onAddSelected?: (
+      selections: ReadonlyArray<{
+        constructionChoice: { choiceId: string; form: 'VALUE' | 'ALL' };
+        title?: string;
+      }>,
+    ) => Promise<void>;
+  }) => (
+    <button
+      type="button"
+      onClick={() => void onAddSelected?.([
+        {
+          constructionChoice: { choiceId: 'field-choice-a', form: 'VALUE' },
+          title: 'Field A',
+        },
+        {
+          constructionChoice: { choiceId: 'semantic-choice-a', form: 'ALL' },
+        title: 'Feature A',
+        },
+      ])}
+    >
+      Add catalog fixture
+    </button>
   ),
 }));
 
@@ -258,12 +291,27 @@ const abortableRequest = <T,>() => {
 
 describe('BuilderWorkspace on-demand reconciliation', () => {
   let applyCommands: Mock;
+  let resolveContext: Mock;
   let assessRowChange: Mock;
   let reconcile: Mock;
   let preview: Mock;
   let publish: Mock;
 
   beforeEach(() => {
+    resolveContext = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [],
+      pinnedRevisions: [],
+      columns: [{
+        outputId: 'specimens',
+        column: 'specimen_identifier',
+        occurrenceId: 'base',
+        resolution: { state: 'READY' as const, capabilityCandidateIds: ['specimen-id'], applicableRevisionIds: [] },
+      }],
+    }));
+    mockLoomClient.resolveConfiguredColumnContexts = resolveContext;
     applyCommands = vi.fn().mockReturnValue(
       resolvedRequest({
         commandId: 'command-1',
@@ -364,6 +412,92 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
   });
 
+  it('starts a blank table from the row picker without opening the graph', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: {
+        ...builderState,
+        lifecycleState: 'NEW',
+        draftVersion: 0,
+        draftDigest: '',
+        workspace: null,
+        catalog: {
+          ...catalog,
+          nodes: [
+            ...catalog.nodes,
+            {
+              nodeId: 'patient-node',
+              resourceType: 'Patient',
+              rowRootEligible: true,
+              populated: true,
+              documentCount: 42,
+            },
+          ],
+        },
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Table name'), {
+      target: { value: 'Patient features' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create table' }));
+
+    expect(await screen.findByText('What should one row represent?')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Change rows' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'CREATE_TABLE',
+        title: 'Patient features',
+        rootNodeId: 'patient-node',
+      }],
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
+    expect(await screen.findByRole('button', { name: 'Change rows' })).toBeInTheDocument();
+  });
+
+  it('sends selected fields and concepts as one construction-choice command batch', async () => {
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [
+        {
+          type: 'APPLY_CONSTRUCTION_CHOICE',
+        outputId: 'specimens',
+          constructionChoice: { choiceId: 'field-choice-a', form: 'VALUE' },
+          title: 'Field A',
+        },
+        {
+          type: 'APPLY_CONSTRUCTION_CHOICE',
+          outputId: 'specimens',
+          constructionChoice: { choiceId: 'semantic-choice-a', form: 'ALL' },
+          title: 'Feature A',
+        },
+      ],
+    }));
+  });
+
   it('does not reconcile a hydrated draft until Preview requests a receipt', async () => {
     render(
       <BuilderWorkspace
@@ -377,6 +511,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       name: 'Preview',
     });
     await waitFor(() => expect(previewButton).toBeEnabled());
+    await waitFor(() => expect(resolveContext).toHaveBeenCalledTimes(1));
+    expect(resolveContext).toHaveBeenCalledWith({
+      project: 'HTAN_INT/BForePC',
+      explorerId: 'test',
+      authResourcePath: '/programs/HTAN_INT/projects/BForePC',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'sha256:draft-1',
+    }, expect.any(AbortSignal));
     expect(reconcile).not.toHaveBeenCalled();
 
     fireEvent.click(previewButton);
@@ -395,6 +538,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
 
     await waitFor(() => expect(assessRowChange).toHaveBeenCalledWith(expect.objectContaining({
@@ -445,6 +589,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Change rows' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Use patient-specimen' }));
 
@@ -721,6 +866,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Change relationship' }),
     );

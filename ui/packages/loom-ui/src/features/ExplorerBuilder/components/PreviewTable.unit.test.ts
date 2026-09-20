@@ -99,6 +99,58 @@ describe('formatPreviewCell', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('opens a repeated FHIR record inspector without flattening cell evidence', () => {
+    const ownerColumn: ExplorerBuilderColumn = {
+      column: 'height_records',
+      label: 'Body height records',
+      logicalType: 'object',
+      occurrenceId: 'base',
+      source: {
+        kind: 'ownerRecords',
+        ownerRecords: {
+          binding: {
+            ownerPath: 'component[]', keyPath: 'component[].code.coding[]',
+            systemPath: 'system', codePath: 'code', valuePath: 'valueQuantity.value',
+            choiceArms: ['valueQuantity'], logicalType: 'decimal', unitPath: 'valueQuantity.unit',
+          },
+          key: { system: 'http://loinc.org', code: '8302-2' },
+        },
+      },
+      table: { visible: true, order: 0 },
+    };
+    const ownerPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [{ column: ownerColumn.column, label: ownerColumn.label, logicalType: 'object', filterable: false, chartable: false }],
+      rows: [{
+        height_records: [{
+          source: { resourceType: 'Observation', resourceId: 'obs-1', ownerPath: 'component[]', ownerOrdinal: 0 },
+          codings: [{ system: 'http://loinc.org', code: '8302-2' }],
+          choiceArm: 'valueQuantity', logicalType: 'decimal', value: 0, values: [0], unit: 'cm', status: 'VALUE',
+          owner: { code: { coding: [{ system: 'http://loinc.org', code: '8302-2' }] }, valueQuantity: { value: 0, unit: 'cm' } },
+        }],
+      }],
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: ownerPreview,
+        table: { ...table, document: { ...table.document, columns: [ownerColumn] } },
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect Body height records for row 1' }));
+    expect(screen.getByRole('dialog', { name: 'Body height records record evidence' })).toBeInTheDocument();
+    expect(screen.getByText('VALUE')).toBeInTheDocument();
+    expect(screen.getByText('cm')).toBeInTheDocument();
+    expect(screen.getByText('http://loinc.org · 8302-2')).toBeInTheDocument();
+    expect(screen.getByText(/resourceId: obs-1/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('reports row-limit changes to the preview owner', () => {
     const onLimitChange = vi.fn();
     render(

@@ -2,7 +2,10 @@ package authoringv2
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func (d Document) Validate() error {
@@ -15,10 +18,14 @@ func (d Document) Validate() error {
 	if !physicalColumnPattern.MatchString(d.Output.ID) {
 		return fmt.Errorf("output id must contain only letters, digits, and underscores and may not start with a digit")
 	}
+	if err := d.Rows.Validate(); err != nil {
+		return fmt.Errorf("rows: %w", err)
+	}
 	return d.validateSemantic()
 }
 
 func (w Workspace) Validate() error {
+	w = migratePreV7MissingRows(w)
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
@@ -173,6 +180,9 @@ func (c CatalogSnapshot) Validate() error {
 		if len(candidate.ProjectionModes) == 0 || candidate.DefaultProjectionMode == "" {
 			return fmt.Errorf("candidate %q must advertise projection modes and a default", candidate.ID)
 		}
+		if err := validateCandidateConstructionChoice(candidate, nodes[candidate.NodeID], c.SnapshotToken); err != nil {
+			return fmt.Errorf("candidate %q: %w", candidate.ID, err)
+		}
 		if candidate.DefaultProjectionMode != "" {
 			foundMode := false
 			for _, mode := range candidate.ProjectionModes {
@@ -197,6 +207,75 @@ func (c CatalogSnapshot) Validate() error {
 			return fmt.Errorf("candidate %q suggestions cannot be complete and truncated", candidate.ID)
 		}
 		candidates[candidate.ID] = candidate
+	}
+	return nil
+}
+
+func validateCandidateConstructionChoice(candidate CatalogCandidate, node CatalogNode, snapshotToken string) error {
+	choice := candidate.ConstructionChoice
+	if choice == nil {
+		return fmt.Errorf("constructionChoice is required for selectable catalog candidates")
+	}
+	if strings.TrimSpace(choice.ChoiceID) == "" || len(choice.Options) == 0 {
+		return fmt.Errorf("constructionChoice requires an id and at least one compiler-proved option")
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		return fmt.Errorf("constructionChoice id is invalid: %w", err)
+	}
+	source, ok := choice.Source.(capability.FieldChoiceSource)
+	if !ok || identity.Kind != capability.ConstructionChoiceSourceField || identity.SnapshotToken != snapshotToken ||
+		source.Kind != capability.ConstructionChoiceSourceField || source.CandidateID != candidate.ID ||
+		source.NodeID != candidate.NodeID || source.ResourceType != node.ResourceType ||
+		source.Path != candidate.FieldPath || source.Cardinality != candidate.Cardinality {
+		return fmt.Errorf("constructionChoice source does not match the pinned field candidate")
+	}
+	identitySource, ok := identity.Source.(capability.FieldChoiceSource)
+	if !ok || !reflect.DeepEqual(identitySource, source) {
+		return fmt.Errorf("constructionChoice id does not pin its field source")
+	}
+	defaults := 0
+	for index, option := range choice.Options {
+		if option.RowEffect != capability.ConstructionChoicePreservesRows || strings.TrimSpace(option.Reason) == "" {
+			return fmt.Errorf("constructionChoice.options[%d] is incomplete", index)
+		}
+		switch option.Form {
+		case capability.ConstructionChoiceValue, capability.ConstructionChoiceFirst:
+			if option.Shape != capability.ConstructionChoiceScalar {
+				return fmt.Errorf("constructionChoice.options[%d] has a mismatched scalar form and shape", index)
+			}
+		case capability.ConstructionChoiceAll, capability.ConstructionChoiceDistinct:
+			if option.Shape != capability.ConstructionChoiceList {
+				return fmt.Errorf("constructionChoice.options[%d] has a mismatched list form and shape", index)
+			}
+		default:
+			return fmt.Errorf("constructionChoice.options[%d] has an unknown form", index)
+		}
+		if option.Decision != capability.ConstructionChoiceDefault && option.Decision != capability.ConstructionChoiceRequiresDecision {
+			return fmt.Errorf("constructionChoice.options[%d] has an unknown decision", index)
+		}
+		wantPreservation := capability.ConstructionChoicePreserving
+		if option.Form == capability.ConstructionChoiceFirst || option.Form == capability.ConstructionChoiceDistinct {
+			wantPreservation = capability.ConstructionChoiceReducing
+		}
+		if option.Preservation != wantPreservation {
+			return fmt.Errorf("constructionChoice.options[%d] has incorrect preservation semantics", index)
+		}
+		if option.Form == capability.ConstructionChoiceFirst && option.Decision == capability.ConstructionChoiceDefault {
+			return fmt.Errorf("constructionChoice.options[%d] cannot default to FIRST", index)
+		}
+		if option.Decision == capability.ConstructionChoiceDefault && option.Form != capability.ConstructionChoiceValue && option.Form != capability.ConstructionChoiceAll {
+			return fmt.Errorf("constructionChoice.options[%d] has a reducing default", index)
+		}
+		if option.Decision == capability.ConstructionChoiceDefault {
+			defaults++
+		}
+		if option.Support != capability.ConstructionChoiceSupported {
+			return fmt.Errorf("constructionChoice.options[%d] is not compiler-supported", index)
+		}
+	}
+	if defaults > 1 {
+		return fmt.Errorf("constructionChoice has multiple default options")
 	}
 	return nil
 }

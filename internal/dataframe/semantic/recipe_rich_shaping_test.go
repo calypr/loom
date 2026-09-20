@@ -7,7 +7,39 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
+
+func TestLowerRecipeOwnerRecordsPreservesCheckedBindingAndSelectedKey(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
+		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
+	}
+	items, err := lowerRecipeOwnerRecords("Observation", []recipe.OwnerRecordProjection{{
+		Name: "systolic_records", FieldRef: "Observation.component", Binding: binding,
+		Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8480-6"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Binding.OwnerPath != "component[]" || items[0].Binding.UnitPath != "valueQuantity.unit" ||
+		items[0].Key.System != "http://loinc.org" || items[0].Key.Code != "8480-6" {
+		t.Fatalf("owner-record semantic operation = %#v", items)
+	}
+	binding.ChoiceArms[0] = "valueString"
+	if items[0].Binding.ChoiceArms[0] != "valueQuantity" {
+		t.Fatal("semantic owner-record binding aliases recipe-owned choice arms")
+	}
+
+	invalid := items[0].Binding
+	invalid.KeyPath = "code.coding[]"
+	if _, err := lowerRecipeOwnerRecords("Observation", []recipe.OwnerRecordProjection{{
+		Name: "invalid", Binding: invalid, Key: items[0].Key,
+	}}); err == nil || !strings.Contains(err.Error(), "outside owner") {
+		t.Fatalf("cross-owner binding error = %v", err)
+	}
+}
 
 func TestLowerRecipePivotsUsesGeneratedFamilyAndDeclaredColumns(t *testing.T) {
 	scope := newRootScope("Condition")

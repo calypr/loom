@@ -43,6 +43,7 @@ const (
 	PhysicalExtractExpression      PhysicalExpressionKind = "EXTRACT"
 	PhysicalAggregateExpression    PhysicalExpressionKind = "AGGREGATE"
 	PhysicalPivotExpression        PhysicalExpressionKind = "PIVOT_MAP"
+	PhysicalOwnerRecordsExpression PhysicalExpressionKind = "OWNER_RECORDS"
 	PhysicalSliceExpression        PhysicalExpressionKind = "SLICE"
 	PhysicalObjectLookupExpression PhysicalExpressionKind = "OBJECT_LOOKUP"
 	PhysicalKeyedMapExpression     PhysicalExpressionKind = "KEYED_MAP"
@@ -83,6 +84,7 @@ type PhysicalExpression struct {
 	Extract      *PhysicalExtract
 	Aggregate    *PhysicalAggregate
 	Pivot        *PhysicalPivotMap
+	OwnerRecords *PhysicalOwnerRecords
 	Slice        *PhysicalSlice
 	ObjectLookup *PhysicalObjectLookup
 	KeyedMap     *PhysicalKeyedMap
@@ -222,6 +224,15 @@ type PhysicalPivotMap struct {
 	Correlation *PhysicalCorrelation
 }
 
+// PhysicalOwnerRecords emits one ordered record per repeated FHIR owner while
+// preserving the surrounding dataframe row grain.
+type PhysicalOwnerRecords struct {
+	Correlation        PhysicalCorrelation
+	OwnerPathBindKey   string
+	ChoiceArmBindKey   string
+	LogicalTypeBindKey string
+}
+
 // PhysicalCorrelation is the shared typed representation for correlated
 // terminology predicates and projections. Selectors are relative to Source's
 // owner payload, except SystemSelector and CodeSelector which are relative to
@@ -241,6 +252,7 @@ type PhysicalCorrelation struct {
 	ChoiceSelectors []spec.Selector
 	LogicalType     string
 	ValuePrimitive  string
+	UnitSelector    *spec.Selector
 	SystemBindKey   string
 	CodeBindKey     string
 	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-

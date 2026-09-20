@@ -19,6 +19,7 @@ type SemanticNode struct {
 	Fields       []SemanticField
 	Filters      []spec.TypedFilter
 	Pivots       []SemanticPivot
+	OwnerRecords []SemanticOwnerRecords
 	Aggregates   []SemanticAggregate
 	Slices       []SemanticSlice
 	Children     []SemanticNode
@@ -62,6 +63,13 @@ type SemanticPivot struct {
 	// ExtensionCorrelation carries the checked ancestor-aware extension
 	// binding. It shares the physical correlation IR with terminology pivots.
 	ExtensionCorrelation *fhirschema.ExtensionBinding
+}
+
+type SemanticOwnerRecords struct {
+	Name     string
+	FieldRef string
+	Binding  fhirschema.CorrelatedBinding
+	Key      fhirschema.CorrelatedKey
 }
 
 type SemanticAggregate struct {

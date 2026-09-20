@@ -65,7 +65,7 @@ func (b Bundle) Validate() error {
 			return validationError("invalid_collision_policy", path+".collisionPolicy", "must be error, overwrite, or coalesce")
 		}
 		budget := 0
-		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.Aggregates, output.Slices, path, &budget); err != nil {
+		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.OwnerRecords, output.Aggregates, output.Slices, path, &budget); err != nil {
 			return err
 		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
@@ -160,7 +160,7 @@ func validateTraversals(items []Traversal, path string, depth int) error {
 				return err
 			}
 		}
-		if err := validateNodeShape(t.Fields, t.Filters, t.Pivots, t.Aggregates, t.Slices, p, &budget); err != nil {
+		if err := validateNodeShape(t.Fields, t.Filters, t.Pivots, t.OwnerRecords, t.Aggregates, t.Slices, p, &budget); err != nil {
 			return err
 		}
 		if err := validateDynamicColumns(t.DynamicColumns, p+".dynamicColumns", &budget); err != nil {

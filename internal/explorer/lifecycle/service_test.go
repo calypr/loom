@@ -229,6 +229,17 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 	return capability.Snapshot{Identity: capability.SnapshotIdentity{Project: project, Generation: generation, AuthorizationScopeDigest: hex.EncodeToString(sum[:]), SchemaDigest: "schema", ShapeDigest: "shape"}, Status: capability.StatusReady, Complete: true, Token: token}
 }
 
+func lifecycleTestFieldChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
+	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
+		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
+		Cardinality: cardinality, ProjectionModes: []capability.ProjectionMode{projection},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return &choice
+}
+
 func testConfig(snapshot capability.Snapshot) Config {
 	cursorCodec, _ := NewHMACPopulationMappingCursorCodec("population-mapping-test-secret")
 	return Config{Capability: CapabilityResolver{
@@ -380,7 +391,7 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPathThroughService(t *
 		CommandID: "add-correlated", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 4, ExpectedDraftDigest: digest,
 		Commands: []authoringv2.Command{{Type: authoringv2.CommandAddColumnSource, OutputID: "observations", OccurrenceID: authoringv2.RootOccurrenceID, Source: &authoringv2.ColumnSource{
-			Kind: authoringv2.SourceObservationComponentByCode,
+			Kind: authoringv2.SourceCodedValue,
 			Lookup: &authoringv2.LookupSource{
 				Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 				Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
@@ -427,12 +438,22 @@ func TestPopulationLifecycleChecksSelectionBeforeDraftAndCompile(t *testing.T) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: completedTestSelection(snapshot, "Patient")}
 	config := testConfig(snapshot)
 	config.SelectionMembersCollection = "loom_explorer_selection_members"
+	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
+	routes, err := service.SearchPopulationRoutes(context.Background(), PopulationRoutesRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		OutputID: "patients", SelectionRevisionID: "selection-1",
+	})
+	if err != nil || len(routes.Choices) != 1 || len(routes.Choices[0].Route) != 0 {
+		t.Fatalf("zero-hop population route choices = %#v, %v", routes, err)
+	}
 	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1"}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: routes.Choices[0].RouteChoiceID}},
 	}, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -490,12 +511,21 @@ func TestPopulationLifecycleRejectsIncompleteSelectionBeforeDraftWrite(t *testin
 	selection.Complete = false
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", Title: "Patients", ManagementMode: explorer.ManagementInteractive, DraftConfig: draft, DraftVersion: 1, DraftDigest: digest}, selection: selection}
 	config := testConfig(snapshot)
+	config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
 	config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
 	service := newTestService(t, store, config)
+	choiceID, err := capability.NewPopulationRouteChoiceID(capability.PopulationRouteChoiceIdentity{
+		Version: 1, SnapshotToken: snapshot.Token, OutputID: "patients", SelectionRevisionID: "selection-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", authoringv2.ApplyCommandsRequest{
 		CommandID: "set-incomplete-population", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
-		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1"}},
+		Commands: []authoringv2.Command{{Type: authoringv2.CommandSetTablePopulation, OutputID: "patients", SelectionRevisionID: "selection-1", RouteChoiceID: choiceID}},
 	}, "alice")
 	if err == nil || store.created.DraftVersion != 1 {
 		t.Fatalf("incomplete selection err=%v persisted=%#v", err, store.created)

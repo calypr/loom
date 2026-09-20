@@ -1,0 +1,183 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	loomapi "github.com/calypr/loom/generated/loomapi"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
+)
+
+func (h *explorerHTTPHandlers) searchConstructionChoicesDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionChoiceSearchRequest) (loomapi.ConstructionChoiceSearchResponse, error) {
+	var result loomapi.ConstructionChoiceSearchResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("construction-choices", errors.New("request body and exact source identity are required"))
+	}
+	sourceJSON, err := body.Source.MarshalJSON()
+	if err != nil {
+		return result, malformedRouteError("construction-choices", err)
+	}
+	var source lifecycle.ConstructionChoiceSearchSource
+	if err := json.Unmarshal(sourceJSON, &source); err != nil {
+		return result, malformedRouteError("construction-choices", err)
+	}
+	request := lifecycle.ConstructionChoiceSearchRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken, OutputID: body.OutputId, Source: source,
+	}
+	if body.OccurrenceId != nil {
+		request.OccurrenceID = *body.OccurrenceId
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	value, err := h.application.SearchConstructionChoices(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.ConstructionChoiceSearchResponse](value)
+}
+
+func (h *explorerHTTPHandlers) searchPopulationRoutesDirect(ctx context.Context, project, explorerID string, body *loomapi.PopulationRoutesRequest) (loomapi.PopulationRoutesResponse, error) {
+	var result loomapi.PopulationRoutesResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("population-routes", errors.New("request body is required"))
+	}
+	request := lifecycle.PopulationRoutesRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		OutputID: body.OutputId, SelectionRevisionID: body.SelectionRevisionId,
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	value, err := h.application.SearchPopulationRoutes(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.PopulationRoutesResponse](value)
+}
+
+func (h *explorerHTTPHandlers) columnSourceDirect(ctx context.Context, project, explorerID string, body *loomapi.ColumnSourceRequest) (loomapi.ColumnSourceResponse, error) {
+	var result loomapi.ColumnSourceResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("column-source", errors.New("request body is required"))
+	}
+	value, err := h.application.ColumnSource(ctx, lifecycle.ColumnSourceRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		OutputID: body.OutputId, Column: body.Column,
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.ColumnSourceResponse](value)
+}
+
+func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, request loomapi.SearchExplorerConstructionChoicesRequestObject) (loomapi.SearchExplorerConstructionChoicesResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerConstructionChoices", explorerUnavailable("construction-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.searchConstructionChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.SearchExplorerConstructionChoices200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerConstructionChoices", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.SearchExplorerConstructionChoices400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.SearchExplorerConstructionChoices401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.SearchExplorerConstructionChoices403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.SearchExplorerConstructionChoices404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.SearchExplorerConstructionChoices409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.SearchExplorerConstructionChoices422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.SearchExplorerConstructionChoices500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("searchExplorerConstructionChoices", status)
+	}
+}
+
+func (r *HTTPRoutes) SearchExplorerPopulationRoutes(ctx context.Context, request loomapi.SearchExplorerPopulationRoutesRequestObject) (loomapi.SearchExplorerPopulationRoutesResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerPopulationRoutes", explorerUnavailable("population-routes", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.searchPopulationRoutesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.SearchExplorerPopulationRoutes200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerPopulationRoutes", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.SearchExplorerPopulationRoutes400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.SearchExplorerPopulationRoutes401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.SearchExplorerPopulationRoutes403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.SearchExplorerPopulationRoutes404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.SearchExplorerPopulationRoutes409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.SearchExplorerPopulationRoutes422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.SearchExplorerPopulationRoutes500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.SearchExplorerPopulationRoutes503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("searchExplorerPopulationRoutes", status)
+	}
+}
+
+func (r *HTTPRoutes) GetExplorerColumnSource(ctx context.Context, request loomapi.GetExplorerColumnSourceRequestObject) (loomapi.GetExplorerColumnSourceResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerColumnSource", explorerUnavailable("column-source", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.columnSourceDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.GetExplorerColumnSource200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "getExplorerColumnSource", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.GetExplorerColumnSource400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.GetExplorerColumnSource401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.GetExplorerColumnSource403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.GetExplorerColumnSource404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.GetExplorerColumnSource409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.GetExplorerColumnSource500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.GetExplorerColumnSource503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("getExplorerColumnSource", status)
+	}
+}

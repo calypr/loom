@@ -34,24 +34,25 @@ type Bundle struct {
 // Output describes one row-shaped result. Names are semantic names, not
 // storage identifiers.
 type Output struct {
-	Name                  string                `json:"name"`
-	RootResourceType      string                `json:"rootResourceType"`
-	RowGrain              string                `json:"rowGrain"`
-	RootColumnNaming      RootColumnNaming      `json:"rootColumnNaming,omitempty"`
-	TraversalColumnNaming TraversalColumnNaming `json:"traversalColumnNaming,omitempty"`
-	Fields                []Field               `json:"fields,omitempty"`
-	Filters               []Filter              `json:"filters,omitempty"`
-	Pivots                []Pivot               `json:"pivots,omitempty"`
-	Aggregates            []Aggregate           `json:"aggregates,omitempty"`
-	Slices                []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals            []Traversal           `json:"traversals,omitempty"`
-	Expand                *Expansion            `json:"expand,omitempty"`
-	Identity              *Identity             `json:"identity,omitempty"`
-	DynamicColumns        []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns      []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections    []CatalogProjection   `json:"catalogProjections,omitempty"`
-	Population            *PopulationConstraint `json:"population,omitempty"`
-	CollisionPolicy       string                `json:"collisionPolicy,omitempty"`
+	Name                  string                  `json:"name"`
+	RootResourceType      string                  `json:"rootResourceType"`
+	RowGrain              string                  `json:"rowGrain"`
+	RootColumnNaming      RootColumnNaming        `json:"rootColumnNaming,omitempty"`
+	TraversalColumnNaming TraversalColumnNaming   `json:"traversalColumnNaming,omitempty"`
+	Fields                []Field                 `json:"fields,omitempty"`
+	Filters               []Filter                `json:"filters,omitempty"`
+	Pivots                []Pivot                 `json:"pivots,omitempty"`
+	OwnerRecords          []OwnerRecordProjection `json:"ownerRecords,omitempty"`
+	Aggregates            []Aggregate             `json:"aggregates,omitempty"`
+	Slices                []RepresentativeSlice   `json:"slices,omitempty"`
+	Traversals            []Traversal             `json:"traversals,omitempty"`
+	Expand                *Expansion              `json:"expand,omitempty"`
+	Identity              *Identity               `json:"identity,omitempty"`
+	DynamicColumns        []DynamicColumn         `json:"dynamicColumns,omitempty"`
+	ExtensionColumns      []ExtensionColumn       `json:"extensionColumns,omitempty"`
+	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
+	Population            *PopulationConstraint   `json:"population,omitempty"`
+	CollisionPolicy       string                  `json:"collisionPolicy,omitempty"`
 }
 
 // PopulationConstraint is a storage-neutral row-root membership constraint.
@@ -261,6 +262,16 @@ type Pivot struct {
 	// is mutually exclusive with Correlation and legacy selector expressions.
 	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
 	Discovered           bool                         `json:"-"`
+}
+
+// OwnerRecordProjection preserves each repeated owner selected by a checked
+// code/value binding as one ordered object in a list-valued output column.
+// It does not change the output row grain.
+type OwnerRecordProjection struct {
+	Name     string                       `json:"name"`
+	FieldRef string                       `json:"fieldRef,omitempty"`
+	Binding  fhirschema.CorrelatedBinding `json:"binding"`
+	Key      fhirschema.CorrelatedKey     `json:"key"`
 }
 
 const (
@@ -478,20 +489,21 @@ func (m TraversalMatchMode) Normalized() TraversalMatchMode {
 // Traversal describes a relationship traversal without naming a physical
 // graph collection or edge table.
 type Traversal struct {
-	Name               string                `json:"name"`
-	ToResourceType     string                `json:"toResourceType"`
-	Alias              string                `json:"alias,omitempty"`
-	From               *Expression           `json:"from,omitempty"`
-	MatchMode          TraversalMatchMode    `json:"matchMode,omitempty"`
-	Fields             []Field               `json:"fields,omitempty"`
-	Filters            []Filter              `json:"filters,omitempty"`
-	Pivots             []Pivot               `json:"pivots,omitempty"`
-	Aggregates         []Aggregate           `json:"aggregates,omitempty"`
-	Slices             []RepresentativeSlice `json:"slices,omitempty"`
-	Traversals         []Traversal           `json:"traversals,omitempty"`
-	DynamicColumns     []DynamicColumn       `json:"dynamicColumns,omitempty"`
-	ExtensionColumns   []ExtensionColumn     `json:"extensionColumns,omitempty"`
-	CatalogProjections []CatalogProjection   `json:"catalogProjections,omitempty"`
+	Name               string                  `json:"name"`
+	ToResourceType     string                  `json:"toResourceType"`
+	Alias              string                  `json:"alias,omitempty"`
+	From               *Expression             `json:"from,omitempty"`
+	MatchMode          TraversalMatchMode      `json:"matchMode,omitempty"`
+	Fields             []Field                 `json:"fields,omitempty"`
+	Filters            []Filter                `json:"filters,omitempty"`
+	Pivots             []Pivot                 `json:"pivots,omitempty"`
+	OwnerRecords       []OwnerRecordProjection `json:"ownerRecords,omitempty"`
+	Aggregates         []Aggregate             `json:"aggregates,omitempty"`
+	Slices             []RepresentativeSlice   `json:"slices,omitempty"`
+	Traversals         []Traversal             `json:"traversals,omitempty"`
+	DynamicColumns     []DynamicColumn         `json:"dynamicColumns,omitempty"`
+	ExtensionColumns   []ExtensionColumn       `json:"extensionColumns,omitempty"`
+	CatalogProjections []CatalogProjection     `json:"catalogProjections,omitempty"`
 }
 
 // Expansion turns a repeated expression into one row per element.

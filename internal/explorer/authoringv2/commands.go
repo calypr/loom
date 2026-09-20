@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -35,6 +36,7 @@ const (
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
+	CommandApplyConstructionChoice       = "APPLY_CONSTRUCTION_CHOICE"
 	CommandResultTableCreated            = "TABLE_CREATED"
 	CommandResultTableChanged            = "TABLE_CHANGED"
 	CommandResultRouteAdded              = "ROUTE_ADDED"
@@ -78,6 +80,7 @@ type Command struct {
 	RootNodeID              string                        `json:"rootNodeId,omitempty"`
 	SelectionRevisionID     string                        `json:"selectionRevisionId,omitempty"`
 	EdgeIDs                 []string                      `json:"edgeIds,omitempty"`
+	RouteChoiceID           string                        `json:"routeChoiceId,omitempty"`
 	ParentOccurrenceID      string                        `json:"parentOccurrenceId,omitempty"`
 	OccurrenceID            string                        `json:"occurrenceId,omitempty"`
 	EdgeID                  string                        `json:"edgeId,omitempty"`
@@ -93,7 +96,57 @@ type Command struct {
 	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
 	ContextToken            string                        `json:"contextToken,omitempty"`
 	SemanticSelections      []SemanticSelection           `json:"semanticSelections,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection  `json:"constructionChoice,omitempty"`
+	ResolvedChoice          *ResolvedConstructionChoice   `json:"-"`
+	ResolvedPopulationRoute []PopulationRouteStep         `json:"-"`
 	OutputIDs               []string                      `json:"outputIds,omitempty"`
+}
+
+// ConstructionChoiceSelection carries only the server-issued source identity
+// and the form the author chose from its current supported options.
+type ConstructionChoiceSelection struct {
+	ChoiceID string                            `json:"choiceId"`
+	Form     capability.ConstructionChoiceForm `json:"form"`
+}
+
+func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionChoiceSelection
+	var decoded wire
+	if err := strictDecode(raw, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 2 || fields["choiceId"] == nil || fields["form"] == nil {
+		return fmt.Errorf("constructionChoice requires exactly choiceId and form")
+	}
+	*s = ConstructionChoiceSelection(decoded)
+	return nil
+}
+
+func (s ConstructionChoiceSelection) validate() error {
+	if strings.TrimSpace(s.ChoiceID) == "" || s.ChoiceID != strings.TrimSpace(s.ChoiceID) {
+		return fmt.Errorf("constructionChoice.choiceId must be an exact non-empty token")
+	}
+	switch s.Form {
+	case capability.ConstructionChoiceValue, capability.ConstructionChoiceFirst,
+		capability.ConstructionChoiceAll, capability.ConstructionChoiceDistinct,
+		capability.ConstructionChoiceOwnerRecords:
+		return nil
+	default:
+		return fmt.Errorf("constructionChoice.form is unsupported")
+	}
+}
+
+// ResolvedConstructionChoice is populated by lifecycle after it re-authorizes
+// and reconstructs the choice against the current compiler snapshot.
+type ResolvedConstructionChoice struct {
+	CandidateID string
+	Source      ColumnSource
+	LogicalType string
+	Route       []capability.ConstructionRouteStep
 }
 
 // SemanticSelection is client intent plus an internal-only resolution filled
@@ -131,6 +184,18 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 	var decoded wire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
+	}
+	if decoded.Type == CommandApplyConstructionChoice {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		allowed := map[string]bool{"type": true, "outputId": true, "title": true, "initialPresentation": true, "constructionChoice": true}
+		for name := range fields {
+			if !allowed[name] {
+				return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE does not accept field %q", name)
+			}
+		}
 	}
 	*c = Command(decoded)
 	return nil
@@ -175,9 +240,13 @@ func (r ApplyCommandsRequest) Validate() error {
 		return fmt.Errorf("at least one command is required")
 	}
 	semanticCommandCount := 0
+	constructionChoiceCommandCount := 0
 	for i, command := range r.Commands {
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
+		}
+		if command.Type == CommandApplyConstructionChoice {
+			constructionChoiceCommandCount++
 		}
 		if err := command.validate(); err != nil {
 			return fmt.Errorf("commands[%d]: %w", i, err)
@@ -185,6 +254,9 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	if semanticCommandCount > 0 && (semanticCommandCount != 1 || len(r.Commands) != 1) {
 		return fmt.Errorf("ADD_SEMANTIC_SELECTIONS must be the only command in its atomic request")
+	}
+	if constructionChoiceCommandCount > 0 && (constructionChoiceCommandCount != len(r.Commands) || constructionChoiceCommandCount > 100) {
+		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE commands must form the entire request and contain at most 100 choices")
 	}
 	return nil
 }
@@ -249,6 +321,9 @@ func (c Command) validate() error {
 	case CommandSetTablePopulation:
 		if !required(c.OutputID, c.SelectionRevisionID) {
 			return fmt.Errorf("SET_TABLE_POPULATION requires outputId and selectionRevisionId")
+		}
+		if strings.TrimSpace(c.RouteChoiceID) != "" && len(c.EdgeIDs) != 0 {
+			return fmt.Errorf("SET_TABLE_POPULATION cannot combine routeChoiceId with client edgeIds")
 		}
 	case CommandClearTablePopulation:
 		if !required(c.OutputID) {
@@ -336,6 +411,23 @@ func (c Command) validate() error {
 				return fmt.Errorf("semanticSelections[%d]: %w", i, err)
 			}
 		}
+	case CommandApplyConstructionChoice:
+		if !required(c.OutputID) || c.ConstructionChoice == nil {
+			return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE requires outputId and constructionChoice")
+		}
+		if err := c.ConstructionChoice.validate(); err != nil {
+			return err
+		}
+		if c.ResolvedChoice != nil || c.SourceOutputID != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
+			len(c.EdgeIDs) != 0 || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.Column != "" || c.ColumnValue != nil || c.Contributor != nil ||
+			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" ||
+			len(c.SemanticSelections) != 0 || len(c.OutputIDs) != 0 {
+			return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE accepts only its choice identity and authored-column presentation fields")
+		}
+		if c.InitialPresentation != "" && !contains([]string{InitialPresentationTable, InitialPresentationFilter, InitialPresentationChart}, strings.ToUpper(strings.TrimSpace(c.InitialPresentation))) {
+			return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE initialPresentation must be TABLE, FILTER, or CHART")
+		}
 	default:
 		return fmt.Errorf("unsupported command type %q", c.Type)
 	}
@@ -388,7 +480,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			}
 		}
 		title := strings.TrimSpace(command.Title)
-		workspace.Documents = append(workspace.Documents, Document{Kind: Kind, Output: Output{ID: outputID, Title: title}, RootResourceType: node.ResourceType, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Columns: []Column{}})
+		workspace.Documents = append(workspace.Documents, Document{Kind: Kind, Output: Output{ID: outputID, Title: title}, RootResourceType: node.ResourceType, Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}, Rows: RecordsRowDefinition(), Columns: []Column{}})
 		workspace.Tabs = append(workspace.Tabs, Tab{ID: tabID, Title: title, OutputID: outputID, Order: len(workspace.Tabs), Visible: true})
 		return CommandResult{Type: CommandResultTableCreated, OutputID: outputID, TabID: tabID, OccurrenceID: RootOccurrenceID}, nil
 	case CommandDuplicateTable:
@@ -480,7 +572,12 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if document < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
 		}
-		if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID, command.EdgeIDs); err != nil {
+		if command.RouteChoiceID != "" {
+			if command.ResolvedPopulationRoute == nil {
+				return result, fmt.Errorf("population route choice has no server resolution")
+			}
+			setPopulationRoute(&workspace.Documents[document], command.SelectionRevisionID, command.ResolvedPopulationRoute)
+		} else if err := setPopulation(&workspace.Documents[document], catalog, command.SelectionRevisionID, command.EdgeIDs); err != nil {
 			return result, err
 		}
 		return result, nil
@@ -510,17 +607,24 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		from, fromOK := catalogNode(catalog, edge.FromNodeID)
 		to, toOK := catalogNode(catalog, edge.ToNodeID)
-		if !fromOK || !toOK || from.ResourceType != parent.ResourceType {
+		parentNodeID, parentNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, parent.OccurrenceID, catalog)
+		if !fromOK || !toOK || !parentNodeFound || edge.FromNodeID != parentNodeID || from.ResourceType != parent.ResourceType {
 			return result, fmt.Errorf("edge %q does not extend occurrence %q", edge.ID, command.ParentOccurrenceID)
 		}
-		if !catalog.RoutePolicy.AllowRepeatedEdges && routePathUsesRelationship(&workspace.Documents[document].Route, command.ParentOccurrenceID, from.ResourceType, to.ResourceType, edge.Label) {
-			return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
+		if !catalog.RoutePolicy.AllowRepeatedEdges {
+			used, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, command.ParentOccurrenceID, edge.ID, catalog)
+			if err != nil {
+				return result, fmt.Errorf("route parent does not resolve to an exact path: %w", err)
+			}
+			if used {
+				return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
+			}
 		}
 		occurrenceID := commandGeneratedID("occ_", commandID, index, command.Type)
 		if findRoute(&workspace.Documents[document].Route, occurrenceID) != nil {
 			return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 		}
-		parent.Children = append(parent.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, Relationship: edge.Label})
+		parent.Children = append(parent.Children, RouteNode{OccurrenceID: occurrenceID, ResourceType: to.ResourceType, CatalogEdgeID: edge.ID, Relationship: edge.Label})
 		return CommandResult{Type: CommandResultRouteAdded, OutputID: command.OutputID, OccurrenceID: occurrenceID}, nil
 	case CommandUpdateRouteEdge:
 		document := documentIndex(workspace, command.OutputID)
@@ -532,25 +636,30 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if parent == nil || occurrence == nil || !ok {
 			return result, fmt.Errorf("route occurrence, parent, or edge was not found")
 		}
+		parentNodeID, parentNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, parent.OccurrenceID, catalog)
+		occurrenceNodeID, occurrenceNodeFound := catalogNodeIDForOccurrence(workspace.Documents[document].Route, occurrence.OccurrenceID, catalog)
+		if !parentNodeFound || !occurrenceNodeFound {
+			return result, fmt.Errorf("route occurrence does not resolve to one exact catalog path")
+		}
 		from, fromOK := catalogNode(catalog, edge.FromNodeID)
 		to, toOK := catalogNode(catalog, edge.ToNodeID)
-		if !fromOK || !toOK || from.ResourceType != parent.ResourceType || to.ResourceType != occurrence.ResourceType {
+		if !fromOK || !toOK || edge.FromNodeID != parentNodeID || edge.ToNodeID != occurrenceNodeID || from.ResourceType != parent.ResourceType || to.ResourceType != occurrence.ResourceType {
 			return result, fmt.Errorf("edge %q cannot replace the relationship for occurrence %q", edge.ID, command.OccurrenceID)
 		}
-		currentEdges := []CatalogEdge{}
-		for _, candidate := range catalog.Edges {
-			candidateFrom, candidateFromOK := catalogNode(catalog, candidate.FromNodeID)
-			candidateTo, candidateToOK := catalogNode(catalog, candidate.ToNodeID)
-			if candidateFromOK && candidateToOK && candidateFrom.ResourceType == parent.ResourceType && candidateTo.ResourceType == occurrence.ResourceType && candidate.Label == occurrence.Relationship {
-				currentEdges = append(currentEdges, candidate)
+		if !catalog.RoutePolicy.AllowRepeatedEdges {
+			usedOnPath, err := routePathUsesCatalogEdge(workspace.Documents[document].Route, parent.OccurrenceID, edge.ID, catalog)
+			if err != nil {
+				return result, fmt.Errorf("route parent does not resolve to an exact path: %w", err)
+			}
+			usedInSubtree, err := routeSubtreeUsesCatalogEdge(*occurrence, occurrenceNodeID, edge.ID, catalog)
+			if err != nil {
+				return result, fmt.Errorf("route subtree does not resolve to exact paths: %w", err)
+			}
+			if usedOnPath || usedInSubtree {
+				return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
 			}
 		}
-		if len(currentEdges) != 1 || currentEdges[0].FromNodeID != edge.FromNodeID || currentEdges[0].ToNodeID != edge.ToNodeID {
-			return result, fmt.Errorf("edge %q must preserve the catalog endpoints for occurrence %q", edge.ID, command.OccurrenceID)
-		}
-		if !catalog.RoutePolicy.AllowRepeatedEdges && (routePathUsesRelationship(&workspace.Documents[document].Route, parent.OccurrenceID, from.ResourceType, to.ResourceType, edge.Label) || routeSubtreeUsesRelationship(occurrence, from.ResourceType, to.ResourceType, edge.Label)) {
-			return result, fmt.Errorf("edge %q is already used in this route", edge.ID)
-		}
+		occurrence.CatalogEdgeID = edge.ID
 		occurrence.Relationship = edge.Label
 		result.OccurrenceID = occurrence.OccurrenceID
 		return result, nil
@@ -634,43 +743,53 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
 	case CommandAddColumnSource:
-		document := documentIndex(workspace, command.OutputID)
-		if document < 0 {
+		return applyColumnSource(workspace, catalog, commandID, index, command, *command.Source, "", InitialPresentationTable)
+	case CommandApplyConstructionChoice:
+		resolved := command.ResolvedChoice
+		if resolved == nil || strings.TrimSpace(resolved.CandidateID) == "" || strings.TrimSpace(resolved.LogicalType) == "" {
+			return result, fmt.Errorf("construction choice has no server-resolved source")
+		}
+		presentation := strings.ToUpper(strings.TrimSpace(command.InitialPresentation))
+		if presentation == "" {
+			presentation = InitialPresentationTable
+		}
+		documentPos := documentIndex(workspace, command.OutputID)
+		if documentPos < 0 {
 			return result, fmt.Errorf("output %q was not found", command.OutputID)
 		}
-		source := editableSource(command.OccurrenceID, *command.Source)
-		if err := validateEditableSource(workspace.Documents[document], catalog, command.OccurrenceID, source); err != nil {
-			return result, err
+		document := workspace.Documents[documentPos]
+		if document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
+			return result, fmt.Errorf("table root route is invalid")
 		}
-		var contributor *ContributorPredicate
-		if command.Contributor != nil {
-			normalized := command.Contributor.Normalized()
-			if err := ValidateContributorForCatalog(workspace.Documents[document], catalog, command.OccurrenceID, source, normalized); err != nil {
-				return result, err
+		targetResourceType := document.RootResourceType
+		if len(resolved.Route) > 0 {
+			targetResourceType = resolved.Route[len(resolved.Route)-1].ToResourceType
+		}
+		if presentation != InitialPresentationTable {
+			candidate, ok := catalogCandidate(catalog, resolved.CandidateID)
+			if !ok {
+				return result, fmt.Errorf("construction choice candidate %q was not found", resolved.CandidateID)
 			}
-			contributor = &normalized
-		}
-		columnID := commandGeneratedID("col_", command.OutputID, commandID, index, command.Type)
-		for _, existing := range workspace.Documents[document].Columns {
-			if existing.Column != columnID {
-				continue
+			node, ok := catalogNode(catalog, candidate.NodeID)
+			if !ok {
+				return result, fmt.Errorf("construction choice candidate %q has no catalog node", resolved.CandidateID)
 			}
-			if existing.OccurrenceID != command.OccurrenceID || !sourceEqual(existing.Source, source) || !contributorEqual(existing.Contributor, contributor) {
-				return result, fmt.Errorf("generated column identity %q conflicts with a different feature", columnID)
+			if node.ResourceType != targetResourceType || len(resolved.Route) > 0 && node.ID != resolved.Route[len(resolved.Route)-1].ToNodeID {
+				return result, fmt.Errorf("construction choice candidate %q does not match its exact terminal route", resolved.CandidateID)
 			}
-			return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: existing.Column}, nil
+			if presentation == InitialPresentationFilter && !candidate.Filterable {
+				return result, fmt.Errorf("construction choice candidate %q does not support filters", resolved.CandidateID)
+			}
+			if presentation == InitialPresentationChart && !candidate.Chartable {
+				return result, fmt.Errorf("construction choice candidate %q does not support charts", resolved.CandidateID)
+			}
 		}
-		label := strings.TrimSpace(command.Title)
-		if label == "" {
-			label = strings.TrimSpace(source.fieldPath())
+		occurrenceID, routeErr := ensureConstructionRoute(&workspace.Documents[documentPos], catalog, commandID, index, resolved.Route, resolved.CandidateID)
+		if routeErr != nil {
+			return result, routeErr
 		}
-		if label == "" {
-			label = source.Kind
-		}
-		column := Column{Column: columnID, Label: label, LogicalType: inferredSourceLogicalType(workspace.Documents[document], catalog, command.OccurrenceID, source, "string"), OccurrenceID: command.OccurrenceID, Source: source, Contributor: contributor}
-		applyInitialPresentation(&column, InitialPresentationTable, nextTableOrder(workspace.Documents[document].Columns))
-		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
-		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil
+		command.OccurrenceID = occurrenceID
+		return applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
 	case CommandAddSemanticSelections:
 		return applySemanticSelections(workspace, catalog, commandID, index, command)
 	case CommandUpdateColumn:
@@ -800,6 +919,11 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
 }
 
+func setPopulationRoute(document *Document, selectionRevisionID string, route []PopulationRouteStep) {
+	steps := append([]PopulationRouteStep(nil), route...)
+	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
+}
+
 // editableSource adds the explicit related-resource policy to new child
 // selections. A child column is rendered through a first matching resource
 // even when its projection mode is VALUE or INDEXED, so publication must not
@@ -825,7 +949,10 @@ func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisio
 		return fmt.Errorf("ROUTE_TOO_LONG: population route exceeds capability route policy (maxHops=%d, hops=%d)", *catalog.RoutePolicy.MaxHops, len(edgeIDs))
 	}
 	steps := make([]PopulationRouteStep, 0, len(edgeIDs))
-	fromType := document.RootResourceType
+	current, found := catalogNodeForConstructionRoot(catalog, document.RootResourceType)
+	if !found {
+		return fmt.Errorf("table root is not uniquely available in the capability catalog")
+	}
 	seenEdges := map[string]bool{}
 	for index, edgeID := range edgeIDs {
 		edge, ok := catalogEdge(catalog, edgeID)
@@ -837,15 +964,15 @@ func setPopulation(document *Document, catalog CatalogSnapshot, selectionRevisio
 		}
 		from, fromOK := catalogNode(catalog, edge.FromNodeID)
 		to, toOK := catalogNode(catalog, edge.ToNodeID)
-		if !fromOK || !toOK || from.ResourceType != fromType {
-			return fmt.Errorf("population edge %q cannot extend %q at step %d", edgeID, fromType, index)
+		if !fromOK || !toOK || edge.FromNodeID != current.ID || from.ResourceType != current.ResourceType {
+			return fmt.Errorf("population edge %q cannot extend %q at step %d", edgeID, current.ResourceType, index)
 		}
 		if from.ResourceType == to.ResourceType && !catalog.RoutePolicy.AllowSelfLoops {
 			return fmt.Errorf("population edge %q is a self-loop but self-loops are not allowed", edgeID)
 		}
-		steps = append(steps, PopulationRouteStep{ResourceType: to.ResourceType, Relationship: edge.Label})
+		steps = append(steps, PopulationRouteStep{ResourceType: to.ResourceType, Relationship: edge.Label, CatalogEdgeID: edge.ID})
 		seenEdges[edge.ID] = true
-		fromType = to.ResourceType
+		current = to
 	}
 	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 	return nil
@@ -1025,7 +1152,13 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		}
 		return nil
 	}
-	if source.Lookup != nil && source.Lookup.Binding != nil && (source.Kind == SourceCodingBySystem || source.Kind == SourceObservationComponentByCode) {
+	if source.Lookup != nil && source.Lookup.Identifier != nil && source.Kind == SourceIdentifierBySystem {
+		if _, err := fhirschema.ValidateIdentifierBinding(occurrence.ResourceType, *source.Lookup.Identifier); err != nil {
+			return fmt.Errorf("source identifier: %w", err)
+		}
+		return nil
+	}
+	if source.Lookup != nil && source.Lookup.Binding != nil && source.Kind == SourceCodedValue {
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, *source.Lookup.Binding); err != nil {
 			return fmt.Errorf("source binding: %w", err)
 		}
@@ -1033,7 +1166,13 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		// not have a legacy field path to resolve against a catalog candidate.
 		return nil
 	}
-	if source.Kind == SourceExtensionByURL || source.Kind == SourceObservationComponentByCode || source.Kind == SourceCodingBySystem {
+	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
+		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, source.OwnerRecords.Binding); err != nil {
+			return fmt.Errorf("source owner records binding: %w", err)
+		}
+		return nil
+	}
+	if source.Kind == SourceExtensionByURL || source.Kind == SourceCodedValue || source.Kind == SourceOwnerRecords {
 		return fmt.Errorf("new %s lookup requires an explicit typed binding", source.Kind)
 	}
 	if path == "" && source.Kind != SourceAggregate {
@@ -1104,6 +1243,9 @@ func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occur
 	}
 	if source.Lookup != nil && source.Lookup.Extension != nil && strings.TrimSpace(source.Lookup.Extension.LogicalType) != "" {
 		return strings.TrimSpace(source.Lookup.Extension.LogicalType)
+	}
+	if source.Lookup != nil && source.Lookup.Identifier != nil && strings.TrimSpace(source.Lookup.Identifier.LogicalType) != "" {
+		return strings.TrimSpace(source.Lookup.Identifier.LogicalType)
 	}
 	if source.Kind == SourceAggregate && source.Aggregate != nil {
 		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {
@@ -1176,49 +1318,6 @@ func routeDepth(route *RouteNode, occurrenceID string) (int, bool) {
 		return 0, false
 	}
 	return walk(route, 0)
-}
-
-// routePathUsesRelationship checks only the root-to-parent path. Independent
-// sibling occurrences may share an edge, while a capability that disallows
-// repeated edges still rejects cycles/repeats within one route branch.
-func routePathUsesRelationship(route *RouteNode, targetOccurrenceID, fromResourceType, toResourceType, relationship string) bool {
-	_, repeated := routePathContainsRelationship(route, targetOccurrenceID, fromResourceType, toResourceType, relationship)
-	return repeated
-}
-
-func routePathContainsRelationship(route *RouteNode, targetOccurrenceID, fromResourceType, toResourceType, relationship string) (found, repeated bool) {
-	if route == nil {
-		return false, false
-	}
-	if route.OccurrenceID == targetOccurrenceID {
-		return true, false
-	}
-	for index := range route.Children {
-		child := &route.Children[index]
-		childFound, childRepeated := routePathContainsRelationship(child, targetOccurrenceID, fromResourceType, toResourceType, relationship)
-		if !childFound {
-			continue
-		}
-		edgeRepeated := route.ResourceType == fromResourceType && child.ResourceType == toResourceType && child.Relationship == relationship
-		return true, childRepeated || edgeRepeated
-	}
-	return false, false
-}
-
-func routeSubtreeUsesRelationship(route *RouteNode, fromResourceType, toResourceType, relationship string) bool {
-	if route == nil {
-		return false
-	}
-	for index := range route.Children {
-		child := &route.Children[index]
-		if route.ResourceType == fromResourceType && child.ResourceType == toResourceType && child.Relationship == relationship {
-			return true
-		}
-		if routeSubtreeUsesRelationship(child, fromResourceType, toResourceType, relationship) {
-			return true
-		}
-	}
-	return false
 }
 
 func removeRoute(route *RouteNode, occurrenceID string, removed map[string]bool) bool {

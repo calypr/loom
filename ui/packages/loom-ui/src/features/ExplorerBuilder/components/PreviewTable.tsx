@@ -13,6 +13,33 @@ const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 42;
 const PREVIEW_COLUMN_WIDTH = 180;
 
+type OwnerRecordInspectorState = {
+  readonly columnLabel: string;
+  readonly value: unknown;
+};
+
+const isStructuredRecord = (value: unknown): value is object =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const ownerRecordEntries = (value: unknown): ReadonlyArray<object> =>
+  Array.isArray(value) ? value.filter(isStructuredRecord) : [];
+
+const recordField = (record: object, key: string): unknown =>
+  Reflect.get(record, key);
+
+const formatOwnerRecordCodings = (value: unknown): string => {
+  if (!Array.isArray(value)) return formatPreviewCell(value);
+  const labels = value.map((coding) => {
+    if (!isStructuredRecord(coding)) return formatPreviewCell(coding);
+    const parts = ['system', 'version', 'code', 'display']
+      .map((key) => recordField(coding, key))
+      .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
+      .map((part) => part.trim());
+    return parts.length > 0 ? parts.join(' · ') : formatPreviewCell(coding);
+  });
+  return labels.length > 0 ? labels.join('; ') : formatPreviewCell(value);
+};
+
 export const formatPreviewCell = (value: unknown, depth = 0): string =>
   displayValue(value, { unknownRecord: 'parts', maxDepth: 3 }, depth);
 
@@ -44,6 +71,8 @@ export const PreviewTable = ({
   );
   const [draggedColumn, setDraggedColumn] = useState<string>();
   const [dropIndex, setDropIndex] = useState<number>();
+  const [ownerRecordInspector, setOwnerRecordInspector] =
+    useState<OwnerRecordInspectorState>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -354,6 +383,9 @@ export const PreviewTable = ({
                   {visibleColumns.map((column, visibleColumnIndex) => {
                     const columnIndex = columnRange.start + visibleColumnIndex;
                     const rawValue = row[column.publicColumn];
+                    const isOwnerRecords =
+                      authoredColumnFor(column)?.source.kind === 'ownerRecords';
+                    const recordCount = ownerRecordEntries(rawValue).length;
                     return (
                       <div
                         role="cell"
@@ -365,12 +397,25 @@ export const PreviewTable = ({
                           height: PREVIEW_ROW_HEIGHT,
                         }}
                       >
-                        <div
-                          className="truncate whitespace-nowrap"
-                          title={titledCell(rowIndex, column, rawValue)}
-                        >
-                          {formattedCell(rowIndex, column, rawValue)}
-                        </div>
+                        {isOwnerRecords ? (
+                          <button
+                            type="button"
+                            aria-label={`Inspect ${column.label} for row ${rowIndex + 1}`}
+                            className="flex w-full items-center justify-between gap-2 truncate whitespace-nowrap text-left text-blue-700 hover:text-blue-900"
+                            title={titledCell(rowIndex, column, rawValue)}
+                            onClick={() => setOwnerRecordInspector({ columnLabel: column.label, value: rawValue })}
+                          >
+                            <span className="truncate">{recordCount} {recordCount === 1 ? 'record' : 'records'}</span>
+                            <span aria-hidden="true" className="text-[10px]">Inspect</span>
+                          </button>
+                        ) : (
+                          <div
+                            className="truncate whitespace-nowrap"
+                            title={titledCell(rowIndex, column, rawValue)}
+                          >
+                            {formattedCell(rowIndex, column, rawValue)}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -380,6 +425,67 @@ export const PreviewTable = ({
           </div>
         )}
       </div>
+      {ownerRecordInspector ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
+          <section
+            aria-label={`${ownerRecordInspector.columnLabel} record evidence`}
+            aria-modal="true"
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl"
+            role="dialog"
+          >
+            <header className="sticky top-0 flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-4">
+              <div>
+                <h3 className="font-semibold text-slate-950">{ownerRecordInspector.columnLabel}</h3>
+                <p className="text-xs text-slate-500">Repeated FHIR records preserved in this cell</p>
+              </div>
+              <button
+                type="button"
+                className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700"
+                onClick={() => setOwnerRecordInspector(undefined)}
+              >
+                Close
+              </button>
+            </header>
+            <div className="space-y-3 p-5">
+              {ownerRecordEntries(ownerRecordInspector.value).length === 0 ? (
+                <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-600">No matching records were found for this row.</p>
+              ) : ownerRecordEntries(ownerRecordInspector.value).map((record, index) => {
+                const source = recordField(record, 'source');
+                const status = recordField(record, 'status');
+                const value = recordField(record, 'value');
+                const values = recordField(record, 'values');
+                const unit = recordField(record, 'unit');
+                const codings = recordField(record, 'codings');
+                const owner = recordField(record, 'owner');
+                return (
+                  <article key={index} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="font-semibold text-slate-900">Record {index + 1}</h4>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-700">
+                        {typeof status === 'string' ? status : 'UNKNOWN'}
+                      </span>
+                    </div>
+                    <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-[7rem_1fr]">
+                      <dt className="font-medium text-slate-500">Value</dt>
+                      <dd className="break-words text-slate-900">{formatPreviewCell(value ?? values)}</dd>
+                      <dt className="font-medium text-slate-500">Unit</dt>
+                      <dd className="break-words text-slate-900">{formatPreviewCell(unit)}</dd>
+                      <dt className="font-medium text-slate-500">Matching code</dt>
+                      <dd className="break-words text-slate-900">{formatOwnerRecordCodings(codings)}</dd>
+                      <dt className="font-medium text-slate-500">Source</dt>
+                      <dd className="break-all font-mono text-xs text-slate-700">{formatPreviewCell(source)}</dd>
+                    </dl>
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-semibold text-blue-700">Raw FHIR owner</summary>
+                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-slate-100">{losslessText(owner)}</pre>
+                    </details>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 };

@@ -8,7 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 4;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 6;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -66,6 +66,14 @@ const extensionBindingSchema = z.object({
   unitPath: z.string().optional(),
 }).strict();
 
+const identifierBindingSchema = z.object({
+  ownerPath: opaqueIdSchema,
+  systemPath: opaqueIdSchema,
+  valuePath: opaqueIdSchema,
+  systemURI: opaqueIdSchema,
+  logicalType: opaqueIdSchema,
+}).strict();
+
 export const explorerAuthoringDiagnosticSchema = z
   .object({
     severity: z.enum(['error', 'warning', 'info']),
@@ -117,6 +125,13 @@ const fieldColumnSourceSchema = z
   }).strict();
 const lookupColumnSourceSchema = z.union([
   z.object({
+    kind: z.literal('identifierBySystem'),
+    lookup: z.object({
+      identifier: identifierBindingSchema,
+      projectionMode: projectionModeSchema.optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
     kind: z.literal('extensionByUrl'),
     lookup: z.object({
       extension: extensionBindingSchema,
@@ -127,8 +142,6 @@ const lookupColumnSourceSchema = z.union([
     kind: z.enum([
       'identifierBySystem',
       'extensionByUrl',
-      'codingBySystem',
-      'observationComponentByCode',
     ]),
     lookup: z.object({
       match: opaqueIdSchema,
@@ -137,7 +150,7 @@ const lookupColumnSourceSchema = z.union([
     }).strict(),
   }).strict(),
   z.object({
-    kind: z.enum(['codingBySystem', 'observationComponentByCode']),
+    kind: z.literal('codedValue'),
     lookup: z.object({
       binding: correlatedBindingSchema,
       key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
@@ -145,6 +158,13 @@ const lookupColumnSourceSchema = z.union([
     }).strict(),
   }).strict(),
 ]);
+const ownerRecordsColumnSourceSchema = z.object({
+  kind: z.literal('ownerRecords'),
+  ownerRecords: z.object({
+    binding: correlatedBindingSchema,
+    key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+  }).strict(),
+}).strict();
 const temporalReductionSchema = z.object({
   timestampPath: opaqueIdSchema,
   anchorPath: opaqueIdSchema,
@@ -208,6 +228,7 @@ export const contributorPredicateSchema = z
 export const explorerColumnSourceSchema = z.union([
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
+  ownerRecordsColumnSourceSchema,
   aggregateColumnSourceSchema,
   z.object({ kind: z.literal('projectId') }).strict(),
 ]);
@@ -222,6 +243,7 @@ export type FeatureInterpretation = z.infer<typeof featureInterpretationSchema>;
 export type ExplorerBuilderRouteNode = {
   occurrenceId: string;
   resourceType: string;
+  catalogEdgeId?: string;
   relationship?: string;
   matchMode?: 'OPTIONAL' | 'REQUIRED';
   children?: ExplorerBuilderRouteNode[];
@@ -229,6 +251,7 @@ export type ExplorerBuilderRouteNode = {
 const explorerPopulationStepSchema = z.object({
   resourceType: opaqueIdSchema,
   relationship: opaqueIdSchema,
+  catalogEdgeId: opaqueIdSchema.optional(),
 }).strict();
 export const explorerPopulationSchema = z.object({
   selectionRevisionId: opaqueIdSchema,
@@ -240,6 +263,7 @@ export const explorerBuilderRouteNodeSchema: z.ZodType<ExplorerBuilderRouteNode>
       .object({
         occurrenceId: opaqueIdSchema,
         resourceType: opaqueIdSchema,
+        catalogEdgeId: opaqueIdSchema.optional(),
         relationship: z.string().optional(),
         matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
         children: z.array(explorerBuilderRouteNodeSchema).optional(),
@@ -261,6 +285,34 @@ export const explorerBuilderColumnSchema = z
   })
   .strict();
 export type ExplorerBuilderColumn = z.infer<typeof explorerBuilderColumnSchema>;
+
+export const explorerColumnSourceDescriptorSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    column: opaqueIdSchema,
+    summary: z.string().min(1),
+    facts: z.array(
+      z.object({
+        label: z.string().min(1),
+        value: z.string(),
+      }).strict(),
+    ),
+    route: z.array(
+      z.object({
+        occurrenceId: opaqueIdSchema,
+        resourceType: opaqueIdSchema,
+        catalogEdgeId: opaqueIdSchema.optional(),
+        relationship: z.string().optional(),
+        storageDirection: z.enum(['INBOUND', 'OUTBOUND']).optional(),
+        matchMode: z.enum(['OPTIONAL', 'REQUIRED']).optional(),
+      }).strict(),
+    ).min(1),
+  })
+  .strict();
+export type ExplorerColumnSourceDescriptor = z.infer<
+  typeof explorerColumnSourceDescriptorSchema
+>;
 export const explorerBuilderDocumentSchema = z
   .object({
     kind: z.literal('ExplorerBuilderDocument'),
@@ -415,6 +467,231 @@ export const explorerBuilderCatalogEdgeSchema = z
     populated: z.boolean().optional(),
   })
   .strict();
+
+export const constructionChoiceFormSchema = z.enum([
+  'VALUE',
+  'FIRST',
+  'ALL',
+  'DISTINCT',
+  'OWNER_RECORDS',
+]);
+export type ConstructionChoiceForm = z.infer<typeof constructionChoiceFormSchema>;
+
+export const constructionChoiceOptionSchema = z
+  .object({
+    form: constructionChoiceFormSchema,
+    shape: z.enum(['SCALAR', 'LIST']),
+    decision: z.enum(['DEFAULT', 'REQUIRES_DECISION']),
+    preservation: z.enum(['PRESERVING', 'REDUCING']),
+    rowEffect: z.literal('PRESERVES_ROW_GRAIN'),
+    support: z.literal('SUPPORTED'),
+    reason: z.string().min(1),
+  })
+  .strict();
+export type ConstructionChoiceOption = z.infer<
+  typeof constructionChoiceOptionSchema
+>;
+
+const constructionChoiceRepeatedBoundarySchema = z
+  .object({
+    path: z.string().min(1),
+    maxItems: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const fieldChoiceSourceSchema = z
+  .object({
+    kind: z.literal('FIELD'),
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    path: opaqueIdSchema,
+    cardinality: z.string(),
+    repeatedBoundaries: z
+      .array(constructionChoiceRepeatedBoundarySchema)
+      .optional(),
+  })
+  .strict();
+export type FieldChoiceSource = z.infer<typeof fieldChoiceSourceSchema>;
+
+export const semanticBindingChoiceSourceSchema = z
+  .object({
+    kind: z.literal('SEMANTIC'),
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    sourcePath: opaqueIdSchema,
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    fieldPath: opaqueIdSchema,
+    owningScope: z.string().optional(),
+    extensionUrlPath: z.array(z.string()).optional(),
+    keySelector: z.string().optional(),
+    system: z.string().optional(),
+    version: z.string().optional(),
+    code: z.string().optional(),
+    valueSelector: opaqueIdSchema,
+    choiceArm: z.string().optional(),
+    logicalType: opaqueIdSchema,
+    ruleHint: z.string().optional(),
+    ruleVersion: opaqueIdSchema,
+    schemaVersion: z.number().int().min(1),
+    cardinality: z.string(),
+    repeatedBoundaries: z
+      .array(constructionChoiceRepeatedBoundarySchema)
+      .optional(),
+  })
+  .strict();
+export type SemanticBindingChoiceSource = z.infer<
+  typeof semanticBindingChoiceSourceSchema
+>;
+
+export const constructionChoiceSourceSchema = z.discriminatedUnion('kind', [
+  fieldChoiceSourceSchema,
+  semanticBindingChoiceSourceSchema,
+]);
+export type ConstructionChoiceSource = z.infer<
+  typeof constructionChoiceSourceSchema
+>;
+
+export const constructionRouteStepSchema = z
+  .object({
+    edgeId: opaqueIdSchema,
+    fromNodeId: opaqueIdSchema,
+    toNodeId: opaqueIdSchema,
+    fromResourceType: opaqueIdSchema,
+    toResourceType: opaqueIdSchema,
+    relationship: opaqueIdSchema,
+    storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+    matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+  })
+  .strict();
+export type ConstructionRouteStep = z.infer<typeof constructionRouteStepSchema>;
+
+export const sourcePresentationFactSchema = z
+  .object({
+    label: z.string().min(1),
+    value: z.string(),
+  })
+  .strict();
+export const constructionChoicePresentationSchema = z
+  .object({
+    summary: z.string().min(1),
+    facts: z.array(sourcePresentationFactSchema),
+  })
+  .strict();
+
+export const constructionChoiceSchema = z
+  .object({
+    choiceId: z.string().min(1).max(16384),
+    source: constructionChoiceSourceSchema,
+    route: z.array(constructionRouteStepSchema),
+    presentation: constructionChoicePresentationSchema,
+    options: z.array(constructionChoiceOptionSchema).min(1),
+  })
+  .strict();
+export type ConstructionChoice = z.infer<typeof constructionChoiceSchema>;
+
+export const constructionChoiceSearchSourceSchema = z.discriminatedUnion(
+  'kind',
+  [
+    z.object({
+      kind: z.literal('FIELD'),
+      candidateId: opaqueIdSchema,
+    }).strict(),
+    z.object({
+      kind: z.literal('SEMANTIC'),
+      contextToken: opaqueIdSchema,
+      buildId: opaqueIdSchema,
+      conceptId: opaqueIdSchema,
+      bindingId: opaqueIdSchema,
+    }).strict(),
+  ],
+);
+export type ConstructionChoiceSearchSource = z.infer<
+  typeof constructionChoiceSearchSourceSchema
+>;
+
+export const constructionChoiceSearchResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: opaqueIdSchema.optional(),
+    choices: z.array(constructionChoiceSchema).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.complete === value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Construction route search must be either complete or truncated.',
+      });
+    }
+    if (value.nextCursor && !value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nextCursor'],
+        message: 'A complete route search cannot have a continuation cursor.',
+      });
+    }
+  });
+export type ConstructionChoiceSearchResponse = z.infer<
+  typeof constructionChoiceSearchResponseSchema
+>;
+
+export const populationRouteChoiceSchema = z
+  .object({
+    routeChoiceId: opaqueIdSchema,
+    route: z.array(constructionRouteStepSchema),
+    presentation: constructionChoicePresentationSchema,
+  })
+  .strict();
+export type PopulationRouteChoice = z.infer<typeof populationRouteChoiceSchema>;
+
+export const populationRoutesResponseSchema = z
+  .object({
+    snapshotToken: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+    selectionRevisionId: opaqueIdSchema,
+    complete: z.boolean(),
+    truncated: z.boolean(),
+    nextCursor: opaqueIdSchema.optional(),
+    choices: z.array(populationRouteChoiceSchema).max(50),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.complete === value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Population route search must be either complete or truncated.',
+      });
+    }
+    if (value.nextCursor && !value.truncated) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nextCursor'],
+        message: 'A complete population route search cannot have a continuation cursor.',
+      });
+    }
+  });
+export type PopulationRoutesResponse = z.infer<
+  typeof populationRoutesResponseSchema
+>;
+
+export const constructionChoiceSelectionSchema = z
+  .object({
+    choiceId: z.string().min(1),
+    form: constructionChoiceFormSchema,
+  })
+  .strict();
+export type ConstructionChoiceSelection = z.infer<
+  typeof constructionChoiceSelectionSchema
+>;
+
 export const explorerBuilderCandidateSchema = z
   .object({
     candidateId: opaqueIdSchema,
@@ -428,6 +705,7 @@ export const explorerBuilderCandidateSchema = z
     chartable: z.boolean(),
     projectionModes: z.array(projectionModeSchema).min(1),
     defaultProjectionMode: projectionModeSchema,
+    constructionChoice: constructionChoiceSchema.optional(),
     conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(
@@ -537,6 +815,27 @@ export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
 ]);
 export type RowChangeAssessment = z.infer<typeof rowChangeAssessmentSchema>;
 
+export const semanticSelectionIntentSchema = z
+  .object({
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    routeEdgeIds: z.array(opaqueIdSchema),
+    projectionMode: projectionModeSchema,
+    title: z.string().optional(),
+  })
+  .strict();
+export type SemanticSelectionIntent = z.infer<typeof semanticSelectionIntentSchema>;
+
+export const semanticSelectionResultSchema = z
+  .object({
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+    columnId: opaqueIdSchema,
+    status: z.enum(['ADDED', 'ALREADY_PRESENT']),
+  })
+  .strict();
+export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSchema>;
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -561,12 +860,15 @@ export const explorerBuilderCommandSchema = z
       'CLEAR_COLUMN_CONTRIBUTOR',
       'APPLY_INTERPRETATION_CANDIDATE',
       'REMOVE_COLUMN',
+      'ADD_SEMANTIC_SELECTIONS',
+      'APPLY_CONSTRUCTION_CHOICE',
     ]),
     outputId: opaqueIdSchema.optional(),
     sourceOutputId: opaqueIdSchema.optional(),
     title: z.string().optional(),
     rootNodeId: opaqueIdSchema.optional(),
     selectionRevisionId: opaqueIdSchema.optional(),
+    routeChoiceId: opaqueIdSchema.optional(),
     edgeIds: z.array(opaqueIdSchema).optional(),
     parentOccurrenceId: opaqueIdSchema.optional(),
     occurrenceId: opaqueIdSchema.optional(),
@@ -587,6 +889,9 @@ export const explorerBuilderCommandSchema = z
       })
       .strict()
       .optional(),
+    contextToken: opaqueIdSchema.optional(),
+    semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
+    constructionChoice: constructionChoiceSelectionSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
   })
   .strict();
@@ -600,11 +905,13 @@ export const explorerBuilderCommandResultSchema = z
       'TABLE_CHANGED',
       'ROUTE_ADDED',
       'COLUMN_ADDED',
+      'SEMANTIC_SELECTIONS_ADDED',
     ]),
     outputId: opaqueIdSchema.optional(),
     tabId: opaqueIdSchema.optional(),
     occurrenceId: opaqueIdSchema.optional(),
     column: opaqueIdSchema.optional(),
+    semanticSelections: z.array(semanticSelectionResultSchema).max(100).optional(),
   })
   .strict();
 export const explorerBuilderCommandsResultSchema = z
@@ -773,6 +1080,56 @@ export const explorerBuilderSuggestionsResultSchema = z
   .strict();
 export type ExplorerBuilderSuggestionsResult = z.infer<
   typeof explorerBuilderSuggestionsResultSchema
+>;
+
+export const semanticSelectionReadinessSchema = z
+  .object({
+    status: z.enum(['READY', 'READY_WITH_WARNING', 'NEEDS_MAPPING', 'UNSUPPORTED']),
+    code: z.string().min(1),
+    message: z.string().min(1),
+  })
+  .strict();
+export type SemanticSelectionReadiness = z.infer<typeof semanticSelectionReadinessSchema>;
+
+export const semanticInventoryItemSchema = z
+  .object({
+    conceptId: z.string(),
+    bindingId: z.string(),
+    resourceType: z.string().min(1),
+    sourcePath: z.string(),
+    system: z.string(),
+    code: z.string(),
+    codingVersion: z.string(),
+    display: z.string(),
+    valueSelector: z.string(),
+    valueType: z.string(),
+    owningScope: z.string(),
+    occurrences: z.number().int().nonnegative(),
+    readiness: semanticSelectionReadinessSchema,
+    constructionChoice: constructionChoiceSchema.optional(),
+  })
+  .strict();
+export type SemanticInventoryItem = z.infer<typeof semanticInventoryItemSchema>;
+
+export const semanticInventoryBrowseResponseSchema = z
+  .object({
+    contextToken: z.string().min(1),
+    buildId: z.string(),
+    state: z.enum([
+      'unknown',
+      'not_started',
+      'running',
+      'complete',
+      'failed',
+      'invalidated',
+    ]),
+    sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
+    entries: z.array(semanticInventoryItemSchema).max(50),
+    nextCursor: z.string().min(1).optional(),
+  })
+  .strict();
+export type SemanticInventoryBrowseResponse = z.infer<
+  typeof semanticInventoryBrowseResponseSchema
 >;
 
 export const explorerAuthoringCapabilitiesSchema = z

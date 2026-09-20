@@ -20,6 +20,7 @@ func rowChangeWorkspace() Workspace {
 			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient", Children: []RouteNode{{
 				OccurrenceID: "encounter", ResourceType: "Encounter", Relationship: "encounters",
 			}}},
+			Rows:       RecordsRowDefinition(),
 			Population: &Population{SelectionRevisionID: "selection-patients", Route: []PopulationRouteStep{}},
 			Columns: []Column{
 				{Column: "patient_id", Label: "Patient ID", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}, Table: &TablePresentation{Visible: &visible, Order: &order}},
@@ -77,7 +78,7 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 	if !reflect.DeepEqual(occurrences, map[string]string{"encounter_id": RootOccurrenceID, "patient_id": "encounter"}) {
 		t.Fatalf("rebased column occurrences=%#v", occurrences)
 	}
-	if document.Population == nil || document.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(document.Population.Route, []PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient"}}) {
+	if document.Population == nil || document.Population.SelectionRevisionID != "selection-patients" || !reflect.DeepEqual(document.Population.Route, []PopulationRouteStep{{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"}}) {
 		t.Fatalf("rebased population=%#v", document.Population)
 	}
 	if !reflect.DeepEqual(document.FixedFilters, workspace.Documents[0].FixedFilters) || !reflect.DeepEqual(document.Actions, workspace.Documents[0].Actions) {
@@ -145,8 +146,8 @@ func TestAssessAndApplyRowChangePromotesADeepDescendant(t *testing.T) {
 		t.Fatalf("deep column occurrences=%#v", occurrences)
 	}
 	if rebased.Population == nil || !reflect.DeepEqual(rebased.Population.Route, []PopulationRouteStep{
-		{ResourceType: "Encounter", Relationship: "encounter"},
-		{ResourceType: "Patient", Relationship: "patient"},
+		{ResourceType: "Encounter", Relationship: "encounter", CatalogEdgeID: "observation-encounter"},
+		{ResourceType: "Patient", Relationship: "patient", CatalogEdgeID: "encounter-patient"},
 	}) {
 		t.Fatalf("deep population route=%#v", rebased.Population)
 	}

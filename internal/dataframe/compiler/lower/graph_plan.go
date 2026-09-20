@@ -239,7 +239,7 @@ func validateGraphNode(node semantic.SemanticNode, root bool) error {
 	if !root && node.MatchMode != spec.TraversalMatchRequired && node.MatchMode != spec.TraversalMatchOptional && node.MatchMode != "" {
 		return fmt.Errorf("graph traversal %q has invalid match mode %q", node.Alias, node.MatchMode)
 	}
-	if len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.Aggregates) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0 {
+	if len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.OwnerRecords) > 0 || len(node.Aggregates) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0 {
 		return fmt.Errorf("graph traversal %q cannot declare dataframe shaping fields", node.Alias)
 	}
 	for _, child := range node.Children {

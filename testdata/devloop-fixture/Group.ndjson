@@ -1,0 +1,1 @@
+{"resourceType":"Group","id":"dev-j02-group","type":"person","actual":true,"membership":"enumerated","name":"J02 patient group","member":[{"entity":{"reference":"Patient/dev-patient-001"},"inactive":false}]}

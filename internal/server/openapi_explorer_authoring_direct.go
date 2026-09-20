@@ -62,7 +62,7 @@ func (h *explorerHTTPHandlers) getAuthoringCapabilityDirect(ctx context.Context,
 	if err := h.authoringReadDirect(ctx, project); err != nil {
 		return result, err
 	}
-	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.Builder, loomapi.Suggestions, loomapi.RowChange, loomapi.Preview, loomapi.InterpretationPreview, loomapi.Publish, loomapi.Commands, loomapi.Reconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
+	return loomapi.AuthoringCapability{ApiVersion: loomapi.LoomCalyprOrgexplorerAuthoringv2, Kind: loomapi.ExplorerAuthoringCapabilities, Operations: []loomapi.AuthoringCapabilityOperations{loomapi.AuthoringCapabilityOperationsBuilder, loomapi.AuthoringCapabilityOperationsSuggestions, loomapi.AuthoringCapabilityOperationsRowChange, loomapi.AuthoringCapabilityOperationsPreview, loomapi.AuthoringCapabilityOperationsInterpretationPreview, loomapi.AuthoringCapabilityOperationsConfiguredColumnContext, loomapi.AuthoringCapabilityOperationsInterpretationCreate, loomapi.AuthoringCapabilityOperationsPublish, loomapi.AuthoringCapabilityOperationsCommands, loomapi.AuthoringCapabilityOperationsReconcile}, PreviewLimits: []int{10, 25, 50, 100}, Features: loomapi.AuthoringFeatures{EmissionFilters: true, EmissionCharts: true}}, nil
 }
 
 func (h *explorerHTTPHandlers) listInterpretationLibrariesDirect(ctx context.Context, project string) (loomapi.InterpretationLibraryListResponse, error) {
@@ -130,6 +130,105 @@ func (h *explorerHTTPHandlers) createInterpretationRevisionDirect(ctx context.Co
 		Project: project, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
 		Applicability: applicability, Rules: rules, Explanation: body.Explanation,
 		Author: subjectFromContext(ctx),
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.InterpretationRevision](value)
+}
+
+func (h *explorerHTTPHandlers) resolveConfiguredColumnContextDirect(ctx context.Context, project, explorerID string, body *loomapi.ResolveConfiguredColumnContextJSONRequestBody) (loomapi.ConfiguredColumnContextResponse, error) {
+	var result loomapi.ConfiguredColumnContextResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-context", errors.New("request body is required"))
+	}
+	value, err := h.application.ConfiguredColumnContext(ctx, lifecycle.ConfiguredColumnContextRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+	})
+	if err != nil {
+		return result, err
+	}
+	return configuredColumnContextResponse(value)
+}
+
+func configuredColumnContextResponse(value lifecycle.ConfiguredColumnContextResult) (loomapi.ConfiguredColumnContextResponse, error) {
+	result := loomapi.ConfiguredColumnContextResponse{
+		SnapshotToken: value.SnapshotToken, DraftVersion: value.DraftVersion, DraftDigest: value.DraftDigest,
+		Libraries:       make([]loomapi.InterpretationLibrarySummary, 0, len(value.Libraries)),
+		PinnedRevisions: make([]loomapi.InterpretationRevisionSummary, 0, len(value.PinnedRevisions)),
+		Columns:         make([]loomapi.ConfiguredColumnContext, 0, len(value.Columns)),
+	}
+	for _, library := range value.Libraries {
+		wire := loomapi.InterpretationLibrarySummary{Id: library.ID, UpdatedAt: library.UpdatedAt}
+		if library.HeadRevisionID != "" {
+			headID := library.HeadRevisionID
+			wire.HeadRevisionId = &headID
+		}
+		if library.HeadDigest != "" {
+			headDigest := library.HeadDigest
+			wire.HeadDigest = &headDigest
+		}
+		if library.Head != nil {
+			head := interpretationRevisionSummaryResponse(*library.Head)
+			wire.Head = &head
+		}
+		result.Libraries = append(result.Libraries, wire)
+	}
+	for _, revision := range value.PinnedRevisions {
+		result.PinnedRevisions = append(result.PinnedRevisions, interpretationRevisionSummaryResponse(revision))
+	}
+	for _, column := range value.Columns {
+		wire := loomapi.ConfiguredColumnContext{OutputId: column.OutputID, Column: column.Column, OccurrenceId: column.OccurrenceID}
+		if ready, ok := column.Resolution.Ready(); ok {
+			if err := wire.Resolution.FromConfiguredColumnReadyResolution(loomapi.ConfiguredColumnReadyResolution{
+				State:                  loomapi.ConfiguredColumnReadyResolutionStateREADY,
+				CapabilityCandidateIds: append(make([]string, 0, len(ready.CapabilityCandidateIDs)), ready.CapabilityCandidateIDs...),
+				ApplicableRevisionIds:  append(make([]string, 0, len(ready.ApplicableRevisionIDs)), ready.ApplicableRevisionIDs...),
+			}); err != nil {
+				return loomapi.ConfiguredColumnContextResponse{}, err
+			}
+		} else {
+			state := loomapi.ConfiguredColumnUnavailableResolutionState(column.Resolution.State())
+			if !state.Valid() || column.Resolution.Reason() == "" {
+				return loomapi.ConfiguredColumnContextResponse{}, fmt.Errorf("invalid configured-column resolution %q", column.Resolution.State())
+			}
+			if err := wire.Resolution.FromConfiguredColumnUnavailableResolution(loomapi.ConfiguredColumnUnavailableResolution{State: state, Reason: column.Resolution.Reason()}); err != nil {
+				return loomapi.ConfiguredColumnContextResponse{}, err
+			}
+		}
+		result.Columns = append(result.Columns, wire)
+	}
+	return result, nil
+}
+
+func interpretationRevisionSummaryResponse(value lifecycle.InterpretationRevisionSummary) loomapi.InterpretationRevisionSummary {
+	return loomapi.InterpretationRevisionSummary{
+		Id: value.ID, LibraryId: value.LibraryID, ContentDigest: value.ContentDigest,
+		Author: value.Author, Explanation: value.Explanation, CreatedAt: value.CreatedAt,
+	}
+}
+
+func (h *explorerHTTPHandlers) createInterpretationRevisionFromColumnDirect(ctx context.Context, project, explorerID, authResourcePath string, body *loomapi.CreateInterpretationRevisionFromColumnJSONRequestBody) (loomapi.InterpretationRevision, error) {
+	var result loomapi.InterpretationRevision
+	if err := h.authoringWriteDirect(ctx, project, authResourcePath); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("interpretation-create", errors.New("request body is required"))
+	}
+	parentRevisionID := ""
+	if body.ParentRevisionId != nil {
+		parentRevisionID = *body.ParentRevisionId
+	}
+	value, err := h.application.CreateInterpretationRevisionFromColumn(ctx, lifecycle.CreateInterpretationRevisionFromColumnRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: body.ExpectedDraftVersion, ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, Column: body.Column, LibraryID: body.LibraryId, ParentRevisionID: parentRevisionID,
+		Explanation: body.Explanation, Author: subjectFromContext(ctx),
 	})
 	if err != nil {
 		return result, err

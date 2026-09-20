@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -63,15 +65,15 @@ func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	population := workspace.Documents[0].Population
-	if population == nil || population.SelectionRevisionID != "selection-1" || len(population.Route) != 1 || population.Route[0] != (PopulationRouteStep{ResourceType: "Encounter", Relationship: "encounters"}) {
+	if population == nil || population.SelectionRevisionID != "selection-1" || len(population.Route) != 1 || population.Route[0] != (PopulationRouteStep{ResourceType: "Encounter", Relationship: "encounters", CatalogEdgeID: "patient-encounter"}) {
 		t.Fatalf("population = %#v", population)
 	}
 	encoded, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), "patient-encounter") {
-		t.Fatalf("catalog edge ID was persisted in population route: %s", encoded)
+	if !strings.Contains(string(encoded), `"catalogEdgeId":"patient-encounter"`) {
+		t.Fatalf("catalog edge ID was not persisted in population route: %s", encoded)
 	}
 	workspace, _, err = ApplyCommands(workspace, catalog, "clear-population", []Command{{Type: CommandClearTablePopulation, OutputID: outputID}})
 	if err != nil {
@@ -200,7 +202,7 @@ func TestApplyCommandsAcceptsCorrelatedLookupWithoutLegacyPath(t *testing.T) {
 		Documents: []Document{{Kind: Kind, Output: Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"}}},
 		Tabs:      []Tab{{ID: "observations", Title: "Observations", OutputID: "observations", Order: 0, Visible: true}},
 	}
-	source := &ColumnSource{Kind: SourceObservationComponentByCode, Lookup: &LookupSource{
+	source := &ColumnSource{Kind: SourceCodedValue, Lookup: &LookupSource{
 		Binding: &fhirschema.CorrelatedBinding{OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value", LogicalType: "decimal"},
 		Key:     &fhirschema.CorrelatedKey{System: "urn:study:A", Code: "shared"},
 	}}
@@ -272,6 +274,39 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 	}
 }
 
+func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier[]"},
+		Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:study:case-id", Display: "Case identifier"},
+		Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
+		OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}
+	plan := ResolveSemanticSelectionPlan(observation)
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-identifier", []Command{{
+		Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context",
+		SemanticSelections: []SemanticSelection{{ConceptID: "case-id", BindingID: "identifier-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &catalog.SemanticInventoryEntry{ConceptID: "case-id", BindingID: "identifier-binding", Observation: observation}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(results[0].SemanticSelections) != 1 || len(updated.Documents[0].Columns) != 1 {
+		t.Fatalf("results=%#v workspace=%#v", results, updated)
+	}
+	column := updated.Documents[0].Columns[0]
+	wantSource := plan.Source.Normalized()
+	wantSource.Lookup.ProjectionMode = "VALUE"
+	if !sourceEqual(column.Source, wantSource) || column.Source.Lookup.Identifier == nil || column.Source.Lookup.Match != "" || column.Source.Lookup.Path != "" || column.LogicalType != plan.LogicalType {
+		t.Fatalf("applied Identifier source=%#v logicalType=%q, want source=%#v type=%q", column.Source, column.LogicalType, wantSource, plan.LogicalType)
+	}
+}
+
 func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 	catalogSnapshot := semanticSelectionCatalog()
 	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
@@ -286,7 +321,8 @@ func TestApplySemanticSelectionsRollsBackInvalidLastItem(t *testing.T) {
 		{ConceptID: "valid", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("valid", "binding", "urn:system", "valid", "")},
 		{ConceptID: "versioned", BindingID: "binding", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("versioned", "binding", "urn:system", "versioned", "v1")},
 	}
-	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context", SemanticSelections: selections}}); err == nil || !strings.Contains(err.Error(), "version-specific") {
+	versionedPlan := ResolveSemanticSelectionPlan(selections[1].ResolvedObservation.Observation)
+	if _, _, err := ApplyCommands(workspace, catalogSnapshot, "atomic-add", []Command{{Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context", SemanticSelections: selections}}); err == nil || !strings.Contains(err.Error(), versionedPlan.Readiness.Code) || !strings.Contains(err.Error(), versionedPlan.Readiness.Message) {
 		t.Fatalf("versioned last selection error = %v", err)
 	}
 	after, err := workspace.Digest()
@@ -351,7 +387,7 @@ func semanticSelectionCatalog() CatalogSnapshot {
 			{ID: "encounter-observation", FromNodeID: "encounter", ToNodeID: "observation", Label: "observations"},
 			{ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"},
 		},
-		Candidates:  []CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"}},
+		Candidates:  []CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: testFieldConstructionChoice("snapshot", "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
 		RoutePolicy: RoutePolicy{Unbounded: true},
 	}
 	return catalogSnapshot
@@ -366,7 +402,7 @@ func semanticSelectionEntry(conceptID, bindingID, system, code, version string) 
 			Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
 			Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
 			Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "3",
+			ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
 		},
 	}
 }
@@ -464,7 +500,7 @@ func TestApplyCommandsUpdatesRouteEdgeWithoutReplacingOccurrenceState(t *testing
 		t.Fatal(err)
 	}
 	child := updated.Documents[0].Route.Children[0]
-	if child.OccurrenceID != occurrenceID || child.Relationship != "researchEncounters" || len(child.Children) != 1 || child.Children[0].OccurrenceID != "nested" {
+	if child.OccurrenceID != occurrenceID || child.CatalogEdgeID != "patient-encounter-secondary" || child.Relationship != "researchEncounters" || len(child.Children) != 1 || child.Children[0].OccurrenceID != "nested" {
 		t.Fatalf("updated route=%#v", child)
 	}
 	if len(updated.Documents[0].Columns) != 1 || updated.Documents[0].Columns[0].OccurrenceID != occurrenceID {

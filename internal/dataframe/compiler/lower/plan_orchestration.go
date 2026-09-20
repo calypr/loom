@@ -170,7 +170,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 // descendant has shaped output. Materializing an otherwise unselected parent
 // is necessary to give nested sets a stable correlated source variable.
 func physicalNodeNeedsMaterializedSet(node semanticpkg.SemanticNode) bool {
-	if len(node.Fields) != 0 || len(node.Filters) != 0 || len(node.Pivots) != 0 || len(node.Aggregates) != 0 || len(node.Slices) != 0 || len(node.DynamicMaps) != 0 {
+	if len(node.Fields) != 0 || len(node.Filters) != 0 || len(node.Pivots) != 0 || len(node.OwnerRecords) != 0 || len(node.Aggregates) != 0 || len(node.Slices) != 0 || len(node.DynamicMaps) != 0 {
 		return true
 	}
 	for _, child := range node.Children {

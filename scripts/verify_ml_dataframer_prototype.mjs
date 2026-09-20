@@ -15,7 +15,7 @@ const count=async()=>run("return document.querySelectorAll('[data-column]').leng
 const shot=async name=>{const {data}=await browser.cdp.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(dir,name),Buffer.from(data,'base64'));};
 try{
  await browser.cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await navigate(browser.cdp,pathToFileURL(resolve('docs/product/ml-dataframer/catalog-prototype.html')).href);
+ await navigate(browser.cdp,pathToFileURL(resolve('docs/product/history/20260919-superseded/ml-dataframer/catalog-prototype.html')).href);
  assert.equal(await count(),0);
  assert.equal(await run("return document.querySelectorAll('#catalog .concept').length;"),50);
  await click('concept-1');await click('next');await click('concept-51');await search('SYN-0900');await click('concept-900');

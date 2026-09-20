@@ -231,7 +231,7 @@ func lifecycleInterpretationCatalog(snapshot capability.Snapshot, explorerID str
 		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token,
 		Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 		Nodes:      []authoringv2.CatalogNode{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}},
-		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-id", NodeID: "node-patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"}},
+		Candidates: []authoringv2.CatalogCandidate{{ID: "candidate-id", NodeID: "node-patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "candidate-id", "node-patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
 	}
 }
 

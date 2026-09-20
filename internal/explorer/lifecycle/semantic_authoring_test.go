@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestApplySemanticSelectionsRejectsUnavailableAndUnsupportedRowsAtomically(t
 				return semanticAuthoringInventory(snapshot, test.entries), nil
 			})
 			_, err := service.ApplyCommands(context.Background(), "project-a", "patients", semanticAuthoringRequest(snapshot, "invalid-row", "concept-a", "binding-a", "VALUE"), "alice")
-			if err == nil || !strings.Contains(err.Error(), test.want) {
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(test.want)) {
 				t.Fatalf("error=%v, want %q", err, test.want)
 			}
 			if store.saveDraftCalls != 0 || len(store.created.DraftConfig) == 0 {
@@ -238,7 +239,7 @@ func semanticAuthoringCatalog(snapshot capability.Snapshot) authoringv2.CatalogS
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, SnapshotToken: snapshot.Token, Complete: true,
 		Nodes:       []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "encounter", ResourceType: "Encounter"}, {ID: "observation", ResourceType: "Observation"}},
 		Edges:       []authoringv2.CatalogEdge{{ID: "patient-encounter", FromNodeID: "patient", ToNodeID: "encounter", Label: "encounters"}, {ID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation", Label: "observations"}},
-		Candidates:  []authoringv2.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE"}},
+		Candidates:  []authoringv2.CatalogCandidate{{ID: "patient-id", NodeID: "patient", FieldPath: "id", Cardinality: "optional_one", Label: "Patient ID", LogicalType: "string", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE", ConstructionChoice: lifecycleTestFieldChoice(snapshot.Token, "patient-id", "patient", "Patient", "id", "optional_one", capability.ProjectionScalar)}},
 		RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 	}
 }
@@ -285,7 +286,7 @@ func semanticAuthoringEntry(conceptID, bindingID, system, code, version string) 
 		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
 		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: system, Version: version, Code: code, Display: "Observed label"},
 		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
-		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: "OBSERVATION_CODE_VALUE", RuleVersion: "3",
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
 	}}
 }
 

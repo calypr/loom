@@ -399,6 +399,11 @@ func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrela
 		copy.ChoiceSelectors[index] = correlation.ChoiceSelectors[index]
 		copy.ChoiceSelectors[index].Steps = append([]spec.SelectorStep(nil), correlation.ChoiceSelectors[index].Steps...)
 	}
+	if correlation.UnitSelector != nil {
+		unit := *correlation.UnitSelector
+		unit.Steps = append([]spec.SelectorStep(nil), correlation.UnitSelector.Steps...)
+		copy.UnitSelector = &unit
+	}
 	copy.ExtensionURLSelectors = make([]spec.Selector, len(correlation.ExtensionURLSelectors))
 	for index := range correlation.ExtensionURLSelectors {
 		copy.ExtensionURLSelectors[index] = correlation.ExtensionURLSelectors[index]
@@ -469,6 +474,11 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 			pivot.PreparedValue = &prepared
 		}
 		copy.Pivot = &pivot
+	}
+	if expression.OwnerRecords != nil {
+		ownerRecords := *expression.OwnerRecords
+		ownerRecords.Correlation = *clonePhysicalCorrelation(&expression.OwnerRecords.Correlation)
+		copy.OwnerRecords = &ownerRecords
 	}
 	if expression.Aggregate != nil {
 		aggregate := *expression.Aggregate

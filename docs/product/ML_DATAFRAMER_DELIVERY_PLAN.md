@@ -1,339 +1,244 @@
-# Deliver an ML dataframe workbench
+# Build dataframes from the schema
 
-Status: C01 implementation started 2026-09-19; no C package accepted yet. Revision 3: detailed code-first contracts and execution runbook, superseding the editor-first C proposal. Baseline: `arch/integration` at `3f71ece81ddf3ae6e008e67e08fc5eb57d5682bd`. Prepared 2026-09-18.
+Revision 4. Planned on 2026-09-19. This is the only active product execution plan.
+Deliver a column-by-column table builder whose construction choices come from the installed FHIR schema, applicable semantic definitions, observed data, and compiler support.
+Keep custom graph authoring and make grouping, expansion, and reductions explicit.
+Execute S01, then S02 and S03, then S04 and S05. Do not start another general architecture audit.
 
-This plan continues B01-B08 with user-facing delivery packages C01-C12. It replaces their broad product-completion claims, not their implementation history. A passing backend test or a preconfigured Builder screenshot cannot close a C package.
+## How to read this
 
-The user is a bioinformatician who knows the study and the variables they want, but does not know FHIR paths, coding structures, or graph traversal syntax. They can make scientific choices. Loom must explain the data choices that require those judgments.
+Use this plan for scope and implementation decisions, [the acceptance protocol](ml-dataframer/ACCEPTANCE.md) for executable proof, and [the ledger](ml-dataframer/execution.json) for status.
+Each task names a result to verify. Mark a package accepted only after its focused tests, live journey, literal outputs, negative cases, performance, and review pass.
+All new tasks and KPIs start unaccepted. Existing implementation is reusable, not automatic acceptance of this vision.
 
-## What the finished product lets someone do
+Each S package is a backend-to-frontend delivery slice. UI01-UI05 below name the paired frontend work packages. They share their parent's acceptance and ledger tasks, rather than forming a later frontend phase. An API or compiler test cannot close a slice without its working controls and browser journey.
 
-Choose rows and population. Search or browse concepts present in that dataset. Select the wanted concepts and add them as columns. Inspect or customize their construction when needed. Check and download the dataframe.
+Use pstack's `playbooks/autopilot-stack.md` for ownership and integration, with these user-specific overrides. Work locally until remote writes are requested. Keep sequential work on `arch/integration`; create branches only for genuinely parallel edits. The foreground agent owns integration and judgment. Use one Luna xhigh worker by default and one coherent Sol review. Do not require ten verification agents, a human interaction review, or a full browser run per helper edit. The operator controls landing.
 
-Automatic interpretation creates catalog entries, not dataframe columns. Opening a dataset with 1,000 recognized concepts creates zero user-selected columns. The catalog is not a list of every possible code, join, time window, and aggregate combination. It groups concepts and exposes available source variants on demand.
+Baseline HEAD is `1301c3b30ceb26e4e37344b61afb890bd6d64564` on `arch/integration`. The worktree has uncommitted implementation changes. This SHA alone is not a reproducible baseline. Capture and review the dirty diff before implementation, then record the exact accepted checkpoint and serving build identity.
 
-Neither Patient nor DocumentReference is mandatory. Rows can represent any supported resource type. File collections are optional population constraints. Ordinary uncoded fields remain selectable alongside coded concepts.
+## Deliver the frontend with each backend capability
 
-The default screen has two distinct areas:
+| Frontend package | Backend partner | What changes in the app | Ledger implementation tasks |
+| --- | --- | --- | --- |
+| UI01. Build the table column by column | S01 schema discovery and preserving execution | Search concepts or fields, add columns, keep the table visible, and inspect the selected column | S01-03 and S01-04 |
+| UI02. Inspect and customize the source | S02 relationship planning | Open Advanced graph, author a route, choose codes at a reached node, and resolve genuine source ambiguity | S02-03 and S02-04 |
+| UI03. Design the rows | S03 row construction | Select starting records, group by fields or explicit members, and expand repeated values with a before/apply preview | S03-03 and S03-04 |
+| UI04. Customize column values and table shape | S04 typed operations | Edit value handling, time, units, recoding, pivots, and derived columns in the selected-column inspector | S04-01 through S04-04 |
+| UI05. Review and deliver the dataset | S05 publication and artifact fidelity | Review checks and information loss, publish, inspect cell evidence, and download an explicit output representation | S05-01 through S05-04 |
 
-```text
-One row per: Specimen                 Population: All authorized / Change
+Use one Builder workspace. Put the dataset/starting-collection and row summary above the table. Place searchable available columns beside the table, with the selected column's inspector in a side panel or drawer. Keep Preview and save state visible while editing. Advanced graph is an alternate authoring view of the same saved intent, not a separate builder or a prerequisite for finding ordinary fields.
 
-Available concepts                  Selected columns: 0
-Search name or code [...]           Select concepts, then Add selected.
-Filter: type / code system / status
+Keep technical paths, code systems, and exact source records accessible through the inspector. Show friendly labels first without hiding ambiguity, multiplicity, or reductions. Adding a column displays its result; opening the catalog never adds columns automatically. Retain rename, reorder, remove, filtering, and chart configuration already available in the Builder.
 
-[ ] Study group   Study vocabulary
-[ ] Measurement A   system A         [Add selected]
-    Via donor · multiple values
-[ ] Specimen collection date         Preview contains selected columns only.
-    Direct field
+Implement only the controls backed by the paired compiler capability. Show unavailable choices with their actual reason. Required decisions stay inline with the column being edited. An unsupported operation is not a request for the user to repair the dataset.
 
-Unresolved data [Open]              Check / Export
-```
+Reuse the existing paged catalog, graph editor, Rows selector, policy editor, Preview, Viewer, and download handlers. These controls already exist in part. The new work connects them to schema-derived construction choices, adds missing group/shape controls, and makes the authored table the primary view. Existing controls alone are not acceptance of a frontend package.
 
-Rows in the catalog show name, code/system when present, source relationship, value shape, and count scope where measured. They do not expand into hundreds of construction forms. Selection persists across catalog search and paging. A known scalar with one supported source path can be added directly. Ambiguous routes or many-valued scalar outputs get a short decision prompt only for the affected selections.
+Every new output shape must render, save/reload, and pass the existing publication/export path in its owning slice. Move the minimum needed consumer support into that slice. S05 owns the combined review/download experience and integrated proof, not permission to defer broken consumers until the end.
 
-Every selected column has an inspect-construction action. The focused relationship graph and worked source example are part of that inspector, not hidden behind a global expert-only screen. Full-dataset graph exploration remains another entry into the same catalog and canonical authoring model. Users are not required to construct graph paths.
+## Program checklist
 
-The generated mockups in the conversation are exploratory illustrations, not the acceptance contract. In particular, the expanded per-feature editor is optional. It must not replace the simpler catalog-selection workflow.
+- [ ] Confirm the implementation checkout and preserve every existing change. Inventory unfinished semantic, contract, and catalog edits before accepting or replacing them.
+- [ ] Start implementation only after the user approves this revised plan. Planning does not authorize a push, merge, dataset purge, or deployment.
+- [ ] Capture a comparable baseline for each changed behavior before editing. Record unavailable features as unavailable instead of inventing a baseline result.
+- [ ] Use the existing mounted Go watcher and Vite workflow. Verify the Compose project, source mounts, fixture generation, and serving build before DOM checks.
+- [ ] Complete S01 as one backend-plus-frontend slice before expanding the operator set. Do not finish a detached FHIR framework first.
+- [ ] After S01 freezes the construction contract, optionally run S02 route/graph work and S03 row-shape work in separate worktrees. Root alone owns shared OpenAPI, generated contracts, `types.ts`/`api.ts`/`react.tsx` boundary integration, workspace migrations, and `BuilderWorkspace.tsx` wiring. Coordinate the shared `PopulationPanel.tsx` route/selection changes through root. Serialize overlapping edits.
+- [ ] Run focused checks after each change and the package journey at closure. Run the integrated backend, frontend, browser, and artifact suite once at S05.
+- [ ] Record exact evidence and observed KPI values in the ledger. Keep one decision trail, not another status document or spreadsheet with independent status.
 
-## Delivery milestones
+## S01: Add a real column from schema-derived choices
 
-| Milestone | Packages | New task the user can complete | Acceptance result |
-|---|---|---|---|
-| M1: choose data from a catalog | C01, C03, C02 | Browse automatically recognized concepts, add only wanted columns, optionally constrain starting records, and download | A 1,000-concept catalog creates zero columns until requested; selecting three creates exactly those three |
-| M2: control how selected columns are made | C04-C05 | Inspect/change joins, contributors, repeated-value handling, time windows, and units | A worked example explains inclusions and exclusions; editing one feature does not silently change the population |
-| M3: recover unresolved data | C06-C07 | Define a missing pairing, reuse it from the catalog, and separately recode result categories | A previously unresolved entry becomes selectable without changing source records or automatically adding columns |
-| M4: repeatable ML handoff | C08-C12 | Declare roles, check all rows, reuse definitions, and load a typed artifact | Complete DOM journeys and literal artifact values on hostile fixtures and CDA-FHIR |
+Depends on: none.
 
-C01 alone must already produce a selected-column dataframe using pairings the existing backend recognizes. C03 expands automatic interpretation using definitions, and C02 adds optional collection authoring. Do not wait for every vocabulary or profile to be supported before delivering the basic catalog.
+User outcome. Search a recorded concept or ordinary field, add it, and see correct values without entering a FHIR path. A repeated structured value stays intact instead of silently becoming one scalar.
 
-## Revision from the earlier proposal
+### UI01. Build the table column by column
 
-C01 now delivers catalog-first selection, not just a rearranged Builder. C03 owns standards-backed interpretation and catalog enrichment. C04 exposes construction on demand. C06 begins with unresolved source inventory, even when no feature can yet be created. C02 and C05/C07-C12 retain their substantive outcomes.
+Deliver under S01-03 and S01-04, using `BuilderWorkspace.tsx`, `ConceptCatalog.tsx`, `CatalogSelectionDialog.tsx`, `ColumnSelector.tsx`, and `PreviewTable.tsx` in the existing ExplorerBuilder feature.
 
-C identifiers remain stable for references, but the ledger records plan revision 3. No C package was implemented or accepted before this revision. Do not reuse earlier KPI results against revised targets.
+- Let **New table** use the current project or attached collection, suggest a row resource, and offer other supported row resources through a plain selector. This initial resource-row choice must work before any graph traversal exists. S03 later adds grouping and expansion to it.
+- Make **Add columns** search labels, codes, and ordinary fields across authorized catalog pages. Show the source label, code system, value type, and repeated-value status. Never require the graph for ordinary field discovery.
+- Let **Add** apply a supported preserving default. Ask only for missing decisions reported by resolution. Distinguish loading, no matches, incomplete inventory, unsupported construction, and genuine unresolved meaning.
+- Keep requested columns and their preview visible. Selecting a header opens **Column details** with name, output shape, source summary, and recorded examples. Rename, reorder, and remove operate on the existing stable column IDs.
+- Render repeated records as expandable values with their owner/value/unit associations. Expose absence separately from zero, false, and an empty list. A truncated cell is visibly expandable, not silently shortened data.
+- Close J01 by authoring three columns from an empty table, inspecting a repeated cell, renaming/reordering a column, and reloading. Exactly the chosen feature columns and their identities survive. No FHIR path entry or graph visit is needed for the unambiguous cases.
 
-The detailed pass found concrete prerequisites: the 512-identity semantic cap silently drops new identities; current capability IDs identify fields containing multiple concept variants; route IDs are allocated inside authoring commands; and interpretation preview requires an existing column. Revision 3 specifies the replacement inventory, concept/binding identities, server-resolved atomic add, and no-column preview instead of describing these as already reusable UI operations.
+Ownership. Extend `internal/fhir/schema/index.go`, `internal/fhir/semantic/walk.go`, `internal/catalog/semantic.go`, `internal/server/explorer_capability.go`, `internal/explorer/capability/domain.go`, and `internal/dataframe/compiler/capability/probe.go`. Integrate through `internal/explorer/lifecycle/semantic_catalog.go`, `internal/explorer/authoringv2/semantic_command.go`, the existing recipe/semantic/IR/AQL path, OpenAPI, and the Builder catalog. These are existing owners, not a new parallel planner service.
 
-## Why more backend work is needed
+- S01-01. Connect generated structure and owner-aware walking to production discovery. Retain typed members, choices, repeated scopes, requiredness, references, and available bindings. Replace name-suffix/resource dispatch with resolved datatype and versioned association metadata. Pin the installed schema and semantic artifacts. Preserve unknown structure with an explicit diagnostic. Do not claim full FHIR/profile support from the current subset.
+- S01-02. Add a checked generic owner-record operation through recipe, semantic plan, physical IR, AQL execution, and contributor trace. Keep coding identity, value arm, unit members, absence, and source coordinates together. Extend compiler-backed capabilities to return construction options in the current row context, with output shape, row effects, preservation status, support, and reasons. Introduce the common row-definition contract here, initially supporting resource rows, so S03 extends the same model.
+- S01-03. Extend existing catalog resolve/apply and CAS commands. Return safe defaults and genuine choices from the server. Generate the boundary contract and make the UI render it. Delete migrated client-side multiplicity guesses. Add direct and unambiguous related columns through the normal Builder entry, with a live preview and save/reload. Offer only executable output forms; unsupported lossless forms must not fall back to FIRST.
+- S01-04. Exercise a new schema-defined resource containing familiar datatypes under unfamiliar names, repeated components, primitive metadata without a value, nested extension ancestry, and mixed value arms. Verify the same rules on open CDA-FHIR. Close the slice with J01 and delete superseded semantic writer/lowerer branches once every caller and draft migration uses the new operation.
 
-The existing backend already has immutable selections, row-root changes, correlated extraction, reductions, temporal/unit policies, interpretation revisions, quality reports, cell traces, and server-built artifacts. Those are valuable foundations.
+- K-S01-a: changing only the test schema, generated metadata, and fixture introduces a previously unseen resource/path and its construction choices with zero resource-specific Go or TypeScript branches.
+- K-S01-b: three selected concepts produce only their three requested outputs after Preview, reload, and export. Repeated owner/value/unit tuples and missingness match an independent expected fixture exactly. Unambiguous scalar additions require zero graph or path-entry steps.
+- K-S01-c: all 1,000 fixture concepts are discoverable across pages without creating columns on open. Unauthorized entries/counts/examples are absent. Catalog and preview meet the shared latency budgets.
 
-The current UI does not provide a complete starting-record browser, cross-resource semantic feature discovery, an ambiguous-binding editor, value recoding, ML feature roles, or a standalone full-population Check. Several existing controls work only after a developer creates state through an API. New backend work must serve the concrete interactions below rather than expand capabilities in isolation.
+Verify. Run changed Go package/direct-importer tests, schema-resource guard, generated-contract checks, focused catalog UI tests, executed Arango owner-record/trace cases, and J01. Reuse the materialized inventory and retained raw data. Do not rescan the complete CDA corpus per click or metadata edit.
 
-Start with the [per-WP implementation runbook](ml-dataframer/RUNBOOK.md) and [implementation contracts](ml-dataframer/CONTRACTS.md). They supply the state transitions, ownership, failure behavior, migration rules and readiness experiments behind the summary below. See also [architecture and source evidence](ml-dataframer/ARCHITECTURE.md), [acceptance protocol](ml-dataframer/ACCEPTANCE.md), and the [execution ledger](ml-dataframer/execution.json). All KPI thresholds below are proposed acceptance targets, not measured results.
+## S02: Choose relationships automatically or author them in the graph
 
-The [interactive catalog prototype](ml-dataframer/catalog-prototype.html) compares cross-page basket selection with immediate addition. It is a synthetic interaction study, not the running product or a backend performance test.
+Depends on: S01.
 
-## C01: Browse concepts and add only selected columns
+User outcome. Add related values without choosing a technical route when the construction is unambiguous. Open the graph to construct an exact traversal and select codes at any reached node.
 
-Depends on: none. Milestone: M1. Size: large. Main risk: a catalog must not become a hidden wide-table generator or a capped list that omits data.
+### UI02. Inspect and customize the source
 
-User outcome: open a project, choose rows, search available concepts, select three, add them together, preview, save, publish, and download. No construction editor is required for already supported unambiguous scalar cases.
+Deliver under S02-03 and S02-04, extending `GuidedGraphWorkspace.tsx`, `RouteExtensionPanel.tsx`, `authoring/routeActions.ts`, the catalog dialog, and the existing interpretation editor.
 
-Implementation units:
+- Add **Inspect source** and **Edit in graph** to Column details. Show the selected column's route, direction, source node, and exact code/value owner. Keep all other columns unchanged.
+- Let users start in **Advanced graph**, author a traversal, select any reached occurrence, and search its codes or fields. Apply writes the same column intent used by the catalog view.
+- Preserve graph row-start changes, optional/required matches, branch extension/truncation, and relationship alternatives. Keep Viewer pagination, custom actions, and file links throughout the redesign.
+- If several meaningful routes remain, show named alternatives with authorized source examples and row/multiplicity effects. Do not ask users to select an unexplained join path or silently choose the shortest path.
+- For genuinely unresolved meaning, highlight candidate code and value members within their owner record. Preview a schema-valid pairing before applying it. Preserve explicit choices on editor switches and reload.
+- Close J02 by adding a related column without the graph, then authoring a different five-edge route and node-local code in the graph. Cancel leaves the saved column unchanged; Apply and reload preserve the exact authored route and literal values.
 
-- C01-01. Add the reachable dataframe entry and catalog/selected-columns layout in `ui/apps/demo/src/main.tsx` and `features/ExplorerBuilder`. Reuse authorized resource inventory and the existing create/root commands. Keep one `authoringv2.Workspace` and save queue. Show an empty selected list until the user selects concepts. The row identifier may be system-supplied but must be separately labeled, not counted as a user-added feature.
-- C01-02. Extend `internal/catalog`, its Arango adapter, and `internal/explorer/capability` with a paged, authorized concept projection using existing recognized pairings. Preserve system/code, owner scope, value binding, and available source routes. Separate concept identity from source variants and future output choices. Inspect the per-field `maxSemanticObservations = 512` bound in `internal/catalog/semantic.go`: use resumable discovery/persisted keyed inventory beyond bounded samples, not a larger in-memory cap. Raw-field inventory and incomplete discovery remain visible.
-- C01-03. Replace occurrence-only selection with searchable names/codes and filters for resource type, code system, and mapping status. Add a selected-concepts basket across search/pages and an explicit Add selected action. Resolve candidate IDs against the current capability snapshot, then use existing typed source commands and an atomic CAS batch. Add only selected outputs. Show route/multiplicity decisions only for affected candidates; never silently use FIRST. Explicitly chosen REQUIRE_ONE remains checked at execution. Use existing preview/publication/artifact flow.
-- C01-04. Prove a 1,000-concept fixture across the profiler's per-field bound, zero columns on open, cross-page selection, duplicate-add handling, stale catalog/CAS rejection, and reload/export. Keep ordinary uncoded fields discoverable. Preserve an accessible Explore relationships graph view backed by the same workspace; switching views must preserve existing configured routes/columns and advanced constructions that the catalog cannot edit. Add visible source summaries and a basic inspector now; C04 adds interactive construction. Never call a bounded sample the complete catalog.
+Ownership. Extend `internal/fhir/schema/traversals.go`, compiler capability requests, lifecycle resolution, and authoring route handling. Update `GuidedGraphWorkspace.tsx`, `ConceptCatalog.tsx`, and `CatalogSelectionDialog.tsx`. Retire `catalogPaths.ts` as an authority for route validity and selection.
 
-KPIs:
+- S02-01. Generate directed relationship options from schema references plus executable storage mappings and authorized observed availability. Compose multiplicity across the route, including inbound fan-out. Enumerate suggestions lazily with explicit search limits and completeness. Never identify the shortest path with the intended meaning or treat a truncated search as no route.
+- S02-02. Resolve an unambiguous route on the server and expose plain-language alternatives only when meanings differ. Preserve pinned explicit routes as overrides. Check the complete route and selected outputs through the compiler, not just isolated edges. Keep all operational limits visible.
+- S02-03. Enable graph-first traversal and node-local code/value selection using the same construction choices and saved column intent. Permit schema-valid explicit owner/member selection for genuinely unresolved bindings through existing interpretation ownership. Preserve the full owner/extension context. Do not turn unsupported compiler behavior into a human mapping task.
+- S02-04. Prove catalog-to-graph-to-catalog editing, a valid five-edge route, inbound relationships, multiple semantically distinct paths, and explicit route persistence through reload/export. Migrate both `CatalogSelectionDialog.tsx` and `PopulationPanel.tsx` off client-side route authority before retiring `catalogPaths.ts`. Remove duplicate source-shape interpretation.
 
-- K-C01-a: opening the 1,000-concept fixture creates zero selected feature columns; choosing three concepts across search/pages creates exactly those three, with literal values after reload/export. Neither discovery nor adding one concept creates its unselected reduction variants.
-- K-C01-b: all 1,000 expected concept identities, including those beyond 512 for one field, are discoverable. Catalog pages contain at most 50 entries and lazy-load examples. Thirty warm searches meet the 2-second p95 first-page target on the recorded fixture/machine.
-- K-C01-c: the ready-scalar journey needs zero source-path entry, manual pairing, graph editing, or per-column construction forms. Specimen-first and observation-first journeys both pass without business-state API setup. Ambiguous candidates receive a decision prompt rather than a guessed result.
+- K-S02-a: an unambiguous related concept can be added without opening the graph; an ambiguous relationship receives distinct source examples rather than an arbitrary shortest-path result.
+- K-S02-b: a manually authored five-edge route and its node-local code selection execute with literal expected values and exact contributors, survive reload, and remain unchanged when switching editors.
+- K-S02-c: stale/unauthorized routes and cross-owner bindings are rejected without partial mutations. Route searches report truncation honestly and warm construction-choice requests meet the shared latency budget.
 
-Verification: catalog/store paging and authorization tests, same-owner source tests, atomic batch/CAS tests, focused UI selection tests, and a live DOM search-select-add-download journey. Catalog paging must be server-side, not slicing an already downloaded giant list.
+Verify. Run traversal/authoring/compiler tests and J02. Compare source tuples for automatic and explicit routes, rather than comparing only rendered labels. Keep cyclic route support distinct from bounded automatic suggestion search.
 
-## C02: Find and freeze the records to include
+## S03: Define rows by records, groups, or expansion
 
-Depends on: C01. Milestone: M1. Size: large. Main risk: selection must not depend on publishing a dataframe first.
+Depends on: S01.
 
-User outcome: browse project files or another resource type, search/filter, select records across pages or all matching records, exclude some, and use that collection as the population. Understand why selected files can yield fewer specimen rows.
+User outcome. Change a table from one row per selected record to one row per chosen group, or expand a repeated collection into rows. See the resulting membership and row count before applying.
 
-Implementation units:
+### UI03. Design the rows
 
-- C02-01. Add an in-repo project record picker with available dataset labels, IDs as fallback, supported typed filters, cursor paging, selected-count feedback, and an explicit "all matching" action. Reuse the published reader for published sources. For raw ingested resources, add a narrow authorized source-browse contract using catalog-backed fields and the existing compiler/query machinery. Extend `SelectionSource` for that source if needed. Do not make users publish a temporary table or download every ID to the browser.
-- C02-02. Use `lifecycle/selection.go` and the Arango selection store to freeze server-resolved membership. Add source identity, generation, scope, filter, and exclusion binding for the raw-source variant. Keep human-readable collection names on mutable collection metadata that references immutable revisions. Reuse the existing naming owner if present; do not put rename operations on immutable membership.
-- C02-03. Replace the `?selection=` prerequisite with an actual selection action in the workbench and an exported host handoff. Rework `PopulationPanel.tsx` and `RowDefinitionPanel.tsx` to choose a supported target row type and explain available routes in ordinary terms. Respect edge direction in compiled traversal while allowing supported inverse traversal. Offer alternatives when routes differ in meaning; never choose shortest as a claim of scientific correctness. Add load-more for unmatched members.
-- C02-04. Add exact cross-page, all-matching/exclusion, shared-target, unlinked-record, stale-generation, and unauthorized-record tests. Reload preserves the frozen collection. A changed filter produces a new revision, not an edit to existing membership.
+Deliver under S03-03 and S03-04 through `RowDefinitionPanel.tsx`, `PopulationPanel.tsx`, and `RowChangeRepairPanel.tsx`. Reuse project Explorer selection and the existing population commands. The current Population panel attaches saved selections; it is not a record browser. Keep selection attach/clear, coverage checks, and explicit unmapped-record handling while adding the picker through the existing selection owner.
 
-KPIs:
+- Add **Choose starting records** with searchable/filterable authorized records, selection scope, and a selection summary. Accept existing Explorer selections with their identities. Distinguish selected rows, all filtered matches, and the complete authorized population.
+- Replace the resource-only Rows control with **Records**, **Groups**, and **Expand repeated values** modes. Suggest a default from the starting collection; never require Patient or DocumentReference.
+- For groups, offer schema-resolved key fields or explicit member groups. For expansion, offer applicable repeated scopes. Explain missing keys, overlapping membership, and combinations of independent arrays before Apply.
+- Show a before/after row preview, example memberships, count completeness, and affected columns. Apply and Cancel are explicit. Incompatible columns are explained and retained until the user resolves the change.
+- Close J03 by selecting three fixture records, forming two groups, inspecting the memberships, canceling a different proposal, and applying expansion. Reload/export retain the intended rows; independent arrays do not multiply accidentally.
 
-- K-C02-a: files 001, 002, and 004 yield two mapped sources, one unmatched source, and exactly specimen 001. Excluding 002 keeps that specimen with one mapped source. The UI shows all three different counts.
-- K-C02-b: selecting files 001, 002, and 003 then excluding 002 yields exactly 001 and 003 after reload and export. A generated multi-page fixture proves the same across page boundaries.
-- K-C02-c: 100% of rejected cross-project, stale-scope, or incomplete selections remain unattached. A file-free specimen collection completes the same task.
+Ownership. Extend the existing `authoringv2` document and `row_change.go`, population selection/mapping lifecycle, recipe and semantic row plans, physical lowering, and `PopulationPanel.tsx`. Use the construction contract frozen in S01. Do not add a separate dataset-design store.
 
-Verification: selection persistence and direct-importer tests, live source browse/freeze/population probes, one DOM collection-to-artifact journey. Source browsing is part of this repository's deliverable. Integration into a separately maintained Gen3 host is a separate rollout, not a prerequisite hidden in this package.
+- S03-01. Model resource rows, grouped rows, and expanded rows as explicit variants in the existing saved document. Resolve grouping keys and repeated scopes against schema metadata. Support grouping by selected typed fields and explicitly selected member groups. Define null/missing keys, stable group identity, empty groups, overlapping membership, and within-group record identity.
+- S03-02. Compile row construction and column contributors together. Preserve the distinction between population filters, group membership, and column-only filters. Keep two independent repeated collections separate unless the user explicitly requests combinations. Retain source/member identity and coordinates across grouping and expansion.
+- S03-03. Generate applicable Rows controls from available typed fields and repeated scopes. Suggest the starting collection as the default without requiring Patient or DocumentReference. Add authorized source selection, group/expand preview, and explicit apply/cancel through the existing CAS lifecycle. Explain affected columns and reject incompatible changes without silently dropping them.
+- S03-04. Verify grouping and expansion on at least two different schema-defined resource shapes. Round-trip selected source tuples through preserved grouped/expanded output. Test missing keys, overlapping groups, empty members, unlinked records, and repeated values with equal contents but different identities.
 
-## C03: Recognize more concepts from FHIR and terminology definitions
+- K-S03-a: grouping three fixture records into two groups yields exactly the expected memberships; expanding the selected repeated scope yields the expected rows and can reconstruct the selected input tuples.
+- K-S03-b: two independent collections of sizes two and three remain independent by default. No accidental six-row Cartesian product or index-zipping is permitted.
+- K-S03-c: cancel and rejected changes leave the previous table unchanged; explicit apply, reload, and export retain the selected row definition and stable column identities. J03 passes for two resource shapes without resource-specific UI logic.
 
-Depends on: C01. Milestone: M1. Size: large. Main risk: confusing a helpful terminology label with proof of a valid extraction binding.
+Verify. Run row-definition/migration, population, compiler, and literal membership tests plus J03. A grouped count alone is not proof that original members were preserved. A sampled preview count is labeled sampled.
 
-User outcome: search useful labels and codes for data Loom recognizes automatically. Standard structures and supported defined extensions appear without asking the user to pair fields. Unknown structures remain listed with a reason.
+## S04: Apply explicit typed transformations
 
-Implementation units:
+Depends on: S02, S03.
 
-- C03-01. Add a version-pinned definition import path alongside existing schema-loading orchestration in `internal/ingest/source_schema.go`, with pure definition interpretation in `internal/fhir/schema`. Consume the applicable FHIR version, supported profile/extension StructureDefinitions, and configured terminology data. Extend existing schema/generation metadata with definition-set identity. Use locally imported, checksum-pinned packages/terminology snapshots first. An optional configured downloader has an explicit trust/host policy; never fetch arbitrary URLs found in records or send records to a terminology service. Document distribution/license requirements before bundling third-party definitions.
-- C03-02. Enrich `internal/catalog/semantic.go` facts through a narrow resolver consumed by the catalog. Resolve names and applicable LOINC attributes from a pinned terminology snapshot, and resolve supported extension bindings from definitions plus observed structure. Feed existing correlated/extension binding types into compiler validation. Keep automatic schema recognition, definition-backed recognition, and approved human mappings as explicit evidence sources. Labels, synonyms, or equal code strings across systems never prove equivalence. Definitions do not override contradictory instance data. Unsupported profile constraints are reported, not ignored.
-- C03-03. Make enrichment visible in the C01 catalog: searchable labels and observed codes, expandable definition provenance, value examples, and separate recognition/column-decision states. Provide an import/retry-definition action for missing metadata before offering manual pairing. Refresh recognition from retained observations without requiring raw-data reingestion; use a resumable source scan if the needed inventory is incomplete. Refresh catalog pages without modifying selected columns. Pin definition/mapping dependencies in selected intent and receipts so later terminology updates do not silently reinterpret a saved dataframe.
-- C03-04. Add conformance fixtures for base Observation pairs, same-owner components, defined simple/nested extensions, unavailable definitions, mixed types, and conflicting meanings. Measure CDA-FHIR coverage by supported structural binding group and separately by observed occurrences. Declare the denominator, scope, and completeness. Produce an executable inventory of recognized, unresolved, conflicting, and unsupported groups; do not promise a percentage before measuring it.
+User outcome. Customize selected columns and table shape through choices valid for their types, with immediate preview of values retained, excluded, or reduced.
 
-KPIs:
+### UI04. Customize column values and table shape
 
-- K-C03-a: all explicitly supported standard/definition-backed fixture pairings become catalog candidates with zero manual mapping. Unsupported or conflicting cases do not claim automatic recognition. A/shared and B/shared still yield 111 and 222 separately.
-- K-C03-b: definition import resolves the known extension fixture without source mutation or new dataframe columns. Search by its imported label and exact code/URL finds the same candidate. Pinned definitions support replay without network access.
-- K-C03-c: every observed binding group in the coverage fixture is accounted for as recognized, unresolved, conflicting, or unsupported. Counts reconcile with the independent inventory. Unknown noncoding fields remain visible. CDA coverage is recorded as a measured result, not inferred from this fixture.
+Deliver throughout S04-01 to S04-04 by extending `FeaturePolicyEditor.tsx`, `InterpretationPanel.tsx`, and the shared Column details inspector.
 
-Verification: pure definition-resolution tests, catalog/compiler integration, definition-identity invalidation, and a DOM import/search/select journey. Test incompatible FHIR versions, missing dependencies, untrusted URLs, and data/definition conflicts. A terminology lookup alone cannot turn an unsupported extraction into an Add-ready candidate.
+- Group settings into **Values**, **Time and units**, and **Table shape**. Populate each control from compiler-backed choices. Keep-all, checked-single, and aggregate outputs show their different meaning before Apply.
+- Show before/after example values with contributors, excluded records, and declared information loss. Mark sample-based evidence as sampled. Changing units or time policy updates the same proposed transformation, not another hidden filter.
+- Offer exact category recoding, explicit pivot categories and duplicate handling, and typed derived-column operands. Show transformation order, missing-value behavior, and stable output names. Do not require JSON, query strings, or arithmetic code entry.
+- Give unsupported combinations a specific explanation. Preserve unsaved edits on recoverable errors; Cancel restores the saved definition. Draft and saved-result states must be distinct.
+- Close J04 with actual control interactions for every enabled operator, including a time/unit reduction, a pivot, and a derived column. Check exact values and contributors, save/reload, and an unrelated column that must remain unchanged.
 
-## C04: Inspect and customize how selected columns are made
+Ownership. Extend existing authoring column/policy types, compiler expression/reduction/temporal/unit logic, interpretation revisions, and `FeaturePolicyEditor.tsx`. The capability contract owns available operations. The UI must not maintain its own operation/type compatibility rules.
 
-Depends on: C03. Milestone: M2. Size: large. Main risk: hiding meaningful joins or requiring every user to configure every column.
+- S04-01. Derive supported operations from typed inputs and row context. Cover keep-all records, checked single value, count/exists, numeric min/max/mean/sum, and latest/earliest with explicit time fields and ties. Keep preservation, deduplication, filtering, and aggregation distinct in the construction result.
+- S04-02. Expose existing temporal/unit policies and exact typed category recoding through generated choices. Normalize compatible coded units before numeric aggregation. Preserve original coded identity and recorded values. Unknown units/categories and absent timestamps need declared behavior, never coercion or full-dataset learned preprocessing.
+- S04-03. Add explicit grouping-derived pivots and unpivots through the same row/output model. Freeze selected pivot categories and stable output keys. Require duplicate-cell handling and missing-cell policy. Provide schema-typed derived-column arithmetic with division/missingness rules, not arbitrary code or query-string execution.
+- S04-04. Verify literal results and contributors for every offered operator. Check cancel/reload, changing one column without mutating unrelated columns, unit incompatibility, ordering ties, new pivot categories, and exact distinctions among zero, false, empty, missing, and recorded absence.
 
-User outcome: add a recognized concept through the catalog, then optionally inspect the relationship path and see which records produce a cell. Change contributor rules or output handling when the research question requires it.
+- K-S04-a: every enabled operation has a literal execution oracle and corresponding compiler capability; invalid type/operator combinations are unavailable with an accurate reason.
+- K-S04-b: the time/unit fixture excludes out-of-window records, converts compatible units before aggregation, and produces exact expected results and contributors. Ties and unsupported units follow explicit policies.
+- K-S04-c: pivot/unpivot and derived-column journeys preserve stable identities after reload/export; all deliberate reductions are labeled, and no operation silently changes population or another column.
 
-Implementation units:
+Verify. Run focused operator and policy tests, executed query cases, and J04. Keep list-valued research output valid; do not label it a scalar training matrix without an explicit representation.
 
-- C04-01. Build a focused construction inspector from the selected column's canonical intent and receipt. Show the row type, named relationships, directions and multiplicities, matching codes, owning value location, and reduction. Provide a worked row with included/excluded records and reasons using the existing trace/lifecycle machinery. Use the same editor when entering through the graph. Derive the view from saved intent; do not persist a separate UI graph.
-- C04-02. Turn source ambiguity and multiplicity into short add-time decisions. Let users choose a supported source route and reuse a policy across compatible selected concepts. Preserve a full editor for exceptions. Keep conditions on contributors separate from filters that change population. A misleading sample of one match cannot establish guaranteed uniqueness; validate the chosen rule at execution.
-- C04-03. Expose supported count/exists/min/max/list/require-one and ordered choices with ordinary labels. Add numeric mean/sum only where absent, through the existing semantic/compiler path. Optionally add a second output such as count for a selected concept, but never generate all possible outputs. Apply explicit batch changes through existing column commands. Preserve independent stable column identities and show every affected column; do not introduce hidden mutable sharing or another feature-definition store.
-- C04-04. Verify zero/one/multiple contributors, tied values, alternative joins, and empty-input semantics. Count has zero and exists has false for empty contributors; scalar measurements remain missing unless explicitly handled. Match actual trace contributors to output values. Make inspector closure return to the selected list without changing the draft.
+## S05: Publish and export the exact constructed dataframe
 
-KPIs:
+Depends on: S01, S02, S03, S04.
 
-- K-C04-a: for a literal fixture row, inspection explains nine related records, four code matches, and one result under the explicitly chosen ordered policy. Each stage exposes included/excluded examples. Changing the route produces the independently expected alternative value. C05 adds the user-authored time window and its two-contributor intermediate stage.
-- K-C04-b: a ready candidate can still be added without opening this inspector. Adding count as a second explicit output creates only that output and leaves row membership unchanged.
-- K-C04-c: every offered reduction matches the executed fixture oracle. No implicit FIRST or row multiplication occurs. Batch edits list affected columns and preserve their identities; unselected columns remain unchanged.
+User outcome. Publish the authored table, reopen it in Viewer, and download an artifact that preserves its values, types, row membership, construction, and source evidence.
 
-Verification: executed semantic/compiler tests, source trace tests, focused UI inspector/decision tests, and a DOM add-inspect-change-preview journey. Population changes require a separate explicit action.
+### UI05. Review and deliver the dataset
 
-## C05: Build time-aware measurements with explicit units
+Deliver throughout S05-01 to S05-04 through `BuilderToolbar.tsx`, `DataframeContractPanel.tsx`, `Viewer.tsx`, `features/ExplorerViewer/components.tsx`, and `CellExplanationDialog.tsx`.
 
-Depends on: C04. Milestone: M2. Size: large. Main risk: apparently reasonable defaults can introduce future information or mix incompatible measurements.
+- Add a **Review dataset** summary before publication. Show the row definition, requested columns, result shapes, deliberate reductions, check completeness, and blocking issues with links to the responsible column or row setting.
+- Keep **Publish** progress and failures visible. A failed or stale attempt must not look successful or replace the last active publication. Never label a preview sample as a full-population check.
+- In Viewer, preserve column labels and structured cell rendering. **Explain this value** identifies exact contributing records and applied transformations using the existing evidence endpoint.
+- Make **Download dataset** state the format, row scope, types, and whether values are preserved. For a shape that cannot fit scalar CSV, offer a supported typed/linked representation or return to an explicit reshape. Do not silently stringify records and call the result a scalar ML matrix.
+- Close J05 through Publish, Viewer reload, cell inspection, filtering, and download. An independent artifact reader must reproduce the expected values and memberships. Record mechanical readiness without claiming clinical correctness or measured usability.
 
-User outcome: author "latest measurement in the 30 days before specimen collection, expressed in centimeters" and understand what happens to a missing date, tied measurement, or incompatible unit.
+Ownership. Extend existing publication/check execution, `internal/dataframe/published/artifact.go`, output descriptors, Viewer, and `scripts/loom-dev.mjs`. Use the current immutable publication and artifact pipeline. Do not add a parallel full-population job framework.
 
-Implementation units:
+- S05-01. Carry construction/row definitions, source generation, schema and interpretation versions, stable output keys, and reduction policies into the publication receipt and artifact descriptors. Migrate drafts explicitly and idempotently; retain immutable publication meaning.
+- S05-02. Support the declared result shapes in typed export. Preserve record/list ownership, absent/null distinctions, large numbers, and coded identity. If flat scalar output cannot preserve a selected shape, require explicit reshape/reduction or export typed records/linked tables. A raw-source sidecar alone does not make a lossy table lossless.
+- S05-03. Verify the complete authorized population through existing publication validation and expose incomplete/failed results honestly. Keep the prior active publication on failure. Reject stale generation, revoked scope, partial activation, and artifact mismatch. Report mechanical data issues without claiming clinical correctness or leakage-free ML.
+- S05-04. Run all five browser journeys on an integrated checkpoint, plus the open CDA workflow, a language-level artifact round trip, full repository checks, and measured watcher/interaction performance. Record final remaining support limits and human usability as unmeasured unless separately studied.
 
-- C05-01. Build a date-window editor using actual available event fields and row anchors. It works for any supported row type. Expose before/after bounds and inclusivity, latest/earliest selection, precision restrictions, and tie handling. Keep the existing temporal contract where sufficient and extend that contract where the UI currently hardcodes upper bound zero or instant precision.
-- C05-02. Expose the compiler's supported unit conversions as capability data, with canonical unit and dimensional compatibility. Replace the frontend's four hardcoded conversion presets. The backend retains the closed supported conversion registry. Do not promise arbitrary UCUM conversion or add an external terminology service as a hidden dependency.
-- C05-03. Explain excluded future measurements, unknown dates, unresolved ties, original units, and conversion results in feature preview. Never normalize text or unknown units by guessing. Apply normalization before a numeric reduction and only across compatible dimensions.
-- C05-04. Verify boundary dates, mixed precision, timezones, tied timestamps, affine conversions, absent anchors, and incompatible units. Add a second independently authored feature with a different window to prove that policies are per feature.
+- K-S05-a: Preview, published query, Viewer after reload, and downloaded artifact agree with the literal expected values, row/group membership, types, and source contributors for all declared shapes.
+- K-S05-b: unauthorized/stale/failed operations expose no forbidden values, examples, counts, or artifacts and activate no partial publication. Existing publications remain readable with pinned meaning.
+- K-S05-c: J01-J05 and the populated CDA workflow pass at one recorded checkpoint. Warm authoring loop median is at most 30 seconds over five measured edits; shared interaction/performance budgets pass without a fabricated comparison to unsupported baseline behavior.
 
-KPIs:
+Verify. Run the integrated commands in the acceptance protocol once after the combined work. Save DOM/screenshots, independent literal-output comparisons, artifact round-trip results, generation/scope identities, timings, and the final review verdict.
 
-- K-C05-a: a fixture with collection day 2026-01-31 includes a measurement on 2026-01-01 and excludes one on 2026-02-01 for the explicitly inclusive 30-day lookback. All other boundaries have literal oracle cases.
-- K-C05-b: known equivalent height measurements in supported units normalize to the same value within declared numeric tolerance. Unsupported units remain visible as unresolved, never coerced.
-- K-C05-c: zero excluded future records contribute to the predictor. A missing anchor produces the chosen explicit issue state, not an unrestricted measurement search.
+## Close the program
 
-Verification: temporal/unit semantic tests, executed compiler cases, and one DOM feature with explanation and export. A time window is a recorded modeling decision, not a promise of clinical or causal correctness.
+- [ ] All five ledger packages are accepted with their required evidence. No historical accepted checkbox substitutes for a new journey.
+- [ ] Report implemented user capabilities, measured performance, limitations, and the exact branch/checkpoint. Stop short of claiming every conceivable dataframe or complete FHIR conformance.
+- [ ] Obtain separate authority for publishing branches or landing changes. Preserve all populated source volumes and unrelated worktrees.
 
-## C06: Turn unresolved source data into reusable catalog entries
+## Appendix A. Construction contract and ownership
 
-Depends on: C03. Milestone: M3. Size: large. Main risk: unresolved data is invisible if discovery starts only from already recognized pairs.
+Use the schema as the source of structural facts. Use versioned base-FHIR/profile/association metadata for relationships not encoded by JSON shape alone. Use observed data for availability and examples. Use compiler checks for executable support. Do not merge these into one guessed readiness flag.
 
-User outcome: open Unresolved data, find an unfamiliar extension or other source structure, inspect actual records, load its definition or define the missing pairing, and then select that concept from the ordinary catalog.
+A construction request names the current row/population context and a concept, field, or explicit graph occurrence. A response describes typed source members, owner/repetition axes, choice arms, route alternatives, output forms, applicable operations, required choices, row effects, and preservation/loss. Include the schema, semantic, dataset, authorization, compiler, and draft identities needed to reject stale decisions.
 
-Implementation units:
+Keep recognition, data-quality warnings, compiler support, and user decisions separate. An absent profile is not automatically a mapping problem. Do not use Coding.display as identity, array position as cross-record identity, or a sample of one as proof of scalar multiplicity.
 
-- C06-01. Build an unresolved-data inventory from raw field/structure observations, not only `conceptCandidates` or selected features. Group by source/profile, owner/extension ancestry, and unresolved reason. Include no-coding, missing-system, missing-definition, ambiguity, and unsupported-shape cases. Page structural groups and examples separately. Allow access before any dataframe column exists. The inventory includes direct uncoded fields without pretending they need codes.
-- C06-02. Reuse C03 definition import first where a definition is missing. For genuinely undocumented pairings, add a source-structure selector to `BindingReview` that builds a checked binding from observed nodes even when no paired candidate exists yet. The user identifies the concept key or explicit extension identity, value location, repeated owner, and applicability. Compile through `internal/fhir/schema/correlated.go` and existing interpretation rules. No arbitrary AQL. Extend explicit missing-system matching where needed; a wildcard cannot stand for absence.
-- C06-03. Preview the mapping on bounded matching and contrasting examples before saving an immutable interpretation revision. This dataset-level mapping preview must work without a pre-existing output column and use the same compiler/execution path. Publish the approved interpretation to the catalog, not automatically to a dataframe. Existing selected columns remain pinned until an explicit reviewed update. Support cancel/revert, and preserve raw records and unresolved out-of-scope structures.
-- C06-04. Prove the entire unmapped-to-catalog-to-selected-column journey, including a structure absent from initial concept candidates. Resolve mapping conflicts visibly; never let a human rule or imported definition silently supersede an incompatible pinned meaning. Preserve nested ownership, source hashes, and scoped identity through preview/apply/reload.
+Persist user intent in the existing versioned workspace. Read-only resolution persists nothing. Apply resolves references again, validates scope and versions, allocates routes, and commits atomically with the existing command-ID/CAS semantics. Unknown network outcomes reuse the same command ID. Display-label edits do not rename physical keys.
 
-KPIs:
+Extend `internal/fhir/schema` for pure structural resolution and `internal/fhir/semantic` for owner-aware facts/associations. Keep `internal/catalog` responsible for authorized observed inventory. The existing capability adapter combines those inputs and compiler proofs. Extend the existing dataframe compiler for generic operators. The UI renders the generated contract; it is not another FHIR interpreter.
 
-- K-C06-a: a fixture with no recognizable initial pairing is visible in Unresolved data before any columns exist. A DOM-authored interpretation makes it searchable/addable through the same catalog; mapping approval alone creates zero dataframe columns.
-- K-C06-b: same-owner/nested cases preserve A/shared = 111, B/shared = 222, and left-only/right-only. The missing-system value 333 requires an explicit scoped decision and is not silently assigned to A or B.
-- K-C06-c: all raw-source hashes and out-of-scope values remain unchanged. Cancel/stale preview does not change interpretation state. Reuse needs no second manual mapping, and changing a mapping does not silently alter pinned columns.
+Do not eagerly flatten an infinite recursive schema or enumerate every possible graph walk. Expand choices lazily, retain recursion/reference identity, and report bounded suggestion searches separately from validity of an explicitly authored finite route. Cache structural facts by schema/semantic revision and data-dependent facts by generation, authorization, and relevant table context.
 
-Verification: unresolved inventory coverage, structural selector validation, no-column mapping preview, revision conflicts, and a DOM resolve-search-select-export journey. An unsupported extractor remains visible as unsupported, not a task a human is expected to fix by guessing.
+Lossless means the selected fields and records retain values, types, multiplicity, ownership, and source/member identities in the declared output representation. It does not promise byte-for-byte reconstruction of all input JSON. Scalar reduction, DISTINCT, filtering, and lossy recoding are explicit user intent. Define and test operator-specific reconstruction properties for preserving operations.
 
-## C07: Recode values without confusing that with FHIR repair
+## Appendix B. Existing evidence and unresolved proof
 
-Depends on: C06. Milestone: M3. Size: large. Main risk: mapping labels can silently discard rare or unknown values.
+Reuse the generated schema index and owner-aware walker accepted at baseline HEAD. They were not connected to production discovery when this plan was written. Existing schema resolvers, inventory storage, authorization, CAS, publication, and watchers are not being replaced wholesale.
 
-User outcome: map study values such as `case`, `CASE`, and `control` to declared categories, inspect the affected rows, and decide what to do with values not in the mapping.
+The previous reference experiments demonstrated owner-local FHIR extraction, not the new Loom pipeline or UI. The inspected frontend route helper returned one four-hop route and no five-hop route on the same synthetic chain. Four focused metadata/walker/route-policy tests passed. These facts explain the replacement work; they do not close S01.
 
-Implementation units:
+Grouping/expansion publication shape, generic record lowering with full trace, and automatic route-choice behavior remain unproven. Resolve each inside its owning package with executed fixtures. Do not open another architecture comparison unless a concrete blocker produces new evidence.
 
-- C07-01. Add a closed typed value-recoding variant to the existing feature definition and reusable interpretation revision. Keep it separate from source binding and unit normalization. Support exact typed matches and explicit output categories first. Preserve the sequence: identify source, select contributors, extract/reduce, then recode. Unsupported combinations fail semantic validation.
-- C07-02. Add a category mapping editor showing observed distinct values with counts and count scope. Allow explicit case variants rather than hidden normalization. Offer unknown policies: emit an explicit unmapped category with a typed raw-value companion, emit missing with a reason, or block the checked output. A category column cannot mix numeric originals with string categories. Excluding population rows is a separate visible operation, never a recoding side effect.
-- C07-03. Lower recoding through the existing semantic/IR/compiler path and include policy/version in canonical intent, receipts, quality, and trace. Reuse interpretation preview/apply and revision persistence. Do not introduce a regex/formula language or an independent transform service.
-- C07-04. Verify typed equality, overlapping mappings, null/empty-string distinction, unknown values, preview cancellation, and pinned revision behavior. Record original value, applied rule, and output value in the explanation.
+Go remains the implementation language for this plan. Another language requires a working comparison that improves the complete path, including deployment and iteration, not merely a preferred syntax.
 
-KPIs:
+## Appendix C. Retired scope and risks
 
-- K-C07-a: fixture values `case`, `CASE`, `control`, empty string, null, and `unexpected` match the explicit expected mapping exactly. Unconfigured values never disappear silently.
-- K-C07-b: recoding changes zero population memberships and zero raw source values. Reusing the pinned mapping reproduces the same categories.
-- K-C07-c: before/after counts reconcile to the stated population or labeled sample, including unmapped and missing values.
+All earlier F1-F4, B01-B08, C01-C12, and standalone F00 planning documents are [archived](history/20260919-superseded/README.md). The archive preserves exact bytes and completion evidence. Use it for history only.
 
-Verification: transform semantic/compiler tests, executed numeric/string/category boundaries, and a DOM map-preview-apply-revert-export journey.
+Carry forward schema semantics, complete paged inventory, source selection, exact contributor tracing, time/unit choices, safe migrations, immutable artifacts, and authorization. Their new owners are S01-S05 above.
 
-## C08: Declare the dataframe's ML contract
+Defer a general terminology-package administration UI, a cross-project mapping marketplace/library, learned ML preprocessing, model training, a standalone asynchronous Check framework, and a redesigned copy/refresh workflow. Preserve existing behavior in these areas. These are not hidden tasks or prerequisites for this plan.
 
-Depends on: C04 and C07. Milestone: M4. Size: large. Main risk: a scalar table is not automatically a scientifically valid training set.
+Risk controls include explicit unsupported metadata diagnostics, no implicit Cartesian joins, no silent FIRST, finite operator support, visible incomplete discovery, and bounded memory for large populations. Export format and ML scalar eligibility must be explicit. Document unsupported cases instead of inventing semantics.
 
-User outcome: mark identifiers, predictors, outcomes, time anchors, and excluded columns. Choose missing-value behavior and understand which columns can go into a conventional numeric matrix versus a richer research dataframe.
+## Appendix D. Read the relevant references
 
-Implementation units:
-
-- C08-01. Extend `authoringv2.Column` with typed feature intent and output representation. Carry it through canonicalization, migrations, compilation receipts, public descriptors, and artifact schema. Keep stable authored keys when one feature emits several physical columns. Migrate existing columns to "role not yet declared", not automatically to predictor.
-- C08-02. Add role and missingness controls to `FeatureEditor`. Keep absent, recorded null, invalid type, ambiguous value, and incompatible unit as distinct evidence. Offer keep-missing and missing-indicator outputs first. Numeric replacement requires an explicit constant; do not infer that unrecorded means negative. Identifier/outcome/time columns remain available in the exported bundle but separate from predictor matrix X.
-- C08-03. Add bounded explicit category encoding for matrix output using user-approved vocabulary and deterministic physical columns. Unknown-category policy is required. Typed lists remain supported in research output; matrix output requires an explicit reduction or supported encoding. Learned imputation, automatic vocabulary fitting, scaling, and model fitting remain downstream to avoid training/test leakage.
-- C08-04. Add eligibility checks and warnings for undeclared roles, unsupported matrix shapes, possible outcome-derived predictors, and missing time intent. Link each warning to the relevant editor. Distinguish mechanical validation from user scientific approval. Do not label a dataset clinically valid or leakage-free.
-
-KPIs:
-
-- K-C08-a: the reference artifact's X includes exactly declared predictors; y and identifiers are separate. No outcome or identifier enters X by default.
-- K-C08-b: missing, false, zero, and empty string retain distinct intended meanings. Missing indicators and explicit category columns match the oracle row for row.
-- K-C08-c: matrix export rejects unresolved list shapes and undeclared unknown-category policies with a repair link. Research export can preserve those values with honest schema/status metadata.
-
-Verification: migration and emitted-column identity tests, semantic/compiler and artifact-schema tests, and DOM role/representation authoring. The checked matrix contract is deterministic data preparation, not a training pipeline that learns from the full dataset.
-
-## C09: Check the complete population and repair problems in context
-
-Depends on: C05, C06, C07, and C08. Milestone: M4. Size: large. Main risk: creating a second execution engine or claiming a preview sample proves full quality.
-
-User outcome: click "Check dataset", leave and return while it runs, see complete row and feature counts, open an issue, fix the feature, and rerun. The previously published dataset stays active until the new one passes the required policies and is published.
-
-Implementation units:
-
-- C09-01. Add an explicit check lifecycle over the existing compiled receipt and publication candidate materialization. Separate candidate execution/quality from activation in `lifecycle/publish.go`. Reuse `dataframe/publication` execution and quality accumulation. Persist a bounded resumable operation state and exact receipt/execution identity. Do not build a generic job platform or run a separate quality-only extraction evaluator.
-- C09-02. Expand per-feature quality evidence to include issue counts and bounded example cursors. The current accumulator can stop on the first semantic error; a definite failure is not a complete population scan. Add closed per-cell diagnostic results to the same checked execution path for recoverable data issues, so Check can count them without a separate extractor. Irrecoverable errors retain partial counts and cannot claim completeness. Never activate diagnostic placeholders as valid values. Add draft-bound preview cell explanations using the same trace semantics; keep published cell traces bound to the immutable publication.
-- C09-03. Build `CheckPanel` and an issue detail view with "Edit this feature", "Review binding", and source examples. Use the queued/running/complete-pass/complete-fail/incomplete-failure/canceled operation union in CONTRACTS §8; idle and stale are local or derived UI conditions. Disable claims for a stale check immediately after edits, membership changes, interpretation changes, or scope changes. Cancellation/retry must not activate a candidate.
-- C09-04. Reuse a successful checked candidate on publish only when receipt, generation, scope, policy, and execution match. Reauthorize at activation. Test process restart, double submit, cancellation, cleanup of abandoned candidates, and retention of the old active revision.
-
-KPIs:
-
-- K-C09-a: completed diagnostic scans match independent full-population row/issue counts, including multiple bad records beyond the preview limit. Fatal early termination shows partial counts, not a full-population total.
-- K-C09-b: every blocking issue class has an actionable editor/source link. Interrupted or bounded runs never display "Passed" or a full-population coverage percentage.
-- K-C09-c: all tested draft/generation/scope changes invalidate check reuse. Failed/canceled/stale checks activate zero publications. Duplicate submit yields one logical operation.
-
-Verification: publication/lifecycle fault tests and real database checks, then a DOM check-fix-recheck-publish journey. This is the largest new lifecycle change. Require a short written transition/retention contract before code, followed by its fault tests.
-
-## C10: Reuse a dataframe without silently changing its meaning
-
-Depends on: C09. Milestone: M4. Size: medium. Main risk: treating an updated dataset or interpretation head as an equivalent revision.
-
-User outcome: copy a dataframe for another comparison, reuse approved features, and rebuild against a newer dataset generation after reviewing what changed.
-
-Implementation units:
-
-- C10-01. Add save/copy/library actions to the existing Explorer owner and interpretation library. Keep column/feature definitions together with their pinned dependencies. A copied dataframe gets a new owner identity; immutable receipts and mappings remain pinned references where authorized.
-- C10-02. Add an explicit generation-refresh operation. Re-resolve source candidates, population rules, and interpretation applicability against the new generation. Freeze new membership. Present missing concepts, changed shapes/units, changed membership, and mapping applicability before apply. Reject unsupported rebinding instead of doing best-effort path matching.
-- C10-03. Add a comparison UI with old/new population counts and feature decisions. Allow canceled refresh with no changes, and apply using existing CAS. Recheck before publish. Keep the old artifact download accessible under its original retained identity.
-- C10-04. Verify clone independence, scope enforcement, exact-pinned replay, schema drift, unavailable retained inputs, and interrupted refresh. Use a deterministic two-generation fixture.
-
-KPIs:
-
-- K-C10-a: a copied definition reproduces the same rows and feature meanings on the same generation; editing the copy changes zero values in the original publication.
-- K-C10-b: an added record and a changed measurement type are both surfaced in the refresh fixture. No new generation or mapping head is adopted without the explicit apply action.
-- K-C10-c: when inputs are retained, an old publication still downloads the original artifact after refresh. When retention has expired, the UI reports that limitation instead of substituting current data.
-
-Verification: lifecycle copy/refresh and permission tests, then a DOM copy-refresh-review-recheck journey. Cross-project feature-library sharing and collaborative approval roles are outside this release.
-
-## C11: Download a dataframe that loads correctly in Python
-
-Depends on: C09 and C10. Milestone: M4. Size: medium. Main risk: type or missingness loss during export despite correct displayed values.
-
-User outcome: download either a typed research dataframe or a declared matrix bundle, see its exact scope, and use a supplied loader to obtain the intended columns without writing FHIR extraction code.
-
-Implementation units:
-
-- C11-01. Replace competing browser-built CSV and server artifact paths in the ML workflow with the existing pinned artifact lifecycle. Show published revision, row count, feature count, export mode, and whether viewer filters affect the request. Default to the complete checked population. A filtered export requires an explicit action and recorded frozen scope, not an invisible current-view filter.
-- C11-02. Extend `dataframe/published/artifact.go` schema/manifest with C08 roles, physical-column mapping, interpretation revisions, quality, membership identity, missingness encoding, and a versioned loading contract. Reuse the streaming encoder and artifact store. Avoid browser Blob assembly for large datasets.
-- C11-03. Supply a tested Python loading example or loader inside the bundle with declared dependencies and exact nullable types. Handle CSV quoting, literal null-marker collisions, booleans, large integers, dates, lists, and categories. If the existing CSV representation cannot distinguish a value from its missing marker, change/version the encoding rather than documenting data loss. Return X, optional y, and row identifiers for matrix mode.
-- C11-04. Verify exported bytes and schema against actual typed values, not UI cell strings. Verify manifest checksums, old pinned downloads, cancellation/limits, truncated archives, and authorization. Migrate legacy export callers in scope rather than leaving two user-visible meanings for "Export".
-
-KPIs:
-
-- K-C11-a: the supplied Python loader reads every hostile fixture value with the declared type and exact value or documented numeric tolerance. Row order is canonical where required; comparisons otherwise use stable row identity.
-- K-C11-b: preview, checked publication, Viewer, and loaded dataframe agree on selected row values and feature identities. The artifact's complete counts match the full check, not the preview size.
-- K-C11-c: repeat downloads of the same retained artifact produce identical checksums. Changed scope or policy yields distinct recorded identity. Unauthorized download returns no artifact bytes.
-
-Verification: existing artifact unit/fault tests plus loader integration tests and a DOM download consumed by Python. Model fitting is not required to prove type correctness. A small fixed-model smoke test may exercise the loader, but is not a claim that these data train a useful model.
-
-## C12: Prove the complete workflow on hostile and real study data
-
-Depends on: C11 and all earlier packages. Milestone: M4. Size: medium. Main risk: repeating the previous mistake of treating seeded state as user capability.
-
-User outcome: complete the supported research tasks through ordinary project entry points on real data, with understandable failures and a responsive workbench.
-
-Implementation units:
-
-- C12-01. Assemble all [release journeys](ml-dataframer/ACCEPTANCE.md) into the in-repo browser driver. Setup may ingest raw FHIR and establish authentication. It may not create selections, graph routes, columns, interpretations, or completed checks on behalf of the user. Read-only API probes independently inspect what DOM actions produced.
-- C12-02. Run the open-access `/Users/peterkor/Desktop/BMEG/loom/CDA-FHIR/META` dataset through the existing local ingestion workflow. Record content manifest/generation, machine, image/source SHA, and study concepts actually present. Add a CI-friendly deterministic subset with license/source provenance or a documented reproducible subset builder. Keep sensitive data out of screenshots and committed artifacts; open access does not make every future dataset safe to publish.
-- C12-03. Prove at least two real-data tasks with different available row types, including a non-Patient start. Include at least one related feature, scoped collection, complete Check, typed artifact, and reload. Use hostile fixtures for error/repair cases absent from CDA. For a small real subset, compute expected rows directly from source using a test-only independent reference calculation, not Loom's compiler.
-- C12-04. Measure the performance and usability targets in the acceptance protocol. Run the full integrated suite once after the combined feature work. Produce a release evidence index and a short operator guide with exact local commands and reachable URLs. Report unsupported cases and any unmeasured human-usability claims.
-
-KPIs:
-
-- K-C12-a: all release journeys pass without hidden authoring setup, with source SHA, expected/actual results, and artifact evidence.
-- K-C12-b: the focused warm edit-to-DOM/backend-assertion loop has median at most 30 seconds across five repetitions. The full release run is measured separately and is not required to fit 30 seconds.
-- K-C12-c: the performance budgets in the acceptance protocol pass on the recorded machine, or remain explicit release blockers. Real-data full-check time and peak memory are measured, not inferred from a two-row fixture.
-- K-C12-d: automated task completion is reported separately from human usability. The suggested study target is four of five representative bioinformaticians completing the core task in 15 minutes without FHIR assistance. Until such a study happens, label it unmeasured; it is not a reason to block autonomous functional implementation.
-
-## Execution order and parallel work
-
-Use one integration line. Default order is C01, C03, C02, C04, C05, C06, C07, C08, C09, C10, C11, C12. Close each package with its own user-visible result before broadening scope. Do not implement all backend tasks first and all frontend tasks afterward.
-
-C02 collection work and C03 definition enrichment are logically independent after C01. Freeze their shared catalog/capability contracts before assigning disjoint implementation ownership. C05 and C06 are also logically independent after C04, but both touch shared authoring/compiler contracts. Parallel work is safe only after the integration owner freezes those contract changes. Separate workers may then own the time/unit editor and the binding editor, with their disjoint tests. The integration owner alone edits shared schemas, generated bindings, canonicalization, and fixtures. If ownership overlaps, run serially.
-
-C12's journey driver and real-data oracle can be developed incrementally after C02 in a separate test-only worktree. Its final acceptance depends on C11. Do not invent extra branches for sequential packages. Follow the current agent/model budget, with a bounded Luna worker when useful and one foreground final review per coherent package.
-
-Within a package, implement one vertical example first, then hostile variants. Freeze the typed contract before concurrent frontend/backend edits. Record literal acceptance expectations before coding. Do not run the entire repository suite after every component edit; use the risk-based gates in the acceptance protocol.
-
-## Scope limits and decisions
-
-This release includes source/row choice, related features, explicit reduction, temporal/unit policy, human interpretation, exact value recoding, feature roles, bounded deterministic encoding, complete checking, reuse, and typed export. It does not include model training, inferred clinical truth, a general formula language, automatic joins across unrelated datasets, learned preprocessing, arbitrary terminology equivalence inference, or clinical decision support. Deterministic resolution from supported, version-pinned FHIR/terminology definitions is explicitly in scope under C03.
-
-Arbitrary composite/event-level row expansion is not included. Each row initially represents one supported resource instance. Multiple input files can map to that row. A future visit/event grain must have an explicit identity and separate scope; it cannot be approximated by an accidental join explosion.
-
-The unresolved implementation risks are complete paged concept discovery beyond bounded profiling samples, supported definition/profile resolution, raw-source all-matching selection, no-column mapping of structures without candidate pairs, full-check lifecycle/retention, and exact matrix/export typing. Each belongs to a named package above with a discriminating fixture. If an existing mechanism cannot support one, redesign that mechanism within its owner and update the package estimate before implementation. Do not silently narrow the user outcome.
-
-Track progress by accepted packages and passing user tasks, not lines changed or backend completion percentage. All packages start as planned. A package is accepted only when its frontend, backend, failure cases, and literal artifact evidence agree.
+- Read [current Explorer authoring](../EXPLORER_AUTHORING.md), [compiler architecture](../EXPLORER_COMPILATION_ARCHITECTURE.md), and [the OpenAPI source](../../openapi/openapi.yaml) before changing their boundaries.
+- Read [the local verification skill](../../.codex/skills/verify/SKILL.md) before browser or watcher work. Read the project FHIR modeling skill before semantic changes.
+- Use first-principles redesign to replace duplicate source-specific decisions, Go patterns for implementation ownership, and TypeScript best practices for generated/parsed boundary variants. Use executable checks and one coherent final review, not repeated audit panels.

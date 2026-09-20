@@ -22,6 +22,8 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		return r.renderAggregate(expression)
 	case ir.PhysicalPivotExpression:
 		return r.renderPivot(expression)
+	case ir.PhysicalOwnerRecordsExpression:
+		return r.renderOwnerRecords(expression)
 	case ir.PhysicalSliceExpression:
 		return r.renderSlice(expression)
 	case ir.PhysicalObjectLookupExpression:

@@ -11,6 +11,9 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -27,18 +30,20 @@ type BrowseSemanticInventoryRequest struct {
 }
 
 type SemanticInventoryItem struct {
-	ConceptID     string `json:"conceptId"`
-	BindingID     string `json:"bindingId"`
-	ResourceType  string `json:"resourceType"`
-	SourcePath    string `json:"sourcePath"`
-	System        string `json:"system"`
-	Code          string `json:"code"`
-	CodingVersion string `json:"codingVersion"`
-	Display       string `json:"display"`
-	ValueSelector string `json:"valueSelector"`
-	ValueType     string `json:"valueType"`
-	OwningScope   string `json:"owningScope"`
-	Occurrences   int64  `json:"occurrences"`
+	ConceptID          string                                 `json:"conceptId"`
+	BindingID          string                                 `json:"bindingId"`
+	ResourceType       string                                 `json:"resourceType"`
+	SourcePath         string                                 `json:"sourcePath"`
+	System             string                                 `json:"system"`
+	Code               string                                 `json:"code"`
+	CodingVersion      string                                 `json:"codingVersion"`
+	Display            string                                 `json:"display"`
+	ValueSelector      string                                 `json:"valueSelector"`
+	ValueType          string                                 `json:"valueType"`
+	OwningScope        string                                 `json:"owningScope"`
+	Occurrences        int64                                  `json:"occurrences"`
+	Readiness          authoringv2.SemanticSelectionReadiness `json:"readiness"`
+	ConstructionChoice *capability.ConstructionChoice         `json:"constructionChoice,omitempty"`
 }
 
 type BrowseSemanticInventoryResponse struct {
@@ -120,13 +125,28 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	result.Entries = make([]SemanticInventoryItem, 0, len(page.Entries))
 	for _, entry := range page.Entries {
 		observation := entry.Observation
-		result.Entries = append(result.Entries, SemanticInventoryItem{
+		plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+		item := SemanticInventoryItem{
 			ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
 			SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
 			CodingVersion: observation.Key.Version, Display: observation.Key.Display,
 			ValueSelector: observation.Value.Selector, ValueType: observation.Value.Type,
 			OwningScope: observation.OwningScope, Occurrences: observation.Population,
-		})
+			Readiness: plan.Readiness,
+		}
+		if plan.Readiness.Addable() {
+			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
+				ownerRecordsProved := proveOwnerRecords(ctx, authorized, req.RowRoot, observation)
+				if choice, err := semanticInventoryConstructionChoice(snapshot, result.ContextToken, result.BuildID, entry, candidate, ownerRecordsProved); err == nil {
+					item.ConstructionChoice = &choice
+				} else {
+					item.Readiness = compilerProofUnavailable()
+				}
+			} else {
+				item.Readiness = compilerProofUnavailable()
+			}
+		}
+		result.Entries = append(result.Entries, item)
 	}
 	if page.NextCursor != "" {
 		raw, err := json.Marshal(semanticBrowseCursor{Context: result.ContextToken, Page: page.NextCursor})
@@ -136,6 +156,113 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		result.NextCursor = base64.RawURLEncoding.EncodeToString(raw)
 	}
 	return result, nil
+}
+
+func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextToken, buildID string, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
+	return semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, nil, entry, candidate, ownerRecordsProved)
+}
+
+func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
+	observation := entry.Observation
+	logicalType := observation.LogicalType
+	if logicalType == "" {
+		logicalType = observation.Value.Type
+	}
+	source := capability.SemanticBindingChoiceSource{
+		ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
+		SourcePath: observation.Source.Path, SourceCanonical: observation.Source.Canonical,
+		SourceProfile: observation.Source.Profile, FieldPath: candidate.FieldPath,
+		OwningScope: observation.OwningScope, ExtensionURLPath: observation.ExtensionURLPath,
+		KeySelector: observation.Key.Selector, System: observation.Key.System, Version: observation.Key.Version,
+		Code: observation.Key.Code, ValueSelector: observation.Value.Selector, ChoiceArm: observation.ChoiceArm,
+		LogicalType: logicalType, RuleHint: observation.RuleHint, RuleVersion: observation.RuleVersion,
+		SchemaVersion: observation.SchemaVersion,
+	}
+	return capability.NewSemanticConstructionChoiceForRoute(snapshot.Token, contextToken, buildID, route, source, candidate, ownerRecordsProved)
+}
+
+func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {
+	return proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, nil)
+}
+
+func proveOwnerRecordsForRoute(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation, route []capability.ConstructionRouteStep) bool {
+	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue || plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
+		return false
+	}
+	compilerRoute := make([]compilerprobe.Traversal, 0, len(route))
+	for _, step := range route {
+		matchMode := spec.TraversalMatchOptional
+		if step.MatchMode == string(spec.TraversalMatchRequired) {
+			matchMode = spec.TraversalMatchRequired
+		}
+		compilerRoute = append(compilerRoute, compilerprobe.Traversal{FromResourceType: step.FromResourceType, EdgeLabel: step.Relationship, ToResourceType: step.ToResourceType, MatchMode: matchMode})
+	}
+	_, err := compilerprobe.ProbeOwnerRecords(ctx, compilerprobe.OwnerRecordsRequest{
+		Scope: compilerprobe.Scope{
+			Project: projectid.Legacy(authorized.Snapshot.Identity.Project), DatasetGeneration: authorized.Snapshot.Identity.Generation,
+			AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode,
+		},
+		RootResourceType: rootResourceType,
+		ResourceType:     observation.Source.Type,
+		Route:            compilerRoute,
+		Binding:          *plan.Source.Lookup.Binding,
+		Key:              *plan.Source.Lookup.Key,
+	})
+	return err == nil
+}
+
+func semanticConstructionCandidate(snapshot capability.Snapshot, observation catalog.SemanticObservation) (capability.Candidate, bool) {
+	resourceType := strings.TrimSpace(observation.Source.Type)
+	valuePath := semanticObservationValuePath(observation)
+	if resourceType == "" || valuePath == "" {
+		return capability.Candidate{}, false
+	}
+	var match capability.Candidate
+	found := false
+	for _, candidate := range snapshot.Candidates {
+		if candidate.ResourceType == resourceType && canonicalInventoryPath(candidate.FieldPath) == valuePath {
+			if found {
+				return capability.Candidate{}, false
+			}
+			match, found = candidate, true
+		}
+	}
+	return match, found
+}
+
+// Coded-value observations keep key and value selectors relative to the object
+// that owns their correlation. Capability candidates address the scalar from
+// the resource root, so the owning scope is restored only at this boundary.
+func semanticObservationValuePath(observation catalog.SemanticObservation) string {
+	valuePath := canonicalInventoryPath(observation.Value.Selector)
+	ownerPath := canonicalInventoryPath(observation.OwningScope)
+	if valuePath == "" || ownerPath == "" || valuePath == ownerPath || strings.HasPrefix(valuePath, ownerPath+".") {
+		return valuePath
+	}
+	return ownerPath + "." + valuePath
+}
+
+func canonicalInventoryPath(raw string) string {
+	path := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "root."))
+	if path == "" {
+		return ""
+	}
+	segments := strings.Split(path, ".")
+	for index := range segments {
+		segments[index] = strings.TrimSpace(segments[index])
+		if segments[index] == "" {
+			return ""
+		}
+	}
+	return strings.Join(segments, ".")
+}
+
+func compilerProofUnavailable() authoringv2.SemanticSelectionReadiness {
+	return authoringv2.SemanticSelectionReadiness{
+		Status: authoringv2.SemanticReadinessUnsupported, Code: "COMPILER_PROOF_UNAVAILABLE",
+		Message: "The exact semantic value path has no matching compiler-proved capability field.",
+	}
 }
 
 func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {

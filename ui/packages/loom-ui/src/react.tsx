@@ -3,6 +3,7 @@ import { createLoomClient, type LoomClient, type LoomOutputRequest, type LoomOut
 import type {
   ApplyExplorerBuilderCommandsArgs,
   AssessExplorerRowChangeArgs,
+  BrowseSemanticInventoryArgs,
   CellTraceArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
@@ -189,6 +190,11 @@ export const useReconcileExplorerBuilderV2Mutation = () => {
 export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<ExplorerCandidateSuggestionsArgs, Awaited<ReturnType<LoomClient['suggestions']>>>((args, signal) => client.suggestions(args, signal));
+};
+
+export const useBrowseSemanticInventoryV2Mutation = () => {
+  const client = useLoomClient();
+  return useMutation<BrowseSemanticInventoryArgs, Awaited<ReturnType<LoomClient['browseSemanticInventory']>>>((args, signal) => client.browseSemanticInventory(args, signal));
 };
 
 export const usePreviewExplorerAuthoringV2Mutation = () => {

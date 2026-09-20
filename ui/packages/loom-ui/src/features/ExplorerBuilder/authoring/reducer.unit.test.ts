@@ -503,6 +503,173 @@ describe('semantic Builder hydration', () => {
     expect(workspaceFromState(edited).sharedFilters).toBeUndefined();
   });
 
+  it('persists and reconstructs parallel route choices by exact catalog edge', () => {
+    const parallel: ExplorerBuilderState = {
+      ...ready,
+      workspace: {
+        ...ready.workspace!,
+        documents: [
+          {
+            ...ready.workspace!.documents[0],
+            output: { id: 'Patient', title: 'Patient' },
+            rootResourceType: 'Patient',
+            route: { occurrenceId: 'base', resourceType: 'Patient' },
+            columns: [],
+          },
+        ],
+      },
+      catalog: {
+        ...ready.catalog,
+        nodes: [
+          {
+            nodeId: 'patient-root',
+            resourceType: 'Patient',
+            rowRootEligible: true,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-a',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-b',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+        ],
+        edges: [
+          {
+            edgeId: 'patient-encounter-a',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-a',
+            label: 'encounters',
+          },
+          {
+            edgeId: 'patient-encounter-b',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-b',
+            label: 'encounters',
+          },
+        ],
+      },
+    };
+    const state = stateFromBuilder(parallel, {
+      project: 'project',
+      explorerId: 'default',
+    });
+    const first = builderAuthoringReducer(state, {
+      type: 'addRouteChild',
+      outputId: 'Patient',
+      parentOccurrenceId: 'base',
+      edgeId: 'patient-encounter-a',
+      occurrenceId: 'encounter-a',
+    });
+    const both = builderAuthoringReducer(first, {
+      type: 'addRouteChild',
+      outputId: 'Patient',
+      parentOccurrenceId: 'base',
+      edgeId: 'patient-encounter-b',
+      occurrenceId: 'encounter-b',
+    });
+
+    expect(
+      derivedOccurrences(both.tables[0], both.catalog).map(
+        ({ id, incomingEdgeId }) => [id, incomingEdgeId],
+      ),
+    ).toEqual([
+      ['base', undefined],
+      ['encounter-a', 'patient-encounter-a'],
+      ['encounter-b', 'patient-encounter-b'],
+    ]);
+    expect(
+      workspaceFromState(both).documents[0].route.children?.map(
+        ({ catalogEdgeId }) => catalogEdgeId,
+      ),
+    ).toEqual(['patient-encounter-a', 'patient-encounter-b']);
+  });
+
+  it('does not choose an edge for an ambiguous legacy route tuple', () => {
+    const parallel: ExplorerBuilderState = {
+      ...ready,
+      workspace: {
+        ...ready.workspace!,
+        documents: [
+          {
+            ...ready.workspace!.documents[0],
+            output: { id: 'Patient', title: 'Patient' },
+            rootResourceType: 'Patient',
+            route: {
+              occurrenceId: 'base',
+              resourceType: 'Patient',
+              children: [
+                {
+                  occurrenceId: 'legacy-encounter',
+                  resourceType: 'Encounter',
+                  relationship: 'encounters',
+                },
+              ],
+            },
+            columns: [],
+          },
+        ],
+      },
+      catalog: {
+        ...ready.catalog,
+        nodes: [
+          {
+            nodeId: 'patient-root',
+            resourceType: 'Patient',
+            rowRootEligible: true,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-a',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+          {
+            nodeId: 'encounter-b',
+            resourceType: 'Encounter',
+            rowRootEligible: false,
+            populated: true,
+            documentCount: 1,
+          },
+        ],
+        edges: [
+          {
+            edgeId: 'patient-encounter-a',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-a',
+            label: 'encounters',
+          },
+          {
+            edgeId: 'patient-encounter-b',
+            fromNodeId: 'patient-root',
+            toNodeId: 'encounter-b',
+            label: 'encounters',
+          },
+        ],
+      },
+    };
+    const state = stateFromBuilder(parallel, {
+      project: 'project',
+      explorerId: 'default',
+    });
+
+    expect(derivedOccurrences(state.tables[0], state.catalog).map(({ id }) => id)).toEqual([
+      'base',
+    ]);
+  });
+
   it('replaces local identities with the authoritative command workspace', () => {
     const state = stateFromBuilder(ready, {
       project: 'project',

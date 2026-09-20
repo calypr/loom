@@ -57,22 +57,53 @@ export const derivedOccurrences = (
   const walk = (
     route: ExplorerBuilderDocument['route'],
     parentNodeId: string | undefined,
+    parentResourceType: string | undefined,
     parentId: string | undefined,
     depth: number,
   ) => {
-    const node = catalog.nodes.find(
-      (candidate) => candidate.resourceType === route.resourceType,
-    );
-    if (!node) return;
+    const candidates = parentNodeId
+      ? catalog.edges
+          .filter((candidate) => {
+            if (candidate.fromNodeId !== parentNodeId) return false;
+            if (route.catalogEdgeId) {
+              return candidate.edgeId === route.catalogEdgeId;
+            }
+            return candidate.label === route.relationship;
+          })
+          .filter((candidate) => {
+            const from = catalog.nodes.find(
+              (nodeCandidate) => nodeCandidate.nodeId === candidate.fromNodeId,
+            );
+            const to = catalog.nodes.find(
+              (nodeCandidate) => nodeCandidate.nodeId === candidate.toNodeId,
+            );
+            return (
+              from?.resourceType === parentResourceType &&
+              to?.resourceType === route.resourceType &&
+              candidate.label === route.relationship
+            );
+          })
+      : [];
     const edge = parentNodeId
-      ? catalog.edges.find(
-          (candidate) =>
-            candidate.fromNodeId === parentNodeId &&
-            candidate.toNodeId === node.nodeId &&
-            candidate.label === route.relationship,
-        )
+      ? candidates.length === 1
+        ? candidates[0]
+        : undefined
       : undefined;
-    if (parentNodeId && !edge) return;
+    const rootCandidates = parentNodeId
+      ? []
+      : catalog.nodes.filter(
+          (candidate) =>
+            candidate.resourceType === route.resourceType &&
+            candidate.rowRootEligible,
+        );
+    const node = parentNodeId
+      ? edge
+        ? catalog.nodes.find((candidate) => candidate.nodeId === edge.toNodeId)
+        : undefined
+      : rootCandidates.length === 1
+        ? rootCandidates[0]
+        : undefined;
+    if (!node) return;
     occurrences.push({
       id: route.occurrenceId,
       index: occurrences.length,
@@ -85,10 +116,10 @@ export const derivedOccurrences = (
       resourceType: route.resourceType,
     });
     route.children?.forEach((child) =>
-      walk(child, node.nodeId, route.occurrenceId, depth + 1),
+      walk(child, node.nodeId, node.resourceType, route.occurrenceId, depth + 1),
     );
   };
-  walk(table.document.route, undefined, undefined, 0);
+  walk(table.document.route, undefined, undefined, undefined, 0);
   return occurrences;
 };
 

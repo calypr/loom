@@ -591,6 +591,7 @@ export const GuidedGraphWorkspace = ({
                         type="button"
                         title={occurrence.resourceType}
                         data-traversal-label
+                        data-occurrence-id={occurrence.occurrenceId}
                         className={`${isTraversalOverflowing ? 'max-w-24 truncate transition-[max-width] group-hover:max-w-40' : ''} block w-full px-2 py-1 text-left font-semibold`}
                         onClick={() =>
                           onSelectOccurrence(occurrence.occurrenceId)

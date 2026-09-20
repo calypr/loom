@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataset"
@@ -74,7 +76,7 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 		[]capability.Candidate{{
 			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
 			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date",
-			ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst},
+			Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 		}},
 		nil,
 	)
@@ -82,6 +84,26 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	wire := authoringV2Catalog(snapshot, "default")
 	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "birthDate" {
 		t.Fatalf("catalog candidates = %#v", wire.Candidates)
+	}
+	choice := wire.Candidates[0].ConstructionChoice
+	if choice == nil || choice.ChoiceID == "" || len(choice.Options) != 1 || choice.Options[0].Form != capability.ConstructionChoiceValue || choice.Options[0].Decision != capability.ConstructionChoiceDefault {
+		t.Fatalf("field construction choice = %#v", choice)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded["constructionChoice"]) == 0 {
+		t.Fatalf("construction choice missing from candidate JSON %s: %v", encoded, err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected choice: %v", err)
+	}
+	fieldSource, err := generated.ConstructionChoice.Source.AsFieldChoiceSource()
+	if err != nil || fieldSource.Kind != loomapi.FieldChoiceSourceKindFIELD || fieldSource.CandidateId != "c_patient_birth_date" || fieldSource.Path != "birthDate" {
+		t.Fatalf("generated field choice source=%#v err=%v", fieldSource, err)
 	}
 }
 
@@ -92,7 +114,7 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
 		nil,
 		[]capability.Candidate{{
-			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string",
+			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string", Cardinality: "many",
 			ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray, capability.ProjectionDistinctArray},
 		}},
 		nil,
@@ -104,6 +126,29 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 	}
 	if wire.Candidates[0].ProjectionModes[0] != "ALL" || wire.Candidates[0].ProjectionModes[1] != "DISTINCT" {
 		t.Fatalf("projection modes = %#v, want [ALL DISTINCT]", wire.Candidates[0].ProjectionModes)
+	}
+	choice := wire.Candidates[0].ConstructionChoice
+	if choice == nil || len(choice.Options) != 2 || choice.Options[0].Form != capability.ConstructionChoiceAll || choice.Options[0].Decision != capability.ConstructionChoiceDefault {
+		t.Fatalf("repeated field construction choice = %#v", choice)
+	}
+}
+
+func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_name", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient name", LogicalType: "string", Cardinality: "many",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionIndexed},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 0 || len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "CONSTRUCTION_CHOICE_UNAVAILABLE" {
+		t.Fatalf("catalog=%#v, want candidate omitted with diagnostic", wire)
 	}
 }
 

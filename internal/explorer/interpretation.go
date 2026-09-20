@@ -414,6 +414,7 @@ func canonicalInterpretationDefinition(def InterpretationFeatureDefinition, reso
 		Output:           authoringv2.Output{ID: "interpretation", Title: "Interpretation"},
 		RootResourceType: resourceType,
 		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: resourceType},
+		Rows:             authoringv2.RecordsRowDefinition(),
 		Columns:          []authoringv2.Column{{Column: "value", Label: "Value", OccurrenceID: authoringv2.RootOccurrenceID, Source: def.Source, Contributor: def.Contributor}},
 	}
 	if err := document.Validate(); err != nil {

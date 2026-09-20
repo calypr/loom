@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -21,6 +22,46 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		return nil, malformed("commands", err.Error(), err)
 	}
+	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
+	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
+	populationRouteCount := 0
+	for _, command := range request.Commands {
+		if command.Type == authoringv2.CommandSetTablePopulation {
+			populationRouteCount++
+		}
+	}
+	populationRouteCommand := populationRouteCount > 0
+	populationRouteIdentities := make([]capability.PopulationRouteChoiceIdentity, len(request.Commands))
+	if populationRouteCommand {
+		for index, command := range request.Commands {
+			if command.Type != authoringv2.CommandSetTablePopulation || command.RouteChoiceID == "" || len(command.EdgeIDs) != 0 {
+				return nil, malformed("commands", "population route choices require only SET_TABLE_POPULATION routeChoiceId commands", nil)
+			}
+			identity, decodeErr := capability.DecodePopulationRouteChoiceID(command.RouteChoiceID)
+			if decodeErr != nil {
+				return nil, malformed("commands", fmt.Sprintf("commands[%d].routeChoiceId is invalid", index), decodeErr)
+			}
+			if identity.SnapshotToken != request.SnapshotToken || identity.OutputID != command.OutputID || identity.SelectionRevisionID != command.SelectionRevisionID {
+				return nil, conflict("commands", "STALE_POPULATION_ROUTE", "a population route belongs to another table, selection, or snapshot", nil, nil)
+			}
+			populationRouteIdentities[index] = identity
+		}
+		if populationRouteCount != len(request.Commands) {
+			return nil, malformed("commands", "population route choices must form the entire atomic request", nil)
+		}
+	}
+	if constructionChoiceCommand {
+		for index, command := range request.Commands {
+			identity, decodeErr := capability.DecodeConstructionChoiceID(command.ConstructionChoice.ChoiceID)
+			if decodeErr != nil {
+				return nil, malformed("commands", fmt.Sprintf("commands[%d].constructionChoice.choiceId is invalid", index), decodeErr)
+			}
+			if identity.SnapshotToken != request.SnapshotToken {
+				return nil, conflict("commands", "STALE_CONSTRUCTION_CHOICE", "a construction choice belongs to a different catalog snapshot", nil, nil)
+			}
+			constructionIdentities[index] = identity
+		}
+	}
 	if s.config.Capability.Catalog == nil {
 		return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
@@ -28,9 +69,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand {
 		if s.config.Capability.ForCompilation == nil {
-			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized semantic inventory resolution is not configured", nil)
+			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
 		authorized, err = s.config.Capability.ForCompilation(ctx, project, request.SnapshotToken)
 		snapshot = authorized.Snapshot
@@ -45,7 +86,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		snapshot, err = s.config.Capability.Token(ctx, project, request.SnapshotToken)
 	}
-	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil {
+	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || (constructionChoiceCommand && !constructionChoicesMatchSnapshot(constructionIdentities, snapshot.Token)) {
 		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
 	}
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
@@ -56,6 +97,14 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	if semanticCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
+		}
+	} else if constructionChoiceCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareConstructionChoice(ctx, project, explorerID, authorized, constructionIdentities, workspace, catalog, commands)
+		}
+	} else if populationRouteCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.preparePopulationRouteChoices(ctx, project, authorized, populationRouteIdentities, workspace, commands)
 		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {

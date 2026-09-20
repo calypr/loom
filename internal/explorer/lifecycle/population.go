@@ -71,31 +71,60 @@ func validatePopulationRoute(document authoringv2.Document, population authoring
 	currentID, currentType := rootNodes[0].ID, rootNodes[0].ResourceType
 	seenEdges := map[string]bool{}
 	for index, step := range population.Route {
-		matches := make([]capability.Edge, 0, 1)
-		for _, edge := range snapshot.Edges {
-			if edge.FromNodeID != currentID || edge.Label != step.Relationship {
-				continue
-			}
-			target, ok := snapshot.Node(edge.ToNodeID)
-			if ok && target.ResourceType == step.ResourceType {
-				matches = append(matches, edge)
-			}
+		edge, target, err := resolvePopulationRouteEdge(snapshot, currentID, currentType, step)
+		if err != nil {
+			return fmt.Errorf("population route[%d] relationship %q is ambiguous or stale: %w", index, step.Relationship, err)
 		}
-		if len(matches) != 1 {
-			return fmt.Errorf("population route[%d] relationship %q is ambiguous or stale", index, step.Relationship)
+		if seenEdges[edge.ID] && !snapshot.Policy.Route.AllowsRepeatedEdges {
+			return fmt.Errorf("population route[%d] repeats edge %q but repeated edges are not allowed", index, edge.ID)
 		}
-		if seenEdges[matches[0].ID] && !snapshot.Policy.Route.AllowsRepeatedEdges {
-			return fmt.Errorf("population route[%d] repeats edge %q but repeated edges are not allowed", index, matches[0].ID)
-		}
-		target, _ := snapshot.Node(matches[0].ToNodeID)
 		if currentType == target.ResourceType && !snapshot.Policy.Route.AllowsSelfLoops {
-			return fmt.Errorf("population route[%d] uses self-loop edge %q but self-loops are not allowed", index, matches[0].ID)
+			return fmt.Errorf("population route[%d] uses self-loop edge %q but self-loops are not allowed", index, edge.ID)
 		}
-		seenEdges[matches[0].ID] = true
+		seenEdges[edge.ID] = true
 		currentID, currentType = target.ID, target.ResourceType
 	}
 	if currentType != strings.TrimSpace(selectionType) {
 		return fmt.Errorf("population route terminates at %q, selection contains %q", currentType, selectionType)
 	}
 	return nil
+}
+
+func resolvePopulationRouteEdge(snapshot capability.Snapshot, currentID, currentType string, step authoringv2.PopulationRouteStep) (capability.Edge, capability.Node, error) {
+	valid := func(edge capability.Edge) (capability.Node, bool) {
+		from, fromOK := snapshot.Node(edge.FromNodeID)
+		to, toOK := snapshot.Node(edge.ToNodeID)
+		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+		return to, edge.ID != "" && edge.BlockedReason == "" && edge.FromNodeID == currentID &&
+			fromOK && toOK && from.ResourceType == currentType && (edge.SourceResourceType == "" || edge.SourceResourceType == currentType) &&
+			to.ResourceType == step.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == step.ResourceType) && edge.Label == step.Relationship &&
+			(direction == "" || direction == "INBOUND" || direction == "OUTBOUND")
+	}
+	if step.CatalogEdgeID != "" {
+		edge, found := snapshot.Edge(step.CatalogEdgeID)
+		if !found {
+			return capability.Edge{}, capability.Node{}, fmt.Errorf("catalog edge %q is unavailable", step.CatalogEdgeID)
+		}
+		target, ok := valid(edge)
+		if !ok {
+			return capability.Edge{}, capability.Node{}, fmt.Errorf("catalog edge %q no longer identifies this route step", step.CatalogEdgeID)
+		}
+		return edge, target, nil
+	}
+	var match capability.Edge
+	var target capability.Node
+	for _, edge := range snapshot.Edges {
+		resolvedTarget, ok := valid(edge)
+		if !ok {
+			continue
+		}
+		if match.ID != "" {
+			return capability.Edge{}, capability.Node{}, fmt.Errorf("semantic tuple resolves to multiple catalog edges")
+		}
+		match, target = edge, resolvedTarget
+	}
+	if match.ID == "" {
+		return capability.Edge{}, capability.Node{}, fmt.Errorf("semantic tuple does not resolve to a catalog edge")
+	}
+	return match, target, nil
 }

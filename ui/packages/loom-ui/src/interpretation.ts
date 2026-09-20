@@ -69,6 +69,59 @@ export const interpretationLibraryListResponseSchema = z.object({
   libraries: z.array(interpretationLibraryViewSchema),
 }).strict();
 
+export const interpretationRevisionSummarySchema = z.object({
+  id: idSchema,
+  libraryId: idSchema,
+  contentDigest: idSchema,
+  author: idSchema,
+  explanation: z.string().min(1),
+  createdAt: z.string().min(1),
+}).strict();
+
+export const interpretationLibrarySummarySchema = z.object({
+  id: idSchema,
+  headRevisionId: idSchema.optional(),
+  headDigest: idSchema.optional(),
+  head: interpretationRevisionSummarySchema.optional(),
+  updatedAt: z.string().min(1),
+}).strict();
+
+const configuredColumnReadyResolutionSchema = z.object({
+  state: z.literal('READY'),
+  capabilityCandidateIds: z.array(idSchema).min(1),
+  applicableRevisionIds: z.array(idSchema),
+}).strict();
+
+const configuredColumnUnavailableResolutionSchema = (
+  state: 'MISSING' | 'AMBIGUOUS' | 'UNSUPPORTED',
+) => z.object({
+  state: z.literal(state),
+  reason: z.string().min(1),
+}).strict();
+
+export const configuredColumnResolutionSchema = z.discriminatedUnion('state', [
+  configuredColumnReadyResolutionSchema,
+  configuredColumnUnavailableResolutionSchema('MISSING'),
+  configuredColumnUnavailableResolutionSchema('AMBIGUOUS'),
+  configuredColumnUnavailableResolutionSchema('UNSUPPORTED'),
+]);
+
+export const configuredColumnContextSchema = z.object({
+  outputId: idSchema,
+  column: idSchema,
+  occurrenceId: idSchema,
+  resolution: configuredColumnResolutionSchema,
+}).strict();
+
+export const configuredColumnContextResponseSchema = z.object({
+  snapshotToken: idSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: idSchema,
+  libraries: z.array(interpretationLibrarySummarySchema),
+  pinnedRevisions: z.array(interpretationRevisionSummarySchema),
+  columns: z.array(configuredColumnContextSchema),
+}).strict();
+
 export const interpretationPreviewSampleSchema = z.object({
   rowId: idSchema,
   before: z.record(z.string(), z.unknown()),
@@ -98,3 +151,8 @@ export type InterpretationRule = z.infer<typeof interpretationRuleSchema>;
 export type InterpretationRevision = z.infer<typeof interpretationRevisionSchema>;
 export type InterpretationLibraryView = z.infer<typeof interpretationLibraryViewSchema>;
 export type InterpretationPreviewResponse = z.infer<typeof interpretationPreviewResponseSchema>;
+export type InterpretationRevisionSummary = z.infer<typeof interpretationRevisionSummarySchema>;
+export type InterpretationLibrarySummary = z.infer<typeof interpretationLibrarySummarySchema>;
+export type ConfiguredColumnResolution = z.infer<typeof configuredColumnResolutionSchema>;
+export type ConfiguredColumnContext = z.infer<typeof configuredColumnContextSchema>;
+export type ConfiguredColumnContextResponse = z.infer<typeof configuredColumnContextResponseSchema>;

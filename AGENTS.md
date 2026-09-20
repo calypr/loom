@@ -17,6 +17,33 @@ This project uses GitNexus as its local repository knowledge graph.
 - The graph is navigation evidence, not proof of completeness, runtime behavior, or dead code. Confirm consequential findings in source and executable checks.
 - GitNexus wiki generation is separate, optional LLM-generated module prose. It is not enabled by this setup. Do not assume a wiki reflects uncommitted edits.
 
+## Frozen-design execution
+
+When the parent assignment says that a design is frozen, treat the assignment
+as an implementation stage that starts after discovery and architecture work.
+
+- Start at the implementation step of the selected pstack workflow. Do not
+  repeat `how`, `architect`, `figure-it-out`, an arena, or broad discovery that
+  the parent already completed.
+- Read the named source and required skills, then produce a patch in the first
+  progress interval. A progress update must report an edited file, a test or
+  runtime result, or evidence that changes the next action.
+- One progress interval without a patch is a warning, not an automatic
+  failure. Two consecutive updates that only restate the plan require the
+  executor to stop and return control to the parent.
+- Reopen design work when executable evidence contradicts a frozen invariant,
+  the brief omits an ownership or type decision needed to write correct code,
+  or two viable implementations remain after direct source inspection. State
+  the concrete unresolved question before invoking another design skill.
+- Do not count instruction reading, source navigation, or confirmation of an
+  existing decision as implementation progress.
+- For broad changes, implement one compiler-complete or user-visible unit at a
+  time. End each unit with a focused check before starting the next unit.
+
+If the task has no frozen design, use the normal pstack routing rules. This
+section limits repeated analysis. It does not prohibit needed investigation or
+architecture work.
+
 ## Package audit safety
 
 For every package combine, move, or deletion decision:

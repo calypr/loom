@@ -106,6 +106,10 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope scopeFrame)
 	if err != nil {
 		return OutputPlan{}, fmt.Errorf("root rich shaping: %w", err)
 	}
+	plan.Root.OwnerRecords, err = lowerRecipeOwnerRecords(output.RootResourceType, output.OwnerRecords)
+	if err != nil {
+		return OutputPlan{}, fmt.Errorf("root owner records: %w", err)
+	}
 	for index, field := range output.Fields {
 		normalized, err := normalizeRecipeProjection(field, scope, fmt.Sprintf("fields[%d]", index))
 		if err != nil {
@@ -180,6 +184,10 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	node.Pivots, node.Aggregates, node.Slices, err = lowerRecipeRichShaping(input.ToResourceType, alias, scope, input.Pivots, input.Aggregates, input.Slices)
 	if err != nil {
 		return SemanticNode{}, fmt.Errorf("%s rich shaping: %w", path, err)
+	}
+	node.OwnerRecords, err = lowerRecipeOwnerRecords(input.ToResourceType, input.OwnerRecords)
+	if err != nil {
+		return SemanticNode{}, fmt.Errorf("%s owner records: %w", path, err)
 	}
 	if input.From != nil {
 		x, err := parent.expression(*input.From, path+".from")

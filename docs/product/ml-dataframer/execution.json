@@ -1,25 +1,16 @@
 {
-  "schemaVersion": 1,
-  "status": "in_progress",
+  "schemaVersion": 2,
+  "planRevision": 4,
+  "status": "planned",
   "baseline": {
     "branch": "arch/integration",
-    "sha": "3f71ece81ddf3ae6e008e67e08fc5eb57d5682bd",
-    "date": "2026-09-18"
+    "sha": "1301c3b30ceb26e4e37344b61afb890bd6d64564",
+    "date": "2026-09-19",
+    "requiresCheckpoint": true
   },
   "specification": "docs/product/ML_DATAFRAMER_DELIVERY_PLAN.md",
-  "architecture": "docs/product/ml-dataframer/ARCHITECTURE.md",
   "acceptance": "docs/product/ml-dataframer/ACCEPTANCE.md",
-  "contracts": "docs/product/ml-dataframer/CONTRACTS.md",
-  "runbook": "docs/product/ml-dataframer/RUNBOOK.md",
-  "prototype": "docs/product/ml-dataframer/catalog-prototype.html",
-  "readinessGates": [
-    { "id": "R1", "owner": "C01", "status": "open" },
-    { "id": "R2", "owner": "C01", "status": "open" },
-    { "id": "R3", "owner": "C03", "status": "open" },
-    { "id": "R4", "owner": "C06", "status": "open" },
-    { "id": "R5", "owner": "C09", "status": "open" },
-    { "id": "R6", "owner": "C11", "status": "open" }
-  ],
+  "archiveManifest": "docs/product/history/20260919-superseded/manifest.json",
   "requiredGates": [
     "focused_tests",
     "live_dom",
@@ -28,112 +19,135 @@
     "performance",
     "review"
   ],
+  "executionOrder": [
+    "S01",
+    "S02",
+    "S03",
+    "S04",
+    "S05"
+  ],
   "workPackages": [
     {
-      "id": "C01",
-      "title": "Browse concepts and add only selected columns",
+      "id": "S01",
+      "title": "Add a real column from schema-derived choices",
       "status": "in_progress",
       "dependsOn": [],
-      "milestone": "M1",
-      "size": "large",
       "sourcePaths": [
+        "internal/fhir/schema/index.go",
+        "internal/fhir/semantic/walk.go",
         "internal/catalog/semantic.go",
-        "internal/catalog/arango/fields.go",
+        "internal/server/explorer_capability.go",
         "internal/explorer/capability/domain.go",
-        "ui/apps/demo/src/main.tsx",
+        "internal/dataframe/compiler/capability/probe.go",
+        "internal/explorer/lifecycle/semantic_catalog.go",
+        "internal/explorer/authoringv2/semantic_command.go",
+        "internal/dataframe/compiler/ir/physical_values.go",
+        "openapi/openapi.yaml",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
         "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ColumnSelector.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
       ],
       "tasks": [
         {
-          "id": "C01-01",
-          "title": "Build catalog and selected-columns entry",
-          "status": "planned"
+          "id": "S01-01",
+          "title": "Connect schema structure and owner-aware discovery",
+          "status": "accepted"
         },
         {
-          "id": "C01-02",
-          "title": "Page complete observed concepts beyond profiling caps",
+          "id": "S01-02",
+          "title": "Compile preserving records and construction choices",
+          "status": "accepted"
+        },
+        {
+          "id": "S01-03",
+          "title": "UI01: Ship Add columns, the visible table, and Column details through atomic authoring",
+          "status": "accepted"
+        },
+        {
+          "id": "S01-04",
+          "title": "Close UI01/J01 with generic and CDA columns; remove migrated branches",
           "status": "in_progress"
-        },
-        {
-          "id": "C01-03",
-          "title": "Add explicit selected candidates through atomic authoring commands",
-          "status": "planned"
-        },
-        {
-          "id": "C01-04",
-          "title": "Prove 1,000-concept discovery and three-column DOM journey",
-          "status": "planned"
         }
       ],
       "kpis": [
         {
-          "id": "K-C01-a",
+          "id": "K-S01-a",
           "result": "unmeasured"
         },
         {
-          "id": "K-C01-b",
+          "id": "K-S01-b",
           "result": "unmeasured"
         },
         {
-          "id": "K-C01-c",
+          "id": "K-S01-c",
           "result": "unmeasured"
         }
       ],
       "journeys": [
         "J01"
       ],
-      "evidence": ["docs/product/ml-dataframer/C01_INVENTORY_EVIDENCE.json"],
-      "verification": null
+      "evidence": [
+        ".artifacts/loom-dev/6d7df93d6a37/report.json",
+        ".artifacts/loom-dev/6d7df93d6a37/mu9738g1-0e4030ff/owner-record-evidence.html"
+      ],
+      "verification": {
+        "status": "partial",
+        "summary": "Schema-derived construction, generic coded values, OWNER_RECORDS compilation/trace, catalog-first UI, and the dedicated live repeated-record journey pass. Broader J01/CDA, three-column reload/export, latency, and final review remain."
+      }
     },
     {
-      "id": "C02",
-      "title": "Find and freeze the records to include",
+      "id": "S02",
+      "title": "Choose relationships automatically or author them in the graph",
       "status": "planned",
       "dependsOn": [
-        "C01"
+        "S01"
       ],
-      "milestone": "M1",
-      "size": "large",
       "sourcePaths": [
-        "internal/explorer/selection.go",
-        "internal/explorer/lifecycle/selection.go",
-        "internal/explorer/arango/selections.go",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx"
+        "internal/fhir/schema/traversals.go",
+        "internal/explorer/authoringv2/semantic_command.go",
+        "internal/dataframe/compiler/capability/probe.go",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/GuidedGraphWorkspace.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RouteExtensionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/routeActions.ts",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
       ],
       "tasks": [
         {
-          "id": "C02-01",
-          "title": "Browse authorized source records",
+          "id": "S02-01",
+          "title": "Generate compiler-checked relationship choices",
           "status": "planned"
         },
         {
-          "id": "C02-02",
-          "title": "Freeze raw-source membership and exclusions",
+          "id": "S02-02",
+          "title": "Resolve defaults and preserve explicit routes",
           "status": "planned"
         },
         {
-          "id": "C02-03",
-          "title": "Connect collections to row meaning and coverage",
+          "id": "S02-03",
+          "title": "UI02: Ship Inspect source, editable graph routes, and node-local code selection",
           "status": "planned"
         },
         {
-          "id": "C02-04",
-          "title": "Prove paging, scope, and immutable membership",
+          "id": "S02-04",
+          "title": "Close UI02/J02 with cancel/apply and editor parity; retire frontend planning",
           "status": "planned"
         }
       ],
       "kpis": [
         {
-          "id": "K-C02-a",
+          "id": "K-S02-a",
           "result": "unmeasured"
         },
         {
-          "id": "K-C02-b",
+          "id": "K-S02-b",
           "result": "unmeasured"
         },
         {
-          "id": "K-C02-c",
+          "id": "K-S02-c",
           "result": "unmeasured"
         }
       ],
@@ -144,54 +158,54 @@
       "verification": null
     },
     {
-      "id": "C03",
-      "title": "Recognize more concepts from FHIR and terminology definitions",
+      "id": "S03",
+      "title": "Define rows by records, groups, or expansion",
       "status": "planned",
       "dependsOn": [
-        "C01"
+        "S01"
       ],
-      "milestone": "M1",
-      "size": "large",
       "sourcePaths": [
-        "internal/ingest/source_schema.go",
-        "internal/fhir/schema/correlated.go",
-        "internal/catalog/semantic.go",
-        "internal/explorer/capability/domain.go",
-        "internal/explorer/compilation/correlated_test.go"
+        "internal/explorer/authoringv2/row_change.go",
+        "internal/explorer/authoringv2/semantic_types.go",
+        "internal/explorer/lifecycle/selection.go",
+        "internal/dataframe/compiler/lower/population.go",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PopulationPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangeRepairPanel.tsx"
       ],
       "tasks": [
         {
-          "id": "C03-01",
-          "title": "Import pinned supported definitions and terminology",
+          "id": "S03-01",
+          "title": "Model resource, grouped, and expanded rows",
           "status": "planned"
         },
         {
-          "id": "C03-02",
-          "title": "Resolve facts and compiler-checked bindings",
+          "id": "S03-02",
+          "title": "Compile row membership with column contributors",
           "status": "planned"
         },
         {
-          "id": "C03-03",
-          "title": "Expose enriched search, provenance, and definition retry",
+          "id": "S03-03",
+          "title": "UI03: Ship starting-record selection and Records/Groups/Expand controls",
           "status": "planned"
         },
         {
-          "id": "C03-04",
-          "title": "Prove automatic recognition and complete coverage accounting",
+          "id": "S03-04",
+          "title": "Close UI03/J03 with membership previews, cancel/apply, and reconstruction",
           "status": "planned"
         }
       ],
       "kpis": [
         {
-          "id": "K-C03-a",
+          "id": "K-S03-a",
           "result": "unmeasured"
         },
         {
-          "id": "K-C03-b",
+          "id": "K-S03-b",
           "result": "unmeasured"
         },
         {
-          "id": "K-C03-c",
+          "id": "K-S03-c",
           "result": "unmeasured"
         }
       ],
@@ -202,53 +216,53 @@
       "verification": null
     },
     {
-      "id": "C04",
-      "title": "Inspect and customize how selected columns are made",
+      "id": "S04",
+      "title": "Apply explicit typed transformations",
       "status": "planned",
       "dependsOn": [
-        "C03"
+        "S02",
+        "S03"
       ],
-      "milestone": "M2",
-      "size": "large",
       "sourcePaths": [
-        "internal/explorer/lifecycle/cell_trace.go",
         "internal/explorer/authoringv2/semantic_types.go",
+        "internal/explorer/compilation/interpretation.go",
         "internal/dataframe/compiler/lower/recipe_expression_lowering.go",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx"
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/InterpretationPanel.tsx"
       ],
       "tasks": [
         {
-          "id": "C04-01",
-          "title": "Show construction and worked source examples on demand",
+          "id": "S04-01",
+          "title": "UI04: Connect Values controls to compiler-supported typed operations",
           "status": "planned"
         },
         {
-          "id": "C04-02",
-          "title": "Resolve route and multiplicity choices without mandatory forms",
+          "id": "S04-02",
+          "title": "UI04: Connect Time and units controls and exact recoding",
           "status": "planned"
         },
         {
-          "id": "C04-03",
-          "title": "Add explicit reductions and requested secondary outputs",
+          "id": "S04-03",
+          "title": "UI04: Ship Table shape controls for explicit pivots and typed derived columns",
           "status": "planned"
         },
         {
-          "id": "C04-04",
-          "title": "Prove trace values and unaffected population",
+          "id": "S04-04",
+          "title": "Close UI04/J04 with before/after values, stable identities, and declared loss",
           "status": "planned"
         }
       ],
       "kpis": [
         {
-          "id": "K-C04-a",
+          "id": "K-S04-a",
           "result": "unmeasured"
         },
         {
-          "id": "K-C04-b",
+          "id": "K-S04-b",
           "result": "unmeasured"
         },
         {
-          "id": "K-C04-c",
+          "id": "K-S04-c",
           "result": "unmeasured"
         }
       ],
@@ -259,52 +273,60 @@
       "verification": null
     },
     {
-      "id": "C05",
-      "title": "Build time-aware measurements with explicit units",
+      "id": "S05",
+      "title": "Publish and export the exact constructed dataframe",
       "status": "planned",
       "dependsOn": [
-        "C04"
+        "S01",
+        "S02",
+        "S03",
+        "S04"
       ],
-      "milestone": "M2",
-      "size": "large",
       "sourcePaths": [
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/FeaturePolicyEditor.tsx",
-        "internal/explorer/capability/domain.go",
-        "internal/explorer/authoringv2/semantic_types.go"
+        "internal/explorer/output_contract.go",
+        "internal/dataframe/published/artifact.go",
+        "internal/dataframe/publication/runner.go",
+        "scripts/loom-dev.mjs",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/BuilderToolbar.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DataframeContractPanel.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/ViewerChrome.tsx",
+        "ui/packages/loom-ui/src/Viewer.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx",
+        "ui/packages/loom-ui/src/features/ExplorerViewer/CellExplanationDialog.tsx"
       ],
       "tasks": [
         {
-          "id": "C05-01",
-          "title": "Author date windows and anchors",
+          "id": "S05-01",
+          "title": "UI05: Connect Review dataset to pinned publication meaning",
           "status": "planned"
         },
         {
-          "id": "C05-02",
-          "title": "Expose backend-supported unit capabilities",
+          "id": "S05-02",
+          "title": "UI05: Ship explicit Download dataset representation and scope",
           "status": "planned"
         },
         {
-          "id": "C05-03",
-          "title": "Explain exclusions and conversions",
+          "id": "S05-03",
+          "title": "UI05: Expose complete checks and truthful publication progress/failure",
           "status": "planned"
         },
         {
-          "id": "C05-04",
-          "title": "Prove temporal, tie, and unit boundaries",
+          "id": "S05-04",
+          "title": "Close UI05/J05 and integrated CDA, browser, artifact, and performance acceptance",
           "status": "planned"
         }
       ],
       "kpis": [
         {
-          "id": "K-C05-a",
+          "id": "K-S05-a",
           "result": "unmeasured"
         },
         {
-          "id": "K-C05-b",
+          "id": "K-S05-b",
           "result": "unmeasured"
         },
         {
-          "id": "K-C05-c",
+          "id": "K-S05-c",
           "result": "unmeasured"
         }
       ],
@@ -313,438 +335,18 @@
       ],
       "evidence": [],
       "verification": null
-    },
-    {
-      "id": "C06",
-      "title": "Turn unresolved source data into reusable catalog entries",
-      "status": "planned",
-      "dependsOn": [
-        "C03"
-      ],
-      "milestone": "M3",
-      "size": "large",
-      "sourcePaths": [
-        "internal/catalog/semantic.go",
-        "internal/fhir/schema/correlated.go",
-        "internal/explorer/interpretation.go",
-        "internal/explorer/lifecycle/interpretation_preview.go",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/interpretationCandidate.ts"
-      ],
-      "tasks": [
-        {
-          "id": "C06-01",
-          "title": "Inventory unresolved raw structures before columns exist",
-          "status": "planned"
-        },
-        {
-          "id": "C06-02",
-          "title": "Create scoped checked bindings from observed nodes",
-          "status": "planned"
-        },
-        {
-          "id": "C06-03",
-          "title": "Preview and publish mappings into the catalog without columns",
-          "status": "planned"
-        },
-        {
-          "id": "C06-04",
-          "title": "Prove unmapped-to-catalog-to-selected-output reuse",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C06-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C06-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C06-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J06"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C07",
-      "title": "Recode values without confusing that with FHIR repair",
-      "status": "planned",
-      "dependsOn": [
-        "C06"
-      ],
-      "milestone": "M3",
-      "size": "large",
-      "sourcePaths": [
-        "internal/explorer/interpretation.go",
-        "internal/explorer/compilation/interpretation.go",
-        "internal/dataframe/compiler/lower/recipe_expression_lowering.go"
-      ],
-      "tasks": [
-        {
-          "id": "C07-01",
-          "title": "Define closed typed recoding",
-          "status": "planned"
-        },
-        {
-          "id": "C07-02",
-          "title": "Author exact categories and unknown policy",
-          "status": "planned"
-        },
-        {
-          "id": "C07-03",
-          "title": "Compile recoding through the existing execution path",
-          "status": "planned"
-        },
-        {
-          "id": "C07-04",
-          "title": "Prove mapping, reuse, and unchanged population",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C07-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C07-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C07-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J07"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C08",
-      "title": "Declare the dataframe's ML contract",
-      "status": "planned",
-      "dependsOn": [
-        "C04",
-        "C07"
-      ],
-      "milestone": "M4",
-      "size": "large",
-      "sourcePaths": [
-        "internal/explorer/authoringv2/semantic_types.go",
-        "internal/explorer/output_contract.go",
-        "internal/dataframe/published/artifact.go",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/DataframeContractPanel.tsx"
-      ],
-      "tasks": [
-        {
-          "id": "C08-01",
-          "title": "Model roles and representation with stable keys",
-          "status": "planned"
-        },
-        {
-          "id": "C08-02",
-          "title": "Author missingness policy",
-          "status": "planned"
-        },
-        {
-          "id": "C08-03",
-          "title": "Compile deterministic category and matrix outputs",
-          "status": "planned"
-        },
-        {
-          "id": "C08-04",
-          "title": "Explain eligibility and leakage limitations",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C08-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C08-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C08-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J08"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C09",
-      "title": "Check the complete population and repair problems in context",
-      "status": "planned",
-      "dependsOn": [
-        "C05",
-        "C06",
-        "C07",
-        "C08"
-      ],
-      "milestone": "M4",
-      "size": "large",
-      "sourcePaths": [
-        "internal/explorer/lifecycle/publish.go",
-        "internal/dataframe/publication/quality.go",
-        "internal/explorer/lifecycle/cell_trace.go",
-        "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx"
-      ],
-      "tasks": [
-        {
-          "id": "C09-01",
-          "title": "Separate checked candidate execution from activation",
-          "status": "planned"
-        },
-        {
-          "id": "C09-02",
-          "title": "Persist per-feature complete and failed evidence",
-          "status": "planned"
-        },
-        {
-          "id": "C09-03",
-          "title": "Build resumable Check and issue repair views",
-          "status": "planned"
-        },
-        {
-          "id": "C09-04",
-          "title": "Prove activation, cancellation, retries, and retention",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C09-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C09-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C09-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J09"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C10",
-      "title": "Reuse a dataframe without silently changing its meaning",
-      "status": "planned",
-      "dependsOn": [
-        "C09"
-      ],
-      "milestone": "M4",
-      "size": "medium",
-      "sourcePaths": [
-        "internal/explorer/lifecycle/authoring.go",
-        "internal/explorer/lifecycle/interpretation_library.go",
-        "internal/explorer/lifecycle/selection.go"
-      ],
-      "tasks": [
-        {
-          "id": "C10-01",
-          "title": "Copy definitions and pinned dependencies",
-          "status": "planned"
-        },
-        {
-          "id": "C10-02",
-          "title": "Resolve and compare a new generation",
-          "status": "planned"
-        },
-        {
-          "id": "C10-03",
-          "title": "Review and apply refresh through CAS",
-          "status": "planned"
-        },
-        {
-          "id": "C10-04",
-          "title": "Prove independent copies and retained publications",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C10-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C10-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C10-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J10"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C11",
-      "title": "Download a dataframe that loads correctly in Python",
-      "status": "planned",
-      "dependsOn": [
-        "C09",
-        "C10"
-      ],
-      "milestone": "M4",
-      "size": "medium",
-      "sourcePaths": [
-        "internal/explorer/lifecycle/artifact.go",
-        "internal/dataframe/published/artifact.go",
-        "ui/packages/loom-ui/src/Viewer.tsx"
-      ],
-      "tasks": [
-        {
-          "id": "C11-01",
-          "title": "Unify pinned export and explicit scope",
-          "status": "planned"
-        },
-        {
-          "id": "C11-02",
-          "title": "Version artifact roles, types, and provenance",
-          "status": "planned"
-        },
-        {
-          "id": "C11-03",
-          "title": "Provide an exact tested Python loading contract",
-          "status": "planned"
-        },
-        {
-          "id": "C11-04",
-          "title": "Prove values, integrity, retention, and limits",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C11-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C11-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C11-c",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J11"
-      ],
-      "evidence": [],
-      "verification": null
-    },
-    {
-      "id": "C12",
-      "title": "Prove the complete workflow on hostile and real study data",
-      "status": "planned",
-      "dependsOn": [
-        "C01",
-        "C02",
-        "C03",
-        "C04",
-        "C05",
-        "C06",
-        "C07",
-        "C08",
-        "C09",
-        "C10",
-        "C11"
-      ],
-      "milestone": "M4",
-      "size": "medium",
-      "sourcePaths": [
-        "scripts/loom-dev.mjs",
-        "scripts/verify-population-row-ui.mjs",
-        "scripts/verify-row-definition-ui.mjs",
-        "testdata/devloop-fixture/README.md"
-      ],
-      "tasks": [
-        {
-          "id": "C12-01",
-          "title": "Drive release journeys without hidden authoring",
-          "status": "planned"
-        },
-        {
-          "id": "C12-02",
-          "title": "Prepare a reproducible real-data subset",
-          "status": "planned"
-        },
-        {
-          "id": "C12-03",
-          "title": "Prove independent real-data research tasks",
-          "status": "planned"
-        },
-        {
-          "id": "C12-04",
-          "title": "Measure integrated functionality and responsiveness",
-          "status": "planned"
-        }
-      ],
-      "kpis": [
-        {
-          "id": "K-C12-a",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C12-b",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C12-c",
-          "result": "unmeasured"
-        },
-        {
-          "id": "K-C12-d",
-          "result": "unmeasured"
-        }
-      ],
-      "journeys": [
-        "J12"
-      ],
-      "evidence": [],
-      "verification": null
     }
   ],
-  "planRevision": 3,
-  "approach": "Recognize into a paged concept catalog; add only user-selected columns; inspect construction on demand; resolve unmapped source structures into reusable catalog entries.",
-  "executionOrder": [
-    "C01",
-    "C03",
-    "C02",
-    "C04",
-    "C05",
-    "C06",
-    "C07",
-    "C08",
-    "C09",
-    "C10",
-    "C11",
-    "C12"
+  "reusedImplementation": [
+    {
+      "description": "Generated FHIR index and owner-preserving walker; new production integration remains unaccepted",
+      "commit": "1301c3b30ceb26e4e37344b61afb890bd6d64564"
+    }
+  ],
+  "supersedes": [
+    "F1-F4",
+    "B01-B08",
+    "C01-C12",
+    "F00"
   ]
 }

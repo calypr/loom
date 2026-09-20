@@ -110,6 +110,13 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		}
 		projections = append(projections, pivotProjections...)
 	}
+	for _, ownerRecords := range child.OwnerRecords {
+		expression, err := physicalOwnerRecordsExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, ownerRecords)
+		if err != nil {
+			return ir.PhysicalSet{}, nil, err
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: traversalColumnName(projectionPrefix, ownerRecords.Name), Expression: &expression})
+	}
 	for _, slice := range child.Slices {
 		expression, err := physicalSliceExpression(physical, child.ResourceType, ir.PhysicalValue{Variable: set.Variable}, slice)
 		if err != nil {
@@ -133,7 +140,7 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		// deferred map, so projectPhysicalChildSet cannot discover its key/value
 		// selectors from the return projection list. Do not drop payload until a
 		// correlated pivot-specific projection contract exists.
-		if len(child.DynamicMaps) == 0 && len(child.Pivots) == 0 {
+		if len(child.DynamicMaps) == 0 && len(child.Pivots) == 0 && len(child.OwnerRecords) == 0 {
 			projectPhysicalChildSet(&set, child.ResourceType, projections)
 		} else {
 			set.Output = compactPhysicalSetOutput(child)
@@ -158,7 +165,7 @@ func compactPhysicalSetOutput(node semantic.SemanticNode) *ir.PhysicalSetOutput 
 		ir.PhysicalSetIDField,
 		ir.PhysicalSetResourceTypeField,
 	}
-	needsPayload := len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0
+	needsPayload := len(node.Fields) > 0 || len(node.Pivots) > 0 || len(node.OwnerRecords) > 0 || len(node.Slices) > 0 || len(node.DynamicMaps) > 0
 	if !needsPayload {
 		for _, aggregate := range node.Aggregates {
 			if aggregate.Selector != nil || aggregate.Predicate != nil {

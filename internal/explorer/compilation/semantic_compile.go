@@ -23,10 +23,11 @@ type semanticOccurrence struct {
 }
 
 type semanticRecipeNode struct {
-	fields     []recipe.Field
-	dynamics   []recipe.DynamicColumn
-	pivots     []recipe.Pivot
-	aggregates []recipe.Aggregate
+	fields       []recipe.Field
+	dynamics     []recipe.DynamicColumn
+	pivots       []recipe.Pivot
+	ownerRecords []recipe.OwnerRecordProjection
+	aggregates   []recipe.Aggregate
 }
 
 func compileSemanticDocument(ctx context.Context, project, explorerID string, document authoringv2.Document, snapshot capability.Snapshot) (Result, error) {
@@ -59,10 +60,16 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		alias := semanticAlias(column.OccurrenceID)
 		leaf := column.Column
 		logicalType := firstNonEmpty(column.LogicalType, "string")
+		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
+			logicalType = firstNonEmpty(column.Source.Lookup.Identifier.LogicalType, logicalType)
+		}
 		filterable, chartable := column.Filter != nil, column.Chart != nil
 		sourceJSON, _ := json.Marshal(column.Source.Normalized())
 		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+string(sourceJSON)+"\x00"+column.Column)
 		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode()), "FIRST")
+		if column.Source.Kind == authoringv2.SourceOwnerRecords {
+			projectionMode = string(capability.ConstructionChoiceOwnerRecords)
+		}
 		sourcePath := column.Source.FieldPath()
 		sourceRepeated := false
 		choiceArm := ""
@@ -158,34 +165,27 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		case authoringv2.SourceProjectID:
 			literal, _ := json.Marshal(project)
 			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
-		case authoringv2.SourceObservationComponentByCode:
-			pivot, pivotErr := semanticObservationPivot(column, alias, leaf)
+		case authoringv2.SourceCodedValue:
+			pivot, pivotErr := semanticCodedValuePivot(column, leaf)
 			if pivotErr != nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
-		case authoringv2.SourceCodingBySystem:
-			if column.Source.Lookup == nil || column.Source.Lookup.Binding == nil {
-				// Legacy coding lookups remain readable for old immutable recipes,
-				// but new writable correlated coding sources must use the typed
-				// binding path below.
-				dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
-				if dynamicErr != nil {
-					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
-				}
-				nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
-				break
+		case authoringv2.SourceOwnerRecords:
+			if column.Source.OwnerRecords == nil {
+				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), "owner-record source is missing its typed payload", nil, nil)
 			}
-			pivot, pivotErr := semanticCorrelatedCodingPivot(column, alias, leaf)
-			if pivotErr != nil {
-				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
-			}
-			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
+			ownerRecords := column.Source.OwnerRecords
+			nodes[column.OccurrenceID].ownerRecords = append(nodes[column.OccurrenceID].ownerRecords, recipe.OwnerRecordProjection{
+				Name: leaf, FieldRef: sourcePath, Binding: ownerRecords.Binding, Key: ownerRecords.Key,
+			})
+			logicalType = "object"
+			choiceArm = choiceArmForPath(ownerRecords.Binding.ValuePath)
 		case authoringv2.SourceExtensionByURL:
 			if column.Source.Lookup == nil || column.Source.Lookup.Extension == nil {
 				// Legacy extension lookups remain readable for immutable recipes;
 				// writable authoring commands reject this shape before compilation.
-				dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
+				dynamic, dynamicErr := semanticFixedLookup(column, occurrence.graph.ResourceType, alias, leaf, logicalType)
 				if dynamicErr != nil {
 					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
 				}
@@ -244,7 +244,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				sourcePath = "$resource"
 			}
 		default:
-			dynamic, dynamicErr := semanticFixedLookup(column, alias, leaf, logicalType)
+			dynamic, dynamicErr := semanticFixedLookup(column, occurrence.graph.ResourceType, alias, leaf, logicalType)
 			if dynamicErr != nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
 			}
@@ -267,6 +267,12 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 		emissionID := column.Column
 		shape := "scalar"
+		if column.Source.Kind == authoringv2.SourceOwnerRecords {
+			shape = "record_list"
+			structuralSuitability = "array"
+			lossless = true
+			lossReasons = nil
+		}
 		if column.Source.Kind == authoringv2.SourceField && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
 			shape = "array"
 			structuralSuitability = "array"
@@ -312,7 +318,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				lossless = true
 				lossReasons = nil
 			}
-		} else if column.Source.Kind != authoringv2.SourceProjectID {
+		} else if column.Source.Kind != authoringv2.SourceProjectID && column.Source.Kind != authoringv2.SourceOwnerRecords {
 			lossless = false
 			lossReasons = append(lossReasons, "RELATED_LOOKUP_REDUCTION")
 			structuralSuitability = "requires-review"
@@ -345,7 +351,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, CollisionPolicy: "error"}
 	output.Traversals = semanticTraversals(document.Route, occurrences, nodes)
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explorer_" + safeName(project) + "_" + safeName(explorerID), TranslationVersion: TranslationVersion, Outputs: []recipe.Output{output}}
 	if err := bundle.Validate(); err != nil {
@@ -490,17 +496,25 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 			}
 			graph = eligible[0]
 		} else {
-			matches := []capability.Edge{}
-			for _, candidate := range snapshot.Edges {
-				target, ok := snapshot.Node(candidate.ToNodeID)
-				if candidate.FromNodeID == parent.graph.ID && ok && target.ResourceType == route.ResourceType && candidate.Label == route.Relationship {
-					matches = append(matches, candidate)
+			var selected capability.Edge
+			if route.CatalogEdgeID != "" {
+				candidate, found := snapshot.Edge(route.CatalogEdgeID)
+				if !found || !semanticRouteEdgeMatches(snapshot, parent.graph, route, candidate) {
+					return fail("route", "STALE_ROUTE_EDGE", path+".catalogEdgeId", "pinned catalog edge does not identify the authored route step", map[string]any{"catalogEdgeId": route.CatalogEdgeID}, nil)
 				}
+				selected = candidate
+			} else {
+				matches := []capability.Edge{}
+				for _, candidate := range snapshot.Edges {
+					if semanticRouteEdgeMatches(snapshot, parent.graph, route, candidate) {
+						matches = append(matches, candidate)
+					}
+				}
+				if len(matches) != 1 {
+					return fail("route", "AMBIGUOUS_RELATIONSHIP", path+".relationship", "relationship must resolve to exactly one capability edge", map[string]any{"fromResourceType": parent.graph.ResourceType, "relationship": route.Relationship, "toResourceType": route.ResourceType, "matches": len(matches)}, nil)
+				}
+				selected = matches[0]
 			}
-			if len(matches) != 1 {
-				return fail("route", "AMBIGUOUS_RELATIONSHIP", path+".relationship", "relationship must resolve to exactly one capability edge", map[string]any{"fromResourceType": parent.graph.ResourceType, "relationship": route.Relationship, "toResourceType": route.ResourceType, "matches": len(matches)}, nil)
-			}
-			selected := matches[0]
 			if usedEdges[selected.ID] && !snapshot.Policy.Route.AllowsRepeatedEdges {
 				return fail("route", "REPEATED_EDGE_NOT_ALLOWED", path+".relationship", "route policy does not allow repeated edges", nil, nil)
 			}
@@ -534,6 +548,17 @@ func resolveSemanticRoute(document authoringv2.Document, snapshot capability.Sna
 	return result, order, nil
 }
 
+func semanticRouteEdgeMatches(snapshot capability.Snapshot, parent capability.Node, child authoringv2.RouteNode, edge capability.Edge) bool {
+	from, fromFound := snapshot.Node(edge.FromNodeID)
+	to, toFound := snapshot.Node(edge.ToNodeID)
+	direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+	return edge.ID != "" && edge.BlockedReason == "" && fromFound && toFound &&
+		edge.FromNodeID == parent.ID && from.ResourceType == parent.ResourceType &&
+		(edge.SourceResourceType == "" || edge.SourceResourceType == parent.ResourceType) &&
+		to.ResourceType == child.ResourceType && (edge.TargetResourceType == "" || edge.TargetResourceType == child.ResourceType) && edge.Label == child.Relationship &&
+		(direction == "" || direction == "INBOUND" || direction == "OUTBOUND")
+}
+
 func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]semanticOccurrence, nodes map[string]*semanticRecipeNode) []recipe.Traversal {
 	children := append([]authoringv2.RouteNode(nil), route.Children...)
 	sort.SliceStable(children, func(i, j int) bool { return children[i].OccurrenceID < children[j].OccurrenceID })
@@ -545,7 +570,7 @@ func semanticTraversals(route authoringv2.RouteNode, occurrences map[string]sema
 		if child.MatchMode.Normalized() == authoringv2.RouteMatchRequired {
 			matchMode = recipe.MatchRequired
 		}
-		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
+		result = append(result, recipe.Traversal{Name: recipeName(occurrence.edge.Label, occurrence.edge.ID), Alias: semanticAlias(child.OccurrenceID), ToResourceType: occurrence.graph.ResourceType, MatchMode: matchMode, Fields: node.fields, Pivots: node.pivots, OwnerRecords: node.ownerRecords, Aggregates: node.aggregates, DynamicColumns: node.dynamics, Traversals: semanticTraversals(child, occurrences, nodes)})
 	}
 	return result
 }
@@ -598,26 +623,36 @@ func containsProjectionMode(values []capability.ProjectionMode, want capability.
 	return false
 }
 
-func semanticFixedLookup(column authoringv2.Column, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
+func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, logicalType string) (recipe.DynamicColumn, error) {
 	empty := ""
 	fieldPath := strings.Trim(strings.TrimSpace(column.Source.FieldPath()), ".")
 	sourcePath, keyPath := "", ""
 	var value recipe.Expression
+	sourceKey := column.Source.LookupMatch()
 	switch column.Source.Kind {
 	case authoringv2.SourceIdentifierBySystem:
-		sourcePath, keyPath = firstNonEmpty(fieldPath, "identifier[]"), "item.system"
-		value = recipe.Expression{Select: "item.value"}
+		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
+			binding := *column.Source.Lookup.Identifier
+			checked, err := fhirschema.ValidateIdentifierBinding(resourceType, binding)
+			if err != nil {
+				return recipe.DynamicColumn{}, fmt.Errorf("identifier binding: %w", err)
+			}
+			sourcePath = checked.OwnerSelector.CanonicalPath()
+			keyPath = "item." + checked.SystemSelector.CanonicalPath()
+			value = recipe.Expression{Select: "item." + checked.ValueSelector.CanonicalPath()}
+			sourceKey = checked.SystemURI
+		} else {
+			sourcePath, keyPath = firstNonEmpty(fieldPath, "identifier[]"), "item.system"
+			value = recipe.Expression{Select: "item.value"}
+		}
 	case authoringv2.SourceExtensionByURL:
 		sourcePath, keyPath = firstNonEmpty(fieldPath, "extension[]"), "item.url"
 		value = coalesceString("item.valueString", "item.valueCode", "item.valueInteger", "item.valueDecimal", "item.valueBoolean", "item.valueDate", "item.valueDateTime", "item.valueUri")
-	case authoringv2.SourceCodingBySystem:
-		sourcePath, keyPath = firstNonEmpty(fieldPath, "code.coding[]"), "item.system"
-		value = coalesceString("item.display", "item.code")
 	default:
 		return recipe.DynamicColumn{}, fmt.Errorf("unsupported source kind %q", column.Source.Kind)
 	}
 	key := recipe.Expression{Select: keyPath}
-	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: column.Source.LookupMatch()}}, nil
+	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: sourceKey}}, nil
 }
 
 func semanticAggregate(column authoringv2.Column, alias, resourceType string, contributorWhere *recipe.Filter) (recipe.Aggregate, string, error) {
@@ -766,52 +801,6 @@ func contributorRecipeFilter(resourceType, alias string, candidate capability.Ca
 	return where, nil
 }
 
-func semanticObservationPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {
-	if column.Source.Lookup == nil {
-		return recipe.Pivot{}, fmt.Errorf("observation component lookup payload is required")
-	}
-	lookup := column.Source.Lookup
-	if lookup.Binding != nil {
-		if lookup.Key == nil {
-			return recipe.Pivot{}, fmt.Errorf("correlated observation component lookup key is required")
-		}
-		if strings.TrimSpace(column.Column) == "" {
-			return recipe.Pivot{}, fmt.Errorf("correlated observation component output column is required")
-		}
-		// Correlated pivots carry no legacy selector expressions. The checked
-		// binding is the sole provenance for key/value extraction; ColumnAliases
-		// preserves the authored public name independently of the terminology
-		// code (including codes containing punctuation).
-		return recipe.Pivot{
-			Name:              "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
-			Columns:           []string{lookup.Key.Code},
-			ColumnAliases:     map[string]string{lookup.Key.Code: leaf},
-			ProjectionMode:    recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode),
-			Correlation:       lookup.Binding,
-			CorrelationSystem: lookup.Key.System,
-			CorrelationCode:   lookup.Key.Code,
-		}, nil
-	}
-	match := lookup.Match
-	separator := "__" + match
-	if !strings.HasSuffix(leaf, separator) || strings.TrimSuffix(leaf, separator) == "" {
-		return recipe.Pivot{}, fmt.Errorf("observation component column %q must end with %q", column.Column, separator)
-	}
-	name := strings.TrimSuffix(leaf, separator)
-	sourcePath := firstNonEmpty(strings.Trim(strings.TrimSpace(lookup.Path), "."), "component[]")
-	prefix := alias + "." + sourcePath
-	pivot := recipe.Pivot{
-		Name:             name,
-		ColumnExpr:       recipe.Expression{Select: prefix + ".code.coding[].code"},
-		ValueExpr:        recipe.Expression{Select: prefix + ".valueString"},
-		ValueFallbacks:   []recipe.Expression{{Select: prefix + ".valueCodeableConcept.text"}, {Select: prefix + ".valueQuantity.value"}, {Select: prefix + ".valueInteger"}},
-		ItemSource:       recipe.Expression{Select: alias + "." + sourcePath},
-		ItemResourceType: "ObservationComponent",
-		Columns:          []string{match},
-	}
-	return pivot, nil
-}
-
 func semanticExtensionPivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
 	lookup := column.Source.Lookup
 	if lookup == nil || lookup.Extension == nil {
@@ -828,7 +817,7 @@ func semanticExtensionPivot(column authoringv2.Column, leaf string) (recipe.Pivo
 	}, nil
 }
 
-func semanticCorrelatedCodingPivot(column authoringv2.Column, alias, leaf string) (recipe.Pivot, error) {
+func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
 	lookup := column.Source.Lookup
 	if lookup == nil || lookup.Binding == nil || lookup.Key == nil {
 		return recipe.Pivot{}, fmt.Errorf("correlated coding lookup requires binding and key")

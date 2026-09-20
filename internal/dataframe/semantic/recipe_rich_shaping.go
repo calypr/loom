@@ -245,6 +245,31 @@ func cloneExtensionBinding(input *fhirschema.ExtensionBinding) *fhirschema.Exten
 	return &copy
 }
 
+func lowerRecipeOwnerRecords(resourceType string, inputs []recipe.OwnerRecordProjection) ([]SemanticOwnerRecords, error) {
+	result := make([]SemanticOwnerRecords, 0, len(inputs))
+	for index, input := range inputs {
+		path := fmt.Sprintf("ownerRecords[%d]", index)
+		if err := validateRecipeRichName(input.Name, path+".name"); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(input.Key.System) == "" || strings.TrimSpace(input.Key.Code) == "" {
+			return nil, fmt.Errorf("%s requires key.system and key.code", path)
+		}
+		checked, err := fhirschema.ValidateCorrelatedBinding(resourceType, input.Binding)
+		if err != nil {
+			return nil, fmt.Errorf("%s binding: %w", path, err)
+		}
+		if checked.OwnerSelector.CanonicalPath() == "" {
+			return nil, fmt.Errorf("%s binding ownerPath must select a repeated owner", path)
+		}
+		binding := input.Binding
+		binding.ValueFallback = append([]string(nil), input.Binding.ValueFallback...)
+		binding.ChoiceArms = append([]string(nil), input.Binding.ChoiceArms...)
+		result = append(result, SemanticOwnerRecords{Name: input.Name, FieldRef: input.FieldRef, Binding: binding, Key: input.Key})
+	}
+	return result, nil
+}
+
 func correlatedValueKind(logicalType string) expression.ValueKind {
 	switch strings.ToLower(strings.TrimSpace(logicalType)) {
 	case "boolean":

@@ -15,26 +15,28 @@ import {
   useLoomClient,
 } from '../../react';
 import type { ResourceRef, SelectionRevision } from '../../selection';
-import { canonicalProject, type ExplorerAuthoringApiError } from '../../api';
+import { canonicalProject, type ConfiguredColumnContextResponse, type ExplorerAuthoringApiError } from '../../api';
 import type {
   ExplorerAuthoringDiagnostic,
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
   ExplorerBuilderState,
+  ConstructionRouteStep,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../types';
 import { BuilderToolbar } from './components/BuilderToolbar';
 import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
+import { ConceptCatalog } from './components/ConceptCatalog';
+import { RowRootPicker } from './components/RowRootPicker';
 import { PreviewTable } from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
-import { InterpretationPanel } from './components/InterpretationPanel';
-import { resolveInterpretationBinding } from './authoring/interpretationCandidate';
+import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
   derivedOccurrences,
   intentFingerprint,
@@ -53,6 +55,8 @@ import {
 } from './authoring/previewRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
+import { sameConstructionRoute } from './populationRoutes';
+import type { CatalogChoiceIntent } from './catalogItems';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -124,6 +128,11 @@ type PendingRowChange = {
   readonly resolution: RowChangeResolution;
   readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
 };
+
+type InterpretationContextLoad =
+  | { readonly key: string; readonly status: 'loading' }
+  | { readonly key: string; readonly status: 'ready'; readonly response: ConfiguredColumnContextResponse }
+  | { readonly key: string; readonly status: 'error'; readonly message: string };
 
 const builderDataKeyFor = (
   ownerKey: string,
@@ -257,6 +266,7 @@ const BuilderWorkspaceContent = ({
   const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
+  const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const toolbarHost = usePortalHost('explorer-builder-toolbar-host');
   const [tableToolbarHost, setTableToolbarHost] = useState<HTMLElement | null>(
     null,
@@ -270,6 +280,8 @@ const BuilderWorkspaceContent = ({
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
+  const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
+  const [interpretationContextLoad, setInterpretationContextLoad] = useState<InterpretationContextLoad>();
 
   const serverDraftKey = useRef('');
   if (builder.data && serverDraftKey.current !== builderDataKey) {
@@ -279,6 +291,60 @@ const BuilderWorkspaceContent = ({
     };
     serverDraftKey.current = builderDataKey;
   }
+
+  const interpretationContextKey = state.catalog.snapshotToken && state.draftVersion > 0 && state.draftDigest
+    ? JSON.stringify([
+        ownerKey,
+        state.catalog.snapshotToken,
+        state.draftVersion,
+        state.draftDigest,
+        interpretationContextRefreshVersion,
+      ])
+    : '';
+  useEffect(() => {
+    if (!interpretationContextKey) {
+      setInterpretationContextLoad(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setInterpretationContextLoad({ key: interpretationContextKey, status: 'loading' });
+    void loomClient.resolveConfiguredColumnContexts({
+      project: projectId,
+      explorerId: selectedExplorerId,
+      authResourcePath,
+      snapshotToken: state.catalog.snapshotToken,
+      expectedDraftVersion: state.draftVersion,
+      expectedDraftDigest: state.draftDigest,
+    }, controller.signal).then(
+      (response) => {
+        if (!active) return;
+        setInterpretationContextLoad({ key: interpretationContextKey, status: 'ready', response });
+      },
+    ).catch((error: unknown) => {
+      if (!active || controller.signal.aborted) return;
+      setInterpretationContextLoad({
+        key: interpretationContextKey,
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Loom could not load interpretation context.',
+      });
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [authResourcePath, interpretationContextKey, loomClient, projectId, selectedExplorerId, state.catalog.snapshotToken, state.draftDigest, state.draftVersion]);
+
+  const interpretationPanelContextState: InterpretationContextState = !interpretationContextKey
+    ? { status: 'error', message: 'The saved draft identity is not available.' }
+    : interpretationContextLoad?.key !== interpretationContextKey || interpretationContextLoad.status === 'loading'
+      ? { status: 'loading' }
+      : interpretationContextLoad.status === 'ready'
+        ? { status: 'ready', response: interpretationContextLoad.response }
+        : { status: 'error', message: interpretationContextLoad.message };
+  const interpretationContext = interpretationPanelContextState.status === 'ready'
+    ? interpretationPanelContextState.response
+    : undefined;
 
   const selectExplorer = (nextExplorerId: string) => {
     compileGeneration.current += 1;
@@ -451,8 +517,32 @@ const BuilderWorkspaceContent = ({
   const occurrence = occurrences.find(
     (candidate) => candidate.id === state.selectedOccurrenceId,
   );
+  const selectedRouteContext = useMemo(() => {
+    if (!occurrence) return undefined;
+    return {
+      occurrenceId: occurrence.id,
+      nodeId: occurrence.nodeId,
+    };
+  }, [occurrence]);
+  const addSelectedFeatures = async (
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+  ) => {
+    if (!table) throw new Error('Choose a table before adding features.');
+    const applied = await applyCommands(selections.map((selection) => ({
+      type: 'APPLY_CONSTRUCTION_CHOICE',
+      outputId: table.outputId,
+      constructionChoice: selection.constructionChoice,
+      ...(selection.title ? { title: selection.title } : {}),
+    } satisfies ExplorerBuilderCommand)));
+    if (!applied) {
+      throw new Error('Loom did not add the selected features. Review the Builder message and try again.');
+    }
+  };
 
-  const excludePopulationMember = useCallback(async (ref: ResourceRef, edgeIds: ReadonlyArray<string>) => {
+  const excludePopulationMember = useCallback(async (
+    ref: ResourceRef,
+    route: ReadonlyArray<ConstructionRouteStep>,
+  ) => {
     const current = latestState.current;
     const currentTable = selectedTable(current);
     const baseSelection = activePopulationSelection;
@@ -471,11 +561,33 @@ const BuilderWorkspaceContent = ({
         exclusions: [ref],
         requestId: idempotencyKey,
       });
+      let cursor: string | undefined;
+      let routeChoiceId: string | undefined;
+      do {
+        const routes = await loomClient.searchPopulationRoutes({
+          project: projectId,
+          explorerId: current.explorerId,
+          authResourcePath,
+          snapshotToken: current.catalog.snapshotToken,
+          outputId: currentTable.outputId,
+          selectionRevisionId: variant.id,
+          limit: 50,
+          ...(cursor ? { cursor } : {}),
+          requestId: `population-routes-${window.crypto.randomUUID()}`,
+        });
+        routeChoiceId = routes.choices.find((choice) =>
+          sameConstructionRoute(choice.route, route),
+        )?.routeChoiceId;
+        cursor = routes.nextCursor;
+      } while (!routeChoiceId && cursor);
+      if (!routeChoiceId) {
+        throw new Error('Loom could not preserve this table connection for the revised collection.');
+      }
       const attached = await applyCommands([{
         type: 'SET_TABLE_POPULATION',
         outputId: currentTable.outputId,
         selectionRevisionId: variant.id,
-        edgeIds: [...edgeIds],
+        routeChoiceId,
       }]);
       if (!attached) throw new Error('Loom created the revised collection but could not attach it to this table.');
       setActivePopulationSelection(variant);
@@ -1133,7 +1245,7 @@ const BuilderWorkspaceContent = ({
       publishing={publishing}
       busy={busy}
       columnCreationSupported
-      tableToolbarHost={tableToolbarHost}
+      tableToolbarHost={featureMode === 'graph' ? tableToolbarHost : undefined}
     />
   );
 
@@ -1237,7 +1349,6 @@ const BuilderWorkspaceContent = ({
                   onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
                 />
                 <PopulationPanel
-                  catalog={state.catalog}
                   table={table}
                   selection={activePopulationSelection}
                   loading={populationSelectionLoading || activePopulationSelectionLoading}
@@ -1245,23 +1356,84 @@ const BuilderWorkspaceContent = ({
                   project={projectId}
                   explorerId={state.explorerId}
                   authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken}
                   receiptId={state.receipt?.receiptId}
                   disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onAttach={(edgeIds) => void applyCommands([{
+                  onAttach={(routeChoiceId) => void applyCommands([{
                     type: 'SET_TABLE_POPULATION',
                     outputId: table.outputId,
                     selectionRevisionId: activePopulationSelection?.id,
-                    edgeIds: [...edgeIds],
+                    routeChoiceId,
                   }])}
                   onClear={() => void applyCommands([{
                     type: 'CLEAR_TABLE_POPULATION',
                     outputId: table.outputId,
                   }])}
-                  onExclude={(ref, edgeIds) => void excludePopulationMember(ref, edgeIds)}
+                  onExclude={(ref, route) => void excludePopulationMember(ref, route)}
                 />
               </div>
             ) : null}
+            <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Build your features</h2>
+                  <p className="text-xs text-slate-600">
+                    Choose rows, then find fields or coded concepts. Open the graph when you need route control.
+                  </p>
+                </div>
+                <div
+                  className="inline-flex rounded-md border border-slate-300 bg-slate-50 p-1"
+                  aria-label="Feature authoring view"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={featureMode === 'catalog'}
+                    onClick={() => setFeatureMode('catalog')}
+                    className={`rounded px-3 py-1.5 text-sm font-semibold ${featureMode === 'catalog' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    Concept catalog
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={featureMode === 'graph'}
+                    onClick={() => setFeatureMode('graph')}
+                    className={`rounded px-3 py-1.5 text-sm font-semibold ${featureMode === 'graph' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    Advanced graph
+                  </button>
+                </div>
+              </div>
+            </section>
             <div className="grid items-stretch gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(28rem,0.95fr)]">
+              {featureMode === 'catalog' ? (
+                table?.document.rootResourceType ? (
+                  <ConceptCatalog
+                  key={`${ownerKey}:${state.catalog.snapshotToken}:${table.document.rootResourceType}`}
+                  project={projectId}
+                  explorerId={state.explorerId}
+                  authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken}
+                  outputId={table.outputId}
+                  rowRoot={table.document.rootResourceType}
+                  catalog={state.catalog}
+                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onAddSelected={addSelectedFeatures}
+                  />
+                ) : (
+                  <RowRootPicker
+                    catalog={state.catalog}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                    onChoose={(nodeId) => {
+                      if (!table) return;
+                      void applyCommands([{
+                        type: 'CREATE_TABLE',
+                        title: table.title,
+                        rootNodeId: nodeId,
+                      }]);
+                    }}
+                  />
+                )
+              ) : (
               <GuidedGraphWorkspace
                 catalog={state.catalog}
                 table={table}
@@ -1346,12 +1518,16 @@ const BuilderWorkspaceContent = ({
                 }}
                 onTableToolbarHostChange={setTableToolbarHost}
               />
+              )}
+              <div className="min-w-0 space-y-3">
               <ColumnSelector
                 catalog={state.catalog}
+                interpretationContext={interpretationContext}
                 table={table}
                 occurrenceId={state.selectedOccurrenceId}
                 focusColumn={focusedFeature && focusedFeature.table.outputId === table?.outputId ? focusedFeature.column.column : undefined}
                 disabled={!occurrence}
+                showAvailable={featureMode === 'graph'}
                 loadingCandidates={suggestionsStatus.isLoading}
                 onAdd={(candidate, displayName, initialPresentation) =>
                   table &&
@@ -1414,6 +1590,24 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
+                onInspectSource={(column) =>
+                  loomClient.inspectColumnSource({
+                    project: projectId,
+                    explorerId: state.explorerId,
+                    authResourcePath,
+                    snapshotToken: state.catalog.snapshotToken,
+                    outputId: table?.outputId ?? '',
+                    column: column.column,
+                    requestId: `column-source-${window.crypto.randomUUID()}`,
+                  })
+                }
+                onEditInGraph={(column) => {
+                  setFeatureMode('graph');
+                  dispatch({
+                    type: 'selectOccurrence',
+                    occurrenceId: column.occurrenceId,
+                  });
+                }}
                 onSourceChange={(column, source) =>
                   table &&
                   void applyCommands([
@@ -1442,7 +1636,31 @@ const BuilderWorkspaceContent = ({
                         },
                   ])
                 }
-              />
+                />
+                {featureMode === 'graph' && table && occurrence ? (
+                  selectedRouteContext ? (
+                    <ConceptCatalog
+                      key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${occurrence.id}`}
+                      project={projectId}
+                      explorerId={state.explorerId}
+                      authResourcePath={authResourcePath}
+                      snapshotToken={state.catalog.snapshotToken}
+                      outputId={table.outputId}
+                      rowRoot={table.document.rootResourceType}
+                      resourceType={occurrence.resourceType}
+                      routeContext={selectedRouteContext}
+                      layout="panel"
+                      catalog={state.catalog}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      onAddSelected={addSelectedFeatures}
+                    />
+                  ) : (
+                    <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                      Loom could not identify the saved route for this graph occurrence.
+                    </p>
+                  )
+                ) : null}
+              </div>
             </div>
             {table ? (
               <section className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/20 p-3">
@@ -1457,14 +1675,14 @@ const BuilderWorkspaceContent = ({
                       authResourcePath={authResourcePath}
                       outputId={table.outputId}
                       column={column}
-                      catalog={state.catalog}
+                      contextState={interpretationPanelContextState}
                       snapshotToken={state.catalog.snapshotToken}
-                      expectedDraftVersion={serverDraft.current.version}
-                      expectedDraftDigest={serverDraft.current.digest}
+                      expectedDraftVersion={state.draftVersion}
+                      expectedDraftDigest={state.draftDigest}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                      binding={resolveInterpretationBinding(column, state.catalog, occurrences.find((item) => item.id === column.occurrenceId)?.nodeId)}
                       onApply={(command) => applyCommands([command])}
                       onApplied={() => setMessage(undefined)}
+                      onContextRefresh={() => setInterpretationContextRefreshVersion((version) => version + 1)}
                     />
                   ))}
                 </div>

@@ -114,6 +114,13 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 		}
 		projections = append(projections, pivotProjections...)
 	}
+	for _, ownerRecords := range root.OwnerRecords {
+		expression, err := physicalOwnerRecordsExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, ownerRecords)
+		if err != nil {
+			return nil, err
+		}
+		projections = append(projections, ir.PhysicalProjection{Name: ownerRecords.Name, Expression: &expression})
+	}
 	for _, slice := range root.Slices {
 		expression, err := physicalSliceExpression(physical, root.ResourceType, ir.PhysicalValue{Variable: "root"}, slice)
 		if err != nil {
@@ -122,6 +129,29 @@ func rootPhysicalProjections(physical *ir.PhysicalPlan, root semantic.SemanticNo
 		projections = append(projections, ir.PhysicalProjection{Name: slice.Name, Expression: &expression})
 	}
 	return projections, nil
+}
+
+func physicalOwnerRecordsExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, operation semantic.SemanticOwnerRecords) (ir.PhysicalExpression, error) {
+	prefix := "owner_records_" + sanitizeColumnName(source.Variable) + "_" + sanitizeColumnName(operation.Name)
+	systemKey := prefix + "_system"
+	codeKey := prefix + "_code"
+	ownerPathKey := prefix + "_owner_path"
+	choiceArmKey := prefix + "_choice_arm"
+	logicalTypeKey := prefix + "_logical_type"
+	physical.BindVars[systemKey] = operation.Key.System
+	physical.BindVars[codeKey] = operation.Key.Code
+	physical.BindVars[ownerPathKey] = operation.Binding.OwnerPath
+	choiceArm := strings.TrimSuffix(strings.Split(operation.Binding.ValuePath, ".")[0], "[]")
+	physical.BindVars[choiceArmKey] = choiceArm
+	physical.BindVars[logicalTypeKey] = operation.Binding.LogicalType
+	correlation, err := LowerCorrelatedBinding(resourceType, operation.Binding, source, systemKey, codeKey)
+	if err != nil {
+		return ir.PhysicalExpression{}, fmt.Errorf("owner records %q: %w", operation.Name, err)
+	}
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalOwnerRecordsExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
+		OwnerRecords: &ir.PhysicalOwnerRecords{Correlation: correlation, OwnerPathBindKey: ownerPathKey, ChoiceArmBindKey: choiceArmKey, LogicalTypeBindKey: logicalTypeKey},
+	}, nil
 }
 
 func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, pivot semantic.SemanticPivot, prefix string) ([]ir.PhysicalProjection, error) {

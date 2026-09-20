@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
@@ -242,6 +242,26 @@ export const createVerificationReport = (target, scenario = 'builder-preview-pub
   limitations: [],
   timings: {},
   evidencePaths: [],
+});
+
+const routePathForEdgeIDs = (route, edgeIDs) => {
+  const visit = (node, path) => {
+    const next = node.catalogEdgeId ? [...path, node] : path;
+    if (next.length === edgeIDs.length && next.every((step, index) => step.catalogEdgeId === edgeIDs[index])) return next;
+    if (next.length >= edgeIDs.length) return undefined;
+    for (const child of node.children ?? []) {
+      const found = visit(child, next);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return route ? visit(route, []) : undefined;
+};
+
+export const draftFingerprint = (state) => JSON.stringify({
+  draftVersion: state.draftVersion,
+  draftDigest: state.draftDigest,
+  workspace: state.workspace,
 });
 
 const createVerificationTarget = (target, runID) => {
@@ -909,6 +929,597 @@ const findDownloadedArchive = async (directory, timeout = 30000) => {
   throw new Error('viewer did not download a training artifact');
 };
 
+const j02RouteAlternatives = async (target, explorerId, state, outputId, candidateId, limit, report, occurrenceId) => {
+  const url = `${bootstrapAuthoringURL(target, explorerId)}/construction-choices`;
+  const pages = [];
+  let cursor;
+  do {
+    const requestId = `j02-construction-${randomUUID()}`;
+    const body = {
+      snapshotToken: state.catalog.snapshotToken,
+      outputId,
+      source: { kind: 'FIELD', candidateId },
+      limit: pages.length === 0 ? limit : Math.max(limit, 50),
+      ...(occurrenceId ? { occurrenceId } : {}),
+      ...(cursor ? { cursor } : {}),
+    };
+    const { response, value } = await requestJSON(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+      body: JSON.stringify(body),
+      timeout: 30000,
+    });
+    report.requests.push({
+      requestId,
+      kind: 'construction-choices',
+      status: response.status,
+      request: body,
+      result: {
+        snapshotToken: value.snapshotToken,
+        outputId: value.outputId,
+        complete: value.complete,
+        truncated: value.truncated,
+        nextCursor: value.nextCursor,
+        choices: (value.choices ?? []).map((choice) => ({
+          choiceId: choice.choiceId,
+          source: choice.source,
+          route: choice.route,
+          summary: choice.presentation?.summary,
+          facts: choice.presentation?.facts,
+          forms: choice.options?.map((option) => ({ form: option.form, decision: option.decision })),
+        })),
+      },
+    });
+    if (!response.ok) throw new Error(`J02 construction-choice search returned HTTP ${response.status}: ${JSON.stringify(value).slice(0, 500)}`);
+    if (value.snapshotToken !== state.catalog.snapshotToken || value.outputId !== outputId) {
+      throw new Error('J02 construction-choice response changed its catalog or table identity');
+    }
+    if (value.complete === value.truncated || (value.nextCursor && !value.truncated)) {
+      throw new Error('J02 construction-choice response reported inconsistent completeness');
+    }
+    pages.push(value);
+    cursor = value.nextCursor;
+    if (pages.length >= 4) break;
+  } while (cursor);
+  const choices = pages.flatMap((page) => page.choices ?? []);
+  return { pages, choices };
+};
+
+const routeChoiceSignature = (choice) => JSON.stringify((choice.route ?? []).map((step) => [
+  step.edgeId,
+  step.fromResourceType,
+  step.relationship,
+  step.storageDirection,
+  step.toResourceType,
+]));
+
+const routeOccurrences = (root) => {
+  const result = [];
+  const visit = (node) => {
+    result.push(node);
+    for (const child of node.children ?? []) visit(child);
+  };
+  if (root) visit(root);
+  return result;
+};
+
+const verifyJ02BrowserScenario = async (target, report, entryTarget = target) => {
+  const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const evidenceDir = join(target.artifacts, runID);
+  const downloadDir = join(evidenceDir, 'downloads');
+  mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDir;
+  recordEvidence(report, evidenceDir);
+  report.requests = [];
+  report.actions = [];
+  report.sourceTuples = {};
+  report.literalValues = {};
+  const browser = await launchBrowser(downloadDir);
+  const cdp = browser.cdp;
+  const network = new Map();
+  const pendingNetworkBodies = new Set();
+  const captureCommandResult = async (item) => {
+    try {
+      const responseBody = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+      const parsed = JSON.parse(responseBody.base64Encoded ? Buffer.from(responseBody.body, 'base64').toString('utf8') : responseBody.body);
+      item.resultIdentity = {
+        commandId: parsed.commandId,
+        draftVersion: parsed.draftVersion,
+        draftDigest: parsed.draftDigest,
+        results: parsed.results,
+      };
+    } catch (error) {
+      item.resultIdentity = { unavailable: true, reason: String(error) };
+    }
+  };
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (!event.request.url.includes('/authoring/v2/')) return;
+    network.set(event.requestId, {
+      requestId: event.requestId,
+      url: new URL(event.request.url).pathname,
+      method: event.request.method,
+      xRequestId: event.request.headers?.['X-Request-ID'] ?? event.request.headers?.['x-request-id'],
+      postData: event.request.postData,
+      startedAtMs: event.wallTime ? Math.round(event.wallTime * 1000) : undefined,
+    });
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    const item = network.get(event.requestId);
+    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  });
+  cdp.on('Network.loadingFinished', (event) => {
+    const item = network.get(event.requestId);
+    if (!item) return;
+    item.finishedAt = Date.now();
+    if (!item.url.endsWith('/commands') || item.response?.status !== 200) return;
+    const capture = captureCommandResult(item).finally(() => pendingNetworkBodies.delete(capture));
+    pendingNetworkBodies.add(capture);
+  });
+  let explorerId = '';
+  let outputId = '';
+  let candidate = undefined;
+  const action = async (name, operation) => {
+    const started = Date.now();
+    await operation();
+    report.actions.push({ name, elapsedMs: Date.now() - started });
+    report.timings[`j02_${name.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}_ms`] = Date.now() - started;
+  };
+  const readState = async () => fetchBuilderState(target, explorerId);
+  const waitForState = async (predicate, label, timeout = 30000) => {
+    const started = Date.now();
+    let state;
+    while (Date.now() - started < timeout) {
+      state = await readState();
+      if (predicate(state)) return state;
+      await sleep(200);
+    }
+    throw new Error(`timed out waiting for J02 Builder state: ${label}; draft=${state?.draftVersion}`);
+  };
+  const captureDOM = async (name) => {
+    const path = join(evidenceDir, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+  };
+  const clickGraphNode = async (nodeId) => browserEval(cdp, `
+    const node = [...document.querySelectorAll('.react-flow__node')].find((candidate) => candidate.dataset.id === ${JSON.stringify(nodeId)});
+    if (!node) throw new Error('graph node not found: ' + ${JSON.stringify(nodeId)});
+    node.scrollIntoView({ block: 'center' });
+    node.click();
+  `);
+  const selectTraversalOccurrence = async (document, occurrenceId) => {
+    if (!routeOccurrences(document.route).some((occurrence) => occurrence.occurrenceId === occurrenceId)) {
+      throw new Error(`J02 route occurrence is missing from the traversal: ${occurrenceId}`);
+    }
+    const encodedOccurrenceId = JSON.stringify(occurrenceId);
+    await waitForBrowser(cdp, `[...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].some((button) => button.dataset.occurrenceId === ${encodedOccurrenceId})`);
+    await browserEval(cdp, `
+      const nav = document.querySelector('nav[aria-label="Current traversal"]');
+      const button = [...(nav?.querySelectorAll('button[data-occurrence-id]') || [])]
+        .find((candidate) => candidate.dataset.occurrenceId === ${encodedOccurrenceId});
+      if (!button) throw new Error('traversal occurrence is missing: ' + ${encodedOccurrenceId});
+      if (!button.parentElement?.className.includes('bg-blue-600')) button.click();
+    `);
+    await waitForBrowser(cdp, `[...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].some((button) => button.dataset.occurrenceId === ${encodedOccurrenceId} && button.parentElement?.className.includes('bg-blue-600'))`);
+  };
+  const waitForRoutePrefix = async (state, edgeIDs, label) => waitForState((next) => {
+    const document = next.workspace?.documents?.find((item) => item.output?.id === outputId);
+    return Boolean(routePathForEdgeIDs(document?.route, edgeIDs));
+  }, label);
+  const saveScreenshot = async (name) => {
+    const image = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const path = join(evidenceDir, `${name}.png`);
+    writeFileSync(path, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, path);
+  };
+
+  try {
+    const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.bootstrapExplorerId)}&mode=builder`;
+    await navigate(cdp, entryTarget.uiUrl);
+    await navigate(cdp, browserURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await action('create_editor_identity_through_dom', async () => {
+      const title = `J02 ${target.fixtureProject.slice(-18)}`;
+      await browserEval(cdp, `clickText('summary', 'New explorer')`);
+      await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
+      await browserEval(cdp, `clickButton('Create blank')`);
+      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
+      explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+      if (!explorerId) throw new Error('J02 blank Explorer was not selected in the Builder');
+      report.target.j02ExplorerId = explorerId;
+    });
+    await action('create_patient_table_through_dom', async () => {
+      await browserEval(cdp, `setInput('first-table-name', 'J02 patient routes')`);
+      await browserEval(cdp, `clickButton('Create table')`);
+      await waitForBrowser(cdp, `document.querySelector('button[aria-label="Choose Patient rows"]') && document.body.innerText.includes('What should one row represent?')`);
+      await browserEval(cdp, `clickButton('Choose Patient rows')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+      const state = await waitForState((value) => value.workspace?.documents?.length === 1 && value.workspace.documents[0].rootResourceType === 'Patient', 'Patient row root');
+      outputId = state.workspace.documents[0].output.id;
+      report.target.outputId = outputId;
+    });
+    await captureDOM('j02-catalog-initial');
+
+    let state = await readState();
+    const resourceByNode = new Map(state.catalog.nodes.map((node) => [node.nodeId, node.resourceType]));
+    candidate = state.catalog.candidates.find((item) => {
+      const node = state.catalog.nodes.find((value) => value.nodeId === item.nodeId);
+      return node?.resourceType === 'DiagnosticReport' && item.fieldPath.replace(/^root\./, '') === 'status';
+    });
+    if (!candidate?.candidateId) throw new Error('J02 schema catalog lacks DiagnosticReport.status for the related-column route-choice proof');
+    report.target.catalogCandidateId = candidate.candidateId;
+    const choiceSearch = await j02RouteAlternatives(target, explorerId, state, outputId, candidate.candidateId, 1, report);
+    const firstPage = choiceSearch.pages[0];
+    const choices = choiceSearch.choices;
+    const directChoice = choices.find((choice) => choice.route.length === 1
+      && choice.route[0].fromResourceType === 'Patient'
+      && choice.route[0].toResourceType === 'DiagnosticReport'
+      && choice.route[0].relationship === 'subject_Patient');
+    const distinctRouteSignatures = [...new Set(choices.map(routeChoiceSignature))];
+    recordAssertion(report, 'j02-limited-route-search-reports-honest-truncation-and-cursor', true,
+      firstPage.complete === false && firstPage.truncated === true && Boolean(firstPage.nextCursor)
+      && firstPage.choices.length === 1 && choices.length >= 2);
+    recordAssertion(report, 'j02-catalog-preserves-semantically-distinct-source-routes', true,
+      Boolean(directChoice && distinctRouteSignatures.length >= 2));
+    if (!directChoice) throw new Error('J02 route search did not return the direct DiagnosticReport.subject route needed for source inspection');
+    report.sourceTuples.catalogAlternatives = choices.map((choice) => ({
+      choiceId: choice.choiceId,
+      tuple: choice.route.map((step) => ({
+        catalogEdgeId: step.edgeId,
+        fromResourceType: step.fromResourceType,
+        relationship: step.relationship,
+        storageDirection: step.storageDirection,
+        toResourceType: step.toResourceType,
+      })),
+    }));
+
+    await action('cancel_catalog_route_choice_without_draft_mutation', async () => {
+      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'status')`);
+      await browserEval(cdp, `clickButton('Search')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select DiagnosticReport.status"]:not(:disabled)'))`);
+      await browserEval(cdp, `const input = inputByLabel('Select DiagnosticReport.status'); if (!input) throw new Error('DiagnosticReport.status is unavailable in Concept catalog'); input.click();`);
+      const beforeCancel = await readState();
+      const beforeBytes = draftFingerprint(beforeCancel);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      await captureDOM('j02-catalog-route-choice-before-cancel');
+      await browserEval(cdp, `
+        const dialog = document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]');
+        const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => norm(candidate.textContent) === 'Cancel');
+        if (!button) throw new Error('catalog route-choice cancel control is missing');
+        button.click();
+      `);
+      await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="catalog-selection-dialog-title"]')`);
+      const afterCancel = await readState();
+      recordAssertion(report, 'j02-catalog-choice-cancel-is-byte-identical-draft', beforeBytes, draftFingerprint(afterCancel));
+      report.target.cancelDraftBytes = Buffer.byteLength(beforeBytes, 'utf8');
+      await captureDOM('j02-catalog-after-cancel');
+    });
+
+    const validForm = directChoice.options.find((option) => option.decision === 'DEFAULT')?.form ?? directChoice.options[0]?.form;
+    if (!validForm) throw new Error('J02 direct route has no compiler-proved output form');
+    await action('reject_tampered_route_choice_without_partial_mutation', async () => {
+      const before = await readState();
+      const beforeBytes = draftFingerprint(before);
+      const requestId = `j02-tampered-${randomUUID()}`;
+      const commandId = randomUUID();
+      const body = {
+        commandId,
+        semanticsVersion: 6,
+        snapshotToken: before.catalog.snapshotToken,
+        expectedDraftVersion: before.draftVersion,
+        expectedDraftDigest: before.draftDigest,
+        commands: [{
+          type: 'APPLY_CONSTRUCTION_CHOICE',
+          outputId,
+          constructionChoice: { choiceId: `${directChoice.choiceId}.tampered`, form: validForm },
+          title: 'J02 tampered route must not apply',
+        }],
+      };
+      const { response, value } = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+        body: JSON.stringify(body),
+        timeout: 30000,
+      });
+      const after = await readState();
+      report.requests.push({
+        requestId,
+        kind: 'negative-tampered-route-choice',
+        commandId,
+        status: response.status,
+        error: value,
+        draftBefore: { version: before.draftVersion, digest: before.draftDigest },
+        draftAfter: { version: after.draftVersion, digest: after.draftDigest },
+      });
+      recordAssertion(report, 'j02-tampered-route-choice-rejected-as-client-error', true,
+        response.status >= 400 && response.status < 500);
+      recordAssertion(report, 'j02-tampered-route-choice-has-no-partial-mutation', beforeBytes, draftFingerprint(after));
+    });
+
+    await action('apply_related_column_from_catalog', async () => {
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
+      const currentChoices = await j02RouteAlternatives(target, explorerId, await readState(), outputId, candidate.candidateId, 50, report);
+      const selectedIndex = currentChoices.choices.findIndex((choice) => choice.choiceId === directChoice.choiceId);
+      if (selectedIndex < 0) throw new Error('J02 direct route choice identity changed between catalog review and apply');
+      if (selectedIndex >= 50) throw new Error('J02 direct route choice is beyond the Concept catalog route-choice page');
+      if (currentChoices.choices.length > 1) {
+        const label = `${candidate.label.trim() || candidate.fieldPath} route ${selectedIndex + 1}: ${directChoice.presentation.summary}`;
+        await browserEval(cdp, `const radio = [...document.querySelectorAll('input[type="radio"][aria-label]')].find((input) => input.getAttribute('aria-label').endsWith(${JSON.stringify(label)})); if (!radio) throw new Error('direct related route radio is missing'); radio.click();`);
+      } else if (routeChoiceSignature(currentChoices.choices[0]) !== routeChoiceSignature(directChoice)) {
+        throw new Error('J02 single catalog choice is not the expected direct source route');
+      }
+      const formOption = directChoice.options.find((option) => option.form === validForm);
+      const formLabel = validForm === 'OWNER_RECORDS'
+        ? 'Keep each matching record'
+        : `${formOption.shape} · ${formOption.preservation} · ${validForm}`;
+      const formRadio = `${candidate.label.trim() || candidate.fieldPath}: ${formLabel}`;
+      await browserEval(cdp, `const form = [...document.querySelectorAll('input[type="radio"][aria-label]')].find((input) => input.getAttribute('aria-label') === ${JSON.stringify(formRadio)}); if (form && !form.checked) form.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      state = await waitForState((value) => value.workspace?.documents?.[0]?.columns?.some((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'status'), 'catalog related column');
+      const doc = state.workspace.documents.find((value) => value.output?.id === outputId);
+      const column = doc.columns.find((value) => value.source?.kind === 'field' && value.source.field.path.replace(/^root\./, '') === 'status');
+      const pinnedChoices = await j02RouteAlternatives(target, explorerId, state, outputId, candidate.candidateId, 50, report, column.occurrenceId);
+      const pinnedPage = pinnedChoices.pages[0];
+      recordAssertion(report, 'j02-pinned-occurrence-route-search-is-complete', {
+        complete: true, truncated: false, nextCursor: undefined, routeCount: 1,
+      }, {
+        complete: pinnedPage.complete, truncated: pinnedPage.truncated, nextCursor: pinnedPage.nextCursor,
+        routeCount: pinnedPage.choices.length,
+      });
+      recordAssertion(report, 'j02-pinned-occurrence-search-matches-saved-choice', directChoice.choiceId,
+        pinnedPage.choices[0]?.choiceId);
+      report.target.relatedColumnId = column.column;
+      recordAssertion(report, 'j02-concept-catalog-adds-related-column-without-graph', true,
+        column.occurrenceId !== 'base' && !(await evaluate(cdp, `Boolean(document.querySelector('.react-flow__node'))`)));
+      await captureDOM('j02-related-column-catalog');
+    });
+
+    let savedState = await readState();
+    let savedDoc = savedState.workspace.documents.find((value) => value.output?.id === outputId);
+    let savedColumn = savedDoc.columns.find((value) => value.column === report.target.relatedColumnId);
+    const columnSourceRequestId = `j02-column-source-${randomUUID()}`;
+    const columnSourceBody = { snapshotToken: savedState.catalog.snapshotToken, outputId, column: savedColumn.column };
+    const columnSource = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/column-source`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': columnSourceRequestId },
+      body: JSON.stringify(columnSourceBody),
+      timeout: 30000,
+    });
+    if (!columnSource.response.ok) throw new Error(`J02 source inspection returned HTTP ${columnSource.response.status}`);
+    report.requests.push({ requestId: columnSourceRequestId, kind: 'column-source', status: columnSource.response.status, request: columnSourceBody, result: columnSource.value });
+    const inspectedStep = columnSource.value.route.find((step) => step.resourceType === 'DiagnosticReport');
+    recordAssertion(report, 'j02-source-inspector-exposes-exact-related-route-and-inbound-direction', {
+      resourceType: 'DiagnosticReport', relationship: 'subject_Patient', storageDirection: 'INBOUND',
+    }, {
+      resourceType: inspectedStep?.resourceType,
+      relationship: inspectedStep?.relationship,
+      storageDirection: inspectedStep?.storageDirection,
+    });
+    report.sourceTuples.catalogColumn = {
+      column: savedColumn.column,
+      source: columnSource.value,
+      route: columnSource.value.route,
+    };
+    await browserEval(cdp, `clickButton('Inspect source')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Source for status"]'))`);
+    const visibleSource = await evaluate(cdp, `document.querySelector('[aria-label="Source for status"]')?.innerText || ''`);
+    if (!visibleSource.includes('subject_Patient') || !visibleSource.includes('inbound')) throw new Error('J02 source inspector DOM omitted the exact relationship or stored direction');
+    await captureDOM('j02-source-inspector');
+    await action('edit_saved_occurrence_in_graph', async () => {
+      await browserEval(cdp, `clickButton('Edit in graph')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('.react-flow__node')) && Boolean(document.querySelector('input[aria-label="Display name for configured status"]')) && Boolean([...document.querySelectorAll('nav[aria-label="Current traversal"] [data-traversal-label]')].find((label) => label.parentElement?.className.includes('bg-blue-600') && label.textContent.includes('DiagnosticReport'))) `);
+      recordAssertion(report, 'j02-edit-in-graph-focuses-saved-column-occurrence', true,
+        await evaluate(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured status"]')) && [...document.querySelectorAll('nav[aria-label="Current traversal"] [data-traversal-label]')].some((label) => label.parentElement?.className.includes('bg-blue-600') && label.textContent.includes('DiagnosticReport'))`));
+      await captureDOM('j02-edit-in-graph-focus');
+    });
+
+    const chain = [
+      ['Patient', 'Group', 'member_entity_Patient'],
+      ['Group', 'Specimen', 'subject_Group'],
+      ['Specimen', 'Observation', 'specimen_Specimen'],
+      ['Observation', 'DiagnosticReport', 'result'],
+      ['DiagnosticReport', 'ResearchStudy', 'result_DiagnosticReport'],
+    ];
+    const exactEdges = chain.map(([fromType, toType, label]) => {
+      const matches = savedState.catalog.edges.filter((edge) =>
+        resourceByNode.get(edge.fromNodeId) === fromType
+        && resourceByNode.get(edge.toNodeId) === toType
+        && edge.label === label,
+      );
+      if (matches.length !== 1) throw new Error(`J02 schema-backed graph edge is not unique: ${fromType} --${label}--> ${toType} (matches=${matches.length})`);
+      return { ...matches[0], fromResourceType: fromType, toResourceType: toType, relationship: label };
+    });
+    report.target.explicitChain = exactEdges;
+    await action('author_five_edge_route_through_graph_dom', async () => {
+      const patientNode = savedState.catalog.nodes.find((node) => node.resourceType === 'Patient' && node.rowRootEligible);
+      if (!patientNode) throw new Error('J02 Patient row node disappeared from the graph catalog');
+      await clickGraphNode(patientNode.nodeId);
+      await selectTraversalOccurrence(savedDoc, savedDoc.route.occurrenceId);
+      const expectedEdgeIDs = [];
+      for (const edge of exactEdges) {
+        expectedEdgeIDs.push(edge.edgeId);
+        const prefix = [...expectedEdgeIDs];
+        await clickGraphNode(edge.toNodeId);
+        let stateAfterClick;
+        let routeAdded = false;
+        let panelReady = false;
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          stateAfterClick = await readState();
+          const currentDocument = stateAfterClick.workspace?.documents?.find((item) => item.output?.id === outputId);
+          routeAdded = Boolean(routePathForEdgeIDs(currentDocument?.route, prefix));
+          if (routeAdded) break;
+          panelReady = await evaluate(cdp, `Boolean(document.querySelector('select[aria-label="Relationship to add"]') || document.querySelector('button') && [...document.querySelectorAll('button')].some((button) => ['Add branch', 'Add traversal'].includes(button.textContent.trim())))`);
+          if (panelReady) break;
+          await sleep(200);
+        }
+        if (!routeAdded) {
+          if (!panelReady) throw new Error(`graph did not offer ${edge.fromResourceType} --${edge.relationship}--> ${edge.toResourceType}`);
+          await browserEval(cdp, `
+            const select = document.querySelector('select[aria-label="Relationship to add"]');
+            if (select) {
+              const option = [...select.options].find((candidate) => candidate.value === ${JSON.stringify(edge.edgeId)});
+              if (!option) throw new Error('expected relationship edge is not offered: ' + ${JSON.stringify(edge.edgeId)});
+              select.value = option.value;
+              select.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const button = [...document.querySelectorAll('button')].find((candidate) => ['Add branch', 'Add traversal'].includes(norm(candidate.textContent)));
+            if (!button || button.disabled) throw new Error('graph add traversal control is unavailable');
+            button.click();
+          `);
+          stateAfterClick = await waitForRoutePrefix(stateAfterClick, prefix, `${edge.relationship} route edge`);
+        }
+        const currentDocument = stateAfterClick.workspace.documents.find((item) => item.output?.id === outputId);
+        const exactPath = routePathForEdgeIDs(currentDocument.route, expectedEdgeIDs);
+        if (!exactPath) throw new Error(`J02 route did not persist the expected exact prefix: ${expectedEdgeIDs.join(',')}`);
+        await selectTraversalOccurrence(currentDocument, exactPath.at(-1).occurrenceId);
+        report.sourceTuples[`graphHop${expectedEdgeIDs.length}`] = {
+          catalogEdgeId: edge.edgeId,
+          fromResourceType: edge.fromResourceType,
+          relationship: edge.relationship,
+          toResourceType: edge.toResourceType,
+          draftVersion: stateAfterClick.draftVersion,
+          draftDigest: stateAfterClick.draftDigest,
+        };
+      }
+      const completed = await waitForRoutePrefix(await readState(), expectedEdgeIDs, 'five-edge J02 route');
+      const completedDoc = completed.workspace.documents.find((item) => item.output?.id === outputId);
+      const completedPath = routePathForEdgeIDs(completedDoc.route, exactEdges.map((edge) => edge.edgeId));
+      recordAssertion(report, 'j02-graph-authors-exact-five-schema-edges', exactEdges.map((edge) => edge.edgeId), completedPath?.map((step) => step.catalogEdgeId));
+      report.target.explicitRouteOccurrenceId = completedPath.at(-1).occurrenceId;
+      await captureDOM('j02-graph-five-edge-route');
+    });
+
+    let graphState = await readState();
+    let graphDocument = graphState.workspace.documents.find((item) => item.output?.id === outputId);
+    const studyPath = routePathForEdgeIDs(graphDocument.route, exactEdges.map((edge) => edge.edgeId));
+    if (!studyPath?.length) throw new Error('J02 five-edge route does not resolve to its ResearchStudy occurrence');
+    await selectTraversalOccurrence(graphDocument, studyPath.at(-1).occurrenceId);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('input[aria-label="Select ResearchStudy.title"]'))`);
+    const studyNodeID = exactEdges.at(-1).toNodeId;
+    const studyCandidate = graphState.catalog.candidates.find((item) =>
+      item.nodeId === studyNodeID && item.fieldPath.replace(/^root\./, '') === 'title');
+    if (!studyCandidate?.candidateId) throw new Error('J02 node-local catalog has no ResearchStudy.title field candidate');
+    await action('select_node_local_field_at_reached_research_study', async () => {
+      await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'title')`);
+      await browserEval(cdp, `clickButton('Search')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select ResearchStudy.title"]:not(:disabled)'))`);
+      await browserEval(cdp, `const input = inputByLabel('Select ResearchStudy.title'); if (!input) throw new Error('ResearchStudy.title is unavailable in the node-local catalog'); input.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      const hasDialog = await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') || document.querySelector('input[aria-label="Display name for configured title"]'))`).then(() => evaluate(cdp, `Boolean(document.querySelector('[role="dialog"]'))`));
+      if (hasDialog) {
+        await captureDOM('j02-node-local-output-form');
+        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      }
+      graphState = await waitForState((value) => value.workspace?.documents?.find((doc) => doc.output?.id === outputId)?.columns?.some((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'title'), 'node-local ResearchStudy.title column');
+      graphDocument = graphState.workspace.documents.find((item) => item.output?.id === outputId);
+      const titleColumn = graphDocument.columns.find((column) => column.source?.kind === 'field' && column.source.field.path.replace(/^root\./, '') === 'title');
+      if (titleColumn.occurrenceId !== studyPath.at(-1).occurrenceId) throw new Error('J02 node-local field was not pinned to the reached ResearchStudy occurrence');
+      report.target.titleColumnId = titleColumn.column;
+      recordAssertion(report, 'j02-node-local-catalog-selects-field-on-reached-resource', studyPath.at(-1).occurrenceId, titleColumn.occurrenceId);
+      await captureDOM('j02-node-local-title-applied');
+    });
+
+    const studyTitleColumn = graphDocument.columns.find((column) => column.column === report.target.titleColumnId);
+    const sourceRequestId = `j02-explicit-source-${randomUUID()}`;
+    const sourceBody = { snapshotToken: graphState.catalog.snapshotToken, outputId, column: studyTitleColumn.column };
+    const sourceResponse = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/column-source`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': sourceRequestId },
+      body: JSON.stringify(sourceBody),
+      timeout: 30000,
+    });
+    if (!sourceResponse.response.ok) throw new Error(`J02 explicit source inspection returned HTTP ${sourceResponse.response.status}`);
+    report.requests.push({ requestId: sourceRequestId, kind: 'explicit-column-source', status: sourceResponse.response.status, request: sourceBody, result: sourceResponse.value });
+    const expectedChainIDs = exactEdges.map((edge) => edge.edgeId);
+    const savedTitleIDs = sourceResponse.value.route.flatMap((step) => step.catalogEdgeId ? [step.catalogEdgeId] : []);
+    recordAssertion(report, 'j02-exact-explicit-catalog-edge-sequence-is-saved', expectedChainIDs, savedTitleIDs);
+    const explicitDirections = sourceResponse.value.route.filter((step) => step.catalogEdgeId).map((step) => step.storageDirection);
+    recordAssertion(report, 'j02-five-edge-route-reports-real-inbound-storage-directions', true,
+      explicitDirections.length === 5 && explicitDirections.every((direction) => direction === 'INBOUND'));
+    report.sourceTuples.explicitTitle = {
+      column: studyTitleColumn.column,
+      occurrenceId: studyTitleColumn.occurrenceId,
+      route: sourceResponse.value.route,
+      facts: sourceResponse.value.facts,
+      summary: sourceResponse.value.summary,
+    };
+
+    const beforeViewSwitch = draftFingerprint(graphState);
+    await action('switch_catalog_and_graph_views_without_mutation', async () => {
+      await browserEval(cdp, `clickButton('Concept catalog')`);
+      await waitForBrowser(cdp, `!document.querySelector('.react-flow__node') && Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+      await captureDOM('j02-catalog-view');
+      await browserEval(cdp, `clickButton('Advanced graph')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('.react-flow__node')) && document.body.innerText.includes('Dataset graph')`);
+      await captureDOM('j02-graph-view');
+      const afterViewSwitch = await readState();
+      recordAssertion(report, 'j02-catalog-graph-view-switch-preserves-draft-bytes', beforeViewSwitch, draftFingerprint(afterViewSwitch));
+    });
+
+    const reloadURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+    await action('reload_and_confirm_saved_route', async () => {
+      await navigate(cdp, reloadURL);
+      await cdp.send('Page.reload', { ignoreCache: false });
+      await waitForBrowser(cdp, `document.readyState === 'complete' && document.body.innerText.includes('J02 patient routes')`, 60000);
+      await waitForState((value) => value.workspace?.documents?.some((doc) => doc.output?.id === outputId), 'reloaded J02 Builder workspace');
+      const reloaded = await readState();
+      const reloadedDoc = reloaded.workspace.documents.find((item) => item.output?.id === outputId);
+      const reloadedPath = routePathForEdgeIDs(reloadedDoc.route, expectedChainIDs);
+      recordAssertion(report, 'j02-reload-preserves-exact-five-edge-catalog-edge-sequence', expectedChainIDs, reloadedPath?.map((step) => step.catalogEdgeId));
+      const reloadedTitle = reloadedDoc.columns.find((column) => column.column === report.target.titleColumnId);
+      recordAssertion(report, 'j02-reload-preserves-research-study-title-occurrence', report.target.explicitRouteOccurrenceId, reloadedTitle?.occurrenceId);
+      const reloadedSourceId = `j02-reloaded-source-${randomUUID()}`;
+      const reloadedSourceBody = { snapshotToken: reloaded.catalog.snapshotToken, outputId, column: report.target.titleColumnId };
+      const reloadedSource = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/column-source`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': reloadedSourceId },
+        body: JSON.stringify(reloadedSourceBody),
+        timeout: 30000,
+      });
+      if (!reloadedSource.response.ok) throw new Error(`J02 reloaded source read returned HTTP ${reloadedSource.response.status}`);
+      report.requests.push({ requestId: reloadedSourceId, kind: 'reloaded-column-source', status: reloadedSource.response.status, request: reloadedSourceBody, result: reloadedSource.value });
+      const reloadedSourceIDs = reloadedSource.value.route.flatMap((step) => step.catalogEdgeId ? [step.catalogEdgeId] : []);
+      recordAssertion(report, 'j02-reload-preserves-source-tuple-identities', expectedChainIDs, reloadedSourceIDs);
+      report.sourceTuples.reloadedTitle = { route: reloadedSource.value.route, facts: reloadedSource.value.facts, summary: reloadedSource.value.summary };
+      await captureDOM('j02-builder-after-reload');
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && document.body.innerText.includes('J02 route study')`, 60000);
+      const previewCells = await evaluate(cdp, `([...document.querySelectorAll('[role="table"] [role="cell"]')].map((cell) => ({ display: cell.innerText.trim(), literal: cell.querySelector('[title]')?.getAttribute('title') ?? '' })))`);
+      recordAssertion(report, 'j02-reload-preview-retains-literal-research-study-title', true,
+        previewCells.some((cell) => cell.display === 'J02 route study' || cell.literal === 'J02 route study'));
+      report.literalValues.afterReloadPreview = previewCells;
+      await captureDOM('j02-preview-after-reload');
+      await saveScreenshot('j02-preview-after-reload');
+    });
+
+    await sleep(300);
+    await Promise.allSettled([...pendingNetworkBodies]);
+    const networkEvidence = [];
+    for (const item of network.values()) {
+      if (item.response && item.url.endsWith('/commands') && !item.resultIdentity) {
+        await captureCommandResult(item);
+      }
+      networkEvidence.push({ ...item });
+    }
+    const networkPath = join(evidenceDir, 'network-identities.json');
+    writeJSON(networkPath, networkEvidence);
+    recordEvidence(report, networkPath);
+    const commandTransactions = networkEvidence.filter((item) => item.url.endsWith('/commands') && item.response?.status === 200);
+    recordAssertion(report, 'j02-ui-route-and-column-commands-have-request-result-identities', true,
+      commandTransactions.length >= 6 && commandTransactions.every((item) => item.xRequestId && item.resultIdentity?.commandId && item.resultIdentity?.draftVersion));
+    report.target.successfulCommandTransactions = commandTransactions.length;
+  } finally {
+    try {
+      const path = join(evidenceDir, 'network-identities.json');
+      if (!existsSync(path)) writeJSON(path, [...network.values()]);
+      recordEvidence(report, path);
+    } catch {}
+    await browser.close();
+  }
+};
+
 export const readStoredZip = (path) => {
   const archive = readFileSync(path);
   let eocd = -1;
@@ -969,6 +1580,12 @@ const interpretationLibrariesURL = (target, project) =>
 
 const interpretationRevisionURL = (target, project, revisionID) =>
   `${target.apiUrl}/api/v1/projects/${encodeURIComponent(project)}/interpretation-revisions/${encodeURIComponent(revisionID)}`;
+
+const configuredColumnContextURL = (target, explorerID) =>
+  `${bootstrapAuthoringURL(target, explorerID)}/configured-column-context`;
+
+const interpretationRevisionFromColumnURL = (target, explorerID) =>
+  `${bootstrapAuthoringURL(target, explorerID)}/interpretation-revisions`;
 
 const fetchInterpretationLibraries = async (target, project) => {
   const { response, value } = await requestJSON(interpretationLibrariesURL(target, project), { timeout: 30000 });
@@ -1043,6 +1660,57 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
   const feature = document?.columns?.find((column) => column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'id');
   if (!document?.output?.id || !feature) throw new Error('B06 verification feature for Patient id is missing from the draft');
   const libraryID = `b06-map-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+  const contextRequest = {
+    snapshotToken: initial.catalog.snapshotToken,
+    expectedDraftVersion: initial.draftVersion,
+    expectedDraftDigest: initial.draftDigest,
+  };
+  const currentContext = await requestJSON(configuredColumnContextURL(target, explorerID), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(contextRequest),
+    timeout: 30000,
+  });
+  const featureContext = currentContext.value?.columns?.find((column) =>
+    column.outputId === document.output.id && column.column === feature.column);
+  recordAssertion(report, 'configured-column-context-resolves-saved-feature-with-array-identities', true,
+    currentContext.response.status === 200 && featureContext?.resolution?.state === 'READY'
+      && Array.isArray(featureContext.resolution.capabilityCandidateIds)
+      && Array.isArray(featureContext.resolution.applicableRevisionIds));
+
+  const staleContextRequest = { ...contextRequest, expectedDraftDigest: `${initial.draftDigest}-stale` };
+  const staleContext = await requestJSON(configuredColumnContextURL(target, explorerID), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(staleContextRequest),
+    timeout: 30000,
+  });
+  recordAssertion(report, 'stale-configured-column-context-is-rejected', 409, staleContext.response.status);
+  const staleLibraryID = `${libraryID}-stale`;
+  const staleCreate = await requestJSON(interpretationRevisionFromColumnURL(target, explorerID), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...staleContextRequest,
+      outputId: document.output.id,
+      column: feature.column,
+      libraryId: staleLibraryID,
+      explanation: 'This stale request must not create a mapping.',
+    }),
+    timeout: 30000,
+  });
+  recordAssertion(report, 'stale-create-from-column-is-rejected', 409, staleCreate.response.status);
+  const afterStaleRequests = await fetchBuilderState(target, explorerID);
+  recordAssertion(report, 'stale-context-and-create-leave-draft-unchanged', {
+    version: initial.draftVersion,
+    digest: initial.draftDigest,
+  }, {
+    version: afterStaleRequests.draftVersion,
+    digest: afterStaleRequests.draftDigest,
+  });
+  const afterStaleLibraries = await fetchInterpretationLibraries(target, target.fixtureProject);
+  recordAssertion(report, 'stale-create-does-not-create-a-library', false,
+    afterStaleLibraries.libraries.some((item) => item.library?.id === staleLibraryID));
   const panelExpression = `(() => {
     const panel = [...document.querySelectorAll('div.col-span-full')].find((element) =>
       norm(element.innerText).includes('Interpretation') && /\\bid\\b/.test(element.innerText) &&
@@ -1265,7 +1933,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
   let explorerId = '';
   try {
     await navigate(cdp, entryTarget.uiUrl);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph') || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
     recordAssertion(
       report,
       'bare-development-entry-loads-owned-bootstrap',
@@ -1276,9 +1944,91 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordEvidence(report, join(evidenceDir, 'bare-entry.html'));
 
     await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph') || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
     await snapshot(cdp, join(evidenceDir, 'builder-initial.html'));
     recordEvidence(report, join(evidenceDir, 'builder-initial.html'));
+
+    const ownerRecordsTitle = `Loom owner records ${target.fixtureProject.slice(-16)}`;
+    await browserEval(cdp, `clickText('summary', 'New explorer')`);
+    await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(ownerRecordsTitle)})`);
+    await browserEval(cdp, `clickButton('Create blank')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(ownerRecordsTitle)} && document.body.innerText.includes('Create your first table')`);
+    const ownerRecordsExplorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+    recordAssertion(report, 'owner-records-browser-selected-owned-explorer', true, Boolean(ownerRecordsExplorerId && ownerRecordsExplorerId !== bootstrapExplorerId));
+    report.target.ownerRecordsExplorerId = ownerRecordsExplorerId;
+
+    await browserEval(cdp, `setInput('first-table-name', 'Observation owner records')`);
+    await browserEval(cdp, `clickButton('Create table')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Observation owner records')`);
+    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (!button || button.disabled) throw new Error('Observation row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
+    await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
+    await browserEval(cdp, `clickButton('Search')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
+    await browserEval(cdp, `
+      const item = [...document.querySelectorAll('article')].find((article) =>
+        article.textContent.includes('urn:study:A · shared') &&
+        article.textContent.includes('valueQuantity.value')
+      );
+      const input = item?.querySelector('input[type="checkbox"]');
+      if (!input || input.disabled) throw new Error('repeated coded Quantity is not selectable');
+      input.click();
+    `);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Choose output forms') && Boolean(document.querySelector('[aria-label="shared: Keep each matching record"]'))`);
+    await browserEval(cdp, `const input = inputByLabel('shared: Keep each matching record'); if (!input) throw new Error('OWNER_RECORDS form is missing'); input.click();`);
+    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured shared"]'))`);
+    const ownerRecordsBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
+    const ownerRecordsColumn = ownerRecordsBuilder.workspace.documents[0].columns.find((column) => column.label === 'shared');
+    recordAssertion(report, 'builder-persists-owner-record-construction', {
+      kind: 'ownerRecords',
+      system: 'urn:study:A',
+      code: 'shared',
+      ownerPath: 'component[]',
+      valuePath: 'valueQuantity.value',
+    }, {
+      kind: ownerRecordsColumn?.source?.kind,
+      system: ownerRecordsColumn?.source?.ownerRecords?.key?.system,
+      code: ownerRecordsColumn?.source?.ownerRecords?.key?.code,
+      ownerPath: ownerRecordsColumn?.source?.ownerRecords?.binding?.ownerPath,
+      valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
+    });
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-001'))) && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-002')))`, 60000);
+    await browserEval(cdp, `
+      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
+        .find((candidate) => candidate.title.includes('dev-pair-002'));
+      if (!button) throw new Error('invalid owner-record preview cell is missing');
+      button.click();
+    `);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
+    const invalidOwnerRecordEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
+    recordAssertion(report, 'preview-owner-record-inspector-exposes-invalid-choice-arm', true,
+      invalidOwnerRecordEvidence.includes('INVALID_CHOICE_ARM') &&
+      invalidOwnerRecordEvidence.includes('dev-pair-002'));
+    await browserEval(cdp, `clickButton('Close')`);
+    await browserEval(cdp, `
+      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
+        .find((candidate) => candidate.title.includes('dev-pair-001'));
+      if (!button) throw new Error('valid owner-record preview cell is missing');
+      button.click();
+    `);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
+    const ownerRecordEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
+    await snapshot(cdp, join(evidenceDir, 'owner-record-evidence.html'));
+    recordEvidence(report, join(evidenceDir, 'owner-record-evidence.html'));
+    recordAssertion(report, 'preview-owner-record-inspector-preserves-value-unit-code-and-source', true,
+      ownerRecordEvidence.includes('111') &&
+      ownerRecordEvidence.includes('cm') &&
+      ownerRecordEvidence.includes('urn:study:A') &&
+      ownerRecordEvidence.includes('shared') &&
+      ownerRecordEvidence.includes('dev-pair-001'));
+    await browserEval(cdp, `clickButton('Close')`);
+
+    await navigate(cdp, browserURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
 
     const verificationTitle = `Loom dev verification ${target.fixtureProject.slice(-16)}`;
     await browserEval(cdp, `clickText('summary', 'New explorer')`);
@@ -1292,11 +2042,38 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `setInput('first-table-name', 'Patients with observations')`);
     await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph') && document.body.innerText.includes('Patient')`);
-    await browserEval(cdp, `clickContains('.react-flow__node', 'Patient')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Current query') && document.body.innerText.includes('Patient columns')`);
-    await browserEval(cdp, `clickCandidate('id', 'to table')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Patients with observations')`);
+    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Patient rows"]'); if (!button || button.disabled) throw new Error('Patient row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts')`);
+    await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'id')`);
+    await browserEval(cdp, `clickButton('Search')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
+    await browserEval(cdp, `
+      const input = inputByLabel('Select Patient.id');
+      if (!input) throw new Error('root id field is missing from Find features');
+      if (input.disabled) throw new Error('root id field is not selectable');
+      input.click();
+    `);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]'))`);
+    const catalogBuilder = await fetchBuilderState(target, explorerId);
+    const catalogIDColumn = catalogBuilder.workspace.documents[0].columns.find((column) => column.label === 'id');
+    recordAssertion(report, 'builder-catalog-adds-default-root-field-without-graph', {
+      kind: 'field',
+      path: 'id',
+      projectionMode: 'VALUE',
+      graphVisible: false,
+    }, {
+      kind: catalogIDColumn?.source?.kind,
+      path: catalogIDColumn?.source?.field?.path,
+      projectionMode: catalogIDColumn?.source?.field?.projectionMode,
+      graphVisible: await evaluate(cdp, `document.body.innerText.includes('Dataset graph')`),
+    });
+    await snapshot(cdp, join(evidenceDir, 'builder-catalog-column.html'));
+    recordEvidence(report, join(evidenceDir, 'builder-catalog-column.html'));
+    await browserEval(cdp, `clickButton('Advanced graph')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Current query') && document.body.innerText.includes('Patient columns')`);
     await browserEval(cdp, `clickCandidate('name[].family', 'to table')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured name[].family"]'))`);
     await browserEval(cdp, `clickCandidate('gender', 'as filter')`);
@@ -1306,6 +2083,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordAssertion(report, 'builder-configures-exact-root-fields', true, ['Display name for configured gender', 'Display name for configured id', 'Display name for configured name[].family'].every((label) => configuredFields.includes(label)));
     await verifyInterpretationCandidate(target, report, cdp, explorerId, evidenceDir, verificationBrowserURL);
 
+    await waitForBrowser(cdp, `document.body.innerText.includes('Concept catalog')`);
+    await browserEval(cdp, `clickButton('Advanced graph')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Dataset graph')`);
     await browserEval(cdp, `clickContains('.react-flow__node', 'Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Observation columns')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Require Observation match"]'))`);
@@ -1924,7 +2704,7 @@ const main = async (argv) => {
   const command = argv[0] ?? 'dev-doctor';
   const target = createDevSession();
   const report = createVerificationReport(target,
-    command === 'verify-current' ? 'current-builder-hotreload' : undefined);
+    command === 'verify-current' ? 'current-builder-hotreload' : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence' : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
   try {
@@ -1971,6 +2751,27 @@ const main = async (argv) => {
       console.log(`DEV_CURRENT_VERIFY_PASSED project=${target.fixtureProject} evidence=${report.evidencePaths[0] ? dirname(report.evidencePaths[0]) : target.artifacts}`);
       return;
     }
+    if (command === 'verify-j02') {
+      await ensureDev(target, report);
+      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+      const verificationReport = createVerificationReport(verificationTarget, 'S02-J02-related-column-route-edit-persistence');
+      activeReport = verificationReport;
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh) throw new Error(`J02 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
+      verificationReport.target.fixtureSeed = 'seeded';
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(verificationReport, 'j02-starts-from-fresh-isolated-fixture-and-editor-identity', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
+      await verifyJ02BrowserScenario(verificationTarget, verificationReport, target);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+      console.log(`DEV_J02_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
+      return;
+    }
     if (command === 'verify-fast' || command === 'verify-full') {
       await ensureDev(target, report);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`);
@@ -1998,7 +2799,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j02, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);

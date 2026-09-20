@@ -91,6 +91,9 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				addLogical(prefix+pivot.Name+"__"+sanitizeColumnName(column), recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered)
 			}
 		}
+		for _, ownerRecords := range node.OwnerRecords {
+			addLogical(prefix+ownerRecords.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, ownerRecords.FieldRef, expression.Expression{}), string(expression.KindObject), string(expression.Many), true, false)
+		}
 		for _, slice := range node.Slices {
 			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false)
 		}
@@ -116,7 +119,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 					column.Cardinality = string(expression.Many)
 					column.Nullable = true
 				}
-				if projection.Expression.Kind == ir.PhysicalPivotExpression || projection.Expression.Kind == ir.PhysicalObjectExpression {
+				if projection.Expression.Kind == ir.PhysicalPivotExpression || projection.Expression.Kind == ir.PhysicalOwnerRecordsExpression || projection.Expression.Kind == ir.PhysicalObjectExpression {
 					column.Kind = string(expression.KindObject)
 				}
 			}

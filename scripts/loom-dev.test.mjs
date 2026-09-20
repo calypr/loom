@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
@@ -231,6 +231,44 @@ test('fixture source digest is stable across file enumeration order and excludes
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+test('J02 fixture contains the documented five-edge FHIR reference chain and distinct report route', () => {
+  const fixture = join(process.cwd(), 'testdata/devloop-fixture');
+  const readResources = (filename) => readFileSync(join(fixture, filename), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const patient = readResources('Patient.ndjson').find((item) => item.id === 'dev-patient-001');
+  const group = readResources('Group.ndjson').find((item) => item.id === 'dev-j02-group');
+  const specimen = readResources('Specimen.ndjson').find((item) => item.id === 'dev-j02-specimen');
+  const observation = readResources('Observation.ndjson').find((item) => item.id === 'dev-observation-001');
+  const report = readResources('DiagnosticReport.ndjson').find((item) => item.id === 'dev-j02-report');
+  const study = readResources('ResearchStudy.ndjson').find((item) => item.id === 'dev-j02-study');
+  assert.ok(patient);
+  assert.deepEqual(group?.member.map((member) => member.entity.reference), ['Patient/dev-patient-001']);
+  assert.equal(specimen?.subject.reference, 'Group/dev-j02-group');
+  assert.equal(observation?.specimen.reference, 'Specimen/dev-j02-specimen');
+  assert.deepEqual(report?.result.map((result) => result.reference), ['Observation/dev-observation-001']);
+  assert.equal(report?.subject.reference, 'Patient/dev-patient-001');
+  assert.deepEqual(study?.result.map((result) => result.reference), ['DiagnosticReport/dev-j02-report']);
+  assert.equal(study?.status, 'active');
+  assert.equal(study?.title, 'J02 route study');
+
+  const generated = readFileSync(join(process.cwd(), 'generated/fhirschema/generated.go'), 'utf8');
+  for (const traversal of [
+    'Patient|member_entity_Patient|Group',
+    'Group|subject_Group|Specimen',
+    'Specimen|specimen_Specimen|Observation',
+    'Observation|result|DiagnosticReport',
+    'DiagnosticReport|result_DiagnosticReport|ResearchStudy',
+    'Patient|subject_Patient|DiagnosticReport',
+  ]) assert.ok(generated.includes(`"${traversal}"`), `generated schema lacks ${traversal}`);
+
+  const readme = readFileSync(join(fixture, 'README.md'), 'utf8');
+  assert.match(readme, /Patient → Group → Specimen → Observation → DiagnosticReport →\s+ResearchStudy/);
+  assert.match(readme, /semantically distinct routes/);
+  assert.match(readme, /ResearchStudy\.title` is the\s+literal `J02 route study`/);
 });
 
 test('Docker Desktop host mount normalization accepts only this checkout', () => {

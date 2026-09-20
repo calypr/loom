@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func testScope() Scope {
@@ -122,6 +123,62 @@ func TestProbeCandidateSupportsRelatedOccurrence(t *testing.T) {
 	}
 	if result.Rendered.BindVars["child_set_1_label"] != "subject_Patient" || result.Candidate.ResourceType != "Specimen" {
 		t.Fatalf("related candidate lost route or metadata: %#v\n%s", result.Candidate, result.Rendered.Query)
+	}
+}
+
+func TestProbeOwnerRecordsProvesRootAndRelatedBindings(t *testing.T) {
+	binding := fhirschema.CorrelatedBinding{
+		OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+		SystemPath: "system", CodePath: "code", ValuePath: "valueQuantity.value",
+		ChoiceArms: []string{"valueQuantity"}, LogicalType: "decimal", UnitPath: "valueQuantity.unit",
+	}
+	root, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
+		Scope: testScope(), RootResourceType: "Observation", ResourceType: "Observation",
+		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+	})
+	if err != nil {
+		t.Fatalf("root owner records: %v", err)
+	}
+	if root.OwnerRecords == nil || !strings.Contains(root.Rendered.Query, "ownerOrdinal") {
+		t.Fatalf("owner-record proof = %#v", root)
+	}
+	assertScopedQuery(t, root.Rendered)
+
+	related, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
+		Scope: testScope(), RootResourceType: "Patient", ResourceType: "Observation",
+		Route:   []Traversal{{FromResourceType: "Patient", EdgeLabel: "subject_Patient", ToResourceType: "Observation", Alias: "observation"}},
+		Binding: binding, Key: fhirschema.CorrelatedKey{System: "http://loinc.org", Code: "8302-2"},
+	})
+	if err != nil {
+		t.Fatalf("related owner records: %v", err)
+	}
+	if related.Rendered.BindVars["child_set_1_label"] != "subject_Patient" {
+		t.Fatalf("related owner-record route binds = %#v", related.Rendered.BindVars)
+	}
+}
+
+func TestProbeOwnerRecordsRejectsUnprovedShapes(t *testing.T) {
+	base := OwnerRecordsRequest{
+		Scope: testScope(), ResourceType: "Observation",
+		Binding: fhirschema.CorrelatedBinding{
+			OwnerPath: "component[]", KeyPath: "component[].code.coding[]",
+			SystemPath: "system", CodePath: "code", ValuePath: "valueString", LogicalType: "string",
+		},
+		Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"},
+	}
+	for _, mutate := range []func(*OwnerRecordsRequest){
+		func(request *OwnerRecordsRequest) {
+			request.Binding.OwnerPath = ""
+			request.Binding.KeyPath = "code.coding[]"
+		},
+		func(request *OwnerRecordsRequest) { request.Key.System = "" },
+		func(request *OwnerRecordsRequest) { request.Binding.ValuePath = "missing" },
+	} {
+		request := base
+		mutate(&request)
+		if _, err := ProbeOwnerRecords(context.Background(), request); err == nil {
+			t.Fatalf("invalid owner-record request was accepted: %#v", request)
+		}
 	}
 }
 

@@ -8,7 +8,11 @@ import {
   explorerAuthoringCapabilitiesSchema,
   explorerBuilderCommandsResultSchema,
   explorerBuilderSuggestionsResultSchema,
+  explorerColumnSourceDescriptorSchema,
+  constructionChoiceSearchResponseSchema,
+  populationRoutesResponseSchema,
   rowChangeAssessmentSchema,
+  semanticInventoryBrowseResponseSchema,
   type ExplorerBuilderCatalog,
   type ExplorerBuilderCommand,
   type ExplorerBuilderCompileResult,
@@ -16,15 +20,22 @@ import {
   type ExplorerBuilderState,
   type ExplorerBuilderSuggestionsResult,
   type ExplorerBuilderWorkspace,
+  type ExplorerColumnSourceDescriptor,
+  type ConstructionChoiceSearchResponse,
+  type ConstructionChoiceSearchSource,
+  type PopulationRoutesResponse,
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
+  type SemanticInventoryBrowseResponse,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import {
+  configuredColumnContextResponseSchema,
   interpretationLibraryListResponseSchema,
   interpretationPreviewResponseSchema,
   interpretationRevisionSchema,
   type InterpretationApplicability,
+  type ConfiguredColumnContextResponse,
   type InterpretationLibraryView,
   type InterpretationPreviewResponse,
   type InterpretationRule,
@@ -156,6 +167,21 @@ export interface PreviewInterpretationCandidateArgs extends ExplorerAuthoringSta
   readonly requestId?: string;
 }
 
+export interface ResolveConfiguredColumnContextsArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly requestId?: string;
+}
+
+export interface CreateInterpretationRevisionFromColumnArgs extends ResolveConfiguredColumnContextsArgs {
+  readonly outputId: string;
+  readonly column: string;
+  readonly libraryId: string;
+  readonly parentRevisionId?: string;
+  readonly explanation: string;
+}
+
 const populationMappingDiagnosticSchema = z.object({
   severity: z.string(),
   stage: z.string(),
@@ -221,6 +247,42 @@ export interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringState
   readonly snapshotToken: string;
   readonly nodeId: string;
   readonly query?: string;
+  readonly requestId?: string;
+}
+
+export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly rowRoot: string;
+  readonly resourceType?: string;
+  readonly query?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
+export interface InspectColumnSourceArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly column: string;
+  readonly requestId?: string;
+}
+
+export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly occurrenceId?: string;
+  readonly source: ConstructionChoiceSearchSource;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly requestId?: string;
+}
+
+export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly selectionRevisionId: string;
+  readonly limit?: number;
+  readonly cursor?: string;
   readonly requestId?: string;
 }
 
@@ -370,6 +432,22 @@ export interface LoomClient {
     args: ExplorerCandidateSuggestionsArgs,
     signal?: AbortSignal,
   ) => Promise<ExplorerBuilderSuggestionsResult>;
+  readonly browseSemanticInventory: (
+    args: BrowseSemanticInventoryArgs,
+    signal?: AbortSignal,
+  ) => Promise<SemanticInventoryBrowseResponse>;
+  readonly inspectColumnSource: (
+    args: InspectColumnSourceArgs,
+    signal?: AbortSignal,
+  ) => Promise<ExplorerColumnSourceDescriptor>;
+  readonly searchConstructionChoices: (
+    args: SearchConstructionChoicesArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionChoiceSearchResponse>;
+  readonly searchPopulationRoutes: (
+    args: SearchPopulationRoutesArgs,
+    signal?: AbortSignal,
+  ) => Promise<PopulationRoutesResponse>;
   readonly preview: (
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -386,8 +464,7 @@ export interface LoomClient {
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
   ) => Promise<Artifact>;
-  /** Native-download URL for a completed artifact. The browser streams this
-   * response to its download manager instead of materializing a dataset Blob. */
+  /** Native-download URL for a completed artifact. */
   readonly artifactDownloadURL: (args: DownloadArtifactArgs) => string;
   readonly listInterpretationLibraries: (
     args: ExplorerAuthoringProjectArgs,
@@ -399,6 +476,14 @@ export interface LoomClient {
   ) => Promise<InterpretationRevision>;
   readonly createInterpretationRevision: (
     args: CreateInterpretationRevisionArgs,
+    signal?: AbortSignal,
+  ) => Promise<InterpretationRevision>;
+  readonly resolveConfiguredColumnContexts: (
+    args: ResolveConfiguredColumnContextsArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConfiguredColumnContextResponse>;
+  readonly createInterpretationRevisionFromColumn: (
+    args: CreateInterpretationRevisionFromColumnArgs,
     signal?: AbortSignal,
   ) => Promise<InterpretationRevision>;
   readonly previewInterpretationCandidate: (
@@ -881,6 +966,38 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(durableAuthoringPath(args, '/reconcile'), withJson({ snapshotToken: args.snapshotToken, draftVersion: args.draftVersion, draftDigest: args.draftDigest }, signal, args.requestId)).then(assertExplorerBuilderCompileResult);
   const suggestions = (args: ExplorerCandidateSuggestionsArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/suggestions'), withJson({ snapshotToken: args.snapshotToken, nodeId: args.nodeId, ...(args.query ? { query: args.query } : {}) }, signal, args.requestId)).then((value) => explorerBuilderSuggestionsResultSchema.parse(value));
+  const browseSemanticInventory = (args: BrowseSemanticInventoryArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/semantic-inventory'), withJson({
+      snapshotToken: args.snapshotToken,
+      rowRoot: args.rowRoot,
+      ...(args.resourceType ? { resourceType: args.resourceType } : {}),
+      ...(args.query ? { query: args.query } : {}),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => semanticInventoryBrowseResponseSchema.parse(value));
+  const inspectColumnSource = (args: InspectColumnSourceArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/column-source'), withJson({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      column: args.column,
+    }, signal, args.requestId)).then((value) => explorerColumnSourceDescriptorSchema.parse(value));
+  const searchConstructionChoices = (args: SearchConstructionChoicesArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/construction-choices'), withJson({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      ...(args.occurrenceId ? { occurrenceId: args.occurrenceId } : {}),
+      source: args.source,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+    }, signal, args.requestId)).then((value) => constructionChoiceSearchResponseSchema.parse(value));
+  const searchPopulationRoutes = (args: SearchPopulationRoutesArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/population-routes'), withJson({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      selectionRevisionId: args.selectionRevisionId,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+    }, signal, args.requestId)).then((value) => populationRoutesResponseSchema.parse(value));
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
@@ -923,6 +1040,37 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         explanation: args.explanation,
       }, signal, args.requestId),
     );
+    evictCached(`interpretations:${canonicalProject(args.project)}`);
+    return interpretationRevisionSchema.parse(value);
+  };
+  const resolveConfiguredColumnContexts = (args: ResolveConfiguredColumnContextsArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/configured-column-context'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+    }, signal, args.requestId)).then((value) => {
+      const response = configuredColumnContextResponseSchema.parse(value);
+      if (
+        response.snapshotToken !== args.snapshotToken ||
+        response.draftVersion !== args.expectedDraftVersion ||
+        response.draftDigest !== args.expectedDraftDigest
+      ) {
+        throw new Error('Loom returned interpretation context for a different saved draft.');
+      }
+      return response;
+    });
+  const createInterpretationRevisionFromColumn = async (args: CreateInterpretationRevisionFromColumnArgs, signal?: AbortSignal) => {
+    const parentRevisionId = args.parentRevisionId?.trim();
+    const value = await request(durableAuthoringPath(args, '/interpretation-revisions'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      column: args.column,
+      libraryId: args.libraryId,
+      ...(parentRevisionId ? { parentRevisionId } : {}),
+      explanation: args.explanation,
+    }, signal, args.requestId));
     evictCached(`interpretations:${canonicalProject(args.project)}`);
     return interpretationRevisionSchema.parse(value);
   };
@@ -1069,6 +1217,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     assessRowChange,
     reconcile,
     suggestions,
+    browseSemanticInventory,
+    inspectColumnSource,
+    searchConstructionChoices,
+    searchPopulationRoutes,
     preview,
     populationMapping,
     cellTrace,
@@ -1077,6 +1229,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     listInterpretationLibraries,
     getInterpretationRevision,
     createInterpretationRevision,
+    resolveConfiguredColumnContexts,
+    createInterpretationRevisionFromColumn,
     previewInterpretationCandidate,
     publish,
     createExplorer,
@@ -1095,3 +1249,4 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
 };
 
 export type { ExplorerBuilderCatalog };
+export type { ConfiguredColumnContextResponse };

@@ -19,6 +19,7 @@ func MigrateLegacyContributors(workspace Workspace, catalog CatalogSnapshot) (Wo
 	if err != nil {
 		return workspace, err
 	}
+	migrated = migratePreV7MissingRows(migrated)
 	for documentIndex := range migrated.Documents {
 		document := &migrated.Documents[documentIndex]
 		for columnIndex := range document.Columns {
@@ -128,6 +129,8 @@ func MigrateLosslessDefaults(workspace Workspace, catalog CatalogSnapshot) Works
 	if workspace.SemanticsVersion >= CurrentSemanticsVersion && !workspaceHasLegacyContributors(workspace) {
 		return workspace
 	}
+	// Install the v6 root-record meaning before the current version is assigned.
+	workspace = migratePreV7MissingRows(workspace)
 	legacyContributors := workspaceHasLegacyContributors(workspace)
 	workspace.Documents = append([]Document(nil), workspace.Documents...)
 	workspace.MigrationDecisions = append([]string(nil), workspace.MigrationDecisions...)

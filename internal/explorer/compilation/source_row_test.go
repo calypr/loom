@@ -9,7 +9,7 @@ import (
 )
 
 func addressableDocument() authoringv2.Document {
-	return authoringv2.Document{
+	return authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Observation",
 		Route:   authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
 		Columns: []authoringv2.Column{{Column: "subject_id", Label: "Renamed label", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "VALUE"}}}},

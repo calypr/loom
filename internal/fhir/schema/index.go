@@ -30,7 +30,8 @@ type Index struct {
 // DefinitionView reads a definition's elements without exposing its slices.
 // Its zero value represents an empty definition.
 type DefinitionView struct {
-	elements []Element
+	requiredElements []string
+	elements         []Element
 }
 
 // ElementListView reads a list of elements without exposing its backing slice.
@@ -122,7 +123,16 @@ func (i *Index) ReadDefinition(name DefinitionName) (DefinitionView, bool) {
 	if !ok {
 		return DefinitionView{}, false
 	}
-	return DefinitionView{elements: definition.Elements}, true
+	return DefinitionView{
+		requiredElements: definition.RequiredElements,
+		elements:         definition.Elements,
+	}, true
+}
+
+// RequiredElements returns the names of members required by this definition.
+// The returned slice never aliases the immutable index.
+func (v DefinitionView) RequiredElements() []string {
+	return cloneStrings(v.requiredElements)
 }
 
 // Elements returns a read-only view of the definition's elements.

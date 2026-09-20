@@ -1,19 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
+  ExplorerColumnSourceDescriptor,
   ExplorerColumnSource,
 } from '../../../types';
+import type {
+  ConfiguredColumnContext,
+  ConfiguredColumnContextResponse,
+} from '../../../interpretation';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
-import { resolveInterpretationCandidate } from '../authoring/interpretationCandidate';
 import {
   FeaturePolicyEditor,
   RelatedFeatureCreator,
 } from './FeaturePolicyEditor';
+import {
+  ColumnSourceInspector,
+} from './ColumnSourceInspector';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
-const CANDIDATE_ROW_HEIGHT = 110;
+const CANDIDATE_ROW_HEIGHT = 128;
 
 const titleForResource = (value: string): string =>
   value
@@ -67,31 +74,8 @@ const candidateColumnName = (
   return value;
 };
 
-const sourceSummary = ({ source }: ExplorerBuilderColumn): string => {
-  switch (source.kind) {
-    case 'field':
-      return source.field.path;
-    case 'aggregate':
-      return [source.aggregate.operation, source.aggregate.path].filter(Boolean).join(' · ');
-    case 'identifierBySystem':
-    case 'extensionByUrl':
-    case 'codingBySystem':
-    case 'observationComponentByCode':
-      if ('extension' in source.lookup) {
-        return [...source.lookup.extension.urlPath, source.lookup.extension.valuePath].join(' · ');
-      }
-      if ('binding' in source.lookup) {
-        return [source.lookup.key.system, source.lookup.key.code, source.lookup.binding.valuePath].join(' · ');
-      }
-      return [source.kind, source.lookup.path, source.lookup.match].filter(Boolean).join(' · ');
-    case 'projectId':
-      return 'Project identifier';
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-};
+const sourceSummary = (column: ExplorerBuilderColumn): string =>
+  [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
 
 const ConfiguredColumnRow = ({
   column,
@@ -100,6 +84,7 @@ const ConfiguredColumnRow = ({
   filterable,
   chartable,
   candidate,
+  resolution,
   candidates,
   anchorCandidates,
   related,
@@ -108,6 +93,7 @@ const ConfiguredColumnRow = ({
   onSourceChange,
   onContributorChange,
   onRemove,
+  onInspect,
 }: {
   readonly column: ExplorerBuilderColumn;
   readonly order: number;
@@ -115,6 +101,7 @@ const ConfiguredColumnRow = ({
   readonly filterable: boolean;
   readonly chartable: boolean;
   readonly candidate?: ExplorerBuilderCandidate;
+  readonly resolution?: ConfiguredColumnContext['resolution'];
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
@@ -126,6 +113,7 @@ const ConfiguredColumnRow = ({
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
   readonly onRemove: () => void;
+  readonly onInspect: () => void;
 }) => {
   const [label, setLabel] = useState(column.label);
 
@@ -160,6 +148,16 @@ const ConfiguredColumnRow = ({
         <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
           {column.column} · {sourceSummary(column)}
         </div>
+        {resolution && resolution.state !== 'READY' ? (
+          <p className="mt-1 px-1 text-[11px] text-amber-800">{resolution.reason}</p>
+        ) : null}
+        <button
+          type="button"
+          className="ml-1 mt-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
+          onClick={onInspect}
+        >
+          Inspect source
+        </button>
       </div>
       <label className="flex justify-center" title="Display in table">
         <span className="sr-only">Table</span>
@@ -347,6 +345,7 @@ const AvailableColumnRow = ({
 
 export const ColumnSelector = ({
   catalog,
+  interpretationContext,
   table,
   occurrenceId,
   focusColumn,
@@ -359,8 +358,12 @@ export const ColumnSelector = ({
   onSourceChange,
   onContributorChange = () => undefined,
   onRemove,
+  onInspectSource,
+  onEditInGraph,
+  showAvailable = true,
 }: {
   readonly catalog: ExplorerBuilderCatalog;
+  readonly interpretationContext?: ConfiguredColumnContextResponse;
   readonly table?: DraftTable;
   readonly occurrenceId: string;
   readonly focusColumn?: string;
@@ -382,8 +385,20 @@ export const ColumnSelector = ({
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
   readonly onRemove: (column: string) => void;
+  readonly onInspectSource?: (
+    column: ExplorerBuilderColumn,
+  ) => Promise<ExplorerColumnSourceDescriptor>;
+  readonly onEditInGraph?: (column: ExplorerBuilderColumn) => void;
+  readonly showAvailable?: boolean;
 }) => {
   const [query, setQuery] = useState('');
+  const [inspection, setInspection] = useState<{
+    readonly column: string;
+    readonly loading: boolean;
+    readonly descriptor?: ExplorerColumnSourceDescriptor;
+    readonly error?: string;
+  }>();
+  const inspectionGeneration = useRef(0);
   useEffect(() => {
     if (focusColumn) setQuery(focusColumn);
   }, [focusColumn]);
@@ -400,43 +415,85 @@ export const ColumnSelector = ({
       ?.resourceType ?? 'resource';
   const configured = useMemo(
     () =>
-      (table?.document.columns ?? []).filter(
-        (column) => column.occurrenceId === occurrenceId,
-      ),
-    [occurrenceId, table?.document.columns],
+      showAvailable
+        ? (table?.document.columns ?? []).filter(
+            (column) => column.occurrenceId === occurrenceId,
+          )
+        : (table?.document.columns ?? []),
+    [occurrenceId, showAvailable, table?.document.columns],
   );
-  const configuredFieldPaths = useMemo(
-    () =>
-      new Set(
-        configured.flatMap((column) =>
-          column.source.kind === 'field'
-            ? [column.source.field.path.replace(/^root\./, '')]
-            : column.source.kind === 'aggregate' && column.source.aggregate.path
-              ? [column.source.aggregate.path.replace(/^root\./, '')]
-            : [],
-        ),
+  const inspectedColumn = configured.find(
+    (column) => column.column === inspection?.column,
+  );
+  const inspectColumn = async (column: ExplorerBuilderColumn) => {
+    if (!onInspectSource) return;
+    const generation = ++inspectionGeneration.current;
+    setInspection({ column: column.column, loading: true });
+    try {
+      const descriptor = await onInspectSource(column);
+      if (generation !== inspectionGeneration.current) return;
+      if (descriptor.column !== column.column) {
+        throw new Error('Loom returned source details for a different column.');
+      }
+      setInspection({ column: column.column, loading: false, descriptor });
+    } catch (error) {
+      if (generation !== inspectionGeneration.current) return;
+      setInspection({
+        column: column.column,
+        loading: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Loom could not load this column source.',
+      });
+    }
+  };
+  const contextColumns = useMemo(
+    () => new Map(
+      (interpretationContext?.columns ?? [])
+        .filter((item) => item.outputId === table?.outputId)
+        .map((item) => [item.column, item]),
+    ),
+    [interpretationContext?.columns, table?.outputId],
+  );
+  const configuredResolutions = useMemo(
+    () => new Map(configured.map((column) => [column.column, contextColumns.get(column.column)?.resolution])),
+    [configured, contextColumns],
+  );
+  const configuredCandidateIds = useMemo(
+    () => new Set(
+      [...configuredResolutions.values()].flatMap((resolution) =>
+        resolution?.state === 'READY' ? resolution.capabilityCandidateIds : [],
       ),
-    [configured],
+    ),
+    [configuredResolutions],
+  );
+  const catalogCandidatesById = useMemo(
+    () => new Map((catalog.candidates ?? []).map((candidate) => [candidate.candidateId, candidate])),
+    [catalog.candidates],
   );
   const configuredCapabilities = useMemo(
-    () =>
-      new Map(
-        configured.map((configuredColumn) => [
-          configuredColumn.column,
-          resolveInterpretationCandidate(configuredColumn, catalog, occurrence?.nodeId),
-        ]),
-      ),
-    [catalog.candidates, configured, occurrence?.nodeId],
+    () => new Map<string, ExplorerBuilderCandidate | undefined>(configured.map((column) => {
+      const resolution = configuredResolutions.get(column.column);
+      if (resolution?.state !== 'READY') return [column.column, undefined];
+      const matches = resolution.capabilityCandidateIds
+        .map((candidateId) => catalogCandidatesById.get(candidateId))
+        .filter((candidate): candidate is ExplorerBuilderCandidate => candidate !== undefined);
+      return [column.column, matches.length === 1 ? matches[0] : undefined];
+    })),
+    [catalogCandidatesById, configured, configuredResolutions],
   );
   const available = useMemo(
     () =>
-      (catalog.candidates ?? []).filter(
-        (candidate) =>
-          candidate.nodeId === occurrence?.nodeId &&
-          isTabularCandidate(candidate) &&
-          !configuredFieldPaths.has(candidate.fieldPath.replace(/^root\./, '')),
-      ),
-    [catalog.candidates, configuredFieldPaths, occurrence?.nodeId],
+      showAvailable
+        ? (catalog.candidates ?? []).filter(
+            (candidate) =>
+              candidate.nodeId === occurrence?.nodeId &&
+              isTabularCandidate(candidate) &&
+              !configuredCandidateIds.has(candidate.candidateId),
+          )
+        : [],
+    [catalog.candidates, configuredCandidateIds, occurrence?.nodeId, showAvailable],
   );
   const normalizedQuery = query.trim().toLowerCase();
   const rows = useMemo(
@@ -527,7 +584,9 @@ export const ColumnSelector = ({
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-slate-900">
-            {titleForResource(resourceType)} columns
+            {showAvailable
+              ? `${titleForResource(resourceType)} columns`
+              : 'Your columns'}
           </h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -552,7 +611,9 @@ export const ColumnSelector = ({
               : 'Select all table columns'}
           </button>
           <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
-            {configured.length} configured · {available.length} available
+            {showAvailable
+              ? `${configured.length} configured · ${available.length} available`
+              : `${configured.length} configured`}
           </span>
         </div>
       </div>
@@ -567,8 +628,44 @@ export const ColumnSelector = ({
             className="mt-2 rounded border border-slate-300 px-2.5 py-1.5 text-sm outline-blue-500"
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Search labels, column names, or field paths"
+            placeholder={
+              showAvailable
+                ? 'Search labels, column names, or field paths'
+                : 'Search your configured columns'
+            }
           />
+          {inspectedColumn && inspection?.loading ? (
+            <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900" role="status">
+              Loading the saved route and exact source…
+            </p>
+          ) : null}
+          {inspectedColumn && inspection?.error ? (
+            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900" role="alert">
+              <p>{inspection.error}</p>
+              <button
+                type="button"
+                className="mt-2 font-semibold underline"
+                onClick={() => setInspection(undefined)}
+              >
+                Close
+              </button>
+            </div>
+          ) : null}
+          {inspectedColumn && inspection?.descriptor ? (
+            <ColumnSourceInspector
+              column={inspectedColumn}
+              descriptor={inspection.descriptor}
+              onClose={() => {
+                inspectionGeneration.current += 1;
+                setInspection(undefined);
+              }}
+              onEditInGraph={
+                onEditInGraph
+                  ? () => onEditInGraph(inspectedColumn)
+                  : undefined
+              }
+            />
+          ) : null}
           <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <span className="text-left">Display name / source</span>
             <span>Table</span>
@@ -587,6 +684,17 @@ export const ColumnSelector = ({
               >
                 {rows.slice(rowRange.start, rowRange.end).map((row, visibleIndex) => {
                   const order = rowRange.start + visibleIndex;
+                  const configuredOccurrence =
+                    row.kind === 'configured'
+                      ? occurrences.find(
+                          ({ id }) => id === row.column.occurrenceId,
+                        )
+                      : undefined;
+                  const configuredResourceType = configuredOccurrence
+                    ? catalog.nodes.find(
+                        ({ nodeId }) => nodeId === configuredOccurrence.nodeId,
+                      )?.resourceType
+                    : undefined;
                   return (
                     <div
                       key={row.kind === 'configured' ? `configured:${row.column.column}` : `available:${row.candidate.candidateId}`}
@@ -608,21 +716,28 @@ export const ColumnSelector = ({
                               ?.chartable ?? true
                           }
                           candidate={configuredCapabilities.get(row.column.column)}
-                          related={occurrenceId !== 'base'}
+                          resolution={configuredResolutions.get(row.column.column)}
+                          related={row.column.occurrenceId !== 'base'}
                           candidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
-                              candidateOption.nodeId === occurrence?.nodeId,
+                              candidateOption.nodeId ===
+                              configuredOccurrence?.nodeId,
                           )}
                           anchorCandidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
                               candidateOption.nodeId === rootNodeId &&
                               candidateOption.logicalType.toLowerCase() === 'date_time',
                           )}
-                          resourceLabel={titleForResource(resourceType)}
+                          resourceLabel={titleForResource(
+                            configuredResourceType ?? resourceType,
+                          )}
                           onChange={onChange}
                           onSourceChange={onSourceChange}
                           onContributorChange={onContributorChange}
                           onRemove={() => onRemove(row.column.column)}
+                          onInspect={() =>
+                            void inspectColumn(row.column)
+                          }
                         />
                       ) : (
                         <AvailableColumnRow

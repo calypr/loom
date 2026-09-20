@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	SemanticObservationSchemaVersion = 3
-	maxSemanticObservations          = 512
-	maxSemanticExamples              = 32
-	maxSemanticExampleBytes          = 256
+	SemanticObservationSchemaVersion         = 3
+	maxSemanticObservations                  = 512
+	maxSemanticExamples                      = 32
+	maxSemanticExampleBytes                  = 256
+	SemanticStatusUnsupportedValueProjection = "UNSUPPORTED_VALUE_PROJECTION"
 )
 
 func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) {
@@ -32,128 +33,19 @@ func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID 
 		}
 	}
 	profile := semanticProfileForPayload(payload)
-	if p.resourceType == "Observation" {
-		p.observeObservationSemantics(payload, profile, emit)
-	}
-	walkSemanticValue(payload, "", nil, p, profile, emit)
-}
-
-func (p *Profiler) observeObservationSemantics(payload map[string]any, profile string, emit func(SemanticObservation, []any)) {
-	if code, ok := payload["code"].(map[string]any); ok {
-		p.emitObservationCodeValue("", code, payload, profile, emit)
-	}
-	components, _ := payload["component"].([]any)
-	for _, raw := range components {
-		component, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		code, ok := component["code"].(map[string]any)
-		if ok {
-			p.emitObservationCodeValue("component[]", code, component, profile, emit)
-		}
-	}
-}
-
-func (p *Profiler) emitObservationCodeValue(owner string, code map[string]any, ownerValue map[string]any, profile string, emit func(SemanticObservation, []any)) {
-	valueSelectors := semanticChoiceValues(p.resourceType, ownerValue)
-	if len(valueSelectors) == 0 {
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
 		return
 	}
-	codings := semanticCodings(code)
-	if len(codings) == 0 {
-		// Preserve an unresolved text/code candidate. A missing Coding is not
-		// equivalent to a matching Coding and must remain visible.
-		for _, value := range valueSelectors {
-			p.emitSemantic(owner, code, nil, value, profile, "OBSERVATION_CODE_VALUE", emit)
-		}
-		return
-	}
-	for _, coding := range codings {
-		for _, value := range valueSelectors {
-			p.emitSemantic(owner, code, coding, value, profile, "OBSERVATION_CODE_VALUE", emit)
-		}
-	}
+	_ = p.observeSchemaSemantics(index, payload, profile, emit)
 }
 
 type semanticChoiceValue struct {
 	Arm      string
 	Selector string
+	Type     string
+	Status   string
 	Value    any
-}
-
-func semanticChoiceValues(resourceType string, value map[string]any) []semanticChoiceValue {
-	keys := make([]string, 0)
-	for key, raw := range value {
-		if strings.HasPrefix(key, "value") && key != "value" && raw != nil {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	result := make([]semanticChoiceValue, 0, len(keys))
-	for _, key := range keys {
-		selector, _ := semanticValuePathAndType(resourceType, key, value[key])
-		if selector == "" {
-			continue
-		}
-		result = append(result, semanticChoiceValue{Arm: key, Selector: selector, Value: value[key]})
-	}
-	return result
-}
-
-func (p *Profiler) emitSemantic(owner string, code map[string]any, coding map[string]any, value semanticChoiceValue, profile, rule string, emit func(SemanticObservation, []any)) {
-	key := SemanticObservationKey{Selector: "code.coding[]"}
-	if coding == nil {
-		key.Selector = "code.text"
-		key.Display = stringValue(code["text"])
-	} else {
-		key.System = stringValue(coding["system"])
-		key.Version = stringValue(coding["version"])
-		key.Code = stringValue(coding["code"])
-		key.Display = stringValue(coding["display"])
-	}
-	ownerPath := strings.Trim(owner, ".")
-	storagePath := ownerPath
-	if storagePath == "" {
-		// Root terminology/value observations belong to the code field. Keep
-		// owning scope empty so the binding remains relative to the resource,
-		// while retaining the catalog's existing field-path contract.
-		storagePath = "code"
-	}
-	canonical := p.resourceType
-	if storagePath != "" {
-		canonical += "." + storagePath
-	}
-	_, valueType := semanticValuePathAndType(p.resourceType, value.Arm, value.Value)
-	observedUnits := semanticObservedUnits(value.Value)
-	status := "SUPPORTED"
-	if strings.TrimSpace(key.System) == "" {
-		status = "UNRESOLVED_SYSTEM"
-	}
-	if strings.TrimSpace(key.Code) == "" && coding != nil {
-		status = "UNRESOLVED_CODE"
-	}
-	if coding == nil {
-		status = "UNRESOLVED_BINDING"
-	}
-	observation := SemanticObservation{
-		SchemaVersion: SemanticObservationSchemaVersion,
-		Source:        SemanticObservationSource{Canonical: canonical, Type: p.resourceType, Profile: profile, Path: storagePath},
-		Key:           key,
-		Value:         SemanticObservationValue{Selector: value.Selector, Type: valueType},
-		OwningScope:   ownerPath,
-		ChoiceArm:     value.Arm,
-		LogicalType:   valueType,
-		ObservedUnits: observedUnits,
-		Completeness:  SemanticComplete,
-		Status:        status,
-		RuleHint:      rule,
-		RuleVersion:   strconv.Itoa(SemanticObservationRuleVersion),
-	}
-	if stat := p.ensureSemanticStat(storagePath); stat != nil {
-		stat.addSemanticObservation(observation, []any{semanticExampleValue(value)})
-	}
-	emit(observation, []any{semanticExampleValue(value)})
 }
 
 func semanticExampleValue(value semanticChoiceValue) any {
@@ -179,126 +71,22 @@ func semanticExampleValue(value semanticChoiceValue) any {
 	return value.Value
 }
 
-func walkSemanticValue(value any, path string, ancestors []string, profiler *Profiler, profile string, emit func(SemanticObservation, []any)) {
-	switch typed := value.(type) {
-	case map[string]any:
-		isExtension := strings.HasSuffix(path, "extension[]")
-		if isExtension {
-			profiler.emitExtensionSemantic(typed, path, ancestors, profile, emit)
+func semanticProjectionStatus(value map[string]any, path string) string {
+	var current any = value
+	for _, part := range strings.Split(path, ".") {
+		object, ok := current.(map[string]any)
+		if !ok {
+			return SemanticStatusUnsupportedValueProjection
 		}
-		if strings.HasSuffix(path, "identifier[]") {
-			profiler.emitIdentifierSemantic(typed, path, profile, emit)
-		}
-		for _, key := range sortedKeys(typed) {
-			child := typed[key]
-			if child == nil {
-				continue
-			}
-			childPath := appendPath(path, key, false)
-			if _, ok := child.([]any); ok {
-				childPath = appendPath(path, key, true)
-			}
-			nextAncestors := ancestors
-			if isExtension && key == "extension" {
-				if url := strings.TrimSpace(stringValue(typed["url"])); url != "" {
-					nextAncestors = append(append([]string(nil), ancestors...), url)
-				}
-			}
-			walkSemanticValue(child, childPath, nextAncestors, profiler, profile, emit)
-		}
-	case []any:
-		for _, item := range typed {
-			if item != nil {
-				walkSemanticValue(item, path, ancestors, profiler, profile, emit)
-			}
+		current, ok = object[part]
+		if !ok || current == nil {
+			return SemanticStatusUnsupportedValueProjection
 		}
 	}
-}
-
-func (p *Profiler) emitIdentifierSemantic(value map[string]any, path, profile string, emit func(SemanticObservation, []any)) {
-	raw, ok := value["value"]
-	if !ok || raw == nil {
-		return
+	if text, ok := current.(string); ok && strings.TrimSpace(text) == "" {
+		return SemanticStatusUnsupportedValueProjection
 	}
-	observation := SemanticObservation{
-		SchemaVersion: SemanticObservationSchemaVersion,
-		Source:        SemanticObservationSource{Canonical: p.resourceType + "." + path, Type: p.resourceType, Profile: profile, Path: path},
-		Key:           SemanticObservationKey{Selector: path + ".system", System: stringValue(value["system"])},
-		Value:         SemanticObservationValue{Selector: path + ".value", Type: semanticValueType(raw)},
-		OwningScope:   path, LogicalType: semanticValueType(raw), Completeness: SemanticComplete,
-		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: strconv.Itoa(SemanticObservationRuleVersion),
-	}
-	if observation.Key.System == "" {
-		observation.Status = "UNRESOLVED_SYSTEM"
-	}
-	if stat := p.ensureSemanticStat(path); stat != nil {
-		stat.addSemanticObservation(observation, []any{raw})
-	}
-	emit(observation, []any{raw})
-}
-
-func (p *Profiler) emitExtensionSemantic(value map[string]any, path string, ancestors []string, profile string, emit func(SemanticObservation, []any)) {
-	url := strings.TrimSpace(stringValue(value["url"]))
-	if url == "" {
-		return
-	}
-	for _, key := range sortedKeys(value) {
-		if !strings.HasPrefix(key, "value") || key == "value" || value[key] == nil {
-			continue
-		}
-		valuePath, valueType := semanticValuePathAndType(p.resourceType, key, value[key])
-		if valuePath == "" {
-			continue
-		}
-		status := "SUPPORTED"
-		if valueType == "mixed" {
-			status = "UNRESOLVED_VALUE_TYPE"
-		}
-		observation := SemanticObservation{
-			SchemaVersion: SemanticObservationSchemaVersion,
-			Source:        SemanticObservationSource{Canonical: p.resourceType + "." + path, Type: p.resourceType, Profile: profile, Path: path},
-			Key:           SemanticObservationKey{Selector: path + ".url", Display: url},
-			Value:         SemanticObservationValue{Selector: path + "." + valuePath, Type: valueType},
-			OwningScope:   path, ExtensionURLPath: append(append([]string(nil), ancestors...), url), ChoiceArm: key,
-			LogicalType: valueType, ObservedUnits: semanticObservedUnits(value[key]), Completeness: SemanticComplete,
-			Status: status, RuleHint: "EXTENSION_URL_VALUE", RuleVersion: strconv.Itoa(SemanticObservationRuleVersion),
-		}
-		if stat := p.ensureSemanticStat(path); stat != nil {
-			stat.addSemanticObservation(observation, []any{value[key]})
-		}
-		emit(observation, []any{value[key]})
-	}
-}
-
-func semanticValuePathAndType(resourceType, path string, value any) (string, string) {
-	if value == nil {
-		return "", ""
-	}
-	if _, object := value.(map[string]any); object {
-		// Complex choices retain the arm and any observed unit; the concrete
-		// scalar path is resolved through generated FHIR metadata for known
-		// datatypes rather than inferred from the JSON object shape.
-		switch path {
-		case "valueQuantity":
-			valuePath := path + ".value"
-			return valuePath, semanticGeneratedValueType(resourceType, valuePath, value, "decimal")
-		case "valueCodeableConcept":
-			valuePath := path + ".text"
-			return valuePath, semanticGeneratedValueType(resourceType, valuePath, value, "string")
-		case "valuePeriod":
-			valuePath := path + ".start"
-			return valuePath, semanticGeneratedValueType(resourceType, valuePath, value, "date_time")
-		case "valueRange":
-			valuePath := path + ".low.value"
-			return valuePath, semanticGeneratedValueType(resourceType, valuePath, value, "decimal")
-		case "valueRatio":
-			valuePath := path + ".numerator.value"
-			return valuePath, semanticGeneratedValueType(resourceType, valuePath, value, "decimal")
-		default:
-			return path, semanticGeneratedValueType(resourceType, path, value, "mixed")
-		}
-	}
-	return path, semanticGeneratedValueType(resourceType, path, value, semanticValueType(value))
+	return "SUPPORTED"
 }
 
 func semanticGeneratedValueType(resourceType, path string, value any, fallback string) string {

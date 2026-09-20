@@ -330,6 +330,11 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 			return fmt.Errorf("choice selector %d: %w", index, err)
 		}
 	}
+	if correlation.UnitSelector != nil {
+		if err := validatePhysicalSelector(ownerResource, *correlation.UnitSelector); err != nil {
+			return fmt.Errorf("unit selector: %w", err)
+		}
+	}
 	if strings.TrimSpace(correlation.LogicalType) == "" {
 		return fmt.Errorf("correlation logical type is required")
 	}

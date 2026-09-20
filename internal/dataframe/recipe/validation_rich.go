@@ -483,7 +483,7 @@ func validateFieldsBudget(fields []Field, path string, budget *int) error {
 	return nil
 }
 
-func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, aggregates []Aggregate, slices []RepresentativeSlice, path string, budget *int) error {
+func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, ownerRecords []OwnerRecordProjection, aggregates []Aggregate, slices []RepresentativeSlice, path string, budget *int) error {
 	if err := validateFieldsBudget(fields, path+".fields", budget); err != nil {
 		return err
 	}
@@ -505,6 +505,18 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, aggrega
 		}
 		if err := pivot.validateAt(p, budget); err != nil {
 			return err
+		}
+	}
+	for i, projection := range ownerRecords {
+		p := fmt.Sprintf("%s.ownerRecords[%d]", path, i)
+		if err := validateRecipeName(projection.Name, p+".name"); err != nil {
+			return err
+		}
+		if err := check(projection.Name, p); err != nil {
+			return err
+		}
+		if strings.TrimSpace(projection.Binding.OwnerPath) == "" || strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {
+			return validationError("invalid_owner_records", p, "binding.ownerPath and key.system/code are required")
 		}
 	}
 	for i, aggregate := range aggregates {

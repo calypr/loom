@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -129,34 +130,40 @@ func (e AuthoringCapabilityKind) Valid() bool {
 
 // Defines values for AuthoringCapabilityOperations.
 const (
-	Builder               AuthoringCapabilityOperations = "builder"
-	Commands              AuthoringCapabilityOperations = "commands"
-	InterpretationPreview AuthoringCapabilityOperations = "interpretationPreview"
-	Preview               AuthoringCapabilityOperations = "preview"
-	Publish               AuthoringCapabilityOperations = "publish"
-	Reconcile             AuthoringCapabilityOperations = "reconcile"
-	RowChange             AuthoringCapabilityOperations = "rowChange"
-	Suggestions           AuthoringCapabilityOperations = "suggestions"
+	AuthoringCapabilityOperationsBuilder                 AuthoringCapabilityOperations = "builder"
+	AuthoringCapabilityOperationsCommands                AuthoringCapabilityOperations = "commands"
+	AuthoringCapabilityOperationsConfiguredColumnContext AuthoringCapabilityOperations = "configuredColumnContext"
+	AuthoringCapabilityOperationsInterpretationCreate    AuthoringCapabilityOperations = "interpretationCreate"
+	AuthoringCapabilityOperationsInterpretationPreview   AuthoringCapabilityOperations = "interpretationPreview"
+	AuthoringCapabilityOperationsPreview                 AuthoringCapabilityOperations = "preview"
+	AuthoringCapabilityOperationsPublish                 AuthoringCapabilityOperations = "publish"
+	AuthoringCapabilityOperationsReconcile               AuthoringCapabilityOperations = "reconcile"
+	AuthoringCapabilityOperationsRowChange               AuthoringCapabilityOperations = "rowChange"
+	AuthoringCapabilityOperationsSuggestions             AuthoringCapabilityOperations = "suggestions"
 )
 
 // Valid indicates whether the value is a known member of the AuthoringCapabilityOperations enum.
 func (e AuthoringCapabilityOperations) Valid() bool {
 	switch e {
-	case Builder:
+	case AuthoringCapabilityOperationsBuilder:
 		return true
-	case Commands:
+	case AuthoringCapabilityOperationsCommands:
 		return true
-	case InterpretationPreview:
+	case AuthoringCapabilityOperationsConfiguredColumnContext:
 		return true
-	case Preview:
+	case AuthoringCapabilityOperationsInterpretationCreate:
 		return true
-	case Publish:
+	case AuthoringCapabilityOperationsInterpretationPreview:
 		return true
-	case Reconcile:
+	case AuthoringCapabilityOperationsPreview:
 		return true
-	case RowChange:
+	case AuthoringCapabilityOperationsPublish:
 		return true
-	case Suggestions:
+	case AuthoringCapabilityOperationsReconcile:
+		return true
+	case AuthoringCapabilityOperationsRowChange:
+		return true
+	case AuthoringCapabilityOperationsSuggestions:
 		return true
 	default:
 		return false
@@ -208,6 +215,7 @@ const (
 	ADDCOLUMNSOURCE              AuthoringCommandType = "ADD_COLUMN_SOURCE"
 	ADDROUTE                     AuthoringCommandType = "ADD_ROUTE"
 	ADDSEMANTICSELECTIONS        AuthoringCommandType = "ADD_SEMANTIC_SELECTIONS"
+	APPLYCONSTRUCTIONCHOICE      AuthoringCommandType = "APPLY_CONSTRUCTION_CHOICE"
 	APPLYINTERPRETATIONCANDIDATE AuthoringCommandType = "APPLY_INTERPRETATION_CANDIDATE"
 	APPLYTABLEROOTREBASE         AuthoringCommandType = "APPLY_TABLE_ROOT_REBASE"
 	CLEARCOLUMNCONTRIBUTOR       AuthoringCommandType = "CLEAR_COLUMN_CONTRIBUTOR"
@@ -238,6 +246,8 @@ func (e AuthoringCommandType) Valid() bool {
 	case ADDROUTE:
 		return true
 	case ADDSEMANTICSELECTIONS:
+		return true
+	case APPLYCONSTRUCTIONCHOICE:
 		return true
 	case APPLYINTERPRETATIONCANDIDATE:
 		return true
@@ -363,13 +373,13 @@ func (e CellTraceTraceStatus) Valid() bool {
 
 // Defines values for ColumnSourceKind.
 const (
-	Aggregate                  ColumnSourceKind = "aggregate"
-	CodingBySystem             ColumnSourceKind = "codingBySystem"
-	ExtensionByUrl             ColumnSourceKind = "extensionByUrl"
-	Field                      ColumnSourceKind = "field"
-	IdentifierBySystem         ColumnSourceKind = "identifierBySystem"
-	ObservationComponentByCode ColumnSourceKind = "observationComponentByCode"
-	ProjectId                  ColumnSourceKind = "projectId"
+	Aggregate          ColumnSourceKind = "aggregate"
+	CodedValue         ColumnSourceKind = "codedValue"
+	ExtensionByUrl     ColumnSourceKind = "extensionByUrl"
+	Field              ColumnSourceKind = "field"
+	IdentifierBySystem ColumnSourceKind = "identifierBySystem"
+	OwnerRecords       ColumnSourceKind = "ownerRecords"
+	ProjectId          ColumnSourceKind = "projectId"
 )
 
 // Valid indicates whether the value is a known member of the ColumnSourceKind enum.
@@ -377,7 +387,7 @@ func (e ColumnSourceKind) Valid() bool {
 	switch e {
 	case Aggregate:
 		return true
-	case CodingBySystem:
+	case CodedValue:
 		return true
 	case ExtensionByUrl:
 		return true
@@ -385,9 +395,45 @@ func (e ColumnSourceKind) Valid() bool {
 		return true
 	case IdentifierBySystem:
 		return true
-	case ObservationComponentByCode:
+	case OwnerRecords:
 		return true
 	case ProjectId:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ColumnSourceRouteStepMatchMode.
+const (
+	ColumnSourceRouteStepMatchModeOPTIONAL ColumnSourceRouteStepMatchMode = "OPTIONAL"
+	ColumnSourceRouteStepMatchModeREQUIRED ColumnSourceRouteStepMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ColumnSourceRouteStepMatchMode enum.
+func (e ColumnSourceRouteStepMatchMode) Valid() bool {
+	switch e {
+	case ColumnSourceRouteStepMatchModeOPTIONAL:
+		return true
+	case ColumnSourceRouteStepMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ColumnSourceRouteStepStorageDirection.
+const (
+	ColumnSourceRouteStepStorageDirectionINBOUND  ColumnSourceRouteStepStorageDirection = "INBOUND"
+	ColumnSourceRouteStepStorageDirectionOUTBOUND ColumnSourceRouteStepStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the ColumnSourceRouteStepStorageDirection enum.
+func (e ColumnSourceRouteStepStorageDirection) Valid() bool {
+	switch e {
+	case ColumnSourceRouteStepStorageDirectionINBOUND:
+		return true
+	case ColumnSourceRouteStepStorageDirectionOUTBOUND:
 		return true
 	default:
 		return false
@@ -430,6 +476,216 @@ const (
 func (e CompileResponseKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderReceipt:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConfiguredColumnReadyResolutionState.
+const (
+	ConfiguredColumnReadyResolutionStateREADY ConfiguredColumnReadyResolutionState = "READY"
+)
+
+// Valid indicates whether the value is a known member of the ConfiguredColumnReadyResolutionState enum.
+func (e ConfiguredColumnReadyResolutionState) Valid() bool {
+	switch e {
+	case ConfiguredColumnReadyResolutionStateREADY:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConfiguredColumnUnavailableResolutionState.
+const (
+	ConfiguredColumnUnavailableResolutionStateAMBIGUOUS   ConfiguredColumnUnavailableResolutionState = "AMBIGUOUS"
+	ConfiguredColumnUnavailableResolutionStateMISSING     ConfiguredColumnUnavailableResolutionState = "MISSING"
+	ConfiguredColumnUnavailableResolutionStateUNSUPPORTED ConfiguredColumnUnavailableResolutionState = "UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the ConfiguredColumnUnavailableResolutionState enum.
+func (e ConfiguredColumnUnavailableResolutionState) Valid() bool {
+	switch e {
+	case ConfiguredColumnUnavailableResolutionStateAMBIGUOUS:
+		return true
+	case ConfiguredColumnUnavailableResolutionStateMISSING:
+		return true
+	case ConfiguredColumnUnavailableResolutionStateUNSUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionDecision.
+const (
+	DEFAULT          ConstructionChoiceOptionDecision = "DEFAULT"
+	REQUIRESDECISION ConstructionChoiceOptionDecision = "REQUIRES_DECISION"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionDecision enum.
+func (e ConstructionChoiceOptionDecision) Valid() bool {
+	switch e {
+	case DEFAULT:
+		return true
+	case REQUIRESDECISION:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionForm.
+const (
+	ConstructionChoiceOptionFormALL          ConstructionChoiceOptionForm = "ALL"
+	ConstructionChoiceOptionFormDISTINCT     ConstructionChoiceOptionForm = "DISTINCT"
+	ConstructionChoiceOptionFormFIRST        ConstructionChoiceOptionForm = "FIRST"
+	ConstructionChoiceOptionFormOWNERRECORDS ConstructionChoiceOptionForm = "OWNER_RECORDS"
+	ConstructionChoiceOptionFormVALUE        ConstructionChoiceOptionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionForm enum.
+func (e ConstructionChoiceOptionForm) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionFormALL:
+		return true
+	case ConstructionChoiceOptionFormDISTINCT:
+		return true
+	case ConstructionChoiceOptionFormFIRST:
+		return true
+	case ConstructionChoiceOptionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceOptionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionPreservation.
+const (
+	PRESERVING ConstructionChoiceOptionPreservation = "PRESERVING"
+	REDUCING   ConstructionChoiceOptionPreservation = "REDUCING"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionPreservation enum.
+func (e ConstructionChoiceOptionPreservation) Valid() bool {
+	switch e {
+	case PRESERVING:
+		return true
+	case REDUCING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionRowEffect.
+const (
+	PRESERVESROWGRAIN ConstructionChoiceOptionRowEffect = "PRESERVES_ROW_GRAIN"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionRowEffect enum.
+func (e ConstructionChoiceOptionRowEffect) Valid() bool {
+	switch e {
+	case PRESERVESROWGRAIN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionShape.
+const (
+	ConstructionChoiceOptionShapeLIST   ConstructionChoiceOptionShape = "LIST"
+	ConstructionChoiceOptionShapeSCALAR ConstructionChoiceOptionShape = "SCALAR"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionShape enum.
+func (e ConstructionChoiceOptionShape) Valid() bool {
+	switch e {
+	case ConstructionChoiceOptionShapeLIST:
+		return true
+	case ConstructionChoiceOptionShapeSCALAR:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceOptionSupport.
+const (
+	SUPPORTED ConstructionChoiceOptionSupport = "SUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceOptionSupport enum.
+func (e ConstructionChoiceOptionSupport) Valid() bool {
+	switch e {
+	case SUPPORTED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionChoiceSelectionForm.
+const (
+	ConstructionChoiceSelectionFormALL          ConstructionChoiceSelectionForm = "ALL"
+	ConstructionChoiceSelectionFormDISTINCT     ConstructionChoiceSelectionForm = "DISTINCT"
+	ConstructionChoiceSelectionFormFIRST        ConstructionChoiceSelectionForm = "FIRST"
+	ConstructionChoiceSelectionFormOWNERRECORDS ConstructionChoiceSelectionForm = "OWNER_RECORDS"
+	ConstructionChoiceSelectionFormVALUE        ConstructionChoiceSelectionForm = "VALUE"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionChoiceSelectionForm enum.
+func (e ConstructionChoiceSelectionForm) Valid() bool {
+	switch e {
+	case ConstructionChoiceSelectionFormALL:
+		return true
+	case ConstructionChoiceSelectionFormDISTINCT:
+		return true
+	case ConstructionChoiceSelectionFormFIRST:
+		return true
+	case ConstructionChoiceSelectionFormOWNERRECORDS:
+		return true
+	case ConstructionChoiceSelectionFormVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRouteStepMatchMode.
+const (
+	ConstructionRouteStepMatchModeOPTIONAL ConstructionRouteStepMatchMode = "OPTIONAL"
+	ConstructionRouteStepMatchModeREQUIRED ConstructionRouteStepMatchMode = "REQUIRED"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRouteStepMatchMode enum.
+func (e ConstructionRouteStepMatchMode) Valid() bool {
+	switch e {
+	case ConstructionRouteStepMatchModeOPTIONAL:
+		return true
+	case ConstructionRouteStepMatchModeREQUIRED:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionRouteStepStorageDirection.
+const (
+	ConstructionRouteStepStorageDirectionINBOUND  ConstructionRouteStepStorageDirection = "INBOUND"
+	ConstructionRouteStepStorageDirectionOUTBOUND ConstructionRouteStepStorageDirection = "OUTBOUND"
+)
+
+// Valid indicates whether the value is a known member of the ConstructionRouteStepStorageDirection enum.
+func (e ConstructionRouteStepStorageDirection) Valid() bool {
+	switch e {
+	case ConstructionRouteStepStorageDirectionINBOUND:
+		return true
+	case ConstructionRouteStepStorageDirectionOUTBOUND:
 		return true
 	default:
 		return false
@@ -529,6 +785,36 @@ const (
 func (e DocumentKind) Valid() bool {
 	switch e {
 	case ExplorerBuilderDocument:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldChoiceSourceKind.
+const (
+	FieldChoiceSourceKindFIELD FieldChoiceSourceKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the FieldChoiceSourceKind enum.
+func (e FieldChoiceSourceKind) Valid() bool {
+	switch e {
+	case FieldChoiceSourceKindFIELD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FieldConstructionChoiceSearchSourceKind.
+const (
+	FieldConstructionChoiceSearchSourceKindFIELD FieldConstructionChoiceSearchSourceKind = "FIELD"
+)
+
+// Valid indicates whether the value is a known member of the FieldConstructionChoiceSearchSourceKind enum.
+func (e FieldConstructionChoiceSearchSourceKind) Valid() bool {
+	switch e {
+	case FieldConstructionChoiceSearchSourceKindFIELD:
 		return true
 	default:
 		return false
@@ -886,6 +1172,36 @@ func (e SelectionSourceKind) Valid() bool {
 	}
 }
 
+// Defines values for SemanticBindingChoiceSourceKind.
+const (
+	SemanticBindingChoiceSourceKindSEMANTIC SemanticBindingChoiceSourceKind = "SEMANTIC"
+)
+
+// Valid indicates whether the value is a known member of the SemanticBindingChoiceSourceKind enum.
+func (e SemanticBindingChoiceSourceKind) Valid() bool {
+	switch e {
+	case SemanticBindingChoiceSourceKindSEMANTIC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticConstructionChoiceSearchSourceKind.
+const (
+	SemanticConstructionChoiceSearchSourceKindSEMANTIC SemanticConstructionChoiceSearchSourceKind = "SEMANTIC"
+)
+
+// Valid indicates whether the value is a known member of the SemanticConstructionChoiceSearchSourceKind enum.
+func (e SemanticConstructionChoiceSearchSourceKind) Valid() bool {
+	switch e {
+	case SemanticConstructionChoiceSearchSourceKindSEMANTIC:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SemanticInventoryBrowseResponseSourceAvailability.
 const (
 	SemanticInventoryBrowseResponseSourceAvailabilityUnknown  SemanticInventoryBrowseResponseSourceAvailability = "unknown"
@@ -958,6 +1274,30 @@ func (e SemanticSelectionIntentProjectionMode) Valid() bool {
 	case SemanticSelectionIntentProjectionModeINDEXED:
 		return true
 	case SemanticSelectionIntentProjectionModeVALUE:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SemanticSelectionReadinessStatus.
+const (
+	SemanticSelectionReadinessStatusNEEDSMAPPING     SemanticSelectionReadinessStatus = "NEEDS_MAPPING"
+	SemanticSelectionReadinessStatusREADY            SemanticSelectionReadinessStatus = "READY"
+	SemanticSelectionReadinessStatusREADYWITHWARNING SemanticSelectionReadinessStatus = "READY_WITH_WARNING"
+	SemanticSelectionReadinessStatusUNSUPPORTED      SemanticSelectionReadinessStatus = "UNSUPPORTED"
+)
+
+// Valid indicates whether the value is a known member of the SemanticSelectionReadinessStatus enum.
+func (e SemanticSelectionReadinessStatus) Valid() bool {
+	switch e {
+	case SemanticSelectionReadinessStatusNEEDSMAPPING:
+		return true
+	case SemanticSelectionReadinessStatusREADY:
+		return true
+	case SemanticSelectionReadinessStatusREADYWITHWARNING:
+		return true
+	case SemanticSelectionReadinessStatusUNSUPPORTED:
 		return true
 	default:
 		return false
@@ -1164,10 +1504,10 @@ type AuthoringCommand struct {
 	CandidateId             *string                              `json:"candidateId,omitempty"`
 	Column                  *string                              `json:"column,omitempty"`
 	ColumnValue             *Column                              `json:"columnValue,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection         `json:"constructionChoice,omitempty"`
 	ContextToken            *string                              `json:"contextToken,omitempty"`
 	Contributor             *ContributorPredicate                `json:"contributor,omitempty"`
 	EdgeId                  *string                              `json:"edgeId,omitempty"`
-	EdgeIds                 *[]string                            `json:"edgeIds,omitempty"`
 	InitialPresentation     *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
 	InterpretationCandidate *InterpretationCandidatePayload      `json:"interpretationCandidate,omitempty"`
 	MatchMode               *AuthoringCommandMatchMode           `json:"matchMode,omitempty"`
@@ -1177,6 +1517,7 @@ type AuthoringCommand struct {
 	ParentOccurrenceId      *string                              `json:"parentOccurrenceId,omitempty"`
 	ProjectionMode          *ProjectionMode                      `json:"projectionMode,omitempty"`
 	RootNodeId              *string                              `json:"rootNodeId,omitempty"`
+	RouteChoiceId           *string                              `json:"routeChoiceId,omitempty"`
 	RowChange               *RowChangeProposal                   `json:"rowChange,omitempty"`
 	SelectionRevisionId     *string                              `json:"selectionRevisionId,omitempty"`
 	SemanticSelections      *[]SemanticSelectionIntent           `json:"semanticSelections,omitempty"`
@@ -1261,6 +1602,7 @@ type CatalogCandidate struct {
 	Cardinality           string              `json:"cardinality"`
 	Chartable             bool                `json:"chartable"`
 	ConceptCandidates     *[]ConceptCandidate `json:"conceptCandidates,omitempty"`
+	ConstructionChoice    *ConstructionChoice `json:"constructionChoice,omitempty"`
 	DefaultProjectionMode ProjectionMode      `json:"defaultProjectionMode"`
 	FieldPath             string              `json:"fieldPath"`
 	Filterable            bool                `json:"filterable"`
@@ -1382,12 +1724,46 @@ type ColumnSource struct {
 	Field     *FieldSource     `json:"field,omitempty"`
 	Kind      ColumnSourceKind `json:"kind"`
 
-	// Lookup Exactly one legacy match/path, correlated binding/key, or ancestor-aware extension payload is required. Legacy payloads remain readable; new concept lookup commands require typed bindings.
-	Lookup *LookupSource `json:"lookup,omitempty"`
+	// Lookup Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
+	Lookup       *LookupSource       `json:"lookup,omitempty"`
+	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
 }
 
 // ColumnSourceKind defines model for ColumnSource.Kind.
 type ColumnSourceKind string
+
+// ColumnSourceRequest defines model for ColumnSourceRequest.
+type ColumnSourceRequest struct {
+	Column        string `json:"column"`
+	OutputId      string `json:"outputId"`
+	SnapshotToken string `json:"snapshotToken"`
+}
+
+// ColumnSourceResponse defines model for ColumnSourceResponse.
+type ColumnSourceResponse struct {
+	Column        string                   `json:"column"`
+	Facts         []ConstructionChoiceFact `json:"facts"`
+	OutputId      string                   `json:"outputId"`
+	Route         []ColumnSourceRouteStep  `json:"route"`
+	SnapshotToken string                   `json:"snapshotToken"`
+	Summary       string                   `json:"summary"`
+}
+
+// ColumnSourceRouteStep defines model for ColumnSourceRouteStep.
+type ColumnSourceRouteStep struct {
+	CatalogEdgeId    *string                                `json:"catalogEdgeId,omitempty"`
+	MatchMode        *ColumnSourceRouteStepMatchMode        `json:"matchMode,omitempty"`
+	OccurrenceId     string                                 `json:"occurrenceId"`
+	Relationship     *string                                `json:"relationship,omitempty"`
+	ResourceType     string                                 `json:"resourceType"`
+	StorageDirection *ColumnSourceRouteStepStorageDirection `json:"storageDirection,omitempty"`
+}
+
+// ColumnSourceRouteStepMatchMode defines model for ColumnSourceRouteStep.MatchMode.
+type ColumnSourceRouteStepMatchMode string
+
+// ColumnSourceRouteStepStorageDirection defines model for ColumnSourceRouteStep.StorageDirection.
+type ColumnSourceRouteStepStorageDirection string
 
 // CommandResult defines model for CommandResult.
 type CommandResult struct {
@@ -1450,6 +1826,164 @@ type ConceptCandidate struct {
 	System             *string   `json:"system,omitempty"`
 	ValueSelector      *string   `json:"valueSelector,omitempty"`
 }
+
+// ConfiguredColumnContext defines model for ConfiguredColumnContext.
+type ConfiguredColumnContext struct {
+	Column       string                     `json:"column"`
+	OccurrenceId string                     `json:"occurrenceId"`
+	OutputId     string                     `json:"outputId"`
+	Resolution   ConfiguredColumnResolution `json:"resolution"`
+}
+
+// ConfiguredColumnContextRequest defines model for ConfiguredColumnContextRequest.
+type ConfiguredColumnContextRequest struct {
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64  `json:"expectedDraftVersion"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// ConfiguredColumnContextResponse defines model for ConfiguredColumnContextResponse.
+type ConfiguredColumnContextResponse struct {
+	Columns         []ConfiguredColumnContext       `json:"columns"`
+	DraftDigest     string                          `json:"draftDigest"`
+	DraftVersion    int64                           `json:"draftVersion"`
+	Libraries       []InterpretationLibrarySummary  `json:"libraries"`
+	PinnedRevisions []InterpretationRevisionSummary `json:"pinnedRevisions"`
+	SnapshotToken   string                          `json:"snapshotToken"`
+}
+
+// ConfiguredColumnReadyResolution defines model for ConfiguredColumnReadyResolution.
+type ConfiguredColumnReadyResolution struct {
+	ApplicableRevisionIds  []string                             `json:"applicableRevisionIds"`
+	CapabilityCandidateIds []string                             `json:"capabilityCandidateIds"`
+	State                  ConfiguredColumnReadyResolutionState `json:"state"`
+}
+
+// ConfiguredColumnReadyResolutionState defines model for ConfiguredColumnReadyResolution.State.
+type ConfiguredColumnReadyResolutionState string
+
+// ConfiguredColumnResolution defines model for ConfiguredColumnResolution.
+type ConfiguredColumnResolution struct {
+	union json.RawMessage
+}
+
+// ConfiguredColumnUnavailableResolution defines model for ConfiguredColumnUnavailableResolution.
+type ConfiguredColumnUnavailableResolution struct {
+	Reason string                                     `json:"reason"`
+	State  ConfiguredColumnUnavailableResolutionState `json:"state"`
+}
+
+// ConfiguredColumnUnavailableResolutionState defines model for ConfiguredColumnUnavailableResolution.State.
+type ConfiguredColumnUnavailableResolutionState string
+
+// ConstructionChoice defines model for ConstructionChoice.
+type ConstructionChoice struct {
+	ChoiceId     string                         `json:"choiceId"`
+	Options      []ConstructionChoiceOption     `json:"options"`
+	Presentation ConstructionChoicePresentation `json:"presentation"`
+	Route        []ConstructionRouteStep        `json:"route"`
+	Source       ConstructionChoice_Source      `json:"source"`
+}
+
+// ConstructionChoice_Source defines model for ConstructionChoice.Source.
+type ConstructionChoice_Source struct {
+	union json.RawMessage
+}
+
+// ConstructionChoiceFact defines model for ConstructionChoiceFact.
+type ConstructionChoiceFact struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// ConstructionChoiceOption defines model for ConstructionChoiceOption.
+type ConstructionChoiceOption struct {
+	Decision     ConstructionChoiceOptionDecision     `json:"decision"`
+	Form         ConstructionChoiceOptionForm         `json:"form"`
+	Preservation ConstructionChoiceOptionPreservation `json:"preservation"`
+	Reason       string                               `json:"reason"`
+	RowEffect    ConstructionChoiceOptionRowEffect    `json:"rowEffect"`
+	Shape        ConstructionChoiceOptionShape        `json:"shape"`
+	Support      ConstructionChoiceOptionSupport      `json:"support"`
+}
+
+// ConstructionChoiceOptionDecision defines model for ConstructionChoiceOption.Decision.
+type ConstructionChoiceOptionDecision string
+
+// ConstructionChoiceOptionForm defines model for ConstructionChoiceOption.Form.
+type ConstructionChoiceOptionForm string
+
+// ConstructionChoiceOptionPreservation defines model for ConstructionChoiceOption.Preservation.
+type ConstructionChoiceOptionPreservation string
+
+// ConstructionChoiceOptionRowEffect defines model for ConstructionChoiceOption.RowEffect.
+type ConstructionChoiceOptionRowEffect string
+
+// ConstructionChoiceOptionShape defines model for ConstructionChoiceOption.Shape.
+type ConstructionChoiceOptionShape string
+
+// ConstructionChoiceOptionSupport defines model for ConstructionChoiceOption.Support.
+type ConstructionChoiceOptionSupport string
+
+// ConstructionChoicePresentation defines model for ConstructionChoicePresentation.
+type ConstructionChoicePresentation struct {
+	Facts   []ConstructionChoiceFact `json:"facts"`
+	Summary string                   `json:"summary"`
+}
+
+// ConstructionChoiceSearchRequest defines model for ConstructionChoiceSearchRequest.
+type ConstructionChoiceSearchRequest struct {
+	Cursor *string `json:"cursor,omitempty"`
+	Limit  *int    `json:"limit,omitempty"`
+
+	// OccurrenceId When present, resolve this saved output occurrence's route on the server and return only its exact route-bound choice.
+	OccurrenceId  *string                                `json:"occurrenceId,omitempty"`
+	OutputId      string                                 `json:"outputId"`
+	SnapshotToken string                                 `json:"snapshotToken"`
+	Source        ConstructionChoiceSearchRequest_Source `json:"source"`
+}
+
+// ConstructionChoiceSearchRequest_Source defines model for ConstructionChoiceSearchRequest.Source.
+type ConstructionChoiceSearchRequest_Source struct {
+	union json.RawMessage
+}
+
+// ConstructionChoiceSearchResponse defines model for ConstructionChoiceSearchResponse.
+type ConstructionChoiceSearchResponse struct {
+	Choices       []ConstructionChoice `json:"choices"`
+	Complete      bool                 `json:"complete"`
+	NextCursor    *string              `json:"nextCursor,omitempty"`
+	OutputId      string               `json:"outputId"`
+	SnapshotToken string               `json:"snapshotToken"`
+	Truncated     bool                 `json:"truncated"`
+}
+
+// ConstructionChoiceSelection defines model for ConstructionChoiceSelection.
+type ConstructionChoiceSelection struct {
+	ChoiceId string                          `json:"choiceId"`
+	Form     ConstructionChoiceSelectionForm `json:"form"`
+}
+
+// ConstructionChoiceSelectionForm defines model for ConstructionChoiceSelection.Form.
+type ConstructionChoiceSelectionForm string
+
+// ConstructionRouteStep defines model for ConstructionRouteStep.
+type ConstructionRouteStep struct {
+	EdgeId           string                                `json:"edgeId"`
+	FromNodeId       string                                `json:"fromNodeId"`
+	FromResourceType string                                `json:"fromResourceType"`
+	MatchMode        ConstructionRouteStepMatchMode        `json:"matchMode"`
+	Relationship     string                                `json:"relationship"`
+	StorageDirection ConstructionRouteStepStorageDirection `json:"storageDirection"`
+	ToNodeId         string                                `json:"toNodeId"`
+	ToResourceType   string                                `json:"toResourceType"`
+}
+
+// ConstructionRouteStepMatchMode defines model for ConstructionRouteStep.MatchMode.
+type ConstructionRouteStepMatchMode string
+
+// ConstructionRouteStepStorageDirection defines model for ConstructionRouteStep.StorageDirection.
+type ConstructionRouteStepStorageDirection string
 
 // ContractColumn defines model for ContractColumn.
 type ContractColumn struct {
@@ -1585,6 +2119,29 @@ type ExtensionBinding struct {
 	ValuePath     string    `json:"valuePath"`
 }
 
+// FieldChoiceSource defines model for FieldChoiceSource.
+type FieldChoiceSource struct {
+	CandidateId        string                `json:"candidateId"`
+	Cardinality        string                `json:"cardinality"`
+	Kind               FieldChoiceSourceKind `json:"kind"`
+	NodeId             string                `json:"nodeId"`
+	Path               string                `json:"path"`
+	RepeatedBoundaries *[]RepeatedBoundary   `json:"repeatedBoundaries,omitempty"`
+	ResourceType       string                `json:"resourceType"`
+}
+
+// FieldChoiceSourceKind defines model for FieldChoiceSource.Kind.
+type FieldChoiceSourceKind string
+
+// FieldConstructionChoiceSearchSource defines model for FieldConstructionChoiceSearchSource.
+type FieldConstructionChoiceSearchSource struct {
+	CandidateId string                                  `json:"candidateId"`
+	Kind        FieldConstructionChoiceSearchSourceKind `json:"kind"`
+}
+
+// FieldConstructionChoiceSearchSourceKind defines model for FieldConstructionChoiceSearchSource.Kind.
+type FieldConstructionChoiceSearchSourceKind string
+
 // FieldSource defines model for FieldSource.
 type FieldSource struct {
 	Path             string                     `json:"path"`
@@ -1629,6 +2186,15 @@ type GenerationStatusResponse struct {
 	State      string `json:"state"`
 }
 
+// IdentifierBinding defines model for IdentifierBinding.
+type IdentifierBinding struct {
+	LogicalType string `json:"logicalType"`
+	OwnerPath   string `json:"ownerPath"`
+	SystemPath  string `json:"systemPath"`
+	SystemURI   string `json:"systemURI"`
+	ValuePath   string `json:"valuePath"`
+}
+
 // InterpretationApplicability defines model for InterpretationApplicability.
 type InterpretationApplicability struct {
 	Cardinalities   *[]string `json:"cardinalities,omitempty"`
@@ -1665,6 +2231,15 @@ type InterpretationLibrary struct {
 type InterpretationLibraryListResponse struct {
 	Libraries []InterpretationLibraryView `json:"libraries"`
 	Project   string                      `json:"project"`
+}
+
+// InterpretationLibrarySummary defines model for InterpretationLibrarySummary.
+type InterpretationLibrarySummary struct {
+	Head           *InterpretationRevisionSummary `json:"head,omitempty"`
+	HeadDigest     *string                        `json:"headDigest,omitempty"`
+	HeadRevisionId *string                        `json:"headRevisionId,omitempty"`
+	Id             string                         `json:"id"`
+	UpdatedAt      time.Time                      `json:"updatedAt"`
 }
 
 // InterpretationLibraryView defines model for InterpretationLibraryView.
@@ -1742,6 +2317,28 @@ type InterpretationRevisionCreateRequest struct {
 	Rules            []InterpretationRule        `json:"rules"`
 }
 
+// InterpretationRevisionFromColumnRequest defines model for InterpretationRevisionFromColumnRequest.
+type InterpretationRevisionFromColumnRequest struct {
+	Column               string  `json:"column"`
+	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int64   `json:"expectedDraftVersion"`
+	Explanation          string  `json:"explanation"`
+	LibraryId            string  `json:"libraryId"`
+	OutputId             string  `json:"outputId"`
+	ParentRevisionId     *string `json:"parentRevisionId,omitempty"`
+	SnapshotToken        string  `json:"snapshotToken"`
+}
+
+// InterpretationRevisionSummary defines model for InterpretationRevisionSummary.
+type InterpretationRevisionSummary struct {
+	Author        string    `json:"author"`
+	ContentDigest string    `json:"contentDigest"`
+	CreatedAt     time.Time `json:"createdAt"`
+	Explanation   string    `json:"explanation"`
+	Id            string    `json:"id"`
+	LibraryId     string    `json:"libraryId"`
+}
+
 // InterpretationRule defines model for InterpretationRule.
 type InterpretationRule struct {
 	Definition InterpretationFeatureDefinition `json:"definition"`
@@ -1785,10 +2382,11 @@ type LegacyErrorResponse_Error struct {
 	union json.RawMessage
 }
 
-// LookupSource Exactly one legacy match/path, correlated binding/key, or ancestor-aware extension payload is required. Legacy payloads remain readable; new concept lookup commands require typed bindings.
+// LookupSource Typed Identifier, Extension, and coded-value bindings remain distinct. Correlated binding/key is writable only for codedValue. Legacy Identifier and Extension match/path payloads remain readable at the persisted-draft boundary.
 type LookupSource struct {
 	Binding        *CorrelatedBinding          `json:"binding,omitempty"`
 	Extension      *ExtensionBinding           `json:"extension,omitempty"`
+	Identifier     *IdentifierBinding          `json:"identifier,omitempty"`
 	Key            *TerminologyKey             `json:"key,omitempty"`
 	Match          *string                     `json:"match,omitempty"`
 	Path           *string                     `json:"path,omitempty"`
@@ -1803,6 +2401,12 @@ type Output struct {
 	Id       string  `json:"id"`
 	RowLabel *string `json:"rowLabel,omitempty"`
 	Title    string  `json:"title"`
+}
+
+// OwnerRecordsSource defines model for OwnerRecordsSource.
+type OwnerRecordsSource struct {
+	Binding CorrelatedBinding `json:"binding"`
+	Key     TerminologyKey    `json:"key"`
 }
 
 // Population defines model for Population.
@@ -1853,10 +2457,38 @@ type PopulationMappingResponse struct {
 // PopulationMappingResponseStatus defines model for PopulationMappingResponse.Status.
 type PopulationMappingResponseStatus string
 
+// PopulationRouteChoice defines model for PopulationRouteChoice.
+type PopulationRouteChoice struct {
+	Presentation  ConstructionChoicePresentation `json:"presentation"`
+	Route         []ConstructionRouteStep        `json:"route"`
+	RouteChoiceId string                         `json:"routeChoiceId"`
+}
+
 // PopulationRouteStep defines model for PopulationRouteStep.
 type PopulationRouteStep struct {
-	Relationship string `json:"relationship"`
-	ResourceType string `json:"resourceType"`
+	CatalogEdgeId *string `json:"catalogEdgeId,omitempty"`
+	Relationship  string  `json:"relationship"`
+	ResourceType  string  `json:"resourceType"`
+}
+
+// PopulationRoutesRequest defines model for PopulationRoutesRequest.
+type PopulationRoutesRequest struct {
+	Cursor              *string `json:"cursor,omitempty"`
+	Limit               *int    `json:"limit,omitempty"`
+	OutputId            string  `json:"outputId"`
+	SelectionRevisionId string  `json:"selectionRevisionId"`
+	SnapshotToken       string  `json:"snapshotToken"`
+}
+
+// PopulationRoutesResponse defines model for PopulationRoutesResponse.
+type PopulationRoutesResponse struct {
+	Choices             []PopulationRouteChoice `json:"choices"`
+	Complete            bool                    `json:"complete"`
+	NextCursor          *string                 `json:"nextCursor,omitempty"`
+	OutputId            string                  `json:"outputId"`
+	SelectionRevisionId string                  `json:"selectionRevisionId"`
+	SnapshotToken       string                  `json:"snapshotToken"`
+	Truncated           bool                    `json:"truncated"`
 }
 
 // PreviewRequest defines model for PreviewRequest.
@@ -1997,11 +2629,12 @@ type RepeatedCoordinate struct {
 
 // RouteNode defines model for RouteNode.
 type RouteNode struct {
-	Children     *[]RouteNode        `json:"children,omitempty"`
-	MatchMode    *RouteNodeMatchMode `json:"matchMode,omitempty"`
-	OccurrenceId string              `json:"occurrenceId"`
-	Relationship *string             `json:"relationship,omitempty"`
-	ResourceType string              `json:"resourceType"`
+	CatalogEdgeId *string             `json:"catalogEdgeId,omitempty"`
+	Children      *[]RouteNode        `json:"children,omitempty"`
+	MatchMode     *RouteNodeMatchMode `json:"matchMode,omitempty"`
+	OccurrenceId  string              `json:"occurrenceId"`
+	Relationship  *string             `json:"relationship,omitempty"`
+	ResourceType  string              `json:"resourceType"`
 }
 
 // RouteNodeMatchMode defines model for RouteNode.MatchMode.
@@ -2175,6 +2808,49 @@ type SelectionSource struct {
 // SelectionSourceKind defines model for SelectionSource.Kind.
 type SelectionSourceKind string
 
+// SemanticBindingChoiceSource defines model for SemanticBindingChoiceSource.
+type SemanticBindingChoiceSource struct {
+	BindingId          string                          `json:"bindingId"`
+	CandidateId        string                          `json:"candidateId"`
+	Cardinality        string                          `json:"cardinality"`
+	ChoiceArm          *string                         `json:"choiceArm,omitempty"`
+	Code               *string                         `json:"code,omitempty"`
+	ConceptId          string                          `json:"conceptId"`
+	ExtensionUrlPath   *[]string                       `json:"extensionUrlPath,omitempty"`
+	FieldPath          string                          `json:"fieldPath"`
+	KeySelector        *string                         `json:"keySelector,omitempty"`
+	Kind               SemanticBindingChoiceSourceKind `json:"kind"`
+	LogicalType        string                          `json:"logicalType"`
+	NodeId             string                          `json:"nodeId"`
+	OwningScope        *string                         `json:"owningScope,omitempty"`
+	RepeatedBoundaries *[]RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
+	ResourceType       string                          `json:"resourceType"`
+	RuleHint           *string                         `json:"ruleHint,omitempty"`
+	RuleVersion        string                          `json:"ruleVersion"`
+	SchemaVersion      int                             `json:"schemaVersion"`
+	SourceCanonical    *string                         `json:"sourceCanonical,omitempty"`
+	SourcePath         string                          `json:"sourcePath"`
+	SourceProfile      *string                         `json:"sourceProfile,omitempty"`
+	System             *string                         `json:"system,omitempty"`
+	ValueSelector      string                          `json:"valueSelector"`
+	Version            *string                         `json:"version,omitempty"`
+}
+
+// SemanticBindingChoiceSourceKind defines model for SemanticBindingChoiceSource.Kind.
+type SemanticBindingChoiceSourceKind string
+
+// SemanticConstructionChoiceSearchSource defines model for SemanticConstructionChoiceSearchSource.
+type SemanticConstructionChoiceSearchSource struct {
+	BindingId    string                                     `json:"bindingId"`
+	BuildId      string                                     `json:"buildId"`
+	ConceptId    string                                     `json:"conceptId"`
+	ContextToken string                                     `json:"contextToken"`
+	Kind         SemanticConstructionChoiceSearchSourceKind `json:"kind"`
+}
+
+// SemanticConstructionChoiceSearchSourceKind defines model for SemanticConstructionChoiceSearchSource.Kind.
+type SemanticConstructionChoiceSearchSourceKind string
+
 // SemanticInventoryBrowseRequest defines model for SemanticInventoryBrowseRequest.
 type SemanticInventoryBrowseRequest struct {
 	Cursor        *string `json:"cursor,omitempty"`
@@ -2203,18 +2879,20 @@ type SemanticInventoryBrowseResponseState string
 
 // SemanticInventoryItem defines model for SemanticInventoryItem.
 type SemanticInventoryItem struct {
-	BindingId     string `json:"bindingId"`
-	Code          string `json:"code"`
-	CodingVersion string `json:"codingVersion"`
-	ConceptId     string `json:"conceptId"`
-	Display       string `json:"display"`
-	Occurrences   int64  `json:"occurrences"`
-	OwningScope   string `json:"owningScope"`
-	ResourceType  string `json:"resourceType"`
-	SourcePath    string `json:"sourcePath"`
-	System        string `json:"system"`
-	ValueSelector string `json:"valueSelector"`
-	ValueType     string `json:"valueType"`
+	BindingId          string                     `json:"bindingId"`
+	Code               string                     `json:"code"`
+	CodingVersion      string                     `json:"codingVersion"`
+	ConceptId          string                     `json:"conceptId"`
+	ConstructionChoice *ConstructionChoice        `json:"constructionChoice,omitempty"`
+	Display            string                     `json:"display"`
+	Occurrences        int64                      `json:"occurrences"`
+	OwningScope        string                     `json:"owningScope"`
+	Readiness          SemanticSelectionReadiness `json:"readiness"`
+	ResourceType       string                     `json:"resourceType"`
+	SourcePath         string                     `json:"sourcePath"`
+	System             string                     `json:"system"`
+	ValueSelector      string                     `json:"valueSelector"`
+	ValueType          string                     `json:"valueType"`
 }
 
 // SemanticSelectionIntent defines model for SemanticSelectionIntent.
@@ -2228,6 +2906,16 @@ type SemanticSelectionIntent struct {
 
 // SemanticSelectionIntentProjectionMode defines model for SemanticSelectionIntent.ProjectionMode.
 type SemanticSelectionIntentProjectionMode string
+
+// SemanticSelectionReadiness defines model for SemanticSelectionReadiness.
+type SemanticSelectionReadiness struct {
+	Code    string                           `json:"code"`
+	Message string                           `json:"message"`
+	Status  SemanticSelectionReadinessStatus `json:"status"`
+}
+
+// SemanticSelectionReadinessStatus defines model for SemanticSelectionReadiness.Status.
+type SemanticSelectionReadinessStatus string
 
 // SemanticSelectionResult defines model for SemanticSelectionResult.
 type SemanticSelectionResult struct {
@@ -2471,6 +3159,12 @@ type ApplyExplorerBuilderCommandsParams struct {
 	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
 }
 
+// CreateInterpretationRevisionFromColumnParams defines parameters for CreateInterpretationRevisionFromColumn.
+type CreateInterpretationRevisionFromColumnParams struct {
+	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
+	AuthResourcePath *AuthResourcePath `form:"auth_resource_path,omitempty" json:"auth_resource_path,omitempty"`
+}
+
 // PublishExplorerParams defines parameters for PublishExplorer.
 type PublishExplorerParams struct {
 	// AuthResourcePath Optional Calypr resource scope used to authorize durable Explorer mutations.
@@ -2519,14 +3213,29 @@ type PrepareExplorerArtifactJSONRequestBody = ArtifactPrepareRequest
 // TraceExplorerCellJSONRequestBody defines body for TraceExplorerCell for application/json ContentType.
 type TraceExplorerCellJSONRequestBody = CellTraceRequest
 
+// GetExplorerColumnSourceJSONRequestBody defines body for GetExplorerColumnSource for application/json ContentType.
+type GetExplorerColumnSourceJSONRequestBody = ColumnSourceRequest
+
 // ApplyExplorerBuilderCommandsJSONRequestBody defines body for ApplyExplorerBuilderCommands for application/json ContentType.
 type ApplyExplorerBuilderCommandsJSONRequestBody = ApplyCommandsRequest
+
+// ResolveConfiguredColumnContextJSONRequestBody defines body for ResolveConfiguredColumnContext for application/json ContentType.
+type ResolveConfiguredColumnContextJSONRequestBody = ConfiguredColumnContextRequest
+
+// SearchExplorerConstructionChoicesJSONRequestBody defines body for SearchExplorerConstructionChoices for application/json ContentType.
+type SearchExplorerConstructionChoicesJSONRequestBody = ConstructionChoiceSearchRequest
 
 // PreviewInterpretationCandidateJSONRequestBody defines body for PreviewInterpretationCandidate for application/json ContentType.
 type PreviewInterpretationCandidateJSONRequestBody = InterpretationPreviewRequest
 
+// CreateInterpretationRevisionFromColumnJSONRequestBody defines body for CreateInterpretationRevisionFromColumn for application/json ContentType.
+type CreateInterpretationRevisionFromColumnJSONRequestBody = InterpretationRevisionFromColumnRequest
+
 // CheckExplorerPopulationMappingJSONRequestBody defines body for CheckExplorerPopulationMapping for application/json ContentType.
 type CheckExplorerPopulationMappingJSONRequestBody = PopulationMappingRequest
+
+// SearchExplorerPopulationRoutesJSONRequestBody defines body for SearchExplorerPopulationRoutes for application/json ContentType.
+type SearchExplorerPopulationRoutesJSONRequestBody = PopulationRoutesRequest
 
 // PreviewExplorerJSONRequestBody defines body for PreviewExplorer for application/json ContentType.
 type PreviewExplorerJSONRequestBody = PreviewRequest
@@ -2815,6 +3524,297 @@ func (a LegacyErrorResponse) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// AsConfiguredColumnReadyResolution returns the union data inside the ConfiguredColumnResolution as a ConfiguredColumnReadyResolution
+func (t ConfiguredColumnResolution) AsConfiguredColumnReadyResolution() (ConfiguredColumnReadyResolution, error) {
+	var body ConfiguredColumnReadyResolution
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfiguredColumnReadyResolution overwrites any union data inside the ConfiguredColumnResolution as the provided ConfiguredColumnReadyResolution
+func (t *ConfiguredColumnResolution) FromConfiguredColumnReadyResolution(v ConfiguredColumnReadyResolution) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfiguredColumnReadyResolution performs a merge with any union data inside the ConfiguredColumnResolution, using the provided ConfiguredColumnReadyResolution
+func (t *ConfiguredColumnResolution) MergeConfiguredColumnReadyResolution(v ConfiguredColumnReadyResolution) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsConfiguredColumnUnavailableResolution returns the union data inside the ConfiguredColumnResolution as a ConfiguredColumnUnavailableResolution
+func (t ConfiguredColumnResolution) AsConfiguredColumnUnavailableResolution() (ConfiguredColumnUnavailableResolution, error) {
+	var body ConfiguredColumnUnavailableResolution
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromConfiguredColumnUnavailableResolution overwrites any union data inside the ConfiguredColumnResolution as the provided ConfiguredColumnUnavailableResolution
+func (t *ConfiguredColumnResolution) FromConfiguredColumnUnavailableResolution(v ConfiguredColumnUnavailableResolution) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeConfiguredColumnUnavailableResolution performs a merge with any union data inside the ConfiguredColumnResolution, using the provided ConfiguredColumnUnavailableResolution
+func (t *ConfiguredColumnResolution) MergeConfiguredColumnUnavailableResolution(v ConfiguredColumnUnavailableResolution) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConfiguredColumnResolution) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"state"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConfiguredColumnResolution) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "AMBIGUOUS":
+		return t.AsConfiguredColumnUnavailableResolution()
+	case "MISSING":
+		return t.AsConfiguredColumnUnavailableResolution()
+	case "READY":
+		return t.AsConfiguredColumnReadyResolution()
+	case "UNSUPPORTED":
+		return t.AsConfiguredColumnUnavailableResolution()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConfiguredColumnResolution) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConfiguredColumnResolution) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFieldChoiceSource returns the union data inside the ConstructionChoice_Source as a FieldChoiceSource
+func (t ConstructionChoice_Source) AsFieldChoiceSource() (FieldChoiceSource, error) {
+	var body FieldChoiceSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFieldChoiceSource overwrites any union data inside the ConstructionChoice_Source as the provided FieldChoiceSource
+func (t *ConstructionChoice_Source) FromFieldChoiceSource(v FieldChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	t.union = b
+	return err
+}
+
+// MergeFieldChoiceSource performs a merge with any union data inside the ConstructionChoice_Source, using the provided FieldChoiceSource
+func (t *ConstructionChoice_Source) MergeFieldChoiceSource(v FieldChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSemanticBindingChoiceSource returns the union data inside the ConstructionChoice_Source as a SemanticBindingChoiceSource
+func (t ConstructionChoice_Source) AsSemanticBindingChoiceSource() (SemanticBindingChoiceSource, error) {
+	var body SemanticBindingChoiceSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSemanticBindingChoiceSource overwrites any union data inside the ConstructionChoice_Source as the provided SemanticBindingChoiceSource
+func (t *ConstructionChoice_Source) FromSemanticBindingChoiceSource(v SemanticBindingChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	t.union = b
+	return err
+}
+
+// MergeSemanticBindingChoiceSource performs a merge with any union data inside the ConstructionChoice_Source, using the provided SemanticBindingChoiceSource
+func (t *ConstructionChoice_Source) MergeSemanticBindingChoiceSource(v SemanticBindingChoiceSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConstructionChoice_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConstructionChoice_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "FIELD":
+		return t.AsFieldChoiceSource()
+	case "SEMANTIC":
+		return t.AsSemanticBindingChoiceSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConstructionChoice_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConstructionChoice_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsFieldConstructionChoiceSearchSource returns the union data inside the ConstructionChoiceSearchRequest_Source as a FieldConstructionChoiceSearchSource
+func (t ConstructionChoiceSearchRequest_Source) AsFieldConstructionChoiceSearchSource() (FieldConstructionChoiceSearchSource, error) {
+	var body FieldConstructionChoiceSearchSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFieldConstructionChoiceSearchSource overwrites any union data inside the ConstructionChoiceSearchRequest_Source as the provided FieldConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) FromFieldConstructionChoiceSearchSource(v FieldConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	t.union = b
+	return err
+}
+
+// MergeFieldConstructionChoiceSearchSource performs a merge with any union data inside the ConstructionChoiceSearchRequest_Source, using the provided FieldConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) MergeFieldConstructionChoiceSearchSource(v FieldConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"FIELD"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsSemanticConstructionChoiceSearchSource returns the union data inside the ConstructionChoiceSearchRequest_Source as a SemanticConstructionChoiceSearchSource
+func (t ConstructionChoiceSearchRequest_Source) AsSemanticConstructionChoiceSearchSource() (SemanticConstructionChoiceSearchSource, error) {
+	var body SemanticConstructionChoiceSearchSource
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSemanticConstructionChoiceSearchSource overwrites any union data inside the ConstructionChoiceSearchRequest_Source as the provided SemanticConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) FromSemanticConstructionChoiceSearchSource(v SemanticConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	t.union = b
+	return err
+}
+
+// MergeSemanticConstructionChoiceSearchSource performs a merge with any union data inside the ConstructionChoiceSearchRequest_Source, using the provided SemanticConstructionChoiceSearchSource
+func (t *ConstructionChoiceSearchRequest_Source) MergeSemanticConstructionChoiceSearchSource(v SemanticConstructionChoiceSearchSource) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"SEMANTIC"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ConstructionChoiceSearchRequest_Source) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ConstructionChoiceSearchRequest_Source) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "FIELD":
+		return t.AsFieldConstructionChoiceSearchSource()
+	case "SEMANTIC":
+		return t.AsSemanticConstructionChoiceSearchSource()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t ConstructionChoiceSearchRequest_Source) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ConstructionChoiceSearchRequest_Source) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsContributorStringValue returns the union data inside the ContributorValue as a ContributorStringValue
 func (t ContributorValue) AsContributorStringValue() (ContributorStringValue, error) {
 	var body ContributorStringValue
@@ -2978,14 +3978,29 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
 	TraceExplorerCell(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
+	GetExplorerColumnSource(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(c fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context)
+	ResolveConfiguredColumnContext(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
+	SearchExplorerConstructionChoices(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
 	PreviewInterpretationCandidate(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions)
+	CreateInterpretationRevisionFromColumn(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateInterpretationRevisionFromColumnParams) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
 	CheckExplorerPopulationMapping(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes)
+	SearchExplorerPopulationRoutes(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(c fiber.Ctx, project Project, explorerId ExplorerId) error
@@ -3537,6 +4552,43 @@ func (siw *ServerInterfaceWrapper) TraceExplorerCell(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// GetExplorerColumnSource operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerColumnSource(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerColumnSource(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // ApplyExplorerBuilderCommands operation middleware
 func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) error {
 
@@ -3590,6 +4642,80 @@ func (siw *ServerInterfaceWrapper) ApplyExplorerBuilderCommands(c fiber.Ctx) err
 	return handler(c)
 }
 
+// ResolveConfiguredColumnContext operation middleware
+func (siw *ServerInterfaceWrapper) ResolveConfiguredColumnContext(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ResolveConfiguredColumnContext(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerConstructionChoices operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerConstructionChoices(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerConstructionChoices(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // PreviewInterpretationCandidate operation middleware
 func (siw *ServerInterfaceWrapper) PreviewInterpretationCandidate(c fiber.Ctx) error {
 
@@ -3627,6 +4753,59 @@ func (siw *ServerInterfaceWrapper) PreviewInterpretationCandidate(c fiber.Ctx) e
 	return handler(c)
 }
 
+// CreateInterpretationRevisionFromColumn operation middleware
+func (siw *ServerInterfaceWrapper) CreateInterpretationRevisionFromColumn(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateInterpretationRevisionFromColumnParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "auth_resource_path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "auth_resource_path", query, &params.AuthResourcePath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter auth_resource_path: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.CreateInterpretationRevisionFromColumn(c, project, explorerId, params)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // CheckExplorerPopulationMapping operation middleware
 func (siw *ServerInterfaceWrapper) CheckExplorerPopulationMapping(c fiber.Ctx) error {
 
@@ -3651,6 +4830,43 @@ func (siw *ServerInterfaceWrapper) CheckExplorerPopulationMapping(c fiber.Ctx) e
 
 	handler := func(c fiber.Ctx) error {
 		return siw.Handler.CheckExplorerPopulationMapping(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// SearchExplorerPopulationRoutes operation middleware
+func (siw *ServerInterfaceWrapper) SearchExplorerPopulationRoutes(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.SearchExplorerPopulationRoutes(c, project, explorerId)
 	}
 
 	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
@@ -4389,6 +5605,12 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/semantic-inventory", wrapper.BrowseExplorerSemanticInventory)
 
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/construction-choices", wrapper.SearchExplorerConstructionChoices)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-routes", wrapper.SearchExplorerPopulationRoutes)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/column-source", wrapper.GetExplorerColumnSource)
+
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/builder", wrapper.GetExplorerBuilder)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/commands", wrapper.ApplyExplorerBuilderCommands)
@@ -4402,6 +5624,10 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/cell-trace", wrapper.TraceExplorerCell)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/interpretation-preview", wrapper.PreviewInterpretationCandidate)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/configured-column-context", wrapper.ResolveConfiguredColumnContext)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/interpretation-revisions", wrapper.CreateInterpretationRevisionFromColumn)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-mapping", wrapper.CheckExplorerPopulationMapping)
 
@@ -5461,6 +6687,96 @@ func (response TraceExplorerCell503JSONResponse) VisitTraceExplorerCellResponse(
 	return ctx.JSON(&response)
 }
 
+type GetExplorerColumnSourceRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerColumnSourceJSONRequestBody
+}
+
+type GetExplorerColumnSourceResponseObject interface {
+	VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerColumnSource200JSONResponse ColumnSourceResponse
+
+func (response GetExplorerColumnSource200JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerColumnSource400JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerColumnSource401JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerColumnSource403JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerColumnSource404JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerColumnSource409JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerColumnSource500JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerColumnSource503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerColumnSource503JSONResponse) VisitGetExplorerColumnSourceResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type ApplyExplorerBuilderCommandsRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -5548,6 +6864,208 @@ type ApplyExplorerBuilderCommands503JSONResponse struct {
 }
 
 func (response ApplyExplorerBuilderCommands503JSONResponse) VisitApplyExplorerBuilderCommandsResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContextRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ResolveConfiguredColumnContextJSONRequestBody
+}
+
+type ResolveConfiguredColumnContextResponseObject interface {
+	VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error
+}
+
+type ResolveConfiguredColumnContext200JSONResponse ConfiguredColumnContextResponse
+
+func (response ResolveConfiguredColumnContext200JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext400JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext401JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ResolveConfiguredColumnContext403JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ResolveConfiguredColumnContext404JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ResolveConfiguredColumnContext409JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext422JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext500JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveConfiguredColumnContext503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ResolveConfiguredColumnContext503JSONResponse) VisitResolveConfiguredColumnContextResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoicesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerConstructionChoicesJSONRequestBody
+}
+
+type SearchExplorerConstructionChoicesResponseObject interface {
+	VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerConstructionChoices200JSONResponse ConstructionChoiceSearchResponse
+
+func (response SearchExplorerConstructionChoices200JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices400JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices401JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerConstructionChoices403JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerConstructionChoices404JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerConstructionChoices409JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices422JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices500JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerConstructionChoices503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerConstructionChoices503JSONResponse) VisitSearchExplorerConstructionChoicesResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(503)
 
@@ -5699,6 +7217,108 @@ func (response PreviewInterpretationCandidate504JSONResponse) VisitPreviewInterp
 	return ctx.JSON(&response)
 }
 
+type CreateInterpretationRevisionFromColumnRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Params     CreateInterpretationRevisionFromColumnParams
+	Body       *CreateInterpretationRevisionFromColumnJSONRequestBody
+}
+
+type CreateInterpretationRevisionFromColumnResponseObject interface {
+	VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error
+}
+
+type CreateInterpretationRevisionFromColumn201JSONResponse InterpretationRevision
+
+func (response CreateInterpretationRevisionFromColumn201JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(201)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn400JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn401JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn403JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn404JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response CreateInterpretationRevisionFromColumn409JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn422JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn500JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type CreateInterpretationRevisionFromColumn503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response CreateInterpretationRevisionFromColumn503JSONResponse) VisitCreateInterpretationRevisionFromColumnResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type CheckExplorerPopulationMappingRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -5807,6 +7427,107 @@ type CheckExplorerPopulationMapping504JSONResponse struct {
 func (response CheckExplorerPopulationMapping504JSONResponse) VisitCheckExplorerPopulationMappingResponse(ctx fiber.Ctx) error {
 	ctx.Response().Header.Set("Content-Type", "application/json")
 	ctx.Status(504)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *SearchExplorerPopulationRoutesJSONRequestBody
+}
+
+type SearchExplorerPopulationRoutesResponseObject interface {
+	VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error
+}
+
+type SearchExplorerPopulationRoutes200JSONResponse PopulationRoutesResponse
+
+func (response SearchExplorerPopulationRoutes200JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes400JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes401JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response SearchExplorerPopulationRoutes403JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response SearchExplorerPopulationRoutes404JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response SearchExplorerPopulationRoutes409JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes422JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes500JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type SearchExplorerPopulationRoutes503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response SearchExplorerPopulationRoutes503JSONResponse) VisitSearchExplorerPopulationRoutesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
 
 	return ctx.JSON(&response)
 }
@@ -7263,14 +8984,29 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/cell-trace)
 	TraceExplorerCell(ctx context.Context, request TraceExplorerCellRequestObject) (TraceExplorerCellResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/column-source)
+	GetExplorerColumnSource(ctx context.Context, request GetExplorerColumnSourceRequestObject) (GetExplorerColumnSourceResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/commands)
 	ApplyExplorerBuilderCommands(ctx context.Context, request ApplyExplorerBuilderCommandsRequestObject) (ApplyExplorerBuilderCommandsResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/configured-column-context)
+	ResolveConfiguredColumnContext(ctx context.Context, request ResolveConfiguredColumnContextRequestObject) (ResolveConfiguredColumnContextResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices)
+	SearchExplorerConstructionChoices(ctx context.Context, request SearchExplorerConstructionChoicesRequestObject) (SearchExplorerConstructionChoicesResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview)
 	PreviewInterpretationCandidate(ctx context.Context, request PreviewInterpretationCandidateRequestObject) (PreviewInterpretationCandidateResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-revisions)
+	CreateInterpretationRevisionFromColumn(ctx context.Context, request CreateInterpretationRevisionFromColumnRequestObject) (CreateInterpretationRevisionFromColumnResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-mapping)
 	CheckExplorerPopulationMapping(ctx context.Context, request CheckExplorerPopulationMappingRequestObject) (CheckExplorerPopulationMappingResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes)
+	SearchExplorerPopulationRoutes(ctx context.Context, request SearchExplorerPopulationRoutesRequestObject) (SearchExplorerPopulationRoutesResponseObject, error)
 
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/preview)
 	PreviewExplorer(ctx context.Context, request PreviewExplorerRequestObject) (PreviewExplorerResponseObject, error)
@@ -7700,6 +9436,40 @@ func (sh *strictHandler) TraceExplorerCell(ctx fiber.Ctx, project Project, explo
 	return nil
 }
 
+// GetExplorerColumnSource operation middleware
+func (sh *strictHandler) GetExplorerColumnSource(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerColumnSourceRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerColumnSourceJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerColumnSource(ctx.Context(), request.(GetExplorerColumnSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerColumnSource")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerColumnSourceResponseObject); ok {
+		if err := validResponse.VisitGetExplorerColumnSourceResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // ApplyExplorerBuilderCommands operation middleware
 func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Project, explorerId ExplorerId, params ApplyExplorerBuilderCommandsParams) error {
 	var request ApplyExplorerBuilderCommandsRequestObject
@@ -7727,6 +9497,74 @@ func (sh *strictHandler) ApplyExplorerBuilderCommands(ctx fiber.Ctx, project Pro
 		return err
 	} else if validResponse, ok := response.(ApplyExplorerBuilderCommandsResponseObject); ok {
 		if err := validResponse.VisitApplyExplorerBuilderCommandsResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ResolveConfiguredColumnContext operation middleware
+func (sh *strictHandler) ResolveConfiguredColumnContext(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ResolveConfiguredColumnContextRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ResolveConfiguredColumnContextJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveConfiguredColumnContext(ctx.Context(), request.(ResolveConfiguredColumnContextRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveConfiguredColumnContext")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ResolveConfiguredColumnContextResponseObject); ok {
+		if err := validResponse.VisitResolveConfiguredColumnContextResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerConstructionChoices operation middleware
+func (sh *strictHandler) SearchExplorerConstructionChoices(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerConstructionChoicesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerConstructionChoicesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerConstructionChoices(ctx.Context(), request.(SearchExplorerConstructionChoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerConstructionChoices")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerConstructionChoicesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerConstructionChoicesResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -7769,6 +9607,41 @@ func (sh *strictHandler) PreviewInterpretationCandidate(ctx fiber.Ctx, project P
 	return nil
 }
 
+// CreateInterpretationRevisionFromColumn operation middleware
+func (sh *strictHandler) CreateInterpretationRevisionFromColumn(ctx fiber.Ctx, project Project, explorerId ExplorerId, params CreateInterpretationRevisionFromColumnParams) error {
+	var request CreateInterpretationRevisionFromColumnRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+	request.Params = params
+
+	var body CreateInterpretationRevisionFromColumnJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInterpretationRevisionFromColumn(ctx.Context(), request.(CreateInterpretationRevisionFromColumnRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInterpretationRevisionFromColumn")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(CreateInterpretationRevisionFromColumnResponseObject); ok {
+		if err := validResponse.VisitCreateInterpretationRevisionFromColumnResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // CheckExplorerPopulationMapping operation middleware
 func (sh *strictHandler) CheckExplorerPopulationMapping(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
 	var request CheckExplorerPopulationMappingRequestObject
@@ -7795,6 +9668,40 @@ func (sh *strictHandler) CheckExplorerPopulationMapping(ctx fiber.Ctx, project P
 		return err
 	} else if validResponse, ok := response.(CheckExplorerPopulationMappingResponseObject); ok {
 		if err := validResponse.VisitCheckExplorerPopulationMappingResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// SearchExplorerPopulationRoutes operation middleware
+func (sh *strictHandler) SearchExplorerPopulationRoutes(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request SearchExplorerPopulationRoutesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body SearchExplorerPopulationRoutesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchExplorerPopulationRoutes(ctx.Context(), request.(SearchExplorerPopulationRoutesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchExplorerPopulationRoutes")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(SearchExplorerPopulationRoutesResponseObject); ok {
+		if err := validResponse.VisitSearchExplorerPopulationRoutesResponse(ctx); err != nil {
 			return err
 		}
 	} else if response != nil {
@@ -8390,199 +10297,230 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

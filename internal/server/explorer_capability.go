@@ -536,6 +536,15 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 			SuggestionCount:      len(candidate.SuggestedValues),
 			ConceptCandidates:    authoringConceptCandidates(candidate.ConceptCandidates),
 		}
+		choice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+		if err != nil {
+			result.Diagnostics = append(result.Diagnostics, authoringv2.CatalogDiagnostic{
+				Severity: "WARNING", Code: "CONSTRUCTION_CHOICE_UNAVAILABLE",
+				Message: "A catalog candidate was omitted because no compiler-proved construction output is available.",
+			})
+			continue
+		}
+		wire.ConstructionChoice = &choice
 		result.Candidates = append(result.Candidates, wire)
 	}
 	for _, diagnostic := range snapshot.Diagnostics {

@@ -23,11 +23,12 @@ type ExplorerMetadata struct {
 // is empty only for the root; every child names the relationship from its
 // parent. Resource identities are stable FHIR resource types, not catalog IDs.
 type RouteNode struct {
-	OccurrenceID string         `json:"occurrenceId"`
-	ResourceType string         `json:"resourceType"`
-	Relationship string         `json:"relationship,omitempty"`
-	MatchMode    RouteMatchMode `json:"matchMode,omitempty"`
-	Children     []RouteNode    `json:"children,omitempty"`
+	OccurrenceID  string         `json:"occurrenceId"`
+	ResourceType  string         `json:"resourceType"`
+	CatalogEdgeID string         `json:"catalogEdgeId,omitempty"`
+	Relationship  string         `json:"relationship,omitempty"`
+	MatchMode     RouteMatchMode `json:"matchMode,omitempty"`
+	Children      []RouteNode    `json:"children,omitempty"`
 }
 
 // RouteMatchMode distinguishes row-defining relationships from feature-only
@@ -51,10 +52,19 @@ func (m RouteMatchMode) Normalized() RouteMatchMode {
 }
 
 type ColumnSource struct {
-	Kind      string           `json:"kind"`
-	Field     *FieldSource     `json:"field,omitempty"`
-	Aggregate *AggregateSource `json:"aggregate,omitempty"`
-	Lookup    *LookupSource    `json:"lookup,omitempty"`
+	Kind         string              `json:"kind"`
+	Field        *FieldSource        `json:"field,omitempty"`
+	Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
+	Lookup       *LookupSource       `json:"lookup,omitempty"`
+	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+}
+
+// OwnerRecordsSource preserves one repeated FHIR owner as one structured
+// record in a list-valued cell. Binding and Key are server-resolved semantic
+// identity; clients never supply arbitrary selectors for this source.
+type OwnerRecordsSource struct {
+	Binding fhirschema.CorrelatedBinding `json:"binding"`
+	Key     fhirschema.CorrelatedKey     `json:"key"`
 }
 
 // UnitNormalizationPolicy is intentionally a nontechnical preset reference.
@@ -131,12 +141,16 @@ type LookupSource struct {
 	Match          string `json:"match,omitempty"`
 	Path           string `json:"path,omitempty"`
 	ProjectionMode string `json:"projectionMode,omitempty"`
-	// Binding is the validated correlated FHIR shape used by code/system
-	// lookups. It is a closed alternative to legacy Match/Path, never a
-	// precedence rule between two writable lookup meanings.
+	// Identifier is the checked namespace/value alternative for
+	// identifierBySystem. It is mutually exclusive with legacy Match/Path and
+	// the coding or extension binding alternatives.
+	Identifier *fhirschema.IdentifierBinding `json:"identifier,omitempty"`
+	// Binding is the validated correlated FHIR shape used by codedValue.
+	// It is a closed alternative to legacy Match/Path, never a precedence rule
+	// between two writable lookup meanings.
 	Binding *fhirschema.CorrelatedBinding `json:"binding,omitempty"`
 	// Key is required with Binding and carries the selected system/code
-	// identity. It is not accepted for legacy lookup variants.
+	// identity.
 	Key *fhirschema.CorrelatedKey `json:"key,omitempty"`
 	// Extension is the ancestor-aware closed alternative for extensionByUrl.
 	// It cannot coexist with legacy Match/Path or the terminology Binding/Key.
@@ -152,30 +166,35 @@ type RelatedSelection struct {
 // payloads are decoded only by DecodeWorkspace's persisted-draft migration.
 func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 	var wire struct {
-		Kind      string           `json:"kind"`
-		Field     *FieldSource     `json:"field,omitempty"`
-		Aggregate *AggregateSource `json:"aggregate,omitempty"`
-		Lookup    *LookupSource    `json:"lookup,omitempty"`
+		Kind         string              `json:"kind"`
+		Field        *FieldSource        `json:"field,omitempty"`
+		Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
+		Lookup       *LookupSource       `json:"lookup,omitempty"`
+		OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords}
 	switch wire.Kind {
 	case SourceField:
-		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil {
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("field source requires exactly the field payload")
 		}
 	case SourceAggregate:
-		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil {
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
 		}
-	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil {
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
 		}
+	case SourceOwnerRecords:
+		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+			return fmt.Errorf("ownerRecords source requires exactly the ownerRecords payload")
+		}
 	case SourceProjectID:
-		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("projectId source does not accept a payload")
 		}
 	default:
@@ -190,7 +209,16 @@ func (s ColumnSource) fieldPath() string {
 		return s.Field.Path
 	}
 	if s.Lookup != nil {
+		if s.Lookup.Identifier != nil {
+			return strings.Trim(strings.TrimSpace(s.Lookup.Identifier.OwnerPath)+"."+strings.TrimSpace(s.Lookup.Identifier.ValuePath), ".")
+		}
+		if s.Lookup.Binding != nil {
+			return qualifySemanticPath(s.Lookup.Binding.OwnerPath, s.Lookup.Binding.ValuePath)
+		}
 		return s.Lookup.Path
+	}
+	if s.OwnerRecords != nil {
+		return qualifySemanticPath(s.OwnerRecords.Binding.OwnerPath, s.OwnerRecords.Binding.ValuePath)
 	}
 	if s.Aggregate != nil {
 		return s.Aggregate.Path
@@ -214,6 +242,9 @@ func (s ColumnSource) ProjectionMode() string { return s.projectionMode() }
 
 func (s ColumnSource) lookupMatch() string {
 	if s.Lookup != nil {
+		if s.Lookup.Identifier != nil {
+			return s.Lookup.Identifier.SystemURI
+		}
 		return s.Lookup.Match
 	}
 	return ""
@@ -239,6 +270,10 @@ func (s ColumnSource) Normalized() ColumnSource {
 		if strings.TrimSpace(lookup.ProjectionMode) == "" {
 			lookup.ProjectionMode = "FIRST"
 		}
+		if lookup.Identifier != nil {
+			identifier := *lookup.Identifier
+			lookup.Identifier = &identifier
+		}
 		if lookup.Binding != nil {
 			binding := *lookup.Binding
 			binding.ValueFallback = append([]string(nil), lookup.Binding.ValueFallback...)
@@ -257,6 +292,12 @@ func (s ColumnSource) Normalized() ColumnSource {
 			lookup.Extension = &extension
 		}
 		n.Lookup = &lookup
+	}
+	if n.OwnerRecords != nil {
+		ownerRecords := *n.OwnerRecords
+		ownerRecords.Binding.ValueFallback = append([]string(nil), n.OwnerRecords.Binding.ValueFallback...)
+		ownerRecords.Binding.ChoiceArms = append([]string(nil), n.OwnerRecords.Binding.ChoiceArms...)
+		n.OwnerRecords = &ownerRecords
 	}
 	if n.Aggregate != nil {
 		aggregate := *n.Aggregate
@@ -284,13 +325,13 @@ func cloneUnitNormalization(input *UnitNormalizationPolicy) *UnitNormalizationPo
 }
 
 const (
-	SourceField                      = "field"
-	SourceIdentifierBySystem         = "identifierBySystem"
-	SourceExtensionByURL             = "extensionByUrl"
-	SourceCodingBySystem             = "codingBySystem"
-	SourceObservationComponentByCode = "observationComponentByCode"
-	SourceProjectID                  = "projectId"
-	SourceAggregate                  = "aggregate"
+	SourceField              = "field"
+	SourceIdentifierBySystem = "identifierBySystem"
+	SourceExtensionByURL     = "extensionByUrl"
+	SourceCodedValue         = "codedValue"
+	SourceOwnerRecords       = "ownerRecords"
+	SourceProjectID          = "projectId"
+	SourceAggregate          = "aggregate"
 )
 
 type Column struct {
@@ -534,6 +575,9 @@ func (s ColumnSource) validate(path string) error {
 	if s.Lookup != nil {
 		variants++
 	}
+	if s.OwnerRecords != nil {
+		variants++
+	}
 	if s.Kind == SourceProjectID {
 		if variants != 0 {
 			return fmt.Errorf("%s projectId source does not accept a payload", path)
@@ -565,11 +609,20 @@ func (s ColumnSource) validate(path string) error {
 		if s.Field.RelatedSelection != nil && s.Field.RelatedSelection.Kind != "first-by-resource-key" {
 			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
 		}
-	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodingBySystem, SourceObservationComponentByCode:
-		if s.Lookup == nil || (s.Lookup.Binding == nil && s.Lookup.Extension == nil && strings.TrimSpace(s.Lookup.Match) == "") {
-			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
+	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
+		if s.Lookup == nil {
+			return fmt.Errorf("%s %s source requires lookup", path, s.Kind)
 		}
-		if s.Lookup != nil && s.Lookup.Extension != nil {
+		if s.Lookup.Identifier != nil {
+			if s.Kind != SourceIdentifierBySystem {
+				return fmt.Errorf("%s identifier binding is only supported for identifierBySystem", path)
+			}
+			if s.Lookup.Binding != nil || s.Lookup.Key != nil || s.Lookup.Extension != nil || strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
+				return fmt.Errorf("%s identifier lookup must not combine identifier with match, path, binding, key, or extension", path)
+			}
+			return nil
+		}
+		if s.Lookup.Extension != nil {
 			if s.Kind != SourceExtensionByURL {
 				return fmt.Errorf("%s extension binding is only supported for extensionByUrl", path)
 			}
@@ -578,18 +631,25 @@ func (s ColumnSource) validate(path string) error {
 			}
 			return nil
 		}
-		if s.Lookup != nil && s.Lookup.Binding != nil {
-			if s.Kind != SourceCodingBySystem && s.Kind != SourceObservationComponentByCode {
-				return fmt.Errorf("%s correlated binding is only supported for codingBySystem and observationComponentByCode", path)
+		if s.Kind == SourceCodedValue {
+			if s.Lookup.Binding == nil || s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
+				return fmt.Errorf("%s codedValue source requires lookup.binding and lookup.key.system/code", path)
 			}
-			if strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" {
-				return fmt.Errorf("%s correlated lookup must not combine binding with legacy match or path", path)
+			if strings.TrimSpace(s.Lookup.Match) != "" || strings.TrimSpace(s.Lookup.Path) != "" || s.Lookup.Extension != nil || s.Lookup.Identifier != nil {
+				return fmt.Errorf("%s codedValue lookup must not combine its binding with legacy match, path, identifier, or extension", path)
 			}
-			if s.Lookup.Key == nil || strings.TrimSpace(s.Lookup.Key.System) == "" || strings.TrimSpace(s.Lookup.Key.Code) == "" {
-				return fmt.Errorf("%s correlated lookup requires key.system and key.code", path)
-			}
-		} else if s.Lookup != nil && s.Lookup.Key != nil {
-			return fmt.Errorf("%s legacy lookup must not contain correlated key", path)
+			return nil
+		}
+		if s.Lookup.Binding != nil || s.Lookup.Key != nil {
+			return fmt.Errorf("%s %s source does not accept a correlated binding", path, s.Kind)
+		}
+		if strings.TrimSpace(s.Lookup.Match) == "" {
+			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
+		}
+	case SourceOwnerRecords:
+		if s.OwnerRecords == nil || strings.TrimSpace(s.OwnerRecords.Binding.OwnerPath) == "" ||
+			strings.TrimSpace(s.OwnerRecords.Key.System) == "" || strings.TrimSpace(s.OwnerRecords.Key.Code) == "" {
+			return fmt.Errorf("%s ownerRecords source requires ownerRecords.binding.ownerPath and ownerRecords.key.system/code", path)
 		}
 	case SourceAggregate:
 		if s.Aggregate == nil {
@@ -723,9 +783,19 @@ func (d Document) validateSemantic() error {
 				return fmt.Errorf("%s.source.binding: %w", path, err)
 			}
 		}
+		if column.Source.OwnerRecords != nil {
+			if _, err := fhirschema.ValidateCorrelatedBinding(occurrences[column.OccurrenceID].ResourceType, column.Source.OwnerRecords.Binding); err != nil {
+				return fmt.Errorf("%s.source.ownerRecords.binding: %w", path, err)
+			}
+		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
 			if _, err := fhirschema.ValidateExtensionBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Extension); err != nil {
 				return fmt.Errorf("%s.source.extension: %w", path, err)
+			}
+		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
+			if _, err := fhirschema.ValidateIdentifierBinding(occurrences[column.OccurrenceID].ResourceType, *column.Source.Lookup.Identifier); err != nil {
+				return fmt.Errorf("%s.source.identifier: %w", path, err)
 			}
 		}
 		if column.Table != nil && column.Table.Order != nil && *column.Table.Order < 0 {

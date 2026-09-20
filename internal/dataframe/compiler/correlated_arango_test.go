@@ -284,6 +284,130 @@ func TestCorrelatedCompilerLiteralValuesAgainstArango(t *testing.T) {
 	}
 }
 
+func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_owner_records_" + uuid.NewString()
+	coding := func(code string) map[string]any { return map[string]any{"system": "urn:test", "code": code} }
+	component := func(code string, values map[string]any) map[string]any {
+		owner := map[string]any{"code": map[string]any{"coding": []any{coding(code)}}}
+		for key, value := range values {
+			owner[key] = value
+		}
+		return owner
+	}
+	heightWithAliases := component("height", map[string]any{"valueQuantity": map[string]any{"value": 0, "unit": "cm"}, "sourceNote": "preserve me"})
+	heightWithAliases["code"] = map[string]any{"coding": []any{coding("height"), coding("height")}}
+	payload := map[string]any{"id": project, "resourceType": "Observation", "component": []any{
+		heightWithAliases,
+		component("height", map[string]any{"valueQuantity": map[string]any{"unit": "cm"}}),
+		component("height", map[string]any{"valueString": "wrong arm"}),
+		component("flag", map[string]any{"valueBoolean": false}),
+		component("text", map[string]any{"valueString": ""}),
+		component("multi", map[string]any{"valueCodeableConcept": map[string]any{"coding": []any{coding("a"), coding("b")}}}),
+	}}
+	raw, err := json.Marshal(map[string]any{"_key": project, "id": project, "project": project, "project_id": project, "resourceType": "Observation", "payload": payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+
+	binding := func(valuePath, logicalType string, choiceArms []string) fhirschema.CorrelatedBinding {
+		return fhirschema.CorrelatedBinding{
+			OwnerPath: "component[]", KeyPath: "component[].code.coding[]", SystemPath: "system", CodePath: "code",
+			ValuePath: valuePath, LogicalType: logicalType, ChoiceArms: choiceArms,
+		}
+	}
+	heightBinding := binding("valueQuantity.value", "decimal", []string{"valueQuantity"})
+	heightBinding.UnitPath = "valueQuantity.unit"
+	root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", OwnerRecords: []semantic.SemanticOwnerRecords{
+		{Name: "height_records", FieldRef: "component", Binding: heightBinding, Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "height"}},
+		{Name: "flag_records", FieldRef: "component", Binding: binding("valueBoolean", "boolean", []string{"valueBoolean"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "flag"}},
+		{Name: "text_records", FieldRef: "component", Binding: binding("valueString", "string", []string{"valueString"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "text"}},
+		{Name: "multi_records", FieldRef: "component", Binding: binding("valueCodeableConcept.coding[].code", "string", []string{"valueCodeableConcept"}), Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "multi"}},
+	}}
+	physical, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]any
+	if err := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute owner-record query: %v\n%s", err, rendered.Query)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows=%#v, want one Observation row", rows)
+	}
+	records := func(column string, want int) []any {
+		t.Helper()
+		got, ok := rows[0][column].([]any)
+		if !ok || len(got) != want {
+			t.Fatalf("%s=%#v, want %d records", column, rows[0][column], want)
+		}
+		return got
+	}
+	record := func(value any) map[string]any {
+		t.Helper()
+		got, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("record=%#v, want object", value)
+		}
+		return got
+	}
+
+	heights := records("height_records", 3)
+	firstHeight := record(heights[0])
+	if firstHeight["status"] != "VALUE" || firstHeight["value"] != float64(0) || firstHeight["unit"] != "cm" {
+		t.Fatalf("zero-valued height record=%#v", firstHeight)
+	}
+	if codings, ok := firstHeight["codings"].([]any); !ok || len(codings) != 2 {
+		t.Fatalf("matching coding aliases=%#v, want both aliases in one owner record", firstHeight["codings"])
+	}
+	if source := record(firstHeight["source"]); source["ownerOrdinal"] != float64(0) || source["resourceId"] != project || source["ownerPath"] != "component[]" {
+		t.Fatalf("source evidence=%#v", source)
+	}
+	if owner := record(firstHeight["owner"]); owner["sourceNote"] != "preserve me" {
+		t.Fatalf("raw owner=%#v, want unknown fields preserved", owner)
+	}
+	if record(heights[1])["status"] != "ABSENT" || record(heights[2])["status"] != "INVALID_CHOICE_ARM" {
+		t.Fatalf("height statuses=%#v", heights)
+	}
+
+	flag := record(records("flag_records", 1)[0])
+	if flag["status"] != "VALUE" || flag["value"] != false {
+		t.Fatalf("false-valued record=%#v", flag)
+	}
+	text := record(records("text_records", 1)[0])
+	if text["status"] != "VALUE" || text["value"] != "" {
+		t.Fatalf("empty-string record=%#v", text)
+	}
+	multi := record(records("multi_records", 1)[0])
+	if multi["status"] != "INVALID_MULTIPLE_VALUES" || multi["value"] != nil || !reflect.DeepEqual(multi["values"], []any{"a", "b"}) {
+		t.Fatalf("multiple-valued record=%#v", multi)
+	}
+}
+
 func TestContributorPredicatesRemainFeatureLocalAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {

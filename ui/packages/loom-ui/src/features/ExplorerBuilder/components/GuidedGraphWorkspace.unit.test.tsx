@@ -440,7 +440,10 @@ describe('GuidedGraphWorkspace', () => {
     expect(
       screen.getByRole('button', { name: 'Observation' }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Patient' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Patient' })).toHaveAttribute(
+      'data-occurrence-id',
+      'patient',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Patient' }));
     expect(onSelectOccurrence).toHaveBeenCalledWith('patient');
     fireEvent.click(
