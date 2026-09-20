@@ -84,14 +84,14 @@
 - [x] S03-01a. Add explicit resource, grouped, and expanded row-definition variants with validation, canonicalization, cloning, and migration from existing documents. Accepted after 135 authoring tests and 447 Explorer tests.
 - [x] S03-01b-schema. Resolve field-group keys and repeated scopes from generated schema facts and bind each opaque choice to one authorized route occurrence and capability snapshot.
 - [x] S03-01b-groups-domain. Add immutable explicit-group revision types, deterministic definition and membership digests, empty groups, overlapping membership, and stale-source validation.
-- [ ] S03-01b-groups-persistence. Persist staged explicit-group revisions, definitions, and memberships in Arango with idempotent completion and cleanup.
+- [x] S03-01b-groups-persistence. Persist staged explicit-group revisions, definitions, and memberships in Arango with idempotent completion and cleanup. Accepted after focused repository tests and the live `TestExplicitGroupStorageAgainstArango` check.
 - [x] S03-02a-semantic. Replace the recipe-only semantic UNNEST facade with an occurrence-bound row-expansion boundary and preserve explicit empty-value policy through lowering.
 - [ ] S03-02a-execution. Lower root and arbitrary-depth expansion owners, derive stable item identity, implement ERROR at the renderer boundary, and execute the resulting physical plan.
 - [ ] S03-02b. Add a typed grouped-row semantic and physical operation that returns group identity plus exact member witnesses.
 - [ ] S03-02c. Prove independent repeated collections remain independent unless an explicit combination operation is authored.
 - [x] S03-03a-contract. Define the receipt-backed proposal, generic preview evidence, cancel-without-mutation, and exact draft CAS apply boundary.
 - [x] S03-03a-reducer. Add a closed proposal command whose private resolved row definition can change only `Document.Rows` and cannot leak onto the wire.
-- [ ] S03-03a-lifecycle. Resolve receipt-backed proposals and apply them through the existing draft compare-and-swap boundary.
+- [x] S03-03a-lifecycle. Resolve receipt-backed proposals and apply them through the existing draft compare-and-swap boundary. The server adapter now binds the immutable proposal before receipt identity and persistence.
 - [ ] S03-03a-preview. Execute and compare before/after rows, memberships, counts, and affected columns.
 - [ ] S03-03b. Add generic Records, Groups, and Expand repeated values controls without FHIR resource-specific branches.
 - [ ] S03-04. Add two schema-shape fixtures and J03 live verification for memberships, cancel, apply, reload, export, and non-Cartesian expansion.
