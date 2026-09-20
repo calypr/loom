@@ -21,11 +21,12 @@ type PageRequest struct {
 
 // StreamRequest describes a bounded-memory scan over one published table.
 type StreamRequest struct {
-	Columns           []string
-	Filters           []Filter
-	Sort              *Sort
-	AuthResourcePaths []string
-	Unrestricted      bool
+	Columns            []string
+	Filters            []Filter
+	Sort               *Sort
+	AuthResourcePaths  []string
+	Unrestricted       bool
+	IncludeRowIdentity bool
 }
 
 // Page reads one active/queryable materialization. It never constructs a
@@ -211,9 +212,11 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
 	if err := r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
-		delete(row, "__loom_row_id")
+		if !req.IncludeRowIdentity {
+			delete(row, "__loom_row_id")
+		}
 		for _, column := range queryColumns {
-			if !contains(columns, column) {
+			if !contains(columns, column) && !(req.IncludeRowIdentity && column == "__loom_row_id") {
 				delete(row, column)
 			}
 		}

@@ -49,14 +49,18 @@ type ArtifactRecord struct {
 
 func ArtifactID(record ArtifactRecord) (string, error) {
 	identity := struct {
-		Project, ExplorerID, RevisionID, OutputID, ReceiptID, ExecutionID, IdempotencyKey string
+		Version                                                                                                                                      int
+		Project, ExplorerID, RevisionID, OutputID, ReceiptID, ExecutionID, DatasetGeneration, SchemaDigest, AuthorizationScopeDigest, IdempotencyKey string
 	}{
+		Version: 2,
 		Project: strings.TrimSpace(record.Project), ExplorerID: strings.TrimSpace(record.ExplorerID),
 		RevisionID: strings.TrimSpace(record.RevisionID), OutputID: strings.TrimSpace(record.OutputID),
 		ReceiptID: strings.TrimSpace(record.ReceiptID), ExecutionID: strings.TrimSpace(record.ExecutionID),
-		IdempotencyKey: strings.TrimSpace(record.IdempotencyKey),
+		DatasetGeneration: strings.TrimSpace(record.DatasetGeneration), SchemaDigest: strings.TrimSpace(record.SchemaDigest),
+		AuthorizationScopeDigest: strings.TrimSpace(record.AuthorizationScopeDigest),
+		IdempotencyKey:           strings.TrimSpace(record.IdempotencyKey),
 	}
-	if identity.Project == "" || identity.ExplorerID == "" || identity.RevisionID == "" || identity.OutputID == "" || identity.ReceiptID == "" || identity.ExecutionID == "" || identity.IdempotencyKey == "" {
+	if identity.Project == "" || identity.ExplorerID == "" || identity.RevisionID == "" || identity.OutputID == "" || identity.ReceiptID == "" || identity.ExecutionID == "" || identity.DatasetGeneration == "" || identity.SchemaDigest == "" || identity.AuthorizationScopeDigest == "" || identity.IdempotencyKey == "" {
 		return "", fmt.Errorf("artifact identity and idempotency key are required")
 	}
 	raw, err := json.Marshal(identity)

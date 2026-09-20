@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultArtifactTTL      = 24 * time.Hour
-	defaultArtifactFilename = "loom-dataset-artifact-v1.zip"
+	defaultArtifactFilename = "loom-dataset-artifact-v2.zip"
 	defaultArtifactMaxRows  = int64(10_000_000)
 	defaultArtifactMaxBytes = int64(2 << 30)
 )
@@ -66,9 +66,16 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 	if err != nil {
 		return ArtifactResult{}, err
 	}
-	columns := artifactColumns(materialization)
+	descriptor, columns, err := artifactDescriptor(receipt, materialization, request.OutputID)
+	if err != nil {
+		return ArtifactResult{}, conflict("artifact", "ARTIFACT_CONTRACT_INVALID", "published output contract cannot describe the materialized artifact", nil, err)
+	}
 	if len(columns) == 0 {
 		return ArtifactResult{}, unprocessable("artifact", "NO_EXPORTABLE_COLUMNS", "the published output has no exportable columns", nil)
+	}
+	format, err := dataframepublished.ResolveArtifactFormat(dataframepublished.ArtifactFormatAuto, columns)
+	if err != nil {
+		return ArtifactResult{}, malformed("artifact", err.Error(), err)
 	}
 
 	executionID := strings.TrimSpace(revision.Publication.ExecutionID)
@@ -125,29 +132,34 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 		return s.abortArtifactStage(ctx, stage, "ARTIFACT_METADATA_INVALID", metadataErr)
 	}
 	exactRequest := dataframepublished.ExactExportRequest{
-		ExecutionID:       executionID,
-		OutputID:          request.OutputID,
-		Project:           project,
-		DatasetGeneration: materialization.DatasetGeneration,
-		ReceiptID:         receipt.ID,
-		SchemaDigest:      materialization.SchemaDigest,
-		Columns:           artifactColumnNames(columns),
-		AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...),
-		Unrestricted:      authorized.Scope.Unrestricted(),
-		ReaderID:          identity.ID,
-		PinExpiresAt:      identity.ExpiresAt,
+		ExecutionID:        executionID,
+		OutputID:           request.OutputID,
+		Project:            project,
+		DatasetGeneration:  materialization.DatasetGeneration,
+		ReceiptID:          receipt.ID,
+		SchemaDigest:       materialization.SchemaDigest,
+		Columns:            artifactColumnNames(columns),
+		AuthResourcePaths:  append([]string(nil), authorized.Scope.AuthResourcePaths...),
+		Unrestricted:       authorized.Scope.Unrestricted(),
+		IncludeRowIdentity: format == dataframepublished.ArtifactFormatJSONL,
+		ReaderID:           identity.ID,
+		PinExpiresAt:       identity.ExpiresAt,
 	}
 	var streamResult dataframepublished.ExactExportResult
 	encoded, encodeErr := dataframepublished.WriteArtifact(ctx, stage, dataframepublished.ArtifactRequest{
 		Identity: dataframepublished.ArtifactIdentity{
-			Project:           project,
-			DatasetGeneration: materialization.DatasetGeneration,
-			ReceiptID:         receipt.ID,
-			ExecutionID:       executionID,
-			OutputID:          request.OutputID,
-			RevisionID:        revision.ID,
+			Project:              project,
+			DatasetGeneration:    materialization.DatasetGeneration,
+			ReceiptID:            receipt.ID,
+			ExecutionID:          executionID,
+			OutputID:             request.OutputID,
+			RevisionID:           revision.ID,
+			SchemaDigest:         materialization.SchemaDigest,
+			OutputContractDigest: receipt.OutputContractDigest,
 		},
+		Descriptor:             descriptor,
 		Columns:                columns,
+		Format:                 format,
 		SelectionMetadata:      selectionMetadata,
 		InterpretationMetadata: interpretationMetadata,
 		Provenance:             provenanceMetadata,
@@ -324,16 +336,84 @@ func (s *Service) artifactMaxBytes() int64 {
 	return defaultArtifactMaxBytes
 }
 
-func artifactColumns(materialization dataframepublished.Materialization) []dataframepublished.ArtifactColumn {
-	columns := make([]dataframepublished.ArtifactColumn, 0, len(materialization.Columns))
+func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string) (dataframepublished.ArtifactDescriptor, []dataframepublished.ArtifactColumn, error) {
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		return dataframepublished.ArtifactDescriptor{}, nil, err
+	}
+	contract, ok := contracts.Output(outputID)
+	if !ok {
+		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("output %q is absent from its contract", outputID)
+	}
+	physical := make(map[string]dataframepublished.Column, len(materialization.Columns))
 	for _, column := range materialization.Columns {
 		name := strings.TrimSpace(column.Name)
-		if name == "" || name == "auth_resource_path" || strings.HasPrefix(name, "__loom_") {
+		if name != "" && name != "auth_resource_path" && !strings.HasPrefix(name, "__loom_") {
+			physical[name] = column
+		}
+	}
+	emissions := make(map[string]explorer.EmittedColumn, len(receipt.EmittedColumns))
+	for _, emission := range receipt.EmittedColumns {
+		if emission.OutputID != outputID {
 			continue
 		}
-		columns = append(columns, dataframepublished.ArtifactColumn{Name: name, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated})
+		if _, duplicate := emissions[emission.PublicColumn]; duplicate {
+			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("duplicate emitted column %q", emission.PublicColumn)
+		}
+		emissions[emission.PublicColumn] = emission
 	}
-	return columns
+	columns := make([]dataframepublished.ArtifactColumn, 0, len(contract.Columns))
+	for _, public := range contract.Columns {
+		name := strings.TrimSpace(public.Column)
+		column, exists := physical[name]
+		if !exists {
+			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q is absent from the exact materialization", name)
+		}
+		emission, exists := emissions[name]
+		if !exists {
+			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q has no construction identity", name)
+		}
+		columns = append(columns, dataframepublished.ArtifactColumn{
+			Name: name, OutputKey: public.Column, LogicalType: public.LogicalType, Shape: public.Shape,
+			Nullable: public.Nullable, Repeated: column.Repeated || public.Shape == "array" || public.Shape == "record_list",
+			EmissionID: emission.EmissionID, CandidateID: emission.CandidateID,
+			OccurrenceID: emission.OccurrenceID, Construction: emission.ProjectionMode,
+			ReductionPolicy: emission.ProjectionMode, SourceResourceType: emission.SourceResourceType,
+			SourcePath: emission.SourcePath, ChoiceArm: emission.ChoiceArm,
+			AuthoredColumns: append([]string(nil), public.AuthoredColumns...),
+		})
+	}
+	if len(columns) != len(physical) {
+		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("materialized column count %d does not match output contract count %d", len(physical), len(columns))
+	}
+	descriptor := dataframepublished.ArtifactDescriptor{
+		Version: 1, OutputKey: outputID,
+		ReceiptFormatVersion:    receipt.ReceiptFormatVersion,
+		CompilerContractVersion: receipt.CompilerContractVersion,
+		RecipeSchemaVersion:     receipt.Bundle.RecipeSchemaVersion,
+		TranslationVersion:      receipt.Bundle.TranslationVersion,
+		SourceGeneration:        receipt.SourceGeneration,
+		PublishedSchemaDigest:   materialization.SchemaDigest,
+		ResolvedSchemaDigest:    receipt.ResolvedSchemaDigest,
+		OutputContractDigest:    receipt.OutputContractDigest,
+		RowGrain:                contract.RowGrain, RowMultiplication: contract.RowMultiplication,
+		RowIdentity: dataframepublished.ArtifactRowIdentity{Key: "__loom_row_id"},
+	}
+	if materialization.SourceRow != nil {
+		descriptor.RowIdentity.SourceResourceType = materialization.SourceRow.ResourceType
+		descriptor.RowIdentity.SourceIDColumn = materialization.SourceRow.IDColumn
+	}
+	for _, interpretation := range receipt.ResolvedInterpretations {
+		if interpretation.OutputID != outputID {
+			continue
+		}
+		descriptor.Interpretations = append(descriptor.Interpretations, dataframepublished.ArtifactInterpretationIdentity{
+			OutputKey: interpretation.Column, OccurrenceID: interpretation.OccurrenceID,
+			RevisionID: string(interpretation.Revision.ID), ContentDigest: string(interpretation.Revision.ContentDigest),
+			RuleID: string(interpretation.SelectedRuleID),
+		})
+	}
+	return descriptor, columns, nil
 }
 
 func artifactColumnNames(columns []dataframepublished.ArtifactColumn) []string {

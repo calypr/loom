@@ -35,17 +35,18 @@ type ExportRequest struct {
 // user. The authorization fields are the already-resolved effective scope;
 // the reader never discovers a broader scope while streaming.
 type ExactExportRequest struct {
-	ExecutionID       string
-	OutputID          string
-	Project           string
-	DatasetGeneration string
-	ReceiptID         string
-	SchemaDigest      string
-	Columns           []string
-	Filters           []Filter
-	Sort              *Sort
-	AuthResourcePaths []string
-	Unrestricted      bool
+	ExecutionID        string
+	OutputID           string
+	Project            string
+	DatasetGeneration  string
+	ReceiptID          string
+	SchemaDigest       string
+	Columns            []string
+	Filters            []Filter
+	Sort               *Sort
+	AuthResourcePaths  []string
+	Unrestricted       bool
+	IncludeRowIdentity bool
 
 	// ReaderID is the durable owner of the export's execution read pin. It is
 	// supplied by the lifecycle operation so a retry or cancellation can be
@@ -177,11 +178,12 @@ func (r *Reader) StreamExactExport(ctx context.Context, request ExactExportReque
 	}()
 
 	streamRequest := StreamRequest{
-		Columns:           append([]string(nil), request.Columns...),
-		Filters:           append([]Filter(nil), request.Filters...),
-		Sort:              cloneSort(request.Sort),
-		AuthResourcePaths: append([]string(nil), request.AuthResourcePaths...),
-		Unrestricted:      request.Unrestricted,
+		Columns:            append([]string(nil), request.Columns...),
+		Filters:            append([]Filter(nil), request.Filters...),
+		Sort:               cloneSort(request.Sort),
+		AuthResourcePaths:  append([]string(nil), request.AuthResourcePaths...),
+		Unrestricted:       request.Unrestricted,
+		IncludeRowIdentity: request.IncludeRowIdentity,
 	}
 	err = r.Stream(scanCtx, materialization, streamRequest, func(row map[string]any) error {
 		if err := visit(row); err != nil {

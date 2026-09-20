@@ -204,6 +204,26 @@ func TestStreamExactExportStreamsExactIdentityWithResolvedScope(t *testing.T) {
 	}
 }
 
+func TestStreamExactExportPreservesArtifactRowIdentity(t *testing.T) {
+	row := map[string]any{"patient_id": "patient-a", "score": 42.5, "__loom_row_id": "published-row-7"}
+	catalog := &exactExportCatalog{execution: exactExportExecution(), acquireOK: true, renewOK: true}
+	queryer := &exactExportQueryer{rows: []map[string]any{row}}
+	reader := &Reader{Catalog: catalog, ClickHouse: queryer}
+	request := exactExportRequest()
+	request.IncludeRowIdentity = true
+	var streamed map[string]any
+	_, err := reader.StreamExactExport(context.Background(), request, func(value map[string]any) error {
+		streamed = value
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed[artifactRowIdentityKey] != "published-row-7" {
+		t.Fatalf("streamed artifact row identity = %#v", streamed)
+	}
+}
+
 func TestStreamExactExportRejectsIdentityMismatchBeforePin(t *testing.T) {
 	catalog := &exactExportCatalog{execution: exactExportExecution(), acquireOK: true, renewOK: true}
 	reader := &Reader{Catalog: catalog, ClickHouse: &exactExportQueryer{}}

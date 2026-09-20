@@ -16,7 +16,7 @@ func artifactRecord(t *testing.T) explorer.ArtifactRecord {
 	record := explorer.ArtifactRecord{
 		Project: "study/project", ExplorerID: "explorer", RevisionID: "revision", OutputID: "patients",
 		ReceiptID: "receipt", ExecutionID: "execution", IdempotencyKey: "request-1",
-		DatasetGeneration: "generation", SchemaDigest: "schema", ExpiresAt: time.Now().UTC().Add(time.Hour),
+		DatasetGeneration: "generation", SchemaDigest: "schema", AuthorizationScopeDigest: "scope", ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
 	id, err := explorer.ArtifactID(record)
 	if err != nil {

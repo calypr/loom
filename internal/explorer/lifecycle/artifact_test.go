@@ -241,7 +241,7 @@ func TestPrepareArtifactAbortsAfterExactReaderFailure(t *testing.T) {
 	}
 	request := ArtifactRequest{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: "revision-a", OutputID: "patients", IdempotencyKey: "download-failure"}
 	// The failed record remains durable for deterministic retry behavior.
-	identity := explorer.ArtifactRecord{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: request.RevisionID, OutputID: request.OutputID, ReceiptID: receipt.ID, ExecutionID: "execution-a", IdempotencyKey: request.IdempotencyKey}
+	identity := explorer.ArtifactRecord{Project: receipt.Project, ExplorerID: receipt.ExplorerID, RevisionID: request.RevisionID, OutputID: request.OutputID, ReceiptID: receipt.ID, ExecutionID: "execution-a", DatasetGeneration: receipt.SourceGeneration, SchemaDigest: "schema-a", AuthorizationScopeDigest: receipt.AuthorizationScopeDigest, IdempotencyKey: request.IdempotencyKey}
 	id, _ := explorer.ArtifactID(identity)
 	record, getErr := artifacts.Get(context.Background(), id)
 	if getErr != nil || record.State != explorer.ArtifactFailed || record.FailureCode != "EXECUTION_READ_PIN_LOST" {

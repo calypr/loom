@@ -19,17 +19,26 @@ import (
 func artifactTestRequest() ArtifactRequest {
 	return ArtifactRequest{
 		Identity: ArtifactIdentity{
-			Project:           "study/project",
-			DatasetGeneration: "generation-a",
-			ReceiptID:         "receipt-a",
-			ExecutionID:       "execution-a",
-			OutputID:          "patients",
-			RevisionID:        "revision-a",
+			Project:              "study/project",
+			DatasetGeneration:    "generation-a",
+			ReceiptID:            "receipt-a",
+			ExecutionID:          "execution-a",
+			OutputID:             "patients",
+			RevisionID:           "revision-a",
+			SchemaDigest:         "schema-a",
+			OutputContractDigest: "contract-a",
+		},
+		Descriptor: ArtifactDescriptor{
+			Version: 1, OutputKey: "patients", ReceiptFormatVersion: 2,
+			CompilerContractVersion: "compiler-v2", RecipeSchemaVersion: 1,
+			TranslationVersion: "translation-v1", SourceGeneration: "generation-a",
+			PublishedSchemaDigest: "schema-a", ResolvedSchemaDigest: "resolved-schema-a",
+			OutputContractDigest: "contract-a", RowGrain: "patient",
+			RowIdentity: ArtifactRowIdentity{Key: artifactRowIdentityKey, SourceResourceType: "Patient", SourceIDColumn: "patient_id"},
 		},
 		Columns: []ArtifactColumn{
-			{Name: "patient_id", LogicalType: "string", Nullable: false},
-			{Name: "note", LogicalType: "string", Nullable: true},
-			{Name: "values", LogicalType: "string", Nullable: true, Repeated: true},
+			{Name: "patient_id", OutputKey: "patient_id", LogicalType: "string", Shape: "scalar", Nullable: false},
+			{Name: "note", OutputKey: "note", LogicalType: "string", Shape: "scalar", Nullable: true},
 		},
 		SelectionMetadata:      json.RawMessage(`{"digest":"selection-a","members":2}`),
 		InterpretationMetadata: json.RawMessage(`{"revisionIds":["interpretation-a"]}`),
@@ -113,7 +122,7 @@ func TestWriteArtifactMembersChecksumsAndIdentity(t *testing.T) {
 	if err := json.Unmarshal(members["manifest.json"], &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != artifactManifestVersion || manifest.Identity != request.Identity || manifest.Rows != 3 || manifest.Features != 3 || manifest.Null != defaultNullEncoding || manifest.Array != defaultArrayEncoding {
+	if manifest.Version != artifactManifestVersion || manifest.Identity != request.Identity || manifest.Rows != 3 || manifest.Features != 2 || manifest.Null != defaultNullEncoding || manifest.Array != defaultArrayEncoding {
 		t.Fatalf("manifest = %#v", manifest)
 	}
 	if string(manifest.Selection) != `{"digest":"selection-a","members":2}` || string(manifest.Interpretations) != `{"revisionIds":["interpretation-a"]}` {
@@ -136,18 +145,28 @@ func TestWriteArtifactMembersChecksumsAndIdentity(t *testing.T) {
 	}
 }
 
-func TestWriteArtifactPreservesNullEmptyAndArrayEncoding(t *testing.T) {
+func TestWriteArtifactPreservesScalarNullEmptyAndLiteralNullMarker(t *testing.T) {
 	var archive bytes.Buffer
 	if _, err := WriteArtifact(context.Background(), &archive, artifactTestRequest(), artifactTestRows); err != nil {
 		t.Fatal(err)
 	}
 	data := readArtifactMembers(t, archive.Bytes())["data.csv"]
-	want := "patient_id,note,values\npatient-a,\\N,[]\npatient-b,\"\",\"[\"\"x\"\",\"\"y\"\"]\"\npatient-c,\"\\N\",\"[\"\"x\"\",\"\"y\"\"]\"\n"
+	want := "patient_id,note\npatient-a,\\N\npatient-b,\"\"\npatient-c,\"\\N\"\n"
 	if string(data) != want {
 		t.Fatalf("data.csv = %q, want %q", data, want)
 	}
 	if strings.Contains(string(data), "patient-a,\"\"") {
 		t.Fatal("null was encoded as empty string")
+	}
+}
+
+func TestWriteArtifactRejectsLossyCSVShape(t *testing.T) {
+	request := artifactTestRequest()
+	request.Format = ArtifactFormatCSV
+	request.Columns = append(request.Columns, ArtifactColumn{Name: "items", OutputKey: "items", LogicalType: "string", Shape: "array", Repeated: true})
+	_, err := WriteArtifact(context.Background(), io.Discard, request, artifactTestRows)
+	if err == nil || !strings.Contains(err.Error(), "use JSONL") {
+		t.Fatalf("lossy CSV error = %v", err)
 	}
 }
 
