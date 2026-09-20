@@ -86,7 +86,7 @@
 - [x] S03-01b-groups-domain. Add immutable explicit-group revision types, deterministic definition and membership digests, empty groups, overlapping membership, and stale-source validation.
 - [x] S03-01b-groups-persistence. Persist staged explicit-group revisions, definitions, and memberships in Arango with idempotent completion and cleanup. Accepted after focused repository tests and the live `TestExplicitGroupStorageAgainstArango` check.
 - [x] S03-02a-semantic. Replace the recipe-only semantic UNNEST facade with an occurrence-bound row-expansion boundary and preserve explicit empty-value policy through lowering.
-- [ ] S03-02a-execution. Lower root and arbitrary-depth expansion owners, derive stable item identity, implement ERROR at the renderer boundary, and execute the resulting physical plan.
+- [ ] S03-02a-execution. Root and arbitrary-depth owner routes, stable item identity, deterministic ordering, renderer-level ERROR policy, and Explorer compilation are accepted. Execute the resulting physical plan against Arango.
 - [ ] S03-02b. Add a typed grouped-row semantic and physical operation that returns group identity plus exact member witnesses.
 - [ ] S03-02c. Prove independent repeated collections remain independent unless an explicit combination operation is authored.
 - [x] S03-03a-contract. Define the receipt-backed proposal, generic preview evidence, cancel-without-mutation, and exact draft CAS apply boundary.
