@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -17,6 +18,93 @@ func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request R
 		return ResolvedRowChoice{}, context.Canceled
 	}
 	return ResolvedRowChoice{Kind: RowChoiceFieldGroup, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "id"}, nil
+}
+
+type rowProposalExplicitGroupResolver struct {
+	proof       ExplicitGroupRevisionProof
+	resolveReqs []ExplicitGroupRevisionResolveRequest
+	receipts    []*explorer.CompilationReceipt
+}
+
+func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {
+	r.resolveReqs = append(r.resolveReqs, request)
+	proof := r.proof
+	if proof.RevisionID == "" {
+		proof = ExplicitGroupRevisionProof{
+			RevisionID: request.RevisionID, Project: request.Project,
+			SourceGeneration:         request.Snapshot.Identity.Generation,
+			AuthorizationScopeDigest: request.Snapshot.Identity.AuthorizationScopeDigest,
+			RootResourceType:         request.RootResourceType, SelectionRevisionID: "selection-1",
+			SelectionMembershipDigest: "sha256:selection-members", DefinitionDigest: "sha256:definition",
+			MembershipDigest: "sha256:membership", Complete: true,
+		}
+	}
+	return proof, nil
+}
+
+func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.Context, proof ExplicitGroupRevisionProof, receipt *explorer.CompilationReceipt) error {
+	r.receipts = append(r.receipts, receipt)
+	if proof.RevisionID == "" || receipt == nil {
+		return fmt.Errorf("explicit group receipt binding is missing")
+	}
+	workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+	if err != nil {
+		return err
+	}
+	document := proposalDocument(workspace, "patients")
+	if document == nil || document.Rows.Kind != authoringv2.RowDefinitionGroups || document.Rows.Groups == nil ||
+		document.Rows.Groups.Source.Kind != authoringv2.GroupSourceExplicit || document.Rows.Groups.Source.Explicit == nil ||
+		document.Rows.Groups.Source.Explicit.RevisionID != proof.RevisionID {
+		return fmt.Errorf("compiled workspace does not contain the resolved explicit group revision")
+	}
+	return nil
+}
+
+func TestProposeExplicitGroupRequiresInjectedRevisionAndReceiptProof(t *testing.T) {
+	service, store, snapshot, _ := rowProposalService(t)
+	resolver := &rowProposalExplicitGroupResolver{}
+	service.config.ExplicitGroupResolver = resolver
+	request := rowProposalRequest(store.created, snapshot)
+	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+	}}
+	proposal, err := service.ProposeRowDefinition(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
+		t.Fatalf("resolver calls: resolve=%d receipt=%d", len(resolver.resolveReqs), len(resolver.receipts))
+	}
+	resolved := resolver.resolveReqs[0]
+	if resolved.Project != request.Project || resolved.ExplorerID != request.ExplorerID || resolved.OutputID != request.OutputID || resolved.Snapshot.Token != snapshot.Token || resolved.RevisionID != "group-revision-1" || resolved.RootResourceType != "Patient" {
+		t.Fatalf("explicit group resolver received unbound request: %#v", resolved)
+	}
+	if resolver.receipts[0].ID != proposal.ProposalID || resolver.receipts[0].ID != store.receipt.ID {
+		t.Fatalf("receipt proof checked unexpected candidate: proposal=%q receipt=%#v", proposal.ProposalID, resolver.receipts[0])
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatalf("proposal persisted a draft %d times", store.saveDraftCalls)
+	}
+}
+
+func TestProposeExplicitGroupRejectsStaleRevisionProof(t *testing.T) {
+	service, store, snapshot, _ := rowProposalService(t)
+	service.config.ExplicitGroupResolver = &rowProposalExplicitGroupResolver{proof: ExplicitGroupRevisionProof{
+		RevisionID: "group-revision-1", Project: "project-a", SourceGeneration: "generation-stale",
+		AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, RootResourceType: "Patient",
+		SelectionRevisionID: "selection-1", SelectionMembershipDigest: "sha256:selection-members",
+		DefinitionDigest: "sha256:definition", MembershipDigest: "sha256:membership", Complete: true,
+	}}
+	request := rowProposalRequest(store.created, snapshot)
+	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
+		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
+	}}
+	if _, err := service.ProposeRowDefinition(context.Background(), request); err == nil {
+		t.Fatal("accepted explicit group revision from a stale source generation")
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatalf("stale explicit group rejection persisted a draft %d times", store.saveDraftCalls)
+	}
 }
 
 func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.T) {
