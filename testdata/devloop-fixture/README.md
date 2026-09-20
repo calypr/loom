@@ -37,6 +37,13 @@ item. Matching system and code independently would produce an incorrect pair.
 Its two `urn:leaf` extensions sit under different parent URLs and contain exactly
 `left-only` and `right-only`.
 
+J01 adds a third A/shared component without a primitive value. Its
+`_valueString` metadata remains in the raw owner, so the preserving output reports
+`ABSENT` instead of inventing a value. The valid 111 cm owner also contains a
+nested extension and the unknown `unmodeledSignal` member. The generated J01
+fixture contributes exactly 1,000 root Observation concepts named
+`concept-0000` through `concept-0999`; the final concept has integer value 999.
+
 `dev-pair-002` supplies `not-numeric` through `valueString` for A/shared, not a
 quantity. `dev-pair-003` supplies 333 cm with a missing coding system. The former
 must not be coerced to a numeric value, and the latter must not be treated as

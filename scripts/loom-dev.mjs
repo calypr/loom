@@ -30,6 +30,7 @@ const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
+export const AUTHORING_SEMANTICS_VERSION = 7;
 
 export const canonicalProjectID = (raw) => {
   const value = String(raw ?? '').trim().replace(/^\/+|\/+$/g, '');
@@ -294,7 +295,7 @@ const recordEvidence = (report, path) => {
 export const fixtureSourceDigest = (fixtureDir) => {
   const hash = createHash('sha256');
   const files = readdirSync(fixtureDir)
-    .filter((file) => file.endsWith('.ndjson'))
+    .filter((file) => file.endsWith('.ndjson') || file.endsWith('.fixture.json'))
     .sort();
   for (const file of files) {
     hash.update(file);
@@ -303,6 +304,32 @@ export const fixtureSourceDigest = (fixtureDir) => {
     hash.update('\0');
   }
   return `sha256:${hash.digest('hex')}`;
+};
+
+export const generatedJ01ConceptNDJSON = (fixtureDir) => {
+  const path = join(fixtureDir, 'j01-concepts.fixture.json');
+  if (!existsSync(path)) return undefined;
+  const specification = JSON.parse(readFileSync(path, 'utf8'));
+  const count = Number(specification.count);
+  if (!Number.isInteger(count) || count < 1 || count > 10_000) {
+    throw new Error('J01 concept fixture count must be an integer between 1 and 10000');
+  }
+  const system = String(specification.system ?? '').trim();
+  const codePrefix = String(specification.codePrefix ?? '').trim();
+  const displayPrefix = String(specification.displayPrefix ?? '').trim();
+  if (!system || !codePrefix || !displayPrefix) {
+    throw new Error('J01 concept fixture requires system, codePrefix, and displayPrefix');
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const suffix = String(index).padStart(4, '0');
+    return JSON.stringify({
+      resourceType: 'Observation',
+      id: `dev-j01-concept-${suffix}`,
+      status: 'final',
+      code: { coding: [{ system, code: `${codePrefix}${suffix}`, display: `${displayPrefix} ${suffix}` }] },
+      valueInteger: index,
+    });
+  }).join('\n') + '\n';
 };
 
 export const commandEnvironment = (target) => ({
@@ -527,7 +554,7 @@ const applyBootstrapCommands = async (target, explorerId, state, commandId, comm
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       commandId,
-      semanticsVersion: 4,
+      semanticsVersion: state.workspace?.semanticsVersion ?? AUTHORING_SEMANTICS_VERSION,
       snapshotToken: state.catalog.snapshotToken,
       expectedDraftVersion: state.draftVersion,
       ...(state.draftDigest ? { expectedDraftDigest: state.draftDigest } : {}),
@@ -599,9 +626,14 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
   if (!reused) {
     if (status.status !== 404) throw new Error(`fixture generation preflight returned HTTP ${status.status}`);
     const form = new FormData();
+    const generatedConcepts = generatedJ01ConceptNDJSON(target.fixtureDir);
     for (const name of readdirSync(target.fixtureDir).filter((name) => name.endsWith('.ndjson')).sort()) {
       const path = join(target.fixtureDir, name);
-      form.append('file', new Blob([readFileSync(path)]), name);
+      const source = readFileSync(path);
+      const contents = name === 'Observation.ndjson' && generatedConcepts
+        ? Buffer.concat([source, Buffer.from(generatedConcepts)])
+        : source;
+      form.append('file', new Blob([contents]), name);
     }
     form.append('defer_activation', 'false');
     let submitError = '';
@@ -1204,7 +1236,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       const commandId = randomUUID();
       const body = {
         commandId,
-        semanticsVersion: 6,
+        semanticsVersion: before.workspace?.semanticsVersion ?? AUTHORING_SEMANTICS_VERSION,
         snapshotToken: before.catalog.snapshotToken,
         expectedDraftVersion: before.draftVersion,
         expectedDraftDigest: before.draftDigest,
@@ -1301,7 +1333,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       source: columnSource.value,
       route: columnSource.value.route,
     };
-    await browserEval(cdp, `clickButton('Inspect source')`);
+    await browserEval(cdp, `clickButton('Column details')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Source for status"]'))`);
     const visibleSource = await evaluate(cdp, `document.querySelector('[aria-label="Source for status"]')?.innerText || ''`);
     if (!visibleSource.includes('subject_Patient') || !visibleSource.includes('inbound')) throw new Error('J02 source inspector DOM omitted the exact relationship or stored direction');

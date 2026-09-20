@@ -92,6 +92,8 @@ const ConfiguredColumnRow = ({
   onChange,
   onSourceChange,
   onContributorChange,
+  onMoveToEnd,
+  moveToEndDisabled,
   onRemove,
   onInspect,
 }: {
@@ -112,6 +114,8 @@ const ConfiguredColumnRow = ({
     column: string,
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
+  readonly onMoveToEnd: () => void;
+  readonly moveToEndDisabled: boolean;
   readonly onRemove: () => void;
   readonly onInspect: () => void;
 }) => {
@@ -128,7 +132,7 @@ const ConfiguredColumnRow = ({
   const visible = column.table?.visible ?? Boolean(column.table);
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
       <div className="min-w-0">
         <input
           aria-label={`Display name for configured ${column.label}`}
@@ -156,7 +160,7 @@ const ConfiguredColumnRow = ({
           className="ml-1 mt-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline"
           onClick={onInspect}
         >
-          Inspect source
+          Column details
         </button>
       </div>
       <label className="flex justify-center" title="Display in table">
@@ -228,6 +232,16 @@ const ConfiguredColumnRow = ({
       </label>
       <button
         type="button"
+        aria-label={`Move ${column.label} to end`}
+        title="Move to end"
+        className="h-6 w-6 rounded text-sm leading-none text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+        disabled={disabled || moveToEndDisabled}
+        onClick={onMoveToEnd}
+      >
+        ↓
+      </button>
+      <button
+        type="button"
         aria-label={`Remove ${column.label}`}
         title="Remove configured column"
         className="h-6 w-6 rounded text-base leading-none text-red-600 hover:bg-red-50 disabled:opacity-40"
@@ -272,7 +286,7 @@ const AvailableColumnRow = ({
   const normalizedDisplayName = displayName.trim();
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
       <div className="min-w-0">
         <input
           aria-label={`Display name for available ${candidate.label}`}
@@ -339,6 +353,7 @@ const AvailableColumnRow = ({
         />
       </label>
       <span />
+      <span />
     </div>
   );
 };
@@ -355,6 +370,7 @@ export const ColumnSelector = ({
   onAddAll,
   onAddSource,
   onChange,
+  onColumnsChange,
   onSourceChange,
   onContributorChange = () => undefined,
   onRemove,
@@ -379,6 +395,9 @@ export const ColumnSelector = ({
   ) => void;
   readonly onAddSource?: (source: ExplorerColumnSource, title: string) => void;
   readonly onChange: (column: ExplorerBuilderColumn) => void;
+  readonly onColumnsChange?: (
+    columns: ReadonlyArray<ExplorerBuilderColumn>,
+  ) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onContributorChange?: (
     column: string,
@@ -550,6 +569,40 @@ export const ColumnSelector = ({
     configured.every(
       (column) => column.table?.visible ?? Boolean(column.table),
     );
+  const visibleConfigured = (table?.document.columns ?? [])
+    .filter((column) => column.table?.visible ?? Boolean(column.table))
+    .map((column, index) => ({ column, index }))
+    .sort(
+      (left, right) =>
+        (left.column.table?.order ?? Number.MAX_SAFE_INTEGER) -
+          (right.column.table?.order ?? Number.MAX_SAFE_INTEGER) ||
+        left.index - right.index,
+    )
+    .map(({ column }) => column);
+  const lastVisibleColumn = visibleConfigured.at(-1)?.column;
+  const moveColumnToEnd = (column: ExplorerBuilderColumn) => {
+    if (visibleConfigured.every((item) => item.table?.order !== undefined)) {
+      const maximumOrder = Math.max(
+        -1,
+        ...visibleConfigured.map((item) => item.table?.order ?? -1),
+      );
+      onChange({
+        ...column,
+        table: { ...(column.table ?? {}), visible: true, order: maximumOrder + 1 },
+      });
+      return;
+    }
+    const updates = visibleConfigured
+      .filter((item) => item.column !== column.column)
+      .concat(column)
+      .flatMap((item, order) =>
+        item.table?.order === order
+          ? []
+          : [{ ...item, table: { ...(item.table ?? {}), visible: true, order } }],
+      );
+    if (onColumnsChange) onColumnsChange(updates);
+    else updates.forEach(onChange);
+  };
   const toggleAllTableColumns = () => {
     if (disabled) return;
     if (allTableColumnsSelected) {
@@ -666,11 +719,12 @@ export const ColumnSelector = ({
               }
             />
           ) : null}
-          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <span className="text-left">Display name / source</span>
             <span>Table</span>
             <span>Filter</span>
             <span>Chart</span>
+            <span>Order</span>
             <span />
           </div>
           <div
@@ -734,6 +788,11 @@ export const ColumnSelector = ({
                           onChange={onChange}
                           onSourceChange={onSourceChange}
                           onContributorChange={onContributorChange}
+                          moveToEndDisabled={
+                            !(row.column.table?.visible ?? Boolean(row.column.table)) ||
+                            row.column.column === lastVisibleColumn
+                          }
+                          onMoveToEnd={() => moveColumnToEnd(row.column)}
                           onRemove={() => onRemove(row.column.column)}
                           onInspect={() =>
                             void inspectColumn(row.column)

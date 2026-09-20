@@ -1580,6 +1580,17 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
+                onColumnsChange={(columns) =>
+                  table &&
+                  void applyCommands(
+                    columns.map((column) => ({
+                      type: 'UPDATE_COLUMN' as const,
+                      outputId: table.outputId,
+                      column: column.column,
+                      columnValue: column,
+                    })),
+                  )
+                }
                 onRemove={(column) =>
                   table &&
                   void applyCommands([

@@ -127,6 +127,11 @@ describe('PreviewTable column controls', () => {
           codings: [{ system: 'http://loinc.org', code: '8302-2' }],
           choiceArm: 'valueQuantity', logicalType: 'decimal', value: 0, values: [0], unit: 'cm', status: 'VALUE',
           owner: { code: { coding: [{ system: 'http://loinc.org', code: '8302-2' }] }, valueQuantity: { value: 0, unit: 'cm' } },
+        }, {
+          source: { resourceType: 'Observation', resourceId: 'obs-1', ownerPath: 'component[]', ownerOrdinal: 1 },
+          codings: [{ system: 'http://loinc.org', code: '8302-2' }],
+          choiceArm: 'valueQuantity', logicalType: 'decimal', values: [], status: 'ABSENT',
+          owner: { code: { coding: [{ system: 'http://loinc.org', code: '8302-2' }] }, _valueString: { extension: [{ url: 'urn:j01:missing', valueBoolean: true }] } },
         }],
       }],
     };
@@ -144,9 +149,11 @@ describe('PreviewTable column controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Inspect Body height records for row 1' }));
     expect(screen.getByRole('dialog', { name: 'Body height records record evidence' })).toBeInTheDocument();
     expect(screen.getByText('VALUE')).toBeInTheDocument();
+    expect(screen.getByText('ABSENT')).toBeInTheDocument();
+    expect(screen.getAllByText('valueQuantity')).toHaveLength(2);
     expect(screen.getByText('cm')).toBeInTheDocument();
-    expect(screen.getByText('http://loinc.org · 8302-2')).toBeInTheDocument();
-    expect(screen.getByText(/resourceId: obs-1/)).toBeInTheDocument();
+    expect(screen.getAllByText('http://loinc.org · 8302-2')).toHaveLength(2);
+    expect(screen.getAllByText(/resourceId: obs-1/)).toHaveLength(2);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });

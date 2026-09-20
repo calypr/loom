@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
+  ExplorerBuilderColumn,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import type { ConfiguredColumnContextResponse } from '../../../interpretation';
@@ -171,7 +172,7 @@ describe('configured V2 columns', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Inspect source' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Column details' }));
 
     const inspector = await screen.findByRole('region', { name: 'Source for Height' });
     expect(inspector).toHaveTextContent('ResearchSubject');
@@ -860,6 +861,80 @@ describe('configured V2 columns', () => {
     fireEvent.blur(alphaInput);
 
     expect(screen.getAllByRole('textbox', { name: /Display name for/ }).map((input) => (input as HTMLInputElement).value)).toEqual(['Zulu', 'Beta']);
+  });
+
+  it('moves a visible configured column to the end with one persisted update', () => {
+    const alpha = table.document.columns[0];
+    const beta: ExplorerBuilderColumn = {
+      ...alpha,
+      column: 'research_subject_birth_date',
+      label: 'Birth date',
+      source: { kind: 'field' as const, field: { path: 'birthDate', projectionMode: 'VALUE' } },
+      table: { visible: true, order: 1 },
+    };
+    const orderedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{ ...alpha, table: { visible: true, order: 0 } }, beta],
+      },
+    };
+    const onChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={orderedTable}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={onChange}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Research Subject ID to end' }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      column: 'research_subject_identifier',
+      table: { visible: true, order: 2 },
+    }));
+    expect(screen.getByRole('button', { name: 'Move Birth date to end' })).toBeDisabled();
+  });
+
+  it('normalizes missing orders before moving a configured column to the end', () => {
+    const alpha = { ...table.document.columns[0], table: { visible: true } };
+    const beta: ExplorerBuilderColumn = {
+      ...alpha,
+      column: 'research_subject_birth_date',
+      label: 'Birth date',
+      occurrenceId: 'observations',
+      source: { kind: 'field' as const, field: { path: 'birthDate', projectionMode: 'VALUE' } },
+    };
+    const onColumnsChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={{ ...table, document: { ...table.document, columns: [alpha, beta] } }}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onColumnsChange={onColumnsChange}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Research Subject ID to end' }));
+
+    expect(onColumnsChange).toHaveBeenCalledWith([
+      expect.objectContaining({ column: 'research_subject_birth_date', table: { visible: true, order: 0 } }),
+      expect.objectContaining({ column: 'research_subject_identifier', table: { visible: true, order: 1 } }),
+    ]);
   });
 
   it('shows primitive leaf fields, hides object containers, and adds from the table checkbox', () => {

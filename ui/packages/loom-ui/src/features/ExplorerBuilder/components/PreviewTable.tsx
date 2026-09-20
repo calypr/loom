@@ -456,6 +456,7 @@ export const PreviewTable = ({
                 const values = recordField(record, 'values');
                 const unit = recordField(record, 'unit');
                 const codings = recordField(record, 'codings');
+                const choiceArm = recordField(record, 'choiceArm');
                 const owner = recordField(record, 'owner');
                 return (
                   <article key={index} className="rounded-lg border border-slate-200 p-4">
@@ -470,6 +471,8 @@ export const PreviewTable = ({
                       <dd className="break-words text-slate-900">{formatPreviewCell(value ?? values)}</dd>
                       <dt className="font-medium text-slate-500">Unit</dt>
                       <dd className="break-words text-slate-900">{formatPreviewCell(unit)}</dd>
+                      <dt className="font-medium text-slate-500">Choice arm</dt>
+                      <dd className="break-words text-slate-900">{formatPreviewCell(choiceArm)}</dd>
                       <dt className="font-medium text-slate-500">Matching code</dt>
                       <dd className="break-words text-slate-900">{formatOwnerRecordCodings(codings)}</dd>
                       <dt className="font-medium text-slate-500">Source</dt>

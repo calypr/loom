@@ -3,12 +3,24 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, sourceMountMatches } from './loom-dev.mjs';
 
 test('development evidence compares canonical project identities', () => {
   assert.equal(canonicalProjectID('loom_dev_verify_run-1234'), 'loom_dev_verify_run/1234');
   assert.equal(canonicalProjectID('study/project'), 'study/project');
   assert.equal(canonicalProjectID('project-a'), 'project-a');
+});
+
+test('development commands use the current Go authoring semantics version', () => {
+  const source = readFileSync(join(process.cwd(), 'internal/explorer/authoringv2/types.go'), 'utf8');
+  const match = source.match(/CurrentSemanticsVersion\s*=\s*(\d+)/);
+  assert.ok(match, 'Go authoring semantics version is missing');
+  assert.equal(AUTHORING_SEMANTICS_VERSION, Number(match[1]));
+
+  const uiSource = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/types.ts'), 'utf8');
+  const uiMatch = uiSource.match(/EXPLORER_AUTHORING_SEMANTICS_VERSION\s*=\s*(\d+)/);
+  assert.ok(uiMatch, 'UI authoring semantics version is missing');
+  assert.equal(Number(uiMatch[1]), Number(match[1]));
 });
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
@@ -231,6 +243,30 @@ test('fixture source digest is stable across file enumeration order and excludes
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+test('J01 fixture generates 1,000 distinct scalar concepts and hostile owner records', () => {
+  const fixture = join(process.cwd(), 'testdata/devloop-fixture');
+  const generated = generatedJ01ConceptNDJSON(fixture)?.trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal(generated?.length, 1000);
+  assert.deepEqual(generated?.[0], {
+    resourceType: 'Observation',
+    id: 'dev-j01-concept-0000',
+    status: 'final',
+    code: { coding: [{ system: 'urn:loom:j01:catalog', code: 'concept-0000', display: 'J01 concept 0000' }] },
+    valueInteger: 0,
+  });
+  assert.equal(generated?.at(-1)?.code.coding[0].code, 'concept-0999');
+  assert.equal(generated?.at(-1)?.valueInteger, 999);
+
+  const paired = readFileSync(join(fixture, 'Observation.ndjson'), 'utf8')
+    .trim().split('\n').map((line) => JSON.parse(line))
+    .find((resource) => resource.id === 'dev-pair-001');
+  assert.equal(paired.component[0].unmodeledSignal.flag, true);
+  assert.equal(paired.component[0].extension[0].extension[0].valueString, 'nested-owner');
+  assert.equal(paired.component[2].code.coding[0].code, 'shared');
+  assert.equal(paired.component[2].valueString, undefined);
+  assert.equal(paired.component[2]._valueString.extension[0].valueBoolean, true);
 });
 
 test('J02 fixture contains the documented five-edge FHIR reference chain and distinct report route', () => {
