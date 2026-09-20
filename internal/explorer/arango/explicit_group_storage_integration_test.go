@@ -97,7 +97,7 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		t.Fatalf("cross-project append = %v", err)
 	}
 	inserted, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, memberships)
-	if err != nil || !reflect.DeepEqual(inserted, []explorer.ExplicitGroupMembership{{GroupID: "group-a", Ref: sharedRef}, {GroupID: "group-a", Ref: onlyARef}, {GroupID: "group-b", Ref: sharedRef}}) {
+	if err != nil || !reflect.DeepEqual(inserted, []explorer.ExplicitGroupMembership{{GroupID: "group-a", Ref: sharedRef.Canonical()}, {GroupID: "group-a", Ref: onlyARef.Canonical()}, {GroupID: "group-b", Ref: sharedRef.Canonical()}}) {
 		t.Fatalf("first append = %#v err=%v", inserted, err)
 	}
 	inserted, err = persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, memberships)
@@ -171,7 +171,7 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 		}
 		cursor = next
 	}
-	wantMemberships := []explorer.ExplicitGroupMembership{{GroupID: "group-a", Ref: sharedRef}, {GroupID: "group-a", Ref: onlyARef}, {GroupID: "group-b", Ref: sharedRef}}
+	wantMemberships := []explorer.ExplicitGroupMembership{{GroupID: "group-a", Ref: sharedRef.Canonical()}, {GroupID: "group-a", Ref: onlyARef.Canonical()}, {GroupID: "group-b", Ref: sharedRef.Canonical()}}
 	if !reflect.DeepEqual(gotMemberships, wantMemberships) {
 		t.Fatalf("read memberships = %#v, want %#v", gotMemberships, wantMemberships)
 	}

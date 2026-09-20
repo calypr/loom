@@ -161,6 +161,32 @@ func TestExplicitGroupValidationRejectsAmbiguousOrUnscopedData(t *testing.T) {
 	}
 }
 
+func TestExplicitGroupMembershipCanonicalizesLegacyProjectIdentity(t *testing.T) {
+	project := "HTAN-HTAN001"
+	revision := ExplicitGroupRevision{
+		ID: ExplicitGroupRevisionIDFor(project, "group-membership-a"), Project: project,
+		Generation: "generation-a", ScopeDigest: "scope-a", ResourceType: "Patient",
+		SourceSelectionRevisionID: "selection-a", SourceMembershipDigest: "source-membership-a",
+		State: ExplicitGroupRevisionStaging, IdempotencyKey: "group-membership-a",
+		CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
+	}
+	groups := []ExplicitGroupDefinition{{ID: "group-a", Label: "Alpha", Ordinal: 0}}
+	memberships, err := CanonicalExplicitGroupMemberships(revision, groups, []ExplicitGroupMembership{{
+		GroupID: "group-a",
+		Ref:     ResourceRef{Project: project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ExplicitGroupMembership{{
+		GroupID: "group-a",
+		Ref:     ResourceRef{Project: "HTAN/HTAN001", Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-1"},
+	}}
+	if !reflect.DeepEqual(memberships, want) {
+		t.Fatalf("canonical memberships = %#v, want %#v", memberships, want)
+	}
+}
+
 func TestExplicitGroupRevisionRejectsSourceSelectionMismatch(t *testing.T) {
 	revision := testCompleteExplicitGroupRevision()
 	selection := testCompleteSelection()
