@@ -420,6 +420,23 @@ func (r *physicalPlanRenderer) renderAggregate(expression ir.PhysicalExpression)
 			return "", err
 		}
 		return "LENGTH(FOR __value IN FLATTEN(" + values + ") FILTER __value != null LIMIT 1 RETURN 1) > 0", nil
+	case ir.PhysicalSumAggregate, ir.PhysicalMeanAggregate:
+		if aggregate.Value == nil {
+			return "", fmt.Errorf("aggregate operation %q requires a numeric value expression", aggregate.Operation)
+		}
+		values, err := r.renderAggregateValue(*aggregate.Value, items, perItem)
+		if err != nil {
+			return "", err
+		}
+		outer := r.newInternalVariable("aggregate_numeric_values")
+		value := r.newInternalVariable("aggregate_numeric_value")
+		numeric := r.newInternalVariable("aggregate_numeric_values")
+		numericValues := "(FOR " + value + " IN " + outer + " FILTER " + value + " != null FILTER ASSERT(IS_NUMBER(" + value + "), \"NUMERIC_AGGREGATE_NON_NUMERIC\") RETURN " + value + ")"
+		reduction := "SUM(" + numeric + ")"
+		if aggregate.Operation == ir.PhysicalMeanAggregate {
+			reduction = reduction + " / LENGTH(" + numeric + ")"
+		}
+		return "FIRST(FOR " + outer + " IN [FLATTEN(" + values + ")] LET " + numeric + " = " + numericValues + " RETURN LENGTH(" + numeric + ") == 0 ? null : " + reduction + ")", nil
 	case ir.PhysicalCountDistinctAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 		if aggregate.Value == nil {
 			return "", fmt.Errorf("aggregate operation %q requires a value expression", aggregate.Operation)

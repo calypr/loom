@@ -362,6 +362,8 @@ const (
 	AggregateDistinctValues AggregateOperation = "DISTINCT_VALUES"
 	AggregateMin            AggregateOperation = "MIN"
 	AggregateMax            AggregateOperation = "MAX"
+	AggregateSum            AggregateOperation = "SUM"
+	AggregateMean           AggregateOperation = "MEAN"
 	AggregateContainsAll    AggregateOperation = "CONTAINS_ALL"
 	AggregateRequireOne     AggregateOperation = "REQUIRE_ONE"
 	AggregateCollect        AggregateOperation = "COLLECT"
@@ -370,7 +372,7 @@ const (
 
 func (op AggregateOperation) Valid() bool {
 	switch op {
-	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateContainsAll, AggregateRequireOne, AggregateCollect, AggregateFirstOrdered:
+	case AggregateCount, AggregateCountDistinct, AggregateExists, AggregateDistinctValues, AggregateMin, AggregateMax, AggregateSum, AggregateMean, AggregateContainsAll, AggregateRequireOne, AggregateCollect, AggregateFirstOrdered:
 		return true
 	default:
 		return false

@@ -77,7 +77,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if aggregate.Operation == string(recipe.AggregateDistinctValues) {
 				cardinality = expression.Many
 			}
-			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) {
+			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) || aggregate.Operation == string(recipe.AggregateSum) || aggregate.Operation == string(recipe.AggregateMean) {
 				cardinality = expression.OptionalOne
 			}
 			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false)

@@ -75,6 +75,7 @@ type CandidateProof struct {
 	FilterOperators     []FilterOperator
 	ChartAggregations   []ChartAggregation
 	SupportedOperations []Operation
+	AggregateOperations []AggregateOperationCapability
 	Reason              string
 }
 
@@ -301,6 +302,7 @@ func (b Builder) Build(ctx context.Context) (Snapshot, error) {
 		c.FilterOperators = append([]FilterOperator(nil), proof.FilterOperators...)
 		c.ChartAggregations = append([]ChartAggregation(nil), proof.ChartAggregations...)
 		c.SupportedOperations = append([]Operation(nil), proof.SupportedOperations...)
+		c.AggregateOperations = cloneAggregateOperationCapabilities(proof.AggregateOperations)
 		candidates = append(candidates, c)
 	}
 	status := StatusReady

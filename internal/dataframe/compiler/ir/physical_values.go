@@ -170,6 +170,8 @@ const (
 	PhysicalDistinctValuesAggregate PhysicalAggregateOperation = "DISTINCT_VALUES"
 	PhysicalMinAggregate            PhysicalAggregateOperation = "MIN"
 	PhysicalMaxAggregate            PhysicalAggregateOperation = "MAX"
+	PhysicalSumAggregate            PhysicalAggregateOperation = "SUM"
+	PhysicalMeanAggregate           PhysicalAggregateOperation = "MEAN"
 	PhysicalFirstAggregate          PhysicalAggregateOperation = "FIRST"
 	PhysicalContainsAllAggregate    PhysicalAggregateOperation = "CONTAINS_ALL"
 	PhysicalRequireOneAggregate     PhysicalAggregateOperation = "REQUIRE_ONE"

@@ -211,6 +211,25 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
+			if source := column.Source.Aggregate; source != nil {
+				operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Operation)))
+				if operation == capability.AggregateSum || operation == capability.AggregateMean {
+					path := strings.TrimPrefix(strings.TrimSpace(source.Path), "root.")
+					candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path)
+					if found {
+						input := capability.AggregateInput{
+							LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
+							HasField: true, RelatedResource: column.OccurrenceID != authoringv2.RootOccurrenceID,
+						}
+						choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
+						for _, choice := range choices {
+							if choice.Operation == operation && !choice.Supported {
+								return Result{}, fail("capability", "AGGREGATE_OPERATION_UNAVAILABLE", fmt.Sprintf("$.columns[%d].source.aggregate.operation", index), choice.Reason, map[string]any{"operation": operation, "reasonCode": choice.ReasonCode, "rowContext": choice.RowContext}, nil)
+							}
+						}
+					}
+				}
+			}
 			var contributorWhere *recipe.Filter
 			if column.Contributor != nil {
 				catalog := catalogFromCapability(snapshot, explorerID)
@@ -724,6 +743,12 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 	switch operation {
 	case recipe.AggregateCount, recipe.AggregateCountDistinct:
 		logicalType = "integer"
+	case recipe.AggregateSum, recipe.AggregateMean:
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, strings.Trim(strings.TrimSpace(source.Path), "."))
+		if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+			return recipe.Aggregate{}, "", fmt.Errorf("aggregate operation %s requires an integer or decimal selector", operation)
+		}
+		logicalType = "decimal"
 	case recipe.AggregateExists, recipe.AggregateContainsAll:
 		logicalType = "boolean"
 	case recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax, recipe.AggregateRequireOne, recipe.AggregateCollect, recipe.AggregateFirstOrdered:

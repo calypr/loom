@@ -663,18 +663,18 @@ func (s ColumnSource) validate(path string) error {
 				return fmt.Errorf("%s.aggregate.unitNormalization requires aggregate.path", path)
 			}
 			switch strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation)) {
-			case "MIN", "MAX", "REQUIRE_ONE", "COLLECT", "DISTINCT_VALUES", "FIRST_ORDERED":
+			case "MIN", "MAX", "SUM", "MEAN", "REQUIRE_ONE", "COLLECT", "DISTINCT_VALUES", "FIRST_ORDERED":
 			default:
 				return fmt.Errorf("%s.aggregate.unitNormalization is not supported for %s", path, s.Aggregate.Operation)
 			}
 		}
 		op := strings.ToUpper(strings.TrimSpace(s.Aggregate.Operation))
 		switch op {
-		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT", "FIRST_ORDERED":
+		case "COUNT", "COUNT_DISTINCT", "DISTINCT_VALUES", "MIN", "MAX", "SUM", "MEAN", "EXISTS", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT", "FIRST_ORDERED":
 		default:
 			return fmt.Errorf("%s aggregate source operation %q is unsupported", path, s.Aggregate.Operation)
 		}
-		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT" || op == "FIRST_ORDERED"
+		requiresField := op == "COUNT_DISTINCT" || op == "DISTINCT_VALUES" || op == "MIN" || op == "MAX" || op == "SUM" || op == "MEAN" || op == "CONTAINS_ALL" || op == "REQUIRE_ONE" || op == "COLLECT" || op == "FIRST_ORDERED"
 		if requiresField && strings.TrimSpace(s.Aggregate.Path) == "" {
 			return fmt.Errorf("%s aggregate operation %s requires path", path, op)
 		}

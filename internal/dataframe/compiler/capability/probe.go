@@ -58,7 +58,8 @@ type Filter struct {
 
 // Chart describes an optional candidate chart/aggregate operation.
 type Chart struct {
-	Operation recipe.AggregateOperation
+	Operation      recipe.AggregateOperation
+	RequiredValues []string
 }
 
 // RootRequest asks whether one concrete generated resource can be a row root.
@@ -144,19 +145,20 @@ type TraversalCapability struct {
 }
 
 type CandidateCapability struct {
-	ResourceType    string
-	FieldRef        string
-	Selector        string
-	FieldKind       fhirschema.FieldKind
-	Primitive       fhirschema.PrimitiveKind
-	Cardinality     spec.Cardinality
-	Repeated        bool
-	ProjectionModes []spec.ProjectionMode
-	FilterOperators []spec.FilterOperator
-	ChartOperations []recipe.AggregateOperation
-	Filterable      bool
-	Chartable       bool
-	Rendered        Rendered
+	ResourceType             string
+	FieldRef                 string
+	Selector                 string
+	FieldKind                fhirschema.FieldKind
+	Primitive                fhirschema.PrimitiveKind
+	Cardinality              spec.Cardinality
+	Repeated                 bool
+	ProjectionModes          []spec.ProjectionMode
+	FilterOperators          []spec.FilterOperator
+	ChartOperations          []recipe.AggregateOperation
+	ValueAggregateOperations []recipe.AggregateOperation
+	Filterable               bool
+	Chartable                bool
+	Rendered                 Rendered
 }
 
 type OwnerRecordsCapability struct {
@@ -268,6 +270,20 @@ func ProbeCandidate(ctx context.Context, request CandidateRequest, options ...Op
 	for _, operation := range []recipe.AggregateOperation{recipe.AggregateCount, recipe.AggregateCountDistinct, recipe.AggregateExists, recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax} {
 		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, &Chart{Operation: operation}, optionsValue); err == nil {
 			metadata.ChartOperations = append(metadata.ChartOperations, operation)
+		}
+	}
+	for _, operation := range []recipe.AggregateOperation{
+		recipe.AggregateCount, recipe.AggregateCountDistinct, recipe.AggregateExists,
+		recipe.AggregateDistinctValues, recipe.AggregateMin, recipe.AggregateMax,
+		recipe.AggregateSum, recipe.AggregateMean, recipe.AggregateContainsAll,
+		recipe.AggregateRequireOne, recipe.AggregateCollect,
+	} {
+		chart := &Chart{Operation: operation}
+		if operation == recipe.AggregateContainsAll {
+			chart.RequiredValues = []string{"__loom_probe_value__"}
+		}
+		if _, _, err := compileCandidate(ctx, prepared, defaultProjection(prepared.repeated), nil, chart, optionsValue); err == nil {
+			metadata.ValueAggregateOperations = append(metadata.ValueAggregateOperations, operation)
 		}
 	}
 	metadata.Filterable = len(metadata.FilterOperators) != 0
@@ -454,7 +470,7 @@ func compileCandidate(ctx context.Context, prepared preparedCandidate, mode spec
 			return ir.PhysicalPlan{}, Rendered{}, fmt.Errorf("chart operation is required")
 		}
 		selector := prepared.selector
-		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector}}
+		target.Aggregates = []semantic.SemanticAggregate{{Name: "chart", Operation: string(chart.Operation), FieldRef: prepared.fieldRef, Selector: &selector, RequiredValues: append([]string(nil), chart.RequiredValues...)}}
 	}
 	output := semantic.OutputPlan{RootResourceType: root.ResourceType, Root: root}
 	physical, rendered, err := compile(ctx, prepared.scope, output, options)

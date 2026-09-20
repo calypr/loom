@@ -150,28 +150,29 @@ type CatalogEdge struct {
 }
 
 type CatalogCandidate struct {
-	ID                    string                         `json:"candidateId"`
-	NodeID                string                         `json:"nodeId"`
-	FieldPath             string                         `json:"fieldPath"`
-	Label                 string                         `json:"label"`
-	LogicalType           string                         `json:"logicalType"`
-	Cardinality           string                         `json:"cardinality"`
-	Repeated              bool                           `json:"repeated"`
-	Filterable            bool                           `json:"filterable"`
-	Chartable             bool                           `json:"chartable"`
-	ProjectionModes       []string                       `json:"projectionModes"`
-	DefaultProjectionMode string                         `json:"defaultProjectionMode"`
-	RepeatedBoundaries    []RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
-	ConstructionChoice    *capability.ConstructionChoice `json:"constructionChoice"`
-	FilterOperators       []string                       `json:"-"`
-	ChartOperations       []string                       `json:"-"`
-	Populated             bool                           `json:"-"`
-	Count                 *int64                         `json:"-"`
-	SuggestionsAvailable  bool                           `json:"-"`
-	SuggestionsComplete   bool                           `json:"-"`
-	SuggestionsTruncated  bool                           `json:"-"`
-	SuggestionCount       int                            `json:"-"`
-	ConceptCandidates     []ConceptCandidate             `json:"conceptCandidates,omitempty"`
+	ID                    string                                    `json:"candidateId"`
+	NodeID                string                                    `json:"nodeId"`
+	FieldPath             string                                    `json:"fieldPath"`
+	Label                 string                                    `json:"label"`
+	LogicalType           string                                    `json:"logicalType"`
+	Cardinality           string                                    `json:"cardinality"`
+	Repeated              bool                                      `json:"repeated"`
+	Filterable            bool                                      `json:"filterable"`
+	Chartable             bool                                      `json:"chartable"`
+	ProjectionModes       []string                                  `json:"projectionModes"`
+	DefaultProjectionMode string                                    `json:"defaultProjectionMode"`
+	RepeatedBoundaries    []RepeatedBoundary                        `json:"repeatedBoundaries,omitempty"`
+	ConstructionChoice    *capability.ConstructionChoice            `json:"constructionChoice"`
+	FilterOperators       []string                                  `json:"-"`
+	ChartOperations       []string                                  `json:"-"`
+	AggregateOperations   []capability.AggregateOperationCapability `json:"aggregateOperations,omitempty"`
+	Populated             bool                                      `json:"-"`
+	Count                 *int64                                    `json:"-"`
+	SuggestionsAvailable  bool                                      `json:"-"`
+	SuggestionsComplete   bool                                      `json:"-"`
+	SuggestionsTruncated  bool                                      `json:"-"`
+	SuggestionCount       int                                       `json:"-"`
+	ConceptCandidates     []ConceptCandidate                        `json:"conceptCandidates,omitempty"`
 }
 
 // ConceptCandidate is an observed structural terminology/value candidate.

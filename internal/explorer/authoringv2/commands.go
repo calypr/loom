@@ -1266,9 +1266,34 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		return CatalogCandidate{}, false
 	}
 	if source.Kind == SourceAggregate {
+		var selected CatalogCandidate
+		hasSelected := false
 		if path != "" {
-			if _, ok := findCandidate(path); !ok {
+			selected, hasSelected = findCandidate(path)
+			if !hasSelected {
 				return fmt.Errorf("source path %q is not present for occurrence %q", path, occurrenceID)
+			}
+		}
+		if source.Aggregate != nil {
+			related := occurrenceID != RootOccurrenceID
+			input := capability.AggregateInput{
+				HasField: path != "" && hasSelected, RelatedResource: related,
+				TemporalConfigured:       source.Aggregate.Temporal != nil,
+				RequiredValuesConfigured: len(source.Aggregate.RequiredValues) > 0,
+			}
+			if hasSelected {
+				input.LogicalType, input.Cardinality = selected.LogicalType, selected.Cardinality
+			}
+			choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
+			operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)))
+			for _, choice := range choices {
+				if choice.Operation != operation {
+					continue
+				}
+				if !choice.Supported && (operation == capability.AggregateSum || operation == capability.AggregateMean) {
+					return fmt.Errorf("aggregate operation %s unavailable (%s): %s", operation, choice.ReasonCode, choice.Reason)
+				}
+				break
 			}
 		}
 		if source.Aggregate != nil && source.Aggregate.Temporal != nil {
@@ -1325,6 +1350,8 @@ func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occur
 		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {
 		case "COUNT", "COUNT_DISTINCT":
 			return "integer"
+		case "SUM", "MEAN":
+			return "decimal"
 		case "EXISTS", "CONTAINS_ALL":
 			return "boolean"
 		}

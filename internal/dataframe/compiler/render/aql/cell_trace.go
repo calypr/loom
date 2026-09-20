@@ -90,6 +90,9 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 			return r.renderTraceContributorQueries(items, ir.PhysicalExpression{}, terminal, false)
 		}
 		lossy := aggregate.Operation == ir.PhysicalFirstAggregate || aggregate.Operation == ir.PhysicalRequireOneAggregate
+		if aggregate.Operation == ir.PhysicalSumAggregate || aggregate.Operation == ir.PhysicalMeanAggregate {
+			return r.renderNumericAggregateTraceContributors(items, *aggregate.Value, terminal)
+		}
 		return r.renderTraceContributorQueries(items, *aggregate.Value, terminal, lossy)
 	case ir.PhysicalOwnerRecordsExpression:
 		records, renderErr := r.renderExpression(expression)
@@ -104,6 +107,21 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 	default:
 		return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 	}
+}
+
+func (r *physicalPlanRenderer) renderNumericAggregateTraceContributors(items string, valueExpression ir.PhysicalExpression, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	item := r.newInternalVariable("trace_numeric_contributor")
+	value, err := r.renderAggregateItemValue(valueExpression, item)
+	if err != nil {
+		return "", "", false, "", err
+	}
+	input := r.newInternalVariable("trace_numeric_value")
+	numeric := r.newInternalVariable("trace_numeric_values")
+	contributingValues := fmt.Sprintf("(FOR %s IN FLATTEN([%s]) FILTER %s != null FILTER ASSERT(IS_NUMBER(%s), \"NUMERIC_AGGREGATE_NON_NUMERIC\") RETURN %s)", input, value, input, input, input)
+	record := fmt.Sprintf(`{ resourceType: %s.resourceType, resourceId: %s.id, value: %s }`, item, item, contributingValues)
+	page = fmt.Sprintf("(FOR %s IN %s LET %s = %s LIMIT @%s, @%s RETURN %s)", item, items, numeric, contributingValues, terminal.OffsetBindKey, terminal.FetchLimitBindKey, record)
+	status = fmt.Sprintf("(FOR %s IN %s LET %s = %s LIMIT 2 RETURN %s)", item, items, numeric, contributingValues, record)
+	return page, status, false, "", nil
 }
 
 func (r *physicalPlanRenderer) renderReducedSetTraceContributors(contribution ir.PhysicalCellTraceContribution, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {

@@ -80,6 +80,31 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 	}
 }
 
+func TestCompileCellTraceExplainsNumericAggregateContributors(t *testing.T) {
+	value := recipe.Expression{Select: "root.component[].valueInteger"}
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Observations", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields:           []recipe.Field{{Name: "observation_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Aggregates: []recipe.Aggregate{
+			{Name: "sum_value", Operation: recipe.AggregateSum, Expr: &value},
+			{Name: "mean_value", Operation: recipe.AggregateMean, Expr: &value},
+		},
+	})
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "sum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"NUMERIC_AGGREGATE_NON_NUMERIC", "resourceType:", "resourceId:", "value:", "!= null"} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("numeric aggregate trace is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if strings.Contains(compiled.Query, "AMBIGUOUS") {
+		t.Fatalf("a numeric reduction with explicit contributor enumeration must not be marked lossy:\n%s", compiled.Query)
+	}
+}
+
 func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Observations", RootResourceType: "Observation", RowGrain: "observation",

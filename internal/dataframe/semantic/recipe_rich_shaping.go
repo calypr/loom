@@ -401,6 +401,8 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			operation == string(recipe.AggregateDistinctValues) ||
 			operation == string(recipe.AggregateMin) ||
 			operation == string(recipe.AggregateMax) ||
+			operation == string(recipe.AggregateSum) ||
+			operation == string(recipe.AggregateMean) ||
 			operation == string(recipe.AggregateContainsAll) ||
 			operation == string(recipe.AggregateRequireOne) ||
 			operation == string(recipe.AggregateCollect) ||
@@ -432,7 +434,7 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 				return nil, fmt.Errorf("%s.unitNormalization requires an integer or decimal measurement selector", path)
 			}
 			switch strings.ToUpper(operation) {
-			case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues), string(recipe.AggregateFirstOrdered):
+			case string(recipe.AggregateMin), string(recipe.AggregateMax), string(recipe.AggregateSum), string(recipe.AggregateMean), string(recipe.AggregateRequireOne), string(recipe.AggregateCollect), string(recipe.AggregateDistinctValues), string(recipe.AggregateFirstOrdered):
 			default:
 				return nil, fmt.Errorf("%s.unitNormalization is not supported for aggregate operation %s", path, operation)
 			}
@@ -489,6 +491,15 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 			semanticAggregate.ValueKind = expression.KindBoolean
 		case string(recipe.AggregateContainsAll):
 			semanticAggregate.ValueKind = expression.KindBoolean
+		case string(recipe.AggregateSum), string(recipe.AggregateMean):
+			if semanticAggregate.Selector == nil {
+				return nil, fmt.Errorf("%s.expr is required for operation %s", path, operation)
+			}
+			metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, semanticAggregate.Selector.CanonicalPath())
+			if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+				return nil, fmt.Errorf("%s requires an integer or decimal input selector", operation)
+			}
+			semanticAggregate.ValueKind = expression.KindDecimal
 		case string(recipe.AggregateFirstOrdered):
 			if semanticAggregate.ValueKind == "" {
 				semanticAggregate.ValueKind = expression.KindString

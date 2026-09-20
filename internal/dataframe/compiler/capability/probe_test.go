@@ -102,6 +102,57 @@ func TestProbeCandidateReportsScalarRepeatedObjectAndOperations(t *testing.T) {
 	}
 }
 
+func TestProbeCandidateExecutesNumericAggregateCompilerProofs(t *testing.T) {
+	numeric, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+	})
+	if err != nil {
+		t.Fatalf("numeric candidate: %v", err)
+	}
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		if !containsAggregateOperation(numeric.Candidate.ValueAggregateOperations, operation) {
+			t.Errorf("numeric compiler proof is missing %s: %#v", operation, numeric.Candidate.ValueAggregateOperations)
+		}
+	}
+	compiled, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+		Chart: &Chart{Operation: recipe.AggregateSum},
+	})
+	if err != nil {
+		t.Fatalf("execute literal SUM compiler request: %v", err)
+	}
+	for _, fragment := range []string{"SUM(", "IS_NUMBER(", "NUMERIC_AGGREGATE_NON_NUMERIC", "== 0 ? null"} {
+		if !strings.Contains(compiled.Rendered.Query, fragment) {
+			t.Errorf("rendered SUM query is missing %q:\n%s", fragment, compiled.Rendered.Query)
+		}
+	}
+	mean, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Observation", FieldRef: "Observation.valueQuantity.value", Selector: "valueQuantity.value",
+		Chart: &Chart{Operation: recipe.AggregateMean},
+	})
+	if err != nil {
+		t.Fatalf("execute literal MEAN compiler request: %v", err)
+	}
+	if !strings.Contains(mean.Rendered.Query, "SUM(") || !strings.Contains(mean.Rendered.Query, " / LENGTH(") {
+		t.Fatalf("MEAN query must divide the non-null numeric sum by its contributor count:\n%s", mean.Rendered.Query)
+	}
+	if _, err := ProbeCandidate(context.Background(), CandidateRequest{
+		Scope: testScope(), ResourceType: "Patient", FieldRef: "Patient.gender", Selector: "gender",
+		Chart: &Chart{Operation: recipe.AggregateSum},
+	}); err == nil || !strings.Contains(err.Error(), "integer or decimal selector") {
+		t.Fatalf("string SUM error = %v", err)
+	}
+}
+
+func containsAggregateOperation(values []recipe.AggregateOperation, want recipe.AggregateOperation) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestProbeCandidateRendersGenerationProjectAndAuthScope(t *testing.T) {
 	result, err := ProbeCandidate(context.Background(), CandidateRequest{Scope: testScope(), ResourceType: "Patient", Selector: "gender", Filter: &Filter{Operator: spec.FilterEquals}})
 	if err != nil {

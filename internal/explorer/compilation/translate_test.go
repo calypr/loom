@@ -809,6 +809,76 @@ func TestCompileDistinctValuesAggregateIsArrayAndLossy(t *testing.T) {
 	}
 }
 
+func TestCompileNumericAggregatesThroughV2RecipeAndPhysicalPlan(t *testing.T) {
+	visible := true
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "observations", Title: "Observations"}, RootResourceType: "Observation",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []authoringv2.Column{
+			{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+			{Column: "value_mean", Label: "Value mean", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "MEAN", Path: "valueQuantity.value"}}, Table: &authoringv2.TablePresentation{Visible: &visible}},
+		},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Bundle.Outputs) != 1 || len(compiled.Bundle.Outputs[0].Aggregates) != 2 {
+		t.Fatalf("compiled aggregate bundle = %#v", compiled.Bundle.Outputs)
+	}
+	expandedSnapshot := contributorSnapshot()
+	expandedSnapshot.Candidates = append(expandedSnapshot.Candidates, capability.Candidate{
+		ID: "c_observation_components", NodeID: "n_observation", ResourceType: "Observation", FieldPath: "component[]", Label: "Observation components",
+		LogicalType: "object", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "component[]", MaxItems: 1}},
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, SupportedOperations: []capability.Operation{capability.OperationSelect},
+	})
+	expandedSnapshot = capability.NewSnapshot(expandedSnapshot.Identity, expandedSnapshot.Policy, expandedSnapshot.Status, expandedSnapshot.Complete, expandedSnapshot.Truncated, expandedSnapshot.Nodes, expandedSnapshot.Edges, expandedSnapshot.Candidates, expandedSnapshot.Diagnostics)
+	expandedDocument := authoringv2.Document{
+		Rows: authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionExpanded, Expanded: &authoringv2.ExpandedRows{
+			OccurrenceID: authoringv2.RootOccurrenceID, ScopePath: "component[]", EmptyCollectionPolicy: authoringv2.EmptyCollectionPreserveParent,
+		}},
+		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "expanded_observations", Title: "Expanded observations"}, RootResourceType: "Observation",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+		Columns: []authoringv2.Column{{Column: "value_sum", Label: "Value sum", OccurrenceID: authoringv2.RootOccurrenceID,
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}},
+		}},
+	}
+	_, expandedErr := Compile(context.Background(), "project-a", "explorer-a", expandedDocument, expandedSnapshot)
+	var compileErr *Error
+	if !errors.As(expandedErr, &compileErr) || compileErr.Code != "AGGREGATE_OPERATION_UNAVAILABLE" || compileErr.Details["reasonCode"] != "EXPANDED_AGGREGATE_SCOPE_UNDEFINED" {
+		t.Fatalf("expanded-row SUM compile error=%v, want an explicit unresolved aggregate scope", expandedErr)
+	}
+	for index, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		aggregate := compiled.Bundle.Outputs[0].Aggregates[index]
+		if aggregate.Operation != operation || aggregate.Expr == nil || aggregate.Expr.Select != "root.valueQuantity.value" {
+			t.Errorf("V2 %s aggregate = %#v", operation, aggregate)
+		}
+		if column := compiled.OutputContract.Columns[index]; column.LogicalType != "decimal" || column.Shape != "scalar" || !column.Nullable {
+			t.Errorf("V2 %s output contract = %#v, want nullable decimal scalar", operation, column)
+		}
+	}
+	plan, err := semantic.BuildRecipePlan(compiled.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(rendered.Query, "NUMERIC_AGGREGATE_NON_NUMERIC") != 2 || strings.Count(rendered.Query, "== 0 ? null") < 2 || !strings.Contains(rendered.Query, " / LENGTH(") {
+		t.Fatalf("compiled numeric aggregate query omitted explicit numeric/missingness semantics:\n%s", rendered.Query)
+	}
+}
+
 func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) {
 	visible := true
 	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),

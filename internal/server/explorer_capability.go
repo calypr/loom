@@ -13,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -490,6 +491,32 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if len(proof.ChartAggregations) > 0 {
 		proof.SupportedOperations = append(proof.SupportedOperations, capability.OperationChart, capability.OperationAggregate)
 	}
+	input := capability.AggregateInput{
+		LogicalType: string(result.Candidate.Primitive),
+		Cardinality: string(result.Candidate.Cardinality),
+		HasField:    true,
+	}
+	valueOperations := make([]capability.AggregateOperationCapability, 0, len(result.Candidate.ValueAggregateOperations)*3)
+	for _, rows := range []capability.AggregateRowContext{capability.AggregateRowsRecords, capability.AggregateRowsGroups, capability.AggregateRowsExpanded} {
+		valueOperations = append(valueOperations, capability.DeriveAggregateOperationCapabilities(input, rows)...)
+	}
+	compilerOperations := make(map[recipe.AggregateOperation]struct{}, len(result.Candidate.ValueAggregateOperations))
+	for _, operation := range result.Candidate.ValueAggregateOperations {
+		compilerOperations[operation] = struct{}{}
+	}
+	for index := range valueOperations {
+		choice := &valueOperations[index]
+		if !choice.Supported || choice.Operation == capability.AggregateFirstOrdered {
+			continue
+		}
+		if _, ok := compilerOperations[recipe.AggregateOperation(choice.Operation)]; !ok {
+			choice.Supported = false
+			choice.ReasonCode = "COMPILER_NOT_PROVEN"
+			choice.Reason = "the compiler did not prove this operation for the candidate field"
+			choice.RequiresConfiguration = nil
+		}
+	}
+	proof.AggregateOperations = valueOperations
 	return proof, nil
 }
 
@@ -529,7 +556,8 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 			Filterable: len(candidate.FilterOperators) > 0, Chartable: len(candidate.ChartAggregations) > 0,
 			ProjectionModes: projectionModes, DefaultProjectionMode: defaultProjectionMode(projectionModes),
 			FilterOperators: stringFilterOperators(candidate.FilterOperators), ChartOperations: stringChartOperations(candidate.ChartAggregations),
-			Populated: candidate.Populated, Count: &count,
+			AggregateOperations: append([]capability.AggregateOperationCapability(nil), candidate.AggregateOperations...),
+			Populated:           candidate.Populated, Count: &count,
 			SuggestionsAvailable: len(candidate.SuggestedValues) > 0,
 			SuggestionsComplete:  candidate.SuggestionsComplete,
 			SuggestionsTruncated: candidate.SuggestionsTruncated,

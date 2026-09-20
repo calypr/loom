@@ -22,6 +22,103 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestNumericAggregateLiteralValuesAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("set LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+	selector, err := spec.ParseSelector("component[].valueInteger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name        string
+		values      []any
+		want        *float64
+		wantTypeErr bool
+	}{
+		{name: "non-null contributors ignore null and retain zero", values: []any{map[string]any{"valueInteger": 2}, map[string]any{"valueInteger": nil}, map[string]any{"valueInteger": 0}, map[string]any{"valueInteger": 4}}, want: float64Ptr(6)},
+		{name: "no numeric contributors is null", values: []any{map[string]any{"valueInteger": nil}}, want: nil},
+		{name: "malformed nonnumeric stored value fails closed", values: []any{map[string]any{"valueInteger": "not-numeric"}}, wantTypeErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			project := "loom_numeric_aggregate_" + uuid.NewString()
+			payload := map[string]any{"id": project, "resourceType": "Observation", "component": tc.values}
+			raw, marshalErr := json.Marshal(map[string]any{
+				"_key": project, "id": project, "project": project, "project_id": project,
+				"resourceType": "Observation", "payload": payload,
+			})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			if err := client.InsertBatchRaw(ctx, "Observation", []json.RawMessage{raw}, false, "document"); err != nil {
+				t.Fatal(err)
+			}
+			root := semantic.SemanticNode{Alias: "root", ResourceType: "Observation", Aggregates: []semantic.SemanticAggregate{
+				{Name: "sum_value", OutputName: "sum_value", Operation: "SUM", Selector: &selector},
+				{Name: "mean_value", OutputName: "mean_value", Operation: "MEAN", Selector: &selector},
+			}}
+			physical, buildErr := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: root}, semantic.ExecutionContext{Project: project}, ir.DefaultPhysicalOptimizationPolicy())
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			rendered, renderErr := aql.RenderPhysicalPlan(physical)
+			if renderErr != nil {
+				t.Fatal(renderErr)
+			}
+			rows := []map[string]any{}
+			queryErr := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error {
+				rows = append(rows, row)
+				return nil
+			})
+			if tc.wantTypeErr {
+				if queryErr == nil || !strings.Contains(queryErr.Error(), "NUMERIC_AGGREGATE_NON_NUMERIC") {
+					t.Fatalf("query error=%v, want numeric type failure\n%s", queryErr, rendered.Query)
+				}
+				return
+			}
+			if queryErr != nil {
+				t.Fatalf("execute literal aggregate query: %v\n%s", queryErr, rendered.Query)
+			}
+			if len(rows) != 1 {
+				t.Fatalf("rows=%#v, want one root record", rows)
+			}
+			for _, name := range []string{"sum_value", "mean_value"} {
+				got, exists := rows[0][name]
+				if !exists {
+					t.Fatalf("result lacks %q: %#v", name, rows[0])
+				}
+				if tc.want == nil {
+					if got != nil {
+						t.Errorf("%s=%#v, want null", name, got)
+					}
+					continue
+				}
+				want := *tc.want
+				if name == "mean_value" {
+					want /= 3 // 2, 0, and 4 contribute; the null is ignored.
+				}
+				value, ok := got.(float64)
+				if !ok || math.Abs(value-want) > 1e-9 {
+					t.Errorf("%s=%#v, want %v", name, got, want)
+				}
+			}
+		})
+	}
+}
+
+func float64Ptr(value float64) *float64 { return &value }
+
 func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {

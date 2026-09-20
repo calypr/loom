@@ -77,6 +77,10 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 			ID: "c_patient_birth_date", NodeID: "n_patient", ResourceType: "Patient",
 			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date",
 			Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+			AggregateOperations: []capability.AggregateOperationCapability{{
+				Operation: capability.AggregateSum, RowContext: capability.AggregateRowsRecords, Supported: false,
+				ReasonCode: "NUMERIC_INPUT_REQUIRED", Reason: "SUM requires an integer or decimal input",
+			}},
 		}},
 		nil,
 	)
@@ -96,6 +100,10 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	var decoded map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &decoded); err != nil || len(decoded["constructionChoice"]) == 0 {
 		t.Fatalf("construction choice missing from candidate JSON %s: %v", encoded, err)
+	}
+	var aggregateChoices []capability.AggregateOperationCapability
+	if err := json.Unmarshal(decoded["aggregateOperations"], &aggregateChoices); err != nil || len(aggregateChoices) != 1 || aggregateChoices[0].ReasonCode != "NUMERIC_INPUT_REQUIRED" || aggregateChoices[0].RowContext != capability.AggregateRowsRecords {
+		t.Fatalf("typed aggregate choices missing or inaccurate in candidate JSON %s: choices=%#v err=%v", encoded, aggregateChoices, err)
 	}
 	var generated loomapi.CatalogCandidate
 	if err := json.Unmarshal(encoded, &generated); err != nil {

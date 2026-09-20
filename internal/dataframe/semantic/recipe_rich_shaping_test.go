@@ -147,6 +147,28 @@ func TestLowerRecipeAggregatesPreservesOutputNameAndRequiredValues(t *testing.T)
 	}
 }
 
+func TestLowerRecipeNumericAggregatesDeclareNullableDecimalAndRejectText(t *testing.T) {
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		aggregates, err := lowerRecipeAggregates("Observation", "root", newRootScope("Observation"), []recipe.Aggregate{{
+			Name: string(operation), Operation: operation, Expr: recipeExpr("valueQuantity.value"),
+		}})
+		if err != nil {
+			t.Fatalf("%s numeric lowering: %v", operation, err)
+		}
+		if len(aggregates) != 1 || aggregates[0].ValueKind != "decimal" || aggregates[0].Selector == nil {
+			t.Fatalf("%s semantic contract = %#v", operation, aggregates)
+		}
+	}
+	for _, operation := range []recipe.AggregateOperation{recipe.AggregateSum, recipe.AggregateMean} {
+		_, err := lowerRecipeAggregates("Patient", "root", newRootScope("Patient"), []recipe.Aggregate{{
+			Name: string(operation), Operation: operation, Expr: recipeExpr("gender"),
+		}})
+		if err == nil || !strings.Contains(err.Error(), "integer or decimal") {
+			t.Fatalf("%s text input error = %v", operation, err)
+		}
+	}
+}
+
 func TestLowerRecipeAggregatesPreservesCodePredicateKind(t *testing.T) {
 	code := "Tumor"
 	scope := newRootScope("Specimen")

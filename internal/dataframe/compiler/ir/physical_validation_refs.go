@@ -130,7 +130,7 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 		return err
 	}
 	switch aggregate.Operation {
-	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate, PhysicalRequireOneAggregate, PhysicalCollectAggregate, PhysicalFirstOrderedAggregate:
+	case PhysicalCountAggregate, PhysicalCountDistinctAggregate, PhysicalExistsAggregate, PhysicalDistinctValuesAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalSumAggregate, PhysicalMeanAggregate, PhysicalFirstAggregate, PhysicalContainsAllAggregate, PhysicalRequireOneAggregate, PhysicalCollectAggregate, PhysicalFirstOrderedAggregate:
 	default:
 		return fmt.Errorf("unknown aggregate operation %q", aggregate.Operation)
 	}

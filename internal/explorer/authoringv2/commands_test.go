@@ -127,6 +127,42 @@ func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
 
 func stringPtr(value string) *string { return &value }
 
+func TestValidateEditableNumericAggregateUsesResolvedTypeAndRows(t *testing.T) {
+	catalog := CatalogSnapshot{
+		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation"}},
+		Candidates: []CatalogCandidate{
+			{ID: "obs-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one"},
+			{ID: "obs-status", NodeID: "observation", FieldPath: "status", LogicalType: "string", Cardinality: "optional_one"},
+		},
+	}
+	document := Document{
+		RootResourceType: "Observation",
+		Route:            RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Observation"},
+		Rows:             RecordsRowDefinition(),
+	}
+	for _, operation := range []string{"SUM", "MEAN"} {
+		source := ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: operation, Path: "valueQuantity.value"}}
+		if err := validateEditableSource(document, catalog, RootOccurrenceID, source); err != nil {
+			t.Errorf("numeric %s was rejected: %v", operation, err)
+		}
+		source.Aggregate.Path = "status"
+		if err := validateEditableSource(document, catalog, RootOccurrenceID, source); err == nil || !strings.Contains(err.Error(), "NUMERIC_INPUT_REQUIRED") {
+			t.Errorf("string %s error = %v, want NUMERIC_INPUT_REQUIRED", operation, err)
+		}
+	}
+	document.Rows = RowDefinition{Kind: RowDefinitionGroups}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}); err == nil || !strings.Contains(err.Error(), "ROW_CONTEXT_UNSUPPORTED") {
+		t.Fatalf("grouped row SUM error = %v, want ROW_CONTEXT_UNSUPPORTED", err)
+	}
+	document.Rows = RowDefinition{Kind: RowDefinitionExpanded}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "SUM", Path: "valueQuantity.value"}}); err == nil || !strings.Contains(err.Error(), "EXPANDED_AGGREGATE_SCOPE_UNDEFINED") {
+		t.Fatalf("expanded row SUM error = %v, want EXPANDED_AGGREGATE_SCOPE_UNDEFINED", err)
+	}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{Operation: "COUNT"}}); err != nil {
+		t.Fatalf("existing pathless COUNT was rejected: %v", err)
+	}
+}
+
 func TestApplyCommandsAllowsIndependentOccurrencesThroughOneRelationship(t *testing.T) {
 	catalog := commandCatalog()
 	catalog.RoutePolicy.AllowRepeatedEdges = false

@@ -138,26 +138,27 @@ type Edge struct {
 }
 
 type Candidate struct {
-	ID                    string             `json:"candidateId"`
-	NodeID                string             `json:"nodeId"`
-	ResourceType          string             `json:"resourceType"`
-	FieldPath             string             `json:"fieldPath"`
-	Label                 string             `json:"label"`
-	LogicalType           string             `json:"logicalType"`
-	Cardinality           string             `json:"cardinality,omitempty"`
-	RepeatedBoundaries    []RepeatedBoundary `json:"repeatedBoundaries,omitempty"`
-	ProjectionModes       []ProjectionMode   `json:"projectionModes"`
-	FilterOperators       []FilterOperator   `json:"filterOperators"`
-	ChartAggregations     []ChartAggregation `json:"chartAggregations"`
-	SupportedOperations   []Operation        `json:"supportedOperations"`
-	Observed              bool               `json:"observed"`
-	ObservedDocumentCount int64              `json:"observedDocumentCount,omitempty"`
-	Populated             bool               `json:"populated"`
-	SuggestedValues       []string           `json:"suggestedValues,omitempty"`
-	SuggestionsComplete   bool               `json:"suggestionsComplete"`
-	SuggestionsTruncated  bool               `json:"suggestionsTruncated"`
-	ConceptCandidates     []ConceptCandidate `json:"conceptCandidates,omitempty"`
-	BlockedReason         string             `json:"blockedReason,omitempty"`
+	ID                    string                         `json:"candidateId"`
+	NodeID                string                         `json:"nodeId"`
+	ResourceType          string                         `json:"resourceType"`
+	FieldPath             string                         `json:"fieldPath"`
+	Label                 string                         `json:"label"`
+	LogicalType           string                         `json:"logicalType"`
+	Cardinality           string                         `json:"cardinality,omitempty"`
+	RepeatedBoundaries    []RepeatedBoundary             `json:"repeatedBoundaries,omitempty"`
+	ProjectionModes       []ProjectionMode               `json:"projectionModes"`
+	FilterOperators       []FilterOperator               `json:"filterOperators"`
+	ChartAggregations     []ChartAggregation             `json:"chartAggregations"`
+	SupportedOperations   []Operation                    `json:"supportedOperations"`
+	AggregateOperations   []AggregateOperationCapability `json:"aggregateOperations,omitempty"`
+	Observed              bool                           `json:"observed"`
+	ObservedDocumentCount int64                          `json:"observedDocumentCount,omitempty"`
+	Populated             bool                           `json:"populated"`
+	SuggestedValues       []string                       `json:"suggestedValues,omitempty"`
+	SuggestionsComplete   bool                           `json:"suggestionsComplete"`
+	SuggestionsTruncated  bool                           `json:"suggestionsTruncated"`
+	ConceptCandidates     []ConceptCandidate             `json:"conceptCandidates,omitempty"`
+	BlockedReason         string                         `json:"blockedReason,omitempty"`
 }
 
 // IsRepeatedCardinality is the single wire-cardinality interpretation used by
@@ -343,6 +344,13 @@ func normalizeCandidateSlices(cs []Candidate) {
 		sort.Slice(cs[i].FilterOperators, func(a, b int) bool { return cs[i].FilterOperators[a] < cs[i].FilterOperators[b] })
 		sort.Slice(cs[i].ChartAggregations, func(a, b int) bool { return cs[i].ChartAggregations[a] < cs[i].ChartAggregations[b] })
 		sort.Slice(cs[i].SupportedOperations, func(a, b int) bool { return cs[i].SupportedOperations[a] < cs[i].SupportedOperations[b] })
+		sort.Slice(cs[i].AggregateOperations, func(a, b int) bool {
+			left, right := cs[i].AggregateOperations[a], cs[i].AggregateOperations[b]
+			if left.RowContext != right.RowContext {
+				return left.RowContext < right.RowContext
+			}
+			return left.Operation < right.Operation
+		})
 	}
 }
 func normalizeCandidateValues(cs []Candidate) {
@@ -383,6 +391,7 @@ func cloneCandidates(v []Candidate) []Candidate {
 		out[i].FilterOperators = append([]FilterOperator(nil), out[i].FilterOperators...)
 		out[i].ChartAggregations = append([]ChartAggregation(nil), out[i].ChartAggregations...)
 		out[i].SupportedOperations = append([]Operation(nil), out[i].SupportedOperations...)
+		out[i].AggregateOperations = cloneAggregateOperationCapabilities(v[i].AggregateOperations)
 		out[i].SuggestedValues = append([]string(nil), out[i].SuggestedValues...)
 		out[i].RepeatedBoundaries = append([]RepeatedBoundary(nil), out[i].RepeatedBoundaries...)
 		out[i].ConceptCandidates = cloneConceptCandidateValues(out[i].ConceptCandidates)

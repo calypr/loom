@@ -8,6 +8,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 // physicalSemanticBinding records the physical value and schema resource
@@ -250,9 +251,18 @@ func deferredExpressionVariableExists(physical ir.PhysicalPlan, variable string)
 func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string, source ir.PhysicalValue, aggregate semantic.SemanticAggregate, sourceIsSet bool) (ir.PhysicalExpression, error) {
 	op := ir.PhysicalAggregateOperation(strings.ToUpper(strings.TrimSpace(aggregate.Operation)))
 	switch op {
-	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
+	case ir.PhysicalCountAggregate, ir.PhysicalCountDistinctAggregate, ir.PhysicalExistsAggregate, ir.PhysicalDistinctValuesAggregate, ir.PhysicalMinAggregate, ir.PhysicalMaxAggregate, ir.PhysicalSumAggregate, ir.PhysicalMeanAggregate, ir.PhysicalFirstAggregate, ir.PhysicalContainsAllAggregate, ir.PhysicalRequireOneAggregate, ir.PhysicalCollectAggregate, ir.PhysicalFirstOrderedAggregate:
 	default:
 		return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q uses unsupported operation %q", aggregate.Name, aggregate.Operation)
+	}
+	if op == ir.PhysicalSumAggregate || op == ir.PhysicalMeanAggregate {
+		if aggregate.Selector == nil {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q requires a numeric selector", aggregate.Name)
+		}
+		metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, aggregate.Selector.CanonicalPath())
+		if !ok || (metadata.Primitive != fhirschema.PrimitiveInteger && metadata.Primitive != fhirschema.PrimitiveDecimal) {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q operation %s requires an integer or decimal selector", aggregate.Name, op)
+		}
 	}
 	aggregatePhysical := ir.PhysicalAggregate{Source: source, Operation: op}
 	if len(aggregate.RequiredValues) > 0 {
