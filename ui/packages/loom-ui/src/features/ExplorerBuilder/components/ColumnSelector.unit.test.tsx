@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
+  AggregateTransformationCapability,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
@@ -53,6 +54,22 @@ const table: DraftTable = {
         table: { visible: true, order: 0 },
       },
     ],
+  },
+};
+
+const unavailableTransformations: AggregateTransformationCapability = {
+  temporalReduction: {
+    available: false,
+    reasonCode: 'NO_TIMESTAMP_FIELDS',
+    reason: 'No advertised temporal choices are available for this candidate.',
+    timestampFields: [],
+    anchorFields: [],
+  },
+  unitNormalization: {
+    available: false,
+    reasonCode: 'NO_COMPATIBLE_UNIT_PRESET',
+    reason: 'No approved unit preset is available for this candidate.',
+    presets: [],
   },
 };
 
@@ -215,6 +232,7 @@ describe('configured V2 columns', () => {
         projectionModes: ['FIRST', 'ALL', 'DISTINCT'],
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
+        transformations: unavailableTransformations,
       }],
     };
 
@@ -250,6 +268,7 @@ describe('configured V2 columns', () => {
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
+      transformations: unavailableTransformations,
     };
     const samePathDecoy = { ...idCandidate, candidateId: 'opaque-decoy', label: 'Decoy identity', filterable: true };
     render(<ColumnSelector
@@ -286,6 +305,7 @@ describe('configured V2 columns', () => {
         projectionModes: ['FIRST', 'ALL'],
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
+        transformations: unavailableTransformations,
       }],
     };
     const aggregateTable: DraftTable = {
@@ -505,6 +525,7 @@ describe('configured V2 columns', () => {
             contributorSemantics: 'all non-null values are considered',
           },
         ],
+        transformations: unavailableTransformations,
       }],
     };
     const relatedTable: DraftTable = {
@@ -618,6 +639,7 @@ describe('configured V2 columns', () => {
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
+          transformations: unavailableTransformations,
         },
         {
           candidateId: 'c_value',
@@ -631,7 +653,36 @@ describe('configured V2 columns', () => {
           chartable: true,
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
-          aggregateOperations: [],
+          aggregateOperations: [{
+            operation: 'FIRST_ORDERED',
+            rowContext: 'RECORDS',
+            supported: true,
+            resultLogicalType: 'decimal',
+            resultCardinality: 'OPTIONAL_ONE',
+            missingValueSemantics: 'missing values are excluded; no eligible input returns null',
+            contributorSemantics: 'the value attached to the selected timestamp/resource contributes',
+            requiresConfiguration: ['temporal'],
+          }],
+          transformations: {
+            ...unavailableTransformations,
+            temporalReduction: {
+              available: true,
+              timestampFields: [{
+                candidateId: 'c_timestamp',
+                nodeId: 'observation',
+                resourceType: 'Observation',
+                fieldPath: 'effectiveDateTime',
+                label: 'Observed at',
+              }],
+              anchorFields: [{
+                candidateId: 'c_anchor',
+                nodeId: 'research-subject',
+                resourceType: 'ResearchSubject',
+                fieldPath: 'meta.lastUpdated',
+                label: 'Row updated at',
+              }],
+            },
+          },
         },
         {
           candidateId: 'c_timestamp',
@@ -646,6 +697,37 @@ describe('configured V2 columns', () => {
           projectionModes: ['VALUE'],
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
+          transformations: unavailableTransformations,
+        },
+        {
+          candidateId: 'c_unadvertised_anchor',
+          nodeId: 'research-subject',
+          fieldPath: 'birthDate',
+          label: 'Unadvertised row date',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
+        },
+        {
+          candidateId: 'c_unadvertised_timestamp',
+          nodeId: 'observation',
+          fieldPath: 'issued',
+          label: 'Unadvertised observation date',
+          logicalType: 'date_time',
+          cardinality: 'optional_one',
+          repeated: false,
+          filterable: true,
+          chartable: false,
+          projectionModes: ['VALUE'],
+          defaultProjectionMode: 'VALUE',
+          aggregateOperations: [],
+          transformations: unavailableTransformations,
         },
       ],
     };
@@ -678,7 +760,9 @@ describe('configured V2 columns', () => {
       },
     };
 
-    render(<ColumnSelector catalog={temporalCatalog} table={temporalTable}
+    render(<ColumnSelector catalog={temporalCatalog}
+      interpretationContext={contextFor(temporalTable.outputId, 'observation_value', ['c_value'])}
+      table={temporalTable}
       occurrenceId="observations" disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()}
       onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
@@ -688,6 +772,8 @@ describe('configured V2 columns', () => {
     expect(onSourceChange).not.toHaveBeenCalled();
     expect(screen.getByRole('combobox', { name: 'Record date' })).toHaveProperty('value', 'effectiveDateTime');
     expect(screen.getByRole('combobox', { name: 'Compare with row date' })).toHaveProperty('value', 'meta.lastUpdated');
+    expect(screen.queryByRole('option', { name: 'Unadvertised observation date · Observation · issued' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Unadvertised row date · ResearchSubject · birthDate' })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Look back days' }), {
       target: { value: '90' },
@@ -735,15 +821,25 @@ describe('configured V2 columns', () => {
         projectionModes: ['VALUE'],
         defaultProjectionMode: 'VALUE',
         aggregateOperations: [],
-        conceptCandidates: [{
-          sourceResourceType: 'Observation',
-          sourcePath: 'valueQuantity.value',
-          logicalType: 'decimal',
-          observedUnits: ['http://unitsofmeasure.org|cm', 'http://unitsofmeasure.org|m'],
-          completeness: 'COMPLETE',
-          status: 'SUPPORTED',
-          population: 2,
-        }],
+        transformations: {
+          ...unavailableTransformations,
+          unitNormalization: {
+            available: true,
+            presets: [{
+              policyId: 'to-centimeters',
+              version: '7',
+              target: { system: 'http://unitsofmeasure.org', code: 'cm' },
+              available: true,
+            }, {
+              policyId: 'to-kilograms',
+              version: '3',
+              target: { system: 'http://unitsofmeasure.org', code: 'kg' },
+              available: false,
+              reasonCode: 'UNIT_PRESET_INCOMPATIBLE',
+              reason: 'The preset does not cover every observed source unit.',
+            }],
+          },
+        },
       }],
     };
     const measurementTable: DraftTable = {
@@ -765,10 +861,15 @@ describe('configured V2 columns', () => {
       onChange={vi.fn()} onSourceChange={onSourceChange} onRemove={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Normalize units' }));
-    fireEvent.change(screen.getByRole('combobox', { name: 'Unit conversion preset' }), {
-      target: { value: 'to-centimeters' },
+    const presetSelect = screen.getByRole('combobox', { name: 'Unit conversion preset' });
+    expect(screen.getByRole('option', {
+      name: /to-kilograms v3 — unavailable: The preset does not cover every observed source unit\./,
+    })).toBeDisabled();
+    fireEvent.change(presetSelect, {
+      target: { value: JSON.stringify(['to-centimeters', '7']) },
     });
     expect(screen.queryByText(/scale|offset|system path|code path/i)).not.toBeInTheDocument();
+    expect(onSourceChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Apply normalization' }));
 
     expect(onSourceChange).toHaveBeenCalledWith('height', {
@@ -776,7 +877,7 @@ describe('configured V2 columns', () => {
       aggregate: {
         operation: 'MAX',
         path: 'valueQuantity.value',
-        unitNormalization: { policyId: 'to-centimeters', version: '1' },
+        unitNormalization: { policyId: 'to-centimeters', version: '7' },
       },
     });
   });
@@ -839,6 +940,7 @@ describe('configured V2 columns', () => {
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
+      transformations: unavailableTransformations,
     };
     const beta: ExplorerBuilderCandidate = {
       ...alpha,
@@ -979,6 +1081,7 @@ describe('configured V2 columns', () => {
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
+      transformations: unavailableTransformations,
     };
     const onAdd = vi.fn();
     const onAddAll = vi.fn();
@@ -1050,6 +1153,7 @@ describe('configured V2 columns', () => {
       projectionModes: ['FIRST'],
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
+      transformations: unavailableTransformations,
     };
     render(
       <ColumnSelector
@@ -1140,6 +1244,7 @@ describe('configured V2 columns', () => {
         projectionModes: ['FIRST'],
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
+        transformations: unavailableTransformations,
       },
       'patient-step',
       table.document.columns,
@@ -1176,6 +1281,7 @@ describe('configured V2 columns', () => {
         projectionModes: ['FIRST', 'ALL'],
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
+        transformations: unavailableTransformations,
       },
       'base',
       [],

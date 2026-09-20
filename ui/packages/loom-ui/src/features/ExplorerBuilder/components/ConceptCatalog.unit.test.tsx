@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient } from '../../../api';
 import { LoomProvider } from '../../../react';
 import type {
+  AggregateTransformationCapability,
   ConstructionChoice,
   ExplorerBuilderCatalog,
   ExplorerBuilderCandidate,
@@ -52,6 +53,20 @@ const fieldChoice = (
   },
   options: [choiceOption('VALUE', 'DEFAULT')],
 });
+
+const unavailableTransformations: AggregateTransformationCapability = {
+  temporalReduction: {
+    available: false,
+    reason: 'No advertised temporal choices are available for this candidate.',
+    timestampFields: [],
+    anchorFields: [],
+  },
+  unitNormalization: {
+    available: false,
+    reason: 'No approved unit preset is available for this candidate.',
+    presets: [],
+  },
+};
 
 const semanticChoice = (
   choiceId: string,
@@ -136,6 +151,7 @@ const rootId: ExplorerBuilderCandidate = {
   projectionModes: ['VALUE'],
   defaultProjectionMode: 'VALUE',
   aggregateOperations: [],
+  transformations: unavailableTransformations,
   constructionChoice: fieldChoice('field-choice-id', 'candidate-id', 'patient-node', 'Patient', 'id'),
 };
 

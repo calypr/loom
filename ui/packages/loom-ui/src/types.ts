@@ -776,6 +776,66 @@ export type AggregateOperationCapability = z.infer<
   typeof aggregateOperationCapabilitySchema
 >;
 
+export const temporalFieldChoiceSchema = z
+  .object({
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    fieldPath: opaqueIdSchema,
+    label: z.string(),
+  })
+  .strict();
+export type TemporalFieldChoice = z.infer<typeof temporalFieldChoiceSchema>;
+
+export const temporalReductionCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    timestampFields: z.array(temporalFieldChoiceSchema),
+    anchorFields: z.array(temporalFieldChoiceSchema),
+  })
+  .strict();
+export type TemporalReductionCapability = z.infer<
+  typeof temporalReductionCapabilitySchema
+>;
+
+export const unitNormalizationPresetCapabilitySchema = z
+  .object({
+    policyId: opaqueIdSchema,
+    version: opaqueIdSchema,
+    target: z.object({ system: z.string(), code: z.string() }).strict(),
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export type UnitNormalizationPresetCapability = z.infer<
+  typeof unitNormalizationPresetCapabilitySchema
+>;
+
+export const unitNormalizationCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    presets: z.array(unitNormalizationPresetCapabilitySchema),
+  })
+  .strict();
+export type UnitNormalizationCapability = z.infer<
+  typeof unitNormalizationCapabilitySchema
+>;
+
+export const aggregateTransformationCapabilitySchema = z
+  .object({
+    temporalReduction: temporalReductionCapabilitySchema,
+    unitNormalization: unitNormalizationCapabilitySchema,
+  })
+  .strict();
+export type AggregateTransformationCapability = z.infer<
+  typeof aggregateTransformationCapabilitySchema
+>;
+
 export const explorerBuilderCandidateSchema = z
   .object({
     candidateId: opaqueIdSchema,
@@ -791,6 +851,7 @@ export const explorerBuilderCandidateSchema = z
     defaultProjectionMode: projectionModeSchema,
     constructionChoice: constructionChoiceSchema.optional(),
     aggregateOperations: z.array(aggregateOperationCapabilitySchema),
+    transformations: aggregateTransformationCapabilitySchema,
     conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(

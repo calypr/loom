@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
+  explorerBuilderCandidateSchema,
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
@@ -212,7 +214,7 @@ describe('aggregateOperationCapabilitySchema', () => {
       missingValueSemantics: 'null inputs are ignored; no non-null inputs returns null',
       contributorSemantics: 'every non-null numeric input contributes once, grouped by its source resource',
       requiresConfiguration: ['temporal'],
-    } as const;
+    };
 
     expect(aggregateOperationCapabilitySchema.parse(capability)).toEqual(capability);
     expect(aggregateOperationCapabilitySchema.safeParse({
@@ -222,6 +224,71 @@ describe('aggregateOperationCapabilitySchema', () => {
     expect(aggregateOperationCapabilitySchema.safeParse({
       ...capability,
       rowContext: 'FHIR',
+    }).success).toBe(false);
+  });
+});
+
+describe('aggregateTransformationCapabilitySchema', () => {
+  it('parses strict temporal field and unit preset capabilities', () => {
+    const transformations = {
+      temporalReduction: {
+        available: true,
+        timestampFields: [{
+          candidateId: 'observation-date',
+          nodeId: 'observation',
+          resourceType: 'Observation',
+          fieldPath: 'effectiveDateTime',
+          label: 'Observed at',
+        }],
+        anchorFields: [{
+          candidateId: 'patient-updated',
+          nodeId: 'patient',
+          resourceType: 'Patient',
+          fieldPath: 'meta.lastUpdated',
+          label: 'Updated at',
+        }],
+      },
+      unitNormalization: {
+        available: true,
+        presets: [{
+          policyId: 'to-centimeters',
+          version: '2',
+          target: { system: 'http://unitsofmeasure.org', code: 'cm' },
+          available: true,
+        }, {
+          policyId: 'to-kilograms',
+          version: '1',
+          target: { system: 'http://unitsofmeasure.org', code: 'kg' },
+          available: false,
+          reasonCode: 'UNIT_PRESET_INCOMPATIBLE',
+          reason: 'This preset does not cover all observed source units.',
+        }],
+      },
+    };
+
+    expect(aggregateTransformationCapabilitySchema.parse(transformations)).toEqual(transformations);
+    expect(aggregateTransformationCapabilitySchema.safeParse({
+      ...transformations,
+      unsupported: true,
+    }).success).toBe(false);
+    const candidate = {
+      candidateId: 'height-value',
+      nodeId: 'observation',
+      fieldPath: 'valueQuantity.value',
+      label: 'Height',
+      logicalType: 'decimal',
+      cardinality: 'optional_one',
+      filterable: true,
+      chartable: true,
+      projectionModes: ['VALUE'],
+      defaultProjectionMode: 'VALUE',
+      aggregateOperations: [],
+      transformations,
+    } as const;
+    expect(explorerBuilderCandidateSchema.parse(candidate)).toEqual(candidate);
+    expect(explorerBuilderCandidateSchema.safeParse({
+      ...candidate,
+      transformations: undefined,
     }).success).toBe(false);
   });
 });

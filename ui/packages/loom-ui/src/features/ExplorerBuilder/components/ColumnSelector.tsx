@@ -87,7 +87,6 @@ const ConfiguredColumnRow = ({
   candidate,
   resolution,
   candidates,
-  anchorCandidates,
   related,
   rowContext,
   resourceLabel,
@@ -107,7 +106,6 @@ const ConfiguredColumnRow = ({
   readonly candidate?: ExplorerBuilderCandidate;
   readonly resolution?: ConfiguredColumnContext['resolution'];
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
-  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
   readonly rowContext: AggregateOperationCapability['rowContext'] | undefined;
   readonly resourceLabel: string;
@@ -257,7 +255,6 @@ const ConfiguredColumnRow = ({
         column={column}
         candidate={candidate}
         candidates={candidates}
-        anchorCandidates={anchorCandidates}
         related={related}
         rowContext={rowContext}
         resourceLabel={resourceLabel}
@@ -432,7 +429,6 @@ export const ColumnSelector = ({
   const occurrence = occurrences.find(
     (candidate) => candidate.id === occurrenceId,
   );
-  const rootNodeId = occurrences.find(({ id }) => id === 'base')?.nodeId;
   const resourceType =
     catalog.nodes.find((node) => node.nodeId === occurrence?.nodeId)
       ?.resourceType ?? 'resource';
@@ -781,11 +777,6 @@ export const ColumnSelector = ({
                             (candidateOption) =>
                               candidateOption.nodeId ===
                               configuredOccurrence?.nodeId,
-                          )}
-                          anchorCandidates={(catalog.candidates ?? []).filter(
-                            (candidateOption) =>
-                              candidateOption.nodeId === rootNodeId &&
-                              candidateOption.logicalType.toLowerCase() === 'date_time',
                           )}
                           resourceLabel={titleForResource(
                             configuredResourceType ?? resourceType,

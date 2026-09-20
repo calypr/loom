@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import type {
   AggregateOperationCapability,
+  TemporalFieldChoice,
+  TemporalReductionCapability,
+  UnitNormalizationCapability,
+  UnitNormalizationPresetCapability,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerColumnSource,
@@ -258,36 +262,64 @@ const resultShape = (capability: AggregateOperationCapability): string => {
 const sentence = (value: string): string =>
   value.length > 0 ? `${value[0]?.toUpperCase()}${value.slice(1)}.` : value;
 
-const approvedUnitPolicyOptions = [
-  ['to-centimeters', 'Convert measurements to centimeters'],
-  ['to-kilograms', 'Convert measurements to kilograms'],
-  ['to-celsius', 'Convert measurements to Celsius'],
-  ['to-fahrenheit', 'Convert measurements to Fahrenheit'],
-] as const;
+const unitPresetKey = (preset: UnitNormalizationPresetCapability): string =>
+  JSON.stringify([preset.policyId, preset.version]);
 
 const UnitNormalizationEditor = ({
+  capability,
   current,
   disabled,
   onApply,
 }: {
+  readonly capability: UnitNormalizationCapability;
   readonly current?: UnitNormalizationDraft;
   readonly disabled: boolean;
   readonly onApply: (value: UnitNormalizationDraft | undefined) => void;
 }) => {
-  const [policyID, setPolicyID] = useState(current?.policyId ?? approvedUnitPolicyOptions[0][0]);
+  const selectedPreset = capability.presets.find(
+    (preset) => preset.policyId === current?.policyId && preset.version === current?.version,
+  ) ?? capability.presets.find((preset) => preset.available) ?? capability.presets[0];
+  const [selectedKey, setSelectedKey] = useState(
+    selectedPreset ? unitPresetKey(selectedPreset) : '',
+  );
+  const selected = capability.presets.find((preset) => unitPresetKey(preset) === selectedKey);
 
   return (
     <fieldset className="mt-1 grid w-full gap-2 rounded border border-violet-200 bg-violet-50/60 p-2 text-[11px] text-slate-700">
       <legend className="px-1 font-semibold text-violet-900">Normalize measurement units</legend>
       <label className="flex min-w-0 flex-col gap-0.5 font-medium">
         <span>Conversion</span>
-        <select aria-label="Unit conversion preset" className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal" value={policyID} disabled={disabled} onChange={(event) => setPolicyID(event.currentTarget.value)}>
-          {approvedUnitPolicyOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        <select
+          aria-label="Unit conversion preset"
+          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+          value={selectedKey}
+          disabled={disabled}
+          onChange={(event) => setSelectedKey(event.currentTarget.value)}
+        >
+          {capability.presets.map((preset) => (
+            <option
+              key={unitPresetKey(preset)}
+              value={unitPresetKey(preset)}
+              disabled={!preset.available}
+            >
+              Convert to {preset.target.code} · {preset.policyId} v{preset.version}
+              {!preset.available ? ` — unavailable: ${preset.reason ?? capability.reason ?? 'Not available.'}` : ''}
+            </option>
+          ))}
         </select>
       </label>
-      <p className="text-slate-600">Loom identifies the Quantity unit fields and applies the approved conversion for each measurement.</p>
+      {!capability.available && capability.reason ? (
+        <p role="status" className="text-amber-800">Unavailable: {capability.reason}</p>
+      ) : null}
       <div className="flex gap-2">
-        <button type="button" className="rounded bg-violet-700 px-2.5 py-1 font-semibold text-white hover:bg-violet-800 disabled:opacity-40" disabled={disabled} onClick={() => onApply({ policyId: policyID, version: '1' })}>Apply normalization</button>
+        <button
+          type="button"
+          className="rounded bg-violet-700 px-2.5 py-1 font-semibold text-white hover:bg-violet-800 disabled:opacity-40"
+          disabled={disabled || !selected?.available}
+          onClick={() => selected && onApply({ policyId: selected.policyId, version: selected.version })}
+        >
+          Apply normalization
+        </button>
         {current ? <button type="button" className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50" disabled={disabled} onClick={() => onApply(undefined)}>Remove normalization</button> : null}
       </div>
     </fieldset>
@@ -432,24 +464,24 @@ const ContributorEditor = ({
 const TemporalReductionEditor = ({
   path,
   current,
-  timestampCandidates,
-  anchorCandidates,
+  capability,
   disabled,
   onApply,
 }: {
   readonly path: string;
   readonly current?: TemporalAggregateSource;
-  readonly timestampCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
-  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
+  readonly capability: TemporalReductionCapability;
   readonly disabled: boolean;
   readonly onApply: (source: ExplorerColumnSource) => void;
 }) => {
   const temporal = current?.temporal;
+  const timestampFields: ReadonlyArray<TemporalFieldChoice> = capability.timestampFields;
+  const anchorFields: ReadonlyArray<TemporalFieldChoice> = capability.anchorFields;
   const [timestampPath, setTimestampPath] = useState(
-    temporal?.timestampPath ?? timestampCandidates[0]?.fieldPath ?? '',
+    temporal?.timestampPath ?? timestampFields[0]?.fieldPath ?? '',
   );
   const [anchorPath, setAnchorPath] = useState(
-    temporal?.anchorPath ?? anchorCandidates[0]?.fieldPath ?? '',
+    temporal?.anchorPath ?? anchorFields[0]?.fieldPath ?? '',
   );
   const [lookbackDays, setLookbackDays] = useState(
     Math.max(0, Math.round(-(temporal?.lowerOffsetSeconds ?? -31_536_000) / 86_400)),
@@ -460,7 +492,9 @@ const TemporalReductionEditor = ({
   const [tiePolicy, setTiePolicy] = useState<'REQUIRE_UNIQUE' | 'RESOURCE_KEY'>(
     temporal?.tiePolicy ?? 'REQUIRE_UNIQUE',
   );
-  const ready = Boolean(timestampPath && anchorPath && Number.isInteger(lookbackDays));
+  const ready = Boolean(
+    capability.available && timestampPath && anchorPath && Number.isInteger(lookbackDays),
+  );
 
   return (
     <fieldset className="mt-1 grid w-full grid-cols-2 gap-2 rounded border border-blue-200 bg-blue-50/60 p-2 text-[11px] text-slate-700">
@@ -471,13 +505,13 @@ const TemporalReductionEditor = ({
           aria-label="Record date"
           className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
           value={timestampPath}
-          disabled={disabled}
+          disabled={disabled || !capability.available}
           onChange={(event) => setTimestampPath(event.currentTarget.value)}
         >
           <option value="">Choose a date field</option>
-          {timestampCandidates.map((candidate) => (
-            <option key={candidate.candidateId} value={candidate.fieldPath}>
-              {candidate.label} · {candidate.fieldPath}
+          {timestampFields.map((field) => (
+            <option key={field.candidateId} value={field.fieldPath}>
+              {field.label} · {field.resourceType} · {field.fieldPath}
             </option>
           ))}
         </select>
@@ -488,13 +522,13 @@ const TemporalReductionEditor = ({
           aria-label="Compare with row date"
           className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
           value={anchorPath}
-          disabled={disabled}
+          disabled={disabled || !capability.available}
           onChange={(event) => setAnchorPath(event.currentTarget.value)}
         >
           <option value="">Choose a row date</option>
-          {anchorCandidates.map((candidate) => (
-            <option key={candidate.candidateId} value={candidate.fieldPath}>
-              {candidate.label} · {candidate.fieldPath}
+          {anchorFields.map((field) => (
+            <option key={field.candidateId} value={field.fieldPath}>
+              {field.label} · {field.resourceType} · {field.fieldPath}
             </option>
           ))}
         </select>
@@ -541,9 +575,14 @@ const TemporalReductionEditor = ({
       <p className="col-span-2 text-slate-600">
         {direction === 'DESC' ? 'Latest' : 'Earliest'} {path} dated from {lookbackDays} days before through the row date.
       </p>
-      {timestampCandidates.length === 0 || anchorCandidates.length === 0 ? (
-        <p className="col-span-2 text-amber-800">
-          This selection needs one date field on the related record and one on the row resource.
+      {!capability.available ? (
+        <p role="status" className="col-span-2 text-amber-800">
+          Unavailable: {capability.reason ?? 'No temporal choices are available.'}
+        </p>
+      ) : null}
+      {capability.available && (timestampFields.length === 0 || anchorFields.length === 0) ? (
+        <p role="status" className="col-span-2 text-amber-800">
+          {capability.reason ?? 'The server did not provide a complete set of temporal choices.'}
         </p>
       ) : null}
       <button
@@ -599,7 +638,6 @@ export const FeaturePolicyEditor = ({
   column,
   candidate,
   candidates,
-  anchorCandidates,
   related,
   rowContext,
   resourceLabel,
@@ -610,7 +648,6 @@ export const FeaturePolicyEditor = ({
   readonly column: ExplorerBuilderColumn;
   readonly candidate?: ExplorerBuilderCandidate;
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
-  readonly anchorCandidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
   readonly rowContext?: AggregateOperationCapability['rowContext'];
   readonly resourceLabel: string;
@@ -722,19 +759,21 @@ export const FeaturePolicyEditor = ({
             Keep only the first related record by resource key. Other records are omitted.
           </label>
         ) : null}
-        {draftTemporalPath === source.field.path ? (
+        {draftTemporalPath === source.field.path && candidate ? (
           <TemporalReductionEditor
             path={source.field.path}
-            timestampCandidates={candidates.filter(
-              (candidateOption) => candidateOption.logicalType.toLowerCase() === 'date_time',
-            )}
-            anchorCandidates={anchorCandidates}
+            capability={candidate.transformations.temporalReduction}
             disabled={disabled}
             onApply={(nextSource) => {
               setDraftTemporalPath(undefined);
               onSourceChange(nextSource);
             }}
           />
+        ) : null}
+        {draftTemporalPath === source.field.path && !candidate ? (
+          <p role="status" className="text-amber-800">
+            Temporal choices are unavailable until the server resolves this candidate.
+          </p>
         ) : null}
       </div>
     );
@@ -746,15 +785,10 @@ export const FeaturePolicyEditor = ({
     const operation = aggregateSource.aggregate.operation;
     const options = aggregateOptions(candidate, rowContext, path, related);
     const operationCapability = selectedOperationCapability(options, operation);
+    const temporalCapability = candidate?.transformations.temporalReduction;
+    const unitCapability = candidate?.transformations.unitNormalization;
     const editingTemporal = operation === 'FIRST_ORDERED' || draftTemporalPath === path;
     const unitNormalization = aggregateSource.aggregate.unitNormalization;
-    const hasUnitEvidence = Boolean(
-      candidate &&
-      !candidate.repeated &&
-      ['integer', 'decimal', 'number'].includes(candidate.logicalType.toLowerCase()) &&
-      candidate.conceptCandidates?.some((concept) => (concept.observedUnits?.length ?? 0) > 0),
-    );
-    const canNormalizeUnits = Boolean(path && hasUnitEvidence && ['MIN', 'MAX', 'REQUIRE_ONE', 'COLLECT', 'DISTINCT_VALUES', 'FIRST_ORDERED'].includes(operation));
     const summary = operationCapability
       ? undefined
       : path
@@ -818,7 +852,7 @@ export const FeaturePolicyEditor = ({
           </select>
         </label>
         {operationCapability ? capabilityDetails(operationCapability) : summary ? <span>{summary}</span> : null}
-        {canNormalizeUnits ? (
+        {unitCapability ? (
           <button
             type="button"
             className="rounded border border-violet-300 bg-white px-2 py-0.5 font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
@@ -828,8 +862,9 @@ export const FeaturePolicyEditor = ({
             {unitNormalization ? 'Edit unit normalization' : 'Normalize units'}
           </button>
         ) : null}
-        {canNormalizeUnits && (editingUnitNormalization || unitNormalization) ? (
+        {unitCapability && (editingUnitNormalization || unitNormalization) ? (
           <UnitNormalizationEditor
+            capability={unitCapability}
             current={unitNormalization}
             disabled={disabled}
             onApply={(nextUnitNormalization) => {
@@ -841,20 +876,22 @@ export const FeaturePolicyEditor = ({
             }}
           />
         ) : null}
-        {editingTemporal && path ? (
+        {editingTemporal && path && temporalCapability ? (
           <TemporalReductionEditor
             path={path}
             current={operation === 'FIRST_ORDERED' ? aggregateSource.aggregate as TemporalAggregateSource : undefined}
-            timestampCandidates={candidates.filter(
-              (candidateOption) => candidateOption.logicalType.toLowerCase() === 'date_time',
-            )}
-            anchorCandidates={anchorCandidates}
+            capability={temporalCapability}
             disabled={disabled}
             onApply={(source) => {
               setDraftTemporalPath(undefined);
               onSourceChange(source);
             }}
           />
+        ) : null}
+        {editingTemporal && path && !temporalCapability ? (
+          <p role="status" className="text-amber-800">
+            Temporal choices are unavailable until the server resolves this candidate.
+          </p>
         ) : null}
         <ContributorEditor
           current={column.contributor}
