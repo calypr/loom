@@ -584,12 +584,7 @@ func validatePhysicalUnnest(unnest PhysicalUnnest, defined map[string]bool, bind
 	if owner.OwnerVariable != previousVariable {
 		return fmt.Errorf("unnest owner variable %q does not match route terminal %q", owner.OwnerVariable, previousVariable)
 	}
-	if len(owner.Route) == 0 {
-		if owner.OccurrenceID == "" {
-			// Legacy direct-root recipes have no authored root occurrence ID.
-			// The root variable still identifies their unique owner occurrence.
-		}
-	} else {
+	if len(owner.Route) > 0 {
 		last := owner.Route[len(owner.Route)-1]
 		if owner.OccurrenceID != last.OccurrenceID {
 			return fmt.Errorf("unnest owner occurrence %q does not match route terminal %q", owner.OccurrenceID, last.OccurrenceID)

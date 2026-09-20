@@ -129,12 +129,11 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 				}
 				continue
 			}
+			isUnselectedLeafAfterExpansion := output.RowExpansion != nil && !physicalNodeNeedsMaterializedSet(child)
+			if isUnselectedLeafAfterExpansion {
+				continue
+			}
 			if !physicalNodeNeedsMaterializedSet(child) {
-				if output.RowExpansion != nil {
-					// An unselected leaf contributes no output. Traversing it directly
-					// would add a top-level FOR and multiply the expanded row grain.
-					continue
-				}
 				traversalIndex := 1
 				for _, operation := range physical.Operations {
 					if operation.Kind == ir.PhysicalTraversalOp {
