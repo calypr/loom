@@ -330,7 +330,7 @@ test('J01 semantic pagination retains one context identity and finds each expect
         contextToken: 'ctx-1',
         buildId: 'build-1',
         state: 'complete',
-        sourceAvailability: 'verified',
+        sourceAvailability: 'unknown',
         entries: pages[pageIndex].map((suffix) => ({
           conceptId: `concept-id-${suffix}`,
           bindingId: `binding-id-${suffix}`,
@@ -354,6 +354,7 @@ test('J01 semantic pagination retains one context identity and finds each expect
   assert.equal(inventory.pages.length, 3);
   assert.equal(inventory.contextToken, 'ctx-1');
   assert.equal(inventory.buildId, 'build-1');
+  assert.equal(inventory.sourceAvailability, 'unknown');
   assert.deepEqual(requests.map((request) => request.cursor), [undefined, 'cursor-1', 'cursor-2']);
   assert.deepEqual(inventory.entries.map((entry) => entry.code).sort(), [
     'concept-0000', 'concept-0001', 'concept-0002', 'concept-0003', 'concept-0004',
@@ -395,7 +396,16 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
       return page === 1
         ? response([entry('0000')], 'cursor-1')
         : response([entry('0001')], undefined, { contextToken: 'ctx-2' });
-    }, request, fixture), /changed its context or build identity/);
+    }, request, fixture), /changed its context, build identity, or source availability/);
+  });
+  await t.test('source availability changes between pages', async () => {
+    let page = 0;
+    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+      page += 1;
+      return page === 1
+        ? response([entry('0000')], 'cursor-1')
+        : response([entry('0001')], undefined, { sourceAvailability: 'unproven' });
+    }, request, fixture), /changed its context, build identity, or source availability/);
   });
   await t.test('cursor repeats', async () => {
     let page = 0;

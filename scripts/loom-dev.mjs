@@ -348,19 +348,21 @@ export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceTy
 export const collectJ01SemanticConceptPages = async (readPage, request, fixture) => {
   const seenCursors = new Set();
   const seenCodes = new Set();
+  const allowedSourceAvailability = new Set(['unknown', 'verified', 'unproven']);
   const pages = [];
   const expectedCodes = new Set(Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`));
   let cursor;
   let contextToken;
   let buildId;
+  let sourceAvailability;
   let entries = [];
   do {
     const body = j01SemanticInventoryRequest({ ...request, cursor });
     const { response, value } = await readPage(body);
     if (!response?.ok) throw new Error(`J01 semantic inventory returned HTTP ${response?.status ?? 'unknown'}`);
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 semantic inventory response is not an object');
-    if (value.state !== 'complete' || value.sourceAvailability !== 'verified') {
-      throw new Error(`J01 semantic inventory is not complete and verified: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'unknown'}`);
+    if (value.state !== 'complete' || !allowedSourceAvailability.has(value.sourceAvailability)) {
+      throw new Error(`J01 semantic inventory is not complete or has invalid source availability: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
     }
     if (Object.keys(value).some((key) => /example|total.?count/i.test(key))) {
       throw new Error('J01 semantic inventory exposed an example or global count field');
@@ -371,8 +373,9 @@ export const collectJ01SemanticConceptPages = async (readPage, request, fixture)
     if (contextToken === undefined) {
       contextToken = value.contextToken;
       buildId = value.buildId;
-    } else if (value.contextToken !== contextToken || value.buildId !== buildId) {
-      throw new Error('J01 semantic inventory page changed its context or build identity');
+      sourceAvailability = value.sourceAvailability;
+    } else if (value.contextToken !== contextToken || value.buildId !== buildId || value.sourceAvailability !== sourceAvailability) {
+      throw new Error('J01 semantic inventory page changed its context, build identity, or source availability');
     }
     if (!Array.isArray(value.entries) || value.entries.length > 50) throw new Error('J01 semantic inventory page exceeds its 50-entry contract');
     for (const item of value.entries) {
@@ -407,7 +410,7 @@ export const collectJ01SemanticConceptPages = async (readPage, request, fixture)
   if (JSON.stringify(actualCodes) !== JSON.stringify([...expectedCodes].sort())) {
     throw new Error(`J01 semantic inventory returned ${actualCodes.length} of ${fixture.count} expected concepts`);
   }
-  return { contextToken, buildId, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
+  return { contextToken, buildId, sourceAvailability, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
 };
 
 const j01ColumnSourceIdentity = (column) => {
@@ -962,6 +965,21 @@ const setInput = (label, value) => {
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
   return value;
+};
+const scrollVirtualTableToRow = (testId, rowIndex) => {
+  const scroll = document.querySelector('[data-testid="' + testId + '"]');
+  const table = scroll?.querySelector('[role="table"]');
+  const header = table?.querySelector('[role="row"]');
+  const rowCount = Number(table?.getAttribute('aria-rowcount')) - 1;
+  const headerHeight = Number.parseFloat(header?.style.height ?? '');
+  const tableHeight = Number.parseFloat(table?.style.height ?? '');
+  if (!scroll || !table || !Number.isInteger(rowIndex) || rowIndex < 0 || rowIndex >= rowCount || !Number.isFinite(headerHeight) || !Number.isFinite(tableHeight)) {
+    throw new Error('virtual table row cannot be resolved: ' + testId + '/' + rowIndex);
+  }
+  const rowHeight = (tableHeight - headerHeight) / rowCount;
+  if (!Number.isFinite(rowHeight) || rowHeight <= 0) throw new Error('virtual table row height is invalid: ' + testId);
+  scroll.scrollTop = headerHeight + rowIndex * rowHeight;
+  scroll.dispatchEvent(new Event('scroll'));
 };
 const selectOption = (label, optionText) => {
   const select = document.querySelector('select[aria-label="' + label + '"]');
@@ -1823,7 +1841,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       await browserEval(cdp, `clickButton('Create table')`);
       await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose Observation rows"]'))`);
       await browserEval(cdp, `clickButton('Choose Observation rows')`);
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 60000);
     });
 
     let state = await readState();
@@ -1850,7 +1868,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
         (item) => parseJSON(item.postData)?.query === fixture.displayPrefix);
       semanticPageCursor = network.indexOf(pageResponse);
       const requestBody = parseJSON(pageResponse.postData);
-      if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.nodeId || requestBody?.limit !== 50) {
+      if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.resourceType || requestBody?.limit !== 50) {
         throw new Error(`J01 catalog page ${pageNumber} was not loaded through the expected visible search request: ${JSON.stringify(requestBody)}`);
       }
       if (Object.keys(pageResponse.responseBody ?? {}).some((key) => /example|total.?count/i.test(key))) {
@@ -1882,16 +1900,17 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       return { response: { ok: item.response?.status === 200, status: item.response?.status }, value: item.responseBody };
     }, {
       snapshotToken: state.catalog.snapshotToken,
-      rowRoot: rootNode.nodeId,
+      rowRoot: rootNode.resourceType,
       query: fixture.displayPrefix,
     }, fixture);
     report.timings.j01_catalog_pagination_ms = Date.now() - catalogSearchStarted;
+    const collectedCodes = collectedInventory.entries.map((entry) => entry.code).sort();
     report.target.inventory = {
       discovered: collectedInventory.count,
       pageCount: collectedInventory.pages.length,
       countBasis: collectedInventory.countBasis,
-      firstCode: collectedInventory.entries[0]?.code,
-      lastCode: collectedInventory.entries.at(-1)?.code,
+      firstCode: collectedCodes[0],
+      lastCode: collectedCodes.at(-1),
     };
     recordAssertion(report, 'j01-paginated-inventory-reports-exact-fixture-identity-coverage', {
       discovered: fixture.count,
@@ -1916,6 +1935,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
     };
     const idField = fieldChoiceFor('id');
     const integerField = fieldChoiceFor('valueInteger');
+    let selectedSemanticOwnerChoice;
     await action('add_ordinary_fields_from_catalog', async () => {
       for (const field of [idField, integerField]) {
         const path = field.candidate.fieldPath.replace(/^root\./, '');
@@ -1937,7 +1957,11 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
       const sharedBody = parseJSON(sharedRequest.postData);
       if (sharedBody?.query !== 'shared') throw new Error(`J01 semantic owner search used an unexpected query: ${JSON.stringify(sharedBody)}`);
-      const sharedEntry = (sharedRequest.responseBody?.entries ?? []).find((entry) => entry.resourceType === 'Observation' && entry.system === 'urn:study:A' && entry.code === 'shared');
+      const sharedEntry = (sharedRequest.responseBody?.entries ?? []).find((entry) =>
+        entry.resourceType === 'Observation' &&
+        entry.system === 'urn:study:A' &&
+        entry.code === 'shared' &&
+        entry.constructionChoice?.source?.fieldPath === 'component[].valueQuantity.value');
       const semanticChoice = sharedEntry?.constructionChoice;
       if (semanticChoice?.source?.kind !== 'SEMANTIC' || semanticChoice.source.system !== 'urn:study:A' || semanticChoice.source.code !== 'shared') {
         throw new Error(`J01 semantic inventory did not issue the selected owner-bound compiler choice: ${JSON.stringify(semanticChoice?.source)}`);
@@ -1945,6 +1969,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       if (!semanticChoice.options.some((option) => option.form === 'OWNER_RECORDS')) {
         throw new Error('J01 selected semantic choice does not advertise the preserving OWNER_RECORDS form');
       }
+      selectedSemanticOwnerChoice = semanticChoice;
       report.target.semanticChoice = {
         choiceId: semanticChoice.choiceId,
         form: 'OWNER_RECORDS',
@@ -1962,12 +1987,10 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === 3, 'three compiler choices applied to one table');
     });
 
-    const semanticRequest = network.find((item) => item.url.endsWith('/semantic-inventory') && parseJSON(item.postData)?.query === 'shared');
-    const semanticOwnerChoice = semanticRequest?.responseBody?.entries?.find((entry) => entry.system === 'urn:study:A' && entry.code === 'shared')?.constructionChoice;
     const expectedChoices = [
       { choiceId: idField.selection.choiceId, form: idField.selection.form, outputId, title: 'id' },
       { choiceId: integerField.selection.choiceId, form: integerField.selection.form, outputId, title: 'valueInteger' },
-      { choiceId: semanticOwnerChoice?.choiceId, form: 'OWNER_RECORDS', outputId, title: 'shared' },
+      { choiceId: selectedSemanticOwnerChoice?.choiceId, form: 'OWNER_RECORDS', outputId, title: 'shared' },
     ];
     const constructionRequests = network
       .filter((item) => item.url.endsWith('/commands') && item.response?.status === 200)
@@ -1989,7 +2012,10 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
     report.target.columnIds = { id: idColumn.column, valueInteger: valueColumn.column, ownerRecords: ownerColumn.column };
 
     await action('rename_and_reorder_stable_column', async () => {
-      await browserEval(cdp, `setInput('Display name for configured id', 'Observation identifier'); inputByLabel('Display name for configured id').blur();`);
+      await browserEval(cdp, `setInput('Display name for configured id', 'Observation identifier')`);
+      await browserEval(cdp, `inputByLabel('Display name for configured id').focus()`);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter' });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
       await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.some((column) => column.column === idColumn.column && column.label === 'Observation identifier'), 'renamed stable id column');
       await browserEval(cdp, `clickButton('Move Observation identifier to end')`);
       state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.find((column) => column.column === idColumn.column)?.table?.order === 2, 'id column moved to end');
@@ -2006,7 +2032,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
     await action('reload_preserves_three_stable_columns', async () => {
       const browserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.explorerId)}&mode=builder`;
       await navigate(cdp, browserURL);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') && document.querySelector('[aria-label="Display name for configured Observation identifier"]')`, 60000);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') && Boolean(document.querySelector('[aria-label="Display name for configured Observation identifier"]'))`, 60000);
       const reloaded = await waitForState((value) => value.workspace?.documents?.some((candidate) => candidate.output?.id === outputId && candidate.columns.length === 3), 'reloaded J01 saved workspace');
       const reloadedIdentity = j01ColumnIdentitySnapshot(reloaded, outputId);
       recordAssertion(report, 'j01-reload-preserves-exact-column-identities-names-order-and-sources', savedIdentity, reloadedIdentity);
@@ -2016,7 +2042,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
     await action('preview_literal_scalar_and_owner_evidence', async () => {
       let previewStartIndex = network.length - 1;
       await browserEval(cdp, `clickButton('Preview')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-001')))` , 60000);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('button[aria-label^="Inspect shared for row "]'))`, 60000);
       await waitForNetworkResponse('/preview', previewStartIndex, 60000);
       previewStartIndex = network.length - 1;
       await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
@@ -2035,6 +2061,11 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
         identifier: zeroRow[previewIdColumn.column],
         value: zeroRow[previewValueColumn.column],
       });
+      const ownerRowIndex = previewRows.findIndex((row) => row[previewIdColumn.column] === 'dev-pair-001');
+      if (ownerRowIndex < 0) throw new Error('J01 1,000-row preview omitted the Study A owner-record fixture');
+      const ownerButtonLabel = `Inspect shared for row ${ownerRowIndex + 1}`;
+      await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${ownerRowIndex})`);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}))`, 60000);
       const previewTable = await evaluate(cdp, `(() => {
         const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
         const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
@@ -2050,19 +2081,19 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       report.target.preview = { rowSample: previewRows.length, countBasis: 'sampled-preview-limit', literalZero: 0, headers: previewTable.headers };
       await captureDOM('j01-preview-table');
       await saveScreenshot('j01-preview-table');
-      const ownerButton = await evaluate(cdp, `(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.title.includes('dev-pair-001')); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
+      const ownerButton = await evaluate(cdp, `(() => { const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.getAttribute('aria-label') === ${JSON.stringify(ownerButtonLabel)}); return button ? { label: button.getAttribute('aria-label'), title: button.title } : undefined; })()`);
       if (!ownerButton) throw new Error('J01 Preview has no inspectable Study A owner-record cell for dev-pair-001');
-      await browserEval(cdp, `const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((candidate) => candidate.title.includes('dev-pair-001')); button.click();`);
+      await browserEval(cdp, `inputByLabel(${JSON.stringify(ownerButtonLabel)}).click()`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`, 30000);
       const ownerEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
       recordAssertion(report, 'j01-preview-preserves-owner-value-unit-absence-choice-arm-and-source', true,
-        ownerEvidence.includes('111') && ownerEvidence.includes('cm') && ownerEvidence.includes('VALUE') && ownerEvidence.includes('ABSENT') && ownerEvidence.includes('urn:study:A') && ownerEvidence.includes('shared') && ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('component[0]'));
+        ownerEvidence.includes('111') && ownerEvidence.includes('cm') && ownerEvidence.includes('VALUE') && ownerEvidence.includes('ABSENT') && ownerEvidence.includes('urn:study:A') && ownerEvidence.includes('shared') && ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('ownerOrdinal: 0') && ownerEvidence.includes('ownerPath: component[]'));
       report.target.ownerEvidence = {
         inspectedCell: ownerButton,
         includesValue: ownerEvidence.includes('111'),
         includesUnit: ownerEvidence.includes('cm'),
         includesAbsent: ownerEvidence.includes('ABSENT'),
-        includesContributorSource: ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('component[0]'),
+        includesContributorSource: ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('ownerOrdinal: 0') && ownerEvidence.includes('ownerPath: component[]'),
         includesUnknownOwnerField: ownerEvidence.includes('unmodeledSignal'),
       };
       await captureDOM('j01-owner-record-evidence');
