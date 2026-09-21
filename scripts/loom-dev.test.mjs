@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ05ArtifactPackage, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, sourceMountMatches } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ05ArtifactPackage, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, sourceMountMatches } from './loom-dev.mjs';
 
 const j05Identity = {
   project: 'loom_dev_j05',
@@ -607,6 +607,7 @@ test('J05 CSV artifact inspection preserves typed values, nulls, empty strings, 
     { patient_id: 'patient-b', age: 42, note: '\\N' },
     { patient_id: 'patient-c', age: 7, note: '' },
   ]);
+  assert.doesNotThrow(() => assertJ05ArtifactRows(artifact, [...artifact.rows].reverse()));
   assertJ05ArtifactIdentity(artifact, j05Identity);
 });
 
@@ -640,6 +641,17 @@ test('J05 prepared modal identity is rejected after publication generation or sc
   assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, datasetGeneration: 'fixture-next' }), false);
   assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, schemaDigest: 'schema-next' }), false);
   assert.equal(j05ArtifactIdentityIsCurrent(prepared, { ...prepared, revisionId: 'revision-next' }), false);
+});
+
+test('J05 Viewer transport values are decoded through the declared logical type', () => {
+  assert.equal(normalizeJ05LogicalValue('2', { column: 'count', logicalType: 'integer' }), 2);
+  assert.equal(normalizeJ05LogicalValue('false', { column: 'flag', logicalType: 'boolean' }), false);
+  assert.equal(normalizeJ05LogicalValue('2.5', { column: 'value', logicalType: 'decimal' }), 2.5);
+  assert.equal(normalizeJ05LogicalValue('002', { column: 'code', logicalType: 'string' }), '002');
+  assert.throws(
+    () => normalizeJ05LogicalValue('9007199254740993', { column: 'count', logicalType: 'integer' }),
+    /exceeds JavaScript's exact integer range/,
+  );
 });
 
 test('J05 artifact mismatches fail deterministically on publication identity and literal row values', () => {
