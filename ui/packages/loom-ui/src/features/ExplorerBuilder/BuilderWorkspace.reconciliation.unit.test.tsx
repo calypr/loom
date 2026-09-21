@@ -22,6 +22,10 @@ const mockLoomClient = vi.hoisted(() => ({
   getSelection: vi.fn(),
   createSelection: vi.fn(),
   resolveConfiguredColumnContexts: vi.fn(),
+  getTableShapeCapabilities: vi.fn(),
+  discoverTableShapeCategories: vi.fn(),
+  resolveTableShape: vi.fn(),
+  proposeTableShape: vi.fn(),
 }));
 
 vi.mock('../../react', () => ({
@@ -260,6 +264,39 @@ const receipt = {
   diagnostics: [],
 };
 
+const tableShapeCapabilities = {
+  catalogId: 'shape-catalog', outputId: 'specimens',
+  reshapeModes: [{ choiceId: 'mode-none', choiceKind: 'reshapeMode', label: 'Keep columns', mode: 'NONE', availability: { kind: 'supported' } }],
+  groupColumns: [], categoryColumns: [], valueColumns: [], pivotCategoryDiscovery: { kind: 'not-requested' },
+  duplicatePolicies: [], missingCellPolicies: [], unlistedCategoryPolicies: [], unpivotColumns: [],
+  unpivotKeyOutput: { kind: 'unsupported', reason: 'No key is available.' },
+  unpivotValueOutput: { kind: 'unsupported', reason: 'No value is available.' },
+  unpivotNullRowPolicies: [], derivedAvailability: { kind: 'supported' },
+  unpivotWithDerivedAvailability: { kind: 'unsupported', reason: 'Not supported after unpivot.' },
+  derivedOutputSuggestions: [{
+    choiceId: 'suggestion-calculated', choiceKind: 'derivedOutput', label: 'Calculated value',
+    availability: { kind: 'supported' }, resultTypeLabel: 'number',
+    suggestedOutput: { column: 'calculated', label: 'Calculated value' },
+  }],
+  binaryOperators: [{
+    choiceId: 'operator-add', choiceKind: 'binaryOperator', label: 'Add', availability: { kind: 'supported' },
+    requiresDivisionByZeroPolicy: false,
+  }],
+  operands: [
+    { choiceId: 'weight', choiceKind: 'operand', label: 'Weight', availability: { kind: 'supported' } },
+    { choiceId: 'height', choiceKind: 'operand', label: 'Height', availability: { kind: 'supported' } },
+  ],
+  missingInputPolicies: [{ choiceId: 'missing-propagate', choiceKind: 'missingInputPolicy', label: 'Propagate missing', availability: { kind: 'supported' } }],
+  divisionByZeroPolicies: [],
+  savedProposalIntent: { kind: 'NONE', reshapeMode: { kind: 'reshapeMode', choiceId: 'mode-none' }, derivedColumns: [] },
+  savedProposalAvailability: { kind: 'supported' },
+};
+const tableShapeComparison = {
+  status: 'AVAILABLE', base: { rowCount: 1, sampled: false }, candidate: { rowCount: 1, sampled: false },
+  changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
+  contributors: [], contributorsSampled: false, evidenceLimitations: [], notices: [],
+};
+
 const resolvedRequest = <T,>(value: T) => ({
   unwrap: vi.fn().mockResolvedValue(value),
   abort: vi.fn(),
@@ -313,6 +350,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       }],
     }));
     mockLoomClient.resolveConfiguredColumnContexts = resolveContext;
+    mockLoomClient.getTableShapeCapabilities.mockResolvedValue(tableShapeCapabilities);
+    mockLoomClient.discoverTableShapeCategories.mockResolvedValue({});
+    mockLoomClient.resolveTableShape.mockResolvedValue({
+      catalogId: 'shape-catalog', resolutionId: 'derived-resolution', kind: 'DERIVED', outputDescriptors: [], postPivotOperands: [],
+    });
+    mockLoomClient.proposeTableShape.mockResolvedValue({
+      proposalId: 'shape-proposal', baseReceiptId: 'receipt-1', baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-1', draftDigest: 'sha256:draft-1', draftVersion: 1,
+      mode: 'ADD', outputId: 'specimens', snapshotToken: 'snapshot-1', comparison: tableShapeComparison,
+    });
     applyCommands = vi.fn().mockReturnValue(
       resolvedRequest({
         commandId: 'command-1',
@@ -922,5 +969,42 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+  });
+
+  it('places table-shape settings after feature meanings and applies only the reviewed receipt command', async () => {
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const settings = await screen.findByTestId('ui04-table-shape-settings');
+    const featureMeanings = screen.getByRole('heading', { name: 'Feature meanings' });
+    const preview = screen.getByText('Preview table');
+    expect(featureMeanings.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(settings.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('ui04-open-table-shape-settings'));
+    await screen.findByTestId('ui04-reshape-mode');
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Derived column 1 output column' }), { target: { value: 'weight_plus_height' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Derived column 1 output label' }), { target: { value: 'Weight plus height' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 operation' }), { target: { value: 'operator-add' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 first operand' }), { target: { value: 'weight' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 second operand' }), { target: { value: 'height' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Derived column 1 missing-input policy' }), { target: { value: 'missing-propagate' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
+
+    await screen.findByTestId('ui04-table-shape-comparison');
+    expect(applyCommands).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('ui04-confirm-table-shape'));
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'specimens', proposalId: 'shape-proposal' }],
+    })));
+    expect(mockLoomClient.proposeTableShape).toHaveBeenCalledWith(expect.objectContaining({
+      mode: 'ADD', catalogId: 'shape-catalog', derivedResolutionIds: ['derived-resolution'],
+    }));
   });
 });

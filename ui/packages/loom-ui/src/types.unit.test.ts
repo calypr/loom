@@ -14,6 +14,9 @@ import {
   rowDefinitionProposalSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
+  tableShapeComparisonSchema,
+  tableShapeProposalRequestSchema,
+  tableShapeTaggedScalarSchema,
 } from './types';
 
 describe('explorerBuilderDocumentSchema', () => {
@@ -600,5 +603,63 @@ describe('explorerBuilderCommandSchema', () => {
     };
     expect(explicitGroupRevisionSummarySchema.parse(summary)).toEqual(summary);
     expect(explicitGroupRevisionSummarySchema.safeParse({ ...summary, debugSeed: true }).success).toBe(false);
+  });
+
+  it('keeps table-shape scalars and comparison presence/value evidence lossless and strict', () => {
+    const scalars = [
+      { kind: 'INTEGER', integer: 0 },
+      { kind: 'DECIMAL', decimal: 0 },
+      { kind: 'BOOLEAN', boolean: false },
+      { kind: 'STRING', string: '' },
+    ] as const;
+    scalars.forEach((value) => expect(tableShapeTaggedScalarSchema.parse(value)).toEqual(value));
+    expect(tableShapeTaggedScalarSchema.safeParse({ kind: 'INTEGER', integer: 0, resourceType: 'Patient' }).success).toBe(false);
+
+    const comparison = {
+      status: 'AVAILABLE',
+      base: { rowCount: 1, sampled: false },
+      candidate: { rowCount: 1, sampled: false },
+      changedColumns: ['measurement'],
+      changedRowCount: 1,
+      changedRowsSampled: false,
+      changedRows: [{
+        rowIdentity: 'row-1', basePresent: true, candidatePresent: true,
+        changedColumns: ['measurement'],
+        changedCells: [{
+          column: 'measurement', before: { present: false, value: null }, after: { present: true, value: false },
+          trace: { state: 'AVAILABLE', contributors: [{ resourceType: 'Observation', resourceId: 'obs-1', value: '' }], complete: true, sampled: false },
+        }],
+      }],
+      contributors: [{ resourceType: 'Observation', resourceId: 'obs-1' }],
+      contributorsSampled: false,
+      evidenceLimitations: [], notices: [],
+    };
+    expect(tableShapeComparisonSchema.parse(comparison)).toEqual(comparison);
+    expect(tableShapeComparisonSchema.safeParse({ ...comparison, debug: true }).success).toBe(false);
+    expect(tableShapeComparisonSchema.safeParse({
+      ...comparison,
+      changedRows: [{ ...comparison.changedRows[0], changedCells: [{
+        ...comparison.changedRows[0].changedCells[0], after: { present: true },
+      }] }],
+    }).success).toBe(false);
+  });
+
+  it('accepts only the opaque proposal receipt in the atomic Builder apply command', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1',
+    })).toEqual({ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1' });
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId: 'table-1', proposalId: 'proposal-1', tableShape: { columns: [] },
+    }).success).toBe(false);
+  });
+
+  it('requires the exact catalog and ordered resolution receipt IDs for proposals', () => {
+    const request = {
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1',
+      outputId: 'table-1', mode: 'ADD', catalogId: 'catalog-1',
+      reshapeResolutionId: 'pivot-resolution', derivedResolutionIds: ['derived-1', 'derived-2'],
+    };
+    expect(tableShapeProposalRequestSchema.parse(request)).toEqual(request);
+    expect(tableShapeProposalRequestSchema.safeParse({ ...request, tableShape: {} }).success).toBe(false);
   });
 });

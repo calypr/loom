@@ -13,6 +13,13 @@ import {
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
+  tableShapeCapabilitiesSchema,
+  tableShapeCategoryDiscoveryRequestSchema,
+  tableShapeCategoryDiscoverySchema,
+  tableShapeProposalRequestSchema,
+  tableShapeProposalSchema,
+  tableShapeResolutionRequestSchema,
+  tableShapeResolutionSchema,
   explicitGroupCreateRequestSchema,
   explicitGroupRevisionSummarySchema,
   rowChangeAssessmentSchema,
@@ -31,6 +38,12 @@ import {
   type RowDefinitionChoicesResponse,
   type RowDefinitionProposal,
   type RowDefinitionSelection,
+  type TableShapeCapabilities,
+  type TableShapeCategoryDiscovery,
+  type TableShapeProposal,
+  type TableShapeProposalRequest,
+  type TableShapeResolution,
+  type TableShapeResolutionRequest,
   type ExplicitGroupCreateRequest,
   type ExplicitGroupRevisionSummary,
   type ExplorerRuntimeV1,
@@ -311,6 +324,28 @@ export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
+export interface TableShapeAuthoringStateArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly requestId?: string;
+}
+
+export interface GetTableShapeCapabilitiesArgs extends TableShapeAuthoringStateArgs {}
+
+export interface DiscoverTableShapeCategoriesArgs extends TableShapeAuthoringStateArgs {
+  readonly catalogId: string;
+  readonly categoryColumnChoiceId: string;
+  readonly valueColumnChoiceId: string;
+}
+
+export type ResolveTableShapeArgs = ExplorerAuthoringStateArgs &
+  TableShapeResolutionRequest & { readonly requestId?: string };
+
+export type ProposeTableShapeArgs = ExplorerAuthoringStateArgs &
+  TableShapeProposalRequest & { readonly requestId?: string };
+
 export interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly selectionRevision: string;
@@ -493,6 +528,22 @@ export interface LoomClient {
     args: ProposeRowDefinitionArgs,
     signal?: AbortSignal,
   ) => Promise<RowDefinitionProposal>;
+  readonly getTableShapeCapabilities: (
+    args: GetTableShapeCapabilitiesArgs,
+    signal?: AbortSignal,
+  ) => Promise<TableShapeCapabilities>;
+  readonly discoverTableShapeCategories: (
+    args: DiscoverTableShapeCategoriesArgs,
+    signal?: AbortSignal,
+  ) => Promise<TableShapeCategoryDiscovery>;
+  readonly resolveTableShape: (
+    args: ResolveTableShapeArgs,
+    signal?: AbortSignal,
+  ) => Promise<TableShapeResolution>;
+  readonly proposeTableShape: (
+    args: ProposeTableShapeArgs,
+    signal?: AbortSignal,
+  ) => Promise<TableShapeProposal>;
   readonly preview: (
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -1057,6 +1108,37 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       selection: args.selection,
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal, args.requestId)).then((value) => rowDefinitionProposalSchema.parse(value));
+  const getTableShapeCapabilities = (args: GetTableShapeCapabilitiesArgs, signal?: AbortSignal) =>
+    request(durableAuthoringPath(args, '/table-shape-capabilities'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+    }, signal, args.requestId)).then((value) => tableShapeCapabilitiesSchema.parse(value));
+  const discoverTableShapeCategories = (args: DiscoverTableShapeCategoriesArgs, signal?: AbortSignal) =>
+    request(durableAuthoringPath(args, '/table-shape-category-discoveries'), withJson(
+      tableShapeCategoryDiscoveryRequestSchema.parse({
+        catalogId: args.catalogId,
+        categoryColumnChoiceId: args.categoryColumnChoiceId,
+        expectedDraftDigest: args.expectedDraftDigest,
+        expectedDraftVersion: args.expectedDraftVersion,
+        outputId: args.outputId,
+        snapshotToken: args.snapshotToken,
+        valueColumnChoiceId: args.valueColumnChoiceId,
+      }), signal, args.requestId,
+    )).then((value) => tableShapeCategoryDiscoverySchema.parse(value));
+  const resolveTableShape = (args: ResolveTableShapeArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/table-shape-resolutions'), withJson(
+      tableShapeResolutionRequestSchema.parse(body), signal, requestId,
+    )).then((value) => tableShapeResolutionSchema.parse(value));
+  };
+  const proposeTableShape = (args: ProposeTableShapeArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/table-shape-proposals'), withJson(
+      tableShapeProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => tableShapeProposalSchema.parse(value));
+  };
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
@@ -1292,6 +1374,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     searchPopulationRoutes,
     listRowDefinitionChoices,
     proposeRowDefinition,
+    getTableShapeCapabilities,
+    discoverTableShapeCategories,
+    resolveTableShape,
+    proposeTableShape,
     preview,
     populationMapping,
     cellTrace,

@@ -468,6 +468,442 @@ export const rowDefinitionProposalSchema = z.object({
 }).strict();
 export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
 
+const tableShapeChoiceAvailabilitySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('supported') }).strict(),
+  z.object({ kind: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
+]);
+export type TableShapeChoiceAvailability = z.infer<typeof tableShapeChoiceAvailabilitySchema>;
+
+export type TableShapeJSONValue =
+  | null
+  | boolean
+  | number
+  | string
+  | ReadonlyArray<TableShapeJSONValue>
+  | { readonly [key: string]: TableShapeJSONValue };
+
+const tableShapeJSONValueSchema: z.ZodType<TableShapeJSONValue> = z.lazy(() => z.union([
+  z.null(),
+  z.boolean(),
+  z.number(),
+  z.string(),
+  z.array(tableShapeJSONValueSchema),
+  z.record(z.string(), tableShapeJSONValueSchema),
+]));
+
+export const tableShapeTaggedScalarSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
+  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+]);
+export type TableShapeTaggedScalar = z.infer<typeof tableShapeTaggedScalarSchema>;
+
+const tableShapeOutputNameSchema = z.object({ column: z.string().min(1), label: z.string().min(1) }).strict();
+const tableShapeColumnReferenceSchema = z.object({ kind: z.literal('column'), choiceId: opaqueIdSchema }).strict();
+const tableShapeOperandReferenceSchema = z.object({ kind: z.literal('operand'), choiceId: opaqueIdSchema }).strict();
+const tableShapePivotCategoryReferenceSchema = z.object({ kind: z.literal('pivotCategory'), choiceId: opaqueIdSchema }).strict();
+const tableShapeReshapeModeReferenceSchema = z.object({ kind: z.literal('reshapeMode'), choiceId: opaqueIdSchema }).strict();
+const tableShapeBinaryOperatorReferenceSchema = z.object({ kind: z.literal('binaryOperator'), choiceId: opaqueIdSchema }).strict();
+const tableShapeDuplicatePolicyReferenceSchema = z.object({ kind: z.literal('duplicatePolicy'), choiceId: opaqueIdSchema }).strict();
+const tableShapeMissingCellPolicyReferenceSchema = z.object({ kind: z.literal('missingCellPolicy'), choiceId: opaqueIdSchema }).strict();
+const tableShapeUnlistedPolicyReferenceSchema = z.object({ kind: z.literal('unlistedCategoryPolicy'), choiceId: opaqueIdSchema }).strict();
+const tableShapeUnpivotPolicyReferenceSchema = z.object({ kind: z.literal('unpivotNullRowPolicy'), choiceId: opaqueIdSchema }).strict();
+const tableShapeMissingInputPolicyReferenceSchema = z.object({ kind: z.literal('missingInputPolicy'), choiceId: opaqueIdSchema }).strict();
+const tableShapeDivisionByZeroPolicyReferenceSchema = z.object({ kind: z.literal('divisionByZeroPolicy'), choiceId: opaqueIdSchema }).strict();
+
+const tableShapePivotOutputReferenceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('group'), column: tableShapeColumnReferenceSchema }).strict(),
+  z.object({ kind: z.literal('category'), category: tableShapePivotCategoryReferenceSchema }).strict(),
+]);
+
+const tableShapeDerivedOperandIntentSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('base'), reference: tableShapeOperandReferenceSchema }).strict(),
+  z.object({ kind: z.literal('derived'), localId: opaqueIdSchema }).strict(),
+  z.object({ kind: z.literal('pivotOutput'), reference: tableShapePivotOutputReferenceSchema }).strict(),
+  z.object({ kind: z.literal('literal'), representation: z.enum(['integer', 'decimal']), text: z.string() }).strict(),
+]);
+
+const tableShapeDerivedColumnIntentSchema = z.object({
+  divisionByZeroPolicy: tableShapeDivisionByZeroPolicyReferenceSchema.optional(),
+  leftOperand: tableShapeDerivedOperandIntentSchema,
+  localId: opaqueIdSchema,
+  missingInputPolicy: tableShapeMissingInputPolicyReferenceSchema,
+  operator: tableShapeBinaryOperatorReferenceSchema,
+  output: tableShapeOutputNameSchema,
+  rightOperand: tableShapeDerivedOperandIntentSchema,
+}).strict();
+
+const tableShapePivotProposalIntentSchema = z.object({
+  categoryColumn: tableShapeColumnReferenceSchema,
+  categoryDiscoveryIdentity: opaqueIdSchema,
+  duplicatePolicy: tableShapeDuplicatePolicyReferenceSchema,
+  groupColumns: z.array(tableShapeColumnReferenceSchema).min(1),
+  includedCategories: z.array(z.object({
+    category: tableShapePivotCategoryReferenceSchema,
+    output: tableShapeOutputNameSchema,
+  }).strict()).min(1),
+  missingCellPolicy: tableShapeMissingCellPolicyReferenceSchema,
+  unlistedCategoryPolicy: tableShapeUnlistedPolicyReferenceSchema,
+  valueColumn: tableShapeColumnReferenceSchema,
+}).strict();
+
+const tableShapeUnpivotProposalIntentSchema = z.object({
+  inputColumns: z.array(tableShapeColumnReferenceSchema).min(1),
+  keyOutput: tableShapeOutputNameSchema,
+  nullRowPolicy: tableShapeUnpivotPolicyReferenceSchema,
+  valueOutput: tableShapeOutputNameSchema,
+}).strict();
+
+export const tableShapeProposalIntentSchema = z.discriminatedUnion('kind', [
+  z.object({
+    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
+    kind: z.literal('NONE'),
+    reshapeMode: tableShapeReshapeModeReferenceSchema,
+  }).strict(),
+  z.object({
+    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
+    kind: z.literal('GROUPED_PIVOT'),
+    pivot: tableShapePivotProposalIntentSchema,
+    reshapeMode: tableShapeReshapeModeReferenceSchema,
+  }).strict(),
+  z.object({
+    derivedColumns: z.array(tableShapeDerivedColumnIntentSchema),
+    kind: z.literal('UNPIVOT'),
+    reshapeMode: tableShapeReshapeModeReferenceSchema,
+    unpivot: tableShapeUnpivotProposalIntentSchema,
+  }).strict(),
+]);
+export type TableShapeProposalIntent = z.infer<typeof tableShapeProposalIntentSchema>;
+
+const tableShapeEditorChoiceSchema = z.object({
+  availability: tableShapeChoiceAvailabilitySchema,
+  choiceId: opaqueIdSchema,
+  choiceKind: z.string().min(1),
+  label: z.string().min(1),
+}).strict();
+
+const tableShapeColumnChoiceSchema = tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal('column') }).strict();
+const tableShapeOperandChoiceSchema = tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal('operand') }).strict();
+const tableShapePolicyChoiceSchema = <Kind extends string>(choiceKind: Kind) => tableShapeEditorChoiceSchema.extend({ choiceKind: z.literal(choiceKind) }).strict();
+const tableShapeOutputSuggestionSchema = z.object({
+  availability: tableShapeChoiceAvailabilitySchema,
+  choiceId: opaqueIdSchema,
+  choiceKind: z.enum(['derivedOutput', 'unpivotKeyOutput', 'unpivotValueOutput']),
+  label: z.string().min(1),
+  resultTypeLabel: z.string().min(1),
+  suggestedOutput: tableShapeOutputNameSchema,
+}).strict();
+const tableShapeOutputSupportSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('supported'),
+    resultTypeLabel: z.string().min(1),
+    suggestions: z.array(tableShapeOutputSuggestionSchema),
+  }).strict(),
+  z.object({ kind: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
+]);
+const tableShapeBinaryOperatorChoiceSchema = tableShapeEditorChoiceSchema.extend({
+  choiceKind: z.literal('binaryOperator'),
+  requiresDivisionByZeroPolicy: z.boolean(),
+}).strict();
+const tableShapeReshapeModeChoiceSchema = tableShapeEditorChoiceSchema.extend({
+  choiceKind: z.literal('reshapeMode'),
+  mode: z.enum(['NONE', 'GROUPED_PIVOT', 'UNPIVOT']),
+}).strict();
+const tableShapePivotCategoryChoiceSchema = tableShapeEditorChoiceSchema.extend({
+  choiceKind: z.literal('pivotCategory'),
+  suggestedOutput: tableShapeOutputNameSchema,
+  value: tableShapeTaggedScalarSchema,
+}).strict();
+const tableShapePivotCategoryPairSchema = z.object({
+  categoryColumn: tableShapeColumnReferenceSchema,
+  valueColumn: tableShapeColumnReferenceSchema,
+}).strict();
+
+const tableShapePivotCategoryDiscoveryStateSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('not-requested') }).strict(),
+  z.object({
+    categories: z.array(tableShapePivotCategoryChoiceSchema),
+    discoveryIdentity: opaqueIdSchema,
+    kind: z.literal('complete'),
+    pair: tableShapePivotCategoryPairSchema,
+  }).strict(),
+]);
+
+export const tableShapeCapabilitiesSchema = z.object({
+  binaryOperators: z.array(tableShapeBinaryOperatorChoiceSchema),
+  catalogId: opaqueIdSchema,
+  categoryColumns: z.array(tableShapeColumnChoiceSchema),
+  derivedAvailability: tableShapeChoiceAvailabilitySchema,
+  derivedOutputSuggestions: z.array(tableShapeOutputSuggestionSchema.extend({ choiceKind: z.literal('derivedOutput') }).strict()),
+  divisionByZeroPolicies: z.array(tableShapePolicyChoiceSchema('divisionByZeroPolicy')),
+  duplicatePolicies: z.array(tableShapePolicyChoiceSchema('duplicatePolicy')),
+  groupColumns: z.array(tableShapeColumnChoiceSchema),
+  missingCellPolicies: z.array(tableShapePolicyChoiceSchema('missingCellPolicy')),
+  missingInputPolicies: z.array(tableShapePolicyChoiceSchema('missingInputPolicy')),
+  operands: z.array(tableShapeOperandChoiceSchema),
+  outputId: opaqueIdSchema,
+  pivotCategoryDiscovery: tableShapePivotCategoryDiscoveryStateSchema,
+  reshapeModes: z.array(tableShapeReshapeModeChoiceSchema),
+  savedProposalAvailability: tableShapeChoiceAvailabilitySchema,
+  savedProposalIntent: tableShapeProposalIntentSchema,
+  unlistedCategoryPolicies: z.array(tableShapePolicyChoiceSchema('unlistedCategoryPolicy')),
+  unpivotColumns: z.array(tableShapeColumnChoiceSchema),
+  unpivotKeyOutput: tableShapeOutputSupportSchema,
+  unpivotNullRowPolicies: z.array(tableShapePolicyChoiceSchema('unpivotNullRowPolicy')),
+  unpivotValueOutput: tableShapeOutputSupportSchema,
+  unpivotWithDerivedAvailability: tableShapeChoiceAvailabilitySchema,
+  valueColumns: z.array(tableShapeColumnChoiceSchema),
+}).strict();
+export type TableShapeCapabilities = z.infer<typeof tableShapeCapabilitiesSchema>;
+
+export const tableShapeCapabilitiesRequestSchema = z.object({
+  expectedDraftDigest: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+}).strict();
+export type TableShapeCapabilitiesRequest = z.infer<typeof tableShapeCapabilitiesRequestSchema>;
+
+export const tableShapeCategoryDiscoverySchema = z.object({
+  catalogId: opaqueIdSchema,
+  categories: z.array(tableShapePivotCategoryChoiceSchema),
+  discoveryIdentity: opaqueIdSchema,
+  kind: z.literal('complete'),
+  pair: tableShapePivotCategoryPairSchema,
+}).strict();
+export type TableShapeCategoryDiscovery = z.infer<typeof tableShapeCategoryDiscoverySchema>;
+
+export const tableShapeCategoryDiscoveryRequestSchema = z.object({
+  catalogId: opaqueIdSchema,
+  categoryColumnChoiceId: opaqueIdSchema,
+  expectedDraftDigest: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  valueColumnChoiceId: opaqueIdSchema,
+}).strict();
+export type TableShapeCategoryDiscoveryRequest = z.infer<typeof tableShapeCategoryDiscoveryRequestSchema>;
+
+export const tableShapeResolutionRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    catalogId: opaqueIdSchema,
+    expectedDraftDigest: opaqueIdSchema,
+    expectedDraftVersion: z.number().int().positive(),
+    kind: z.literal('PIVOT'),
+    outputId: opaqueIdSchema,
+    pivot: z.object({
+      categories: z.array(z.object({ choiceId: opaqueIdSchema, outputColumn: z.string().min(1), outputLabel: z.string().min(1) }).strict()).min(1),
+      categoryColumnChoiceId: opaqueIdSchema,
+      categoryDiscoveryId: opaqueIdSchema,
+      duplicatePolicyChoiceId: opaqueIdSchema,
+      groupColumnChoiceIds: z.array(opaqueIdSchema).min(1),
+      missingPolicyChoiceId: opaqueIdSchema,
+      unlistedPolicyChoiceId: opaqueIdSchema,
+      valueColumnChoiceId: opaqueIdSchema,
+    }).strict(),
+    snapshotToken: opaqueIdSchema,
+  }).strict(),
+  z.object({
+    catalogId: opaqueIdSchema,
+    expectedDraftDigest: opaqueIdSchema,
+    expectedDraftVersion: z.number().int().positive(),
+    kind: z.literal('UNPIVOT'),
+    outputId: opaqueIdSchema,
+    snapshotToken: opaqueIdSchema,
+    unpivot: z.object({
+      inputColumnChoiceIds: z.array(opaqueIdSchema).min(1),
+      keyOutputColumn: z.string().min(1),
+      keyOutputLabel: z.string().min(1),
+      nullPolicyChoiceId: opaqueIdSchema,
+      valueOutputColumn: z.string().min(1),
+      valueOutputLabel: z.string().min(1),
+    }).strict(),
+  }).strict(),
+  z.object({
+    catalogId: opaqueIdSchema,
+    derived: z.object({
+      divisionByZeroPolicyChoiceId: opaqueIdSchema.optional(),
+      left: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('CATALOG_CHOICE'), choiceId: opaqueIdSchema }).strict(),
+        z.object({ kind: z.literal('RESOLUTION_OUTPUT'), resolutionId: opaqueIdSchema }).strict(),
+        z.object({ kind: z.literal('LITERAL'), literal: tableShapeTaggedScalarSchema }).strict(),
+      ]),
+      missingPolicyChoiceId: opaqueIdSchema,
+      operatorChoiceId: opaqueIdSchema,
+      outputColumn: z.string().min(1),
+      outputLabel: z.string().min(1),
+      pivotResolutionId: opaqueIdSchema.optional(),
+      right: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('CATALOG_CHOICE'), choiceId: opaqueIdSchema }).strict(),
+        z.object({ kind: z.literal('RESOLUTION_OUTPUT'), resolutionId: opaqueIdSchema }).strict(),
+        z.object({ kind: z.literal('LITERAL'), literal: tableShapeTaggedScalarSchema }).strict(),
+      ]),
+    }).strict(),
+    expectedDraftDigest: opaqueIdSchema,
+    expectedDraftVersion: z.number().int().positive(),
+    kind: z.literal('DERIVED'),
+    outputId: opaqueIdSchema,
+    snapshotToken: opaqueIdSchema,
+  }).strict(),
+]);
+export type TableShapeResolutionRequest = z.infer<typeof tableShapeResolutionRequestSchema>;
+
+const tableShapeTypeFactSchema = z.object({
+  logicalType: z.string().min(1),
+  nullable: z.boolean(),
+  unitIdentity: z.string().optional(),
+}).strict();
+const tableShapeResolvedCategorySchema = z.object({
+  id: opaqueIdSchema,
+  outputColumn: z.string().min(1),
+  outputLabel: z.string().min(1),
+  type: tableShapeTypeFactSchema,
+  value: tableShapeTaggedScalarSchema,
+}).strict();
+const tableShapeResolvedOutputDescriptorSchema = z.discriminatedUnion('kind', [
+  z.object({
+    groupColumn: tableShapeColumnReferenceSchema,
+    kind: z.literal('group'),
+    operandChoiceId: opaqueIdSchema.optional(),
+    outputColumn: z.string().min(1),
+    outputLabel: z.string().min(1),
+    type: tableShapeTypeFactSchema,
+  }).strict(),
+  z.object({
+    category: tableShapePivotCategoryReferenceSchema,
+    kind: z.literal('category'),
+    operandChoiceId: opaqueIdSchema.optional(),
+    outputColumn: z.string().min(1),
+    outputLabel: z.string().min(1),
+    type: tableShapeTypeFactSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('unpivotKey'),
+    outputColumn: z.string().min(1),
+    outputLabel: z.string().min(1),
+    type: tableShapeTypeFactSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('unpivotValue'),
+    outputColumn: z.string().min(1),
+    outputLabel: z.string().min(1),
+    type: tableShapeTypeFactSchema,
+  }).strict(),
+  z.object({
+    kind: z.literal('derived'),
+    outputColumn: z.string().min(1),
+    outputLabel: z.string().min(1),
+    type: tableShapeTypeFactSchema,
+  }).strict(),
+]);
+
+export const tableShapeResolutionSchema = z.object({
+  catalogId: opaqueIdSchema,
+  categories: z.array(tableShapeResolvedCategorySchema).optional(),
+  categoryDiscoveryId: opaqueIdSchema.optional(),
+  keyResult: tableShapeTypeFactSchema.optional(),
+  kind: z.enum(['PIVOT', 'UNPIVOT', 'DERIVED']),
+  outputDescriptors: z.array(tableShapeResolvedOutputDescriptorSchema),
+  postPivotOperands: z.array(tableShapeOperandChoiceSchema),
+  resolutionId: opaqueIdSchema,
+  result: tableShapeTypeFactSchema.optional(),
+  valueResult: tableShapeTypeFactSchema.optional(),
+}).strict();
+export type TableShapeResolution = z.infer<typeof tableShapeResolutionSchema>;
+
+const tableShapeCellContributorSchema = z.object({
+  resourceId: opaqueIdSchema,
+  resourceType: z.string().min(1),
+  value: tableShapeJSONValueSchema,
+}).strict();
+const tableShapeContributorSchema = z.object({
+  resourceId: opaqueIdSchema,
+  resourceType: z.string().min(1),
+}).strict();
+const tableShapeTraceSchema = z.object({
+  cellStatus: z.string().optional(),
+  complete: z.boolean(),
+  contributors: z.array(tableShapeCellContributorSchema),
+  failureCode: z.string().optional(),
+  omissionCode: z.string().optional(),
+  sampled: z.boolean(),
+  state: z.enum(['NOT_APPLICABLE', 'NOT_REQUESTED', 'UNAVAILABLE', 'FAILED', 'AVAILABLE']),
+}).strict();
+const tableShapeCellValueSchema = z.object({
+  present: z.boolean(),
+  value: tableShapeJSONValueSchema,
+}).strict();
+const tableShapeChangedCellSchema = z.object({
+  after: tableShapeCellValueSchema,
+  before: tableShapeCellValueSchema,
+  column: opaqueIdSchema,
+  trace: tableShapeTraceSchema,
+}).strict();
+const tableShapeChangedRowSchema = z.object({
+  basePresent: z.boolean(),
+  candidatePresent: z.boolean(),
+  changedCells: z.array(tableShapeChangedCellSchema),
+  changedColumns: z.array(opaqueIdSchema),
+  rowIdentity: opaqueIdSchema,
+}).strict();
+const tableShapePreviewSummarySchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  sampled: z.boolean(),
+}).strict();
+const tableShapeComparisonCommonSchema = z.object({
+  changedColumns: z.array(opaqueIdSchema),
+  changedRowCount: z.number().int().nonnegative(),
+  changedRows: z.array(tableShapeChangedRowSchema),
+  changedRowsSampled: z.boolean(),
+  contributors: z.array(tableShapeContributorSchema),
+  contributorsSampled: z.boolean(),
+  evidenceLimitations: z.array(z.string()),
+  notices: z.array(z.string()),
+});
+export const tableShapeComparisonSchema = z.discriminatedUnion('status', [
+  tableShapeComparisonCommonSchema.extend({
+    base: tableShapePreviewSummarySchema,
+    candidate: tableShapePreviewSummarySchema,
+    status: z.literal('AVAILABLE'),
+  }).strict(),
+  tableShapeComparisonCommonSchema.extend({
+    base: tableShapePreviewSummarySchema.optional(),
+    candidate: tableShapePreviewSummarySchema.optional(),
+    reason: z.string().min(1),
+    reasonCode: opaqueIdSchema,
+    status: z.literal('UNAVAILABLE'),
+  }).strict(),
+]);
+export type TableShapeComparison = z.infer<typeof tableShapeComparisonSchema>;
+
+export const tableShapeProposalSchema = z.object({
+  baseDocumentDigest: opaqueIdSchema,
+  baseReceiptId: opaqueIdSchema,
+  candidateWorkspaceDigest: opaqueIdSchema,
+  comparison: tableShapeComparisonSchema,
+  draftDigest: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  mode: z.enum(['ADD', 'REPLACE', 'REMOVE']),
+  outputId: opaqueIdSchema,
+  proposalId: opaqueIdSchema.optional(),
+  snapshotToken: opaqueIdSchema,
+}).strict();
+export type TableShapeProposal = z.infer<typeof tableShapeProposalSchema>;
+
+export const tableShapeProposalRequestSchema = z.object({
+  catalogId: opaqueIdSchema,
+  derivedResolutionIds: z.array(opaqueIdSchema),
+  expectedDraftDigest: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  limit: z.number().int().nonnegative().optional(),
+  mode: z.enum(['ADD', 'REPLACE', 'REMOVE']),
+  outputId: opaqueIdSchema,
+  reshapeResolutionId: opaqueIdSchema.optional(),
+  snapshotToken: opaqueIdSchema,
+}).strict();
+export type TableShapeProposalRequest = z.infer<typeof tableShapeProposalRequestSchema>;
+
 const exactCategoryMappingSchema = z
   .object({ from: z.string(), to: z.string() })
   .strict();
@@ -1208,6 +1644,7 @@ export const explorerBuilderCommandSchema = z
       'ADD_SEMANTIC_SELECTIONS',
       'APPLY_CONSTRUCTION_CHOICE',
       'APPLY_ROW_DEFINITION_PROPOSAL',
+      'APPLY_TABLE_SHAPE_PROPOSAL',
     ]),
     outputId: opaqueIdSchema.optional(),
     sourceOutputId: opaqueIdSchema.optional(),

@@ -41,6 +41,7 @@ import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPanel';
+import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
   derivedOccurrences,
@@ -1807,6 +1808,24 @@ const BuilderWorkspaceContent = ({
                   ))}
                 </div>
               </section>
+            ) : null}
+            {table ? (
+              <TableShapeSettingsPanel
+                client={loomClient}
+                project={projectId}
+                explorerId={state.explorerId}
+                authResourcePath={authResourcePath}
+                snapshotToken={state.catalog.snapshotToken}
+                draftVersion={state.draftVersion}
+                draftDigest={state.draftDigest}
+                table={table}
+                disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                onApply={(proposalId) => applyCommands([{
+                  type: 'APPLY_TABLE_SHAPE_PROPOSAL',
+                  outputId: table.outputId,
+                  proposalId,
+                }])}
+              />
             ) : null}
             {state.receipt && state.reconciliation === 'resolved' && table ? (
               <DataframeContractPanel

@@ -230,11 +230,11 @@ export const TableShapeEditor = ({
         <button
           type="button"
           className="rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
-          data-testid="ui04-apply-table-shape"
+          data-testid="ui04-preview-table-shape"
           disabled={disabled || !proposalIntent}
           onClick={() => proposalIntent && onApply(proposalIntent)}
         >
-          Apply table shape
+          Preview table shape
         </button>
       </div>
     </section>

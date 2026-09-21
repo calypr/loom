@@ -346,13 +346,13 @@ describe('TableShapeEditor', () => {
     expect(screen.getByRole('option', { name: 'Saved selection is not in the current server choices' })).toBeTruthy();
     expect(screen.getByRole('status').textContent)
       .toBe('The saved selection is not present in the current server choices.');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(selectedValue('Table shape')).toBe('saved-mode-no-longer-offered');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('requires discovery, lets users rename frozen category outputs, and emits the opaque discovery identity', () => {
@@ -362,7 +362,7 @@ describe('TableShapeEditor', () => {
     expect(screen.queryByRole('checkbox', { name: 'Include Systolic category' })).toBeNull();
     expect(screen.getByTestId('ui04-pivot-category-discovery-state').textContent)
       .toContain('not discovered');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Discover categories' }));
     expect(onRequestCategoryDiscovery).toHaveBeenCalledWith(categoryPair);
@@ -385,7 +385,7 @@ describe('TableShapeEditor', () => {
     enterText('Systolic output column', 'sbp_result');
     enterText('Systolic output label', 'Systolic result');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     expect(onApply).toHaveBeenCalledWith({
       kind: 'GROUPED_PIVOT',
@@ -421,7 +421,7 @@ describe('TableShapeEditor', () => {
     selectOption('Pivot category column', 'category-field');
     expect(screen.getByTestId('ui04-pivot-category-discovery-state').textContent)
       .toContain('not discovered');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     const replayedChoices = completeChoices({ ...previousDiscovery });
     rerender(
@@ -437,7 +437,7 @@ describe('TableShapeEditor', () => {
     expect(screen.getByTestId('ui04-pivot-category-discovery-state').textContent)
       .toContain('not discovered');
     expect(screen.queryByRole('checkbox', { name: 'Include Systolic category' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Discover categories' }));
     expect(onRequestCategoryDiscovery).toHaveBeenCalledWith(categoryPair);
@@ -452,8 +452,8 @@ describe('TableShapeEditor', () => {
       />,
     );
     chooseSystolicAfterDiscovery();
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'GROUPED_PIVOT',
@@ -467,7 +467,7 @@ describe('TableShapeEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discover categories' }));
     expect(screen.getByTestId('ui04-pivot-category-discovery-state').textContent)
       .toContain('Loading categories');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     rerender(
       <TableShapeEditor
@@ -487,7 +487,7 @@ describe('TableShapeEditor', () => {
     expect(screen.getByTestId('ui04-pivot-category-discovery-state').textContent)
       .toBe('Category scan exceeded the project result budget; select a narrower source.');
     expect(screen.getByRole('button', { name: 'Try category discovery again' }).hasAttribute('disabled')).toBe(false);
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('bounds long category discoveries and reports the exact visible overflow count', () => {
@@ -554,11 +554,11 @@ describe('TableShapeEditor', () => {
     selectOption('Derived column 1 first operand', 'weight-kg');
     selectOption('Derived column 1 second operand', 'height-m');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
     selectOption('Derived column 1 division-by-zero policy', 'zero-error');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     expect(onApply).toHaveBeenCalledWith({
       kind: 'NONE',
@@ -590,7 +590,7 @@ describe('TableShapeEditor', () => {
     enterText('Derived column 2 second operand numeric literal', '1');
     selectOption('Derived column 2 missing-input policy', 'propagate-null');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     const intent = onApply.mock.calls[0]?.[0];
     if (!intent || intent.kind !== 'NONE') throw new Error('Expected a table shape proposal');
@@ -622,7 +622,7 @@ describe('TableShapeEditor', () => {
     selectOption('Derived column 2 first operand source', 'literal');
     enterText('Derived column 2 first operand numeric literal', '9007199254740993');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     const intent = onApply.mock.calls[0]?.[0];
     if (!intent || intent.kind !== 'NONE') throw new Error('Expected a table shape proposal');
@@ -654,10 +654,10 @@ describe('TableShapeEditor', () => {
     selectOption('Derived column 1 second operand', 'weight-kg');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
 
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     enterText('Derived column 1 first operand numeric literal', '1e2');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
   });
 
   it('rejects a forward derived-column reference in proposal intent construction', () => {
@@ -704,7 +704,7 @@ describe('TableShapeEditor', () => {
     selectOptionByLabel('ui04-derived-right-operand-1-pivot-output', 'Category output: zero');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     const intent = onApply.mock.calls[0]?.[0];
     if (!intent || intent.kind !== 'GROUPED_PIVOT') throw new Error('Expected a grouped pivot proposal');
@@ -752,7 +752,7 @@ describe('TableShapeEditor', () => {
     selectOptionByLabel('ui04-derived-right-operand-2-pivot-output', 'Category output: zero');
     selectOption('Derived column 2 missing-input policy', 'propagate-null');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     const intent = onApply.mock.calls[0]?.[0];
     if (!intent || intent.kind !== 'GROUPED_PIVOT') throw new Error('Expected a grouped pivot proposal');
@@ -814,7 +814,7 @@ describe('TableShapeEditor', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(selectedValue('Derived column 1 second operand source')).toBe('pivotOutput');
     expect(selectedTestValue('ui04-derived-right-operand-1-pivot-output')).toBe('category:category-dia');
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
     const restoredIntent = onApply.mock.calls[0]?.[0];
     if (!restoredIntent || restoredIntent.kind !== 'GROUPED_PIVOT') {
       throw new Error('Expected a restored grouped pivot proposal');
@@ -846,7 +846,7 @@ describe('TableShapeEditor', () => {
     });
     expect(unavailableBaseOptions).toHaveLength(2);
     expect(unavailableBaseOptions.every((option) => option.hasAttribute('disabled'))).toBe(true);
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('rejects pivot outputs outside grouped-pivot mode and after their outputs are removed', () => {
@@ -906,7 +906,7 @@ describe('TableShapeEditor', () => {
     const removedLocalId = selectOptionByLabel('ui04-derived-left-operand-3-derived', 'sum_plus_value');
     selectOption('Derived column 3 second operand', 'weight-kg');
     selectOption('Derived column 3 missing-input policy', 'propagate-null');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove derived column 2' }));
 
@@ -915,10 +915,10 @@ describe('TableShapeEditor', () => {
     expect(selectedTestValue('ui04-derived-left-operand-2-derived')).toBe(removedLocalId);
     expect(screen.getByTestId('ui04-derived-left-operand-2-reference-error').textContent)
       .toContain('not an earlier row');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     selectOptionByLabel('ui04-derived-left-operand-2-derived', 'sum_plus_count');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
   });
 
   it('restores all saved operand variants and their authored text on Cancel', () => {
@@ -947,7 +947,7 @@ describe('TableShapeEditor', () => {
     expect(selectedTestValue('ui04-derived-left-operand-2-derived')).toBe('saved-sum-plus-count');
     expect(testInputValue('ui04-derived-right-operand-2-literal')).toBe('1');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
     expect(onApply).toHaveBeenCalledWith(savedIntent);
   });
 
@@ -960,13 +960,13 @@ describe('TableShapeEditor', () => {
     selectOption('Derived column 1 first operand', 'weight-kg');
     selectOption('Derived column 1 second operand', 'height-m');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
 
     enterText('Derived column 1 output label', '');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
     enterText('Derived column 1 output label', 'New field');
     enterText('Derived column 1 output column', '');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('leaves a derived output blank when the server provides no supported suggestion', () => {
@@ -1013,10 +1013,10 @@ describe('TableShapeEditor', () => {
     enterText('Derived column 1 second operand numeric literal', '1');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
 
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(true);
 
     enterText('Derived column 1 output column', 'combined_systolic');
-    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Preview table shape' }).hasAttribute('disabled')).toBe(false);
   });
 
   it('preserves edits after recoverable errors and Cancel restores the saved reshape mode', () => {
@@ -1086,7 +1086,7 @@ describe('TableShapeEditor', () => {
     expect(screen.getByTestId('ui04-unpivot-derived-refusal').textContent)
       .toBe('Derived columns are not supported after unpivot in this proposal.');
     expect(screen.getByRole('button', { name: 'Add derived column' }).hasAttribute('disabled')).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
 
     expect(onApply).toHaveBeenCalledWith({
       kind: 'UNPIVOT',

@@ -1329,4 +1329,84 @@ describe('configured-column interpretation APIs', () => {
       expectedDraftDigest: 'draft-digest-3',
     })).rejects.toThrow('different saved draft');
   });
+
+  it('posts table-shape capabilities, discovery, resolution, and proposal through strict authoring endpoints', async () => {
+    const empty: never[] = [];
+    const choiceAvailability = { kind: 'supported' };
+    const capabilities = {
+      catalogId: 'catalog-1', outputId: 'table-1', reshapeModes: [], groupColumns: [], categoryColumns: [],
+      valueColumns: [], pivotCategoryDiscovery: { kind: 'not-requested' }, duplicatePolicies: [],
+      missingCellPolicies: [], unlistedCategoryPolicies: [], unpivotColumns: [],
+      unpivotKeyOutput: { kind: 'unsupported', reason: 'No key output is available.' },
+      unpivotValueOutput: { kind: 'unsupported', reason: 'No value output is available.' },
+      unpivotNullRowPolicies: [], derivedAvailability: choiceAvailability,
+      unpivotWithDerivedAvailability: { kind: 'unsupported', reason: 'Not supported after unpivot.' },
+      derivedOutputSuggestions: [], binaryOperators: [], operands: [], missingInputPolicies: [],
+      divisionByZeroPolicies: [], savedProposalIntent: {
+        kind: 'NONE', reshapeMode: { kind: 'reshapeMode', choiceId: 'mode-none' }, derivedColumns: [],
+      }, savedProposalAvailability: choiceAvailability,
+    };
+    const discovery = {
+      catalogId: 'catalog-1', kind: 'complete', discoveryIdentity: 'discovery-1',
+      pair: { categoryColumn: { kind: 'column', choiceId: 'category' }, valueColumn: { kind: 'column', choiceId: 'value' } },
+      categories: [],
+    };
+    const resolution = {
+      catalogId: 'catalog-1', resolutionId: 'resolution-1', kind: 'PIVOT', outputDescriptors: [
+        { kind: 'group', groupColumn: { kind: 'column', choiceId: 'group' }, operandChoiceId: 'operand-group', outputColumn: 'group', outputLabel: 'Group', type: { logicalType: 'string', nullable: false } },
+        { kind: 'category', category: { kind: 'pivotCategory', choiceId: 'category-a' }, operandChoiceId: 'operand-category', outputColumn: 'a', outputLabel: 'A', type: { logicalType: 'number', nullable: true } },
+      ],
+      postPivotOperands: [],
+    };
+    const proposal = {
+      proposalId: 'proposal-1', baseReceiptId: 'receipt-1', baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-1', draftDigest: 'digest-1', draftVersion: 1,
+      mode: 'ADD', outputId: 'table-1', snapshotToken: 'snapshot-1',
+      comparison: {
+        status: 'UNAVAILABLE', reasonCode: 'COMPARE_UNAVAILABLE', reason: 'No bounded comparison is available.',
+        changedColumns: empty, changedRowCount: 0, changedRowsSampled: false, changedRows: [],
+        contributors: [], contributorsSampled: false, evidenceLimitations: ['No preview sample was returned.'], notices: [],
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(capabilities), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(discovery), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(resolution), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }));
+    const client = createLoomClient({ fetch });
+    const scope = {
+      project: 'project-a', explorerId: 'explorer-a', authResourcePath: '/programs/org-a/projects/project-a',
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
+    };
+
+    await expect(client.getTableShapeCapabilities(scope)).resolves.toEqual(capabilities);
+    await expect(client.discoverTableShapeCategories({
+      ...scope, catalogId: 'catalog-1', categoryColumnChoiceId: 'category', valueColumnChoiceId: 'value',
+    })).resolves.toEqual(discovery);
+    await expect(client.resolveTableShape({
+      ...scope, catalogId: 'catalog-1', kind: 'PIVOT', pivot: {
+        categoryDiscoveryId: 'discovery-1', groupColumnChoiceIds: ['group'], categoryColumnChoiceId: 'category',
+        valueColumnChoiceId: 'value', categories: [{ choiceId: 'category-a', outputColumn: 'a', outputLabel: 'A' }],
+        duplicatePolicyChoiceId: 'duplicate-error', missingPolicyChoiceId: 'missing-null', unlistedPolicyChoiceId: 'unlisted-error',
+      },
+    })).resolves.toEqual(resolution);
+    await expect(client.proposeTableShape({
+      ...scope, catalogId: 'catalog-1', mode: 'ADD', reshapeResolutionId: 'resolution-1', derivedResolutionIds: [],
+    })).resolves.toEqual(proposal);
+
+    const path = '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2';
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      `${path}/table-shape-capabilities?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
+      `${path}/table-shape-category-discoveries?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
+      `${path}/table-shape-resolutions?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
+      `${path}/table-shape-proposals?auth_resource_path=%2Fprograms%2Forg-a%2Fprojects%2Fproject-a`,
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
+    });
+    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1', outputId: 'table-1',
+      catalogId: 'catalog-1', mode: 'ADD', reshapeResolutionId: 'resolution-1', derivedResolutionIds: [],
+    });
+  });
 });

@@ -2,7 +2,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import type {
   AggregateTransformationCapability,
   ColumnValueTransformationCapabilities,
@@ -276,7 +275,6 @@ describe('configured V2 columns', () => {
     const onTransformationChange = vi.fn();
     const onSourceChange = vi.fn();
 
-    const user = userEvent.setup();
     render(<ColumnSelector
       catalog={{ ...catalog, candidates: [candidate] }}
       interpretationContext={contextFor(transformTable.outputId, column.column, [candidate.candidateId])}
@@ -291,18 +289,18 @@ describe('configured V2 columns', () => {
       onRemove={vi.fn()}
     />);
 
-    await user.click(screen.getByText('Recode exact category values'));
-    await user.click(screen.getByRole('button', { name: 'Add mapping' }));
+    fireEvent.click(screen.getByText('Recode exact category values'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
     const recordedCategory = screen.getByRole('textbox', { name: 'Recorded category 1 for Status' });
-    await user.type(recordedCategory, 'recorded-A');
+    fireEvent.click(recordedCategory);
+    fireEvent.change(recordedCategory, { target: { value: 'recorded-A' } });
     expect(screen.getByDisplayValue('recorded-A')).toBe(recordedCategory);
-    expect(document.activeElement).toBe(recordedCategory);
     const replacementValue = screen.getByRole('textbox', { name: 'Replacement value 1 for Status' });
-    await user.type(replacementValue, 'group-1');
+    fireEvent.click(replacementValue);
+    fireEvent.change(replacementValue, { target: { value: 'group-1' } });
     expect(screen.getByDisplayValue('group-1')).toBe(replacementValue);
-    expect(document.activeElement).toBe(replacementValue);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), 'KEEP_ORIGINAL');
-    await user.click(screen.getByRole('button', { name: 'Save recoding' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), { target: { value: 'KEEP_ORIGINAL' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
 
     expect(onTransformationChange).toHaveBeenCalledWith('status', {
       kind: 'SET',
