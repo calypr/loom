@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "sourceFile": "j04-records.ndjson.fixture",
+  "sourceRecords": [
+    { "resourceType": "Patient", "id": "j04-patient-001" },
+    { "resourceType": "Patient", "id": "j04-patient-002" },
+    { "resourceType": "Observation", "id": "j04-measure-001" },
+    { "resourceType": "Observation", "id": "j04-measure-002" },
+    { "resourceType": "Observation", "id": "j04-measure-003" },
+    { "resourceType": "Observation", "id": "j04-window-excluded" },
+    { "resourceType": "Observation", "id": "j04-unsupported-unit" },
+    { "resourceType": "Observation", "id": "j04-pivot-null" },
+    { "resourceType": "Observation", "id": "j04-pivot-false" },
+    { "resourceType": "Observation", "id": "j04-pivot-zero" },
+    { "resourceType": "Observation", "id": "j04-pivot-empty" },
+    { "resourceType": "Observation", "id": "j04-pivot-missing" }
+  ],
+  "baseColumns": [
+    { "path": "id", "label": "Observation identifier" },
+    { "path": "effectiveDateTime", "label": "Observed at" },
+    { "path": "status", "label": "Observation status" },
+    { "path": "valueQuantity.value", "label": "Raw measurement" },
+    { "path": "valueQuantity.unit", "label": "Raw unit" }
+  ],
+  "expectedAggregates": [
+    {
+      "rowIdentity": "Patient/j04-patient-001",
+      "operatorSourceRecordIds": ["j04-measure-001", "j04-measure-002", "j04-measure-003"],
+      "count": 3,
+      "exists": true,
+      "min": 0,
+      "max": 180,
+      "mean": 120,
+      "sum": 360
+    },
+    {
+      "rowIdentity": "Patient/j04-patient-002",
+      "operatorSourceRecordIds": ["j04-unsupported-unit"],
+      "count": 0,
+      "exists": false,
+      "min": null,
+      "max": null,
+      "mean": null,
+      "sum": null
+    }
+  ],
+  "temporalOutcomes": {
+    "window": { "startInclusive": "2025-01-01T00:00:00Z", "endExclusive": "2025-01-03T00:00:00Z" },
+    "earliestRecordId": "j04-measure-001",
+    "latestTieRecordIds": ["j04-measure-002", "j04-measure-003"],
+    "latestTiePolicy": "SOURCE_ID_ASCENDING",
+    "latestSelectedRecordId": "j04-measure-002",
+    "excludedRecordIds": ["j04-window-excluded"]
+  },
+  "normalizationRefusalCases": [
+    { "sourceRecordId": "j04-measure-001", "status": "NORMALIZED", "input": { "value": 180, "unit": "cm" }, "expected": { "value": 180, "unit": "cm" } },
+    { "sourceRecordId": "j04-measure-002", "status": "NORMALIZED", "input": { "value": 1.8, "unit": "m" }, "expected": { "value": 180, "unit": "cm" } },
+    { "sourceRecordId": "j04-measure-003", "status": "NORMALIZED", "input": { "value": 0, "unit": "cm" }, "expected": { "value": 0, "unit": "cm" } },
+    { "sourceRecordId": "j04-unsupported-unit", "status": "REFUSED", "input": { "value": 1, "unit": "furlong" }, "reason": "UNSUPPORTED_UNIT" }
+  ],
+  "recodingOutcomes": {
+    "sourcePath": "interpretation.coding[].code",
+    "casePolicy": "EXACT",
+    "unknownPolicy": "KEEP",
+    "mapping": { "A": "Positive", "B": "Negative" },
+    "cases": [
+      { "sourceRecordId": "j04-measure-001", "input": "A", "expected": "Positive" },
+      { "sourceRecordId": "j04-measure-002", "input": "a", "expected": "a" },
+      { "sourceRecordId": "j04-measure-003", "input": "UNKNOWN", "expected": "UNKNOWN" }
+    ]
+  },
+  "pivot": {
+    "categories": [
+      { "code": "measure", "outputColumn": "j04_measure" },
+      { "code": "pivot-null", "outputColumn": "j04_recorded_null" },
+      { "code": "pivot-false", "outputColumn": "j04_false" },
+      { "code": "pivot-zero", "outputColumn": "j04_zero" },
+      { "code": "pivot-empty", "outputColumn": "j04_empty" },
+      { "code": "pivot-missing", "outputColumn": "j04_missing" }
+    ],
+    "duplicatePolicy": "ERROR",
+    "missingPolicy": "NULL",
+    "unlistedCategoryPolicy": "IGNORE",
+    "cells": [
+      { "rowIdentity": "Observation/j04-pivot-missing", "column": "j04_missing", "presence": "missing" },
+      { "rowIdentity": "Observation/j04-pivot-null", "column": "j04_recorded_null", "presence": "null", "value": null },
+      { "rowIdentity": "Patient/j04-patient-001", "column": "active", "presence": "false", "value": false },
+      { "rowIdentity": "Observation/j04-pivot-zero", "column": "j04_zero", "presence": "zero", "value": 0 },
+      { "rowIdentity": "Observation/j04-pivot-empty", "column": "j04_empty", "presence": "empty", "value": "" }
+    ]
+  },
+  "derivedResults": [
+    { "name": "j04_sum_plus_count", "expression": "sum + count", "expectedPresence": "value", "expected": 363 },
+    { "name": "j04_division_by_zero", "expression": "sum / zero", "divisionByZeroPolicy": "NULL", "expectedPresence": "null", "expected": null },
+    { "name": "j04_later_derived_reference", "expression": "j04_sum_plus_count + 1", "expectedPresence": "value", "expected": 364 }
+  ],
+  "unrelatedColumnLiteral": { "column": "status", "rowIdentity": "Observation/j04-measure-001", "value": "final" },
+  "presenceCases": [
+    { "sourceRecordId": "j04-pivot-missing", "fieldPath": "valueString", "presence": "missing" },
+    { "sourceRecordId": "j04-pivot-null", "fieldPath": "valueString", "presence": "null", "value": null },
+    { "sourceRecordId": "j04-patient-001", "fieldPath": "active", "presence": "false", "value": false },
+    { "sourceRecordId": "j04-pivot-zero", "fieldPath": "valueInteger", "presence": "zero", "value": 0 },
+    { "sourceRecordId": "j04-pivot-empty", "fieldPath": "valueString", "presence": "empty", "value": "" }
+  ]
+}

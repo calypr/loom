@@ -4,7 +4,75 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04ExactEqual, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+
+test('J04 fixture contract binds the exact J04-only resource identities and raw presence cases', () => {
+  const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
+  const loaded = loadJ04FixtureContract(fixtureDir);
+  assert.equal(loaded.contract.sourceFile, 'j04-records.ndjson.fixture');
+  assert.equal(loaded.sourceRecords.length, 12);
+  assert.equal(validateJ04FixtureContract(loaded.contract, loaded.sourceRecords), true);
+
+  const changedIdentity = structuredClone(loaded.contract);
+  changedIdentity.sourceRecords[0].id = 'j04-patient-substituted';
+  assert.throws(() => validateJ04FixtureContract(changedIdentity, loaded.sourceRecords), /identities or order differ/);
+
+  const changedSource = structuredClone(loaded.sourceRecords);
+  changedSource.find((record) => record.id === 'j04-pivot-empty').valueString = ' ';
+  assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /declared empty distinction/);
+});
+
+test('J04 fixture contract rejects missing aggregate and temporal evidence', () => {
+  const { contract, sourceRecords } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  const missingOperator = structuredClone(contract);
+  delete missingOperator.expectedAggregates[0].sum;
+  assert.throws(() => validateJ04FixtureContract(missingOperator, sourceRecords), /declare COUNT, EXISTS, MIN, MAX, MEAN, and SUM/);
+
+  const changedTie = structuredClone(contract);
+  changedTie.temporalOutcomes.latestSelectedRecordId = 'j04-window-excluded';
+  assert.throws(() => validateJ04FixtureContract(changedTie, sourceRecords), /exact latest tie winner/);
+
+  const changedPresence = structuredClone(contract);
+  changedPresence.presenceCases.find((item) => item.presence === 'false').value = true;
+  assert.throws(() => validateJ04FixtureContract(changedPresence, sourceRecords), /declared false literal/);
+});
+
+test('J04 evidence shaping keeps missing, recorded null, false, zero, and empty distinct', () => {
+  const columns = [
+    { id: 'missing-id', name: 'Missing', logicalType: 'string' },
+    { id: 'null-id', name: 'Recorded null', logicalType: 'string' },
+    { id: 'false-id', name: 'False', logicalType: 'boolean' },
+    { id: 'zero-id', name: 'Zero', logicalType: 'integer' },
+    { id: 'empty-id', name: 'Empty', logicalType: 'string' },
+  ];
+  const input = { columns, rows: [{ rowId: 'j04-row-1', values: { 'null-id': null, 'false-id': false, 'zero-id': 0, 'empty-id': '' } }] };
+  const shaped = shapeJ04Evidence(input);
+  assert.deepEqual(shaped.rows[0].values.map((cell) => cell.presence), ['missing', 'null', 'false', 'zero', 'empty']);
+  assert.equal(j04ExactEqual(shaped, shapeJ04Evidence(structuredClone(input))), true);
+
+  const substitutedNull = structuredClone(input);
+  substitutedNull.rows[0].values['missing-id'] = null;
+  assert.equal(compareJ04Evidence(input, substitutedNull).matches, false);
+  const zeroAsNull = structuredClone(input);
+  zeroAsNull.rows[0].values['zero-id'] = null;
+  assert.equal(compareJ04Evidence(input, zeroAsNull).matches, false);
+  assert.equal(j04ExactEqual({ value: 0 }, { value: false }), false);
+  assert.equal(j04ExactEqual({ value: '' }, {}), false);
+});
+
+test('J04 evidence comparison rejects changed stable schema identity and literal output', () => {
+  const expected = {
+    columns: [{ id: 'column-j04-1', name: 'Total', logicalType: 'number' }],
+    rows: [{ rowId: 'Patient/j04-patient-001', values: { 'column-j04-1': 360 } }],
+  };
+  assert.equal(compareJ04Evidence(expected, structuredClone(expected)).matches, true);
+  const changedColumn = structuredClone(expected);
+  changedColumn.columns[0].id = 'replacement-column';
+  assert.equal(compareJ04Evidence(expected, changedColumn).matches, false);
+  const changedValue = structuredClone(expected);
+  changedValue.rows[0].values['column-j04-1'] = 361;
+  assert.equal(compareJ04Evidence(expected, changedValue).matches, false);
+});
 
 const j05Identity = {
   project: 'loom_dev_j05',

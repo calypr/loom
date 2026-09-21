@@ -1497,6 +1497,146 @@ export const normalizeJ05LogicalValue = (value, column) => {
   return value;
 };
 
+const J04_PRESENCE_STATES = new Set(['missing', 'null', 'false', 'zero', 'empty']);
+
+const j04ValueAtPath = (value, path) => path.split('.').reduce((current, part) =>
+  current && typeof current === 'object' && Object.hasOwn(current, part) ? current[part] : undefined, value);
+
+const j04Presence = (record, path) => {
+  const parts = path.split('.');
+  let current = record;
+  for (const part of parts.slice(0, -1)) {
+    if (!current || typeof current !== 'object' || !Object.hasOwn(current, part)) return 'missing';
+    current = current[part];
+  }
+  if (!current || typeof current !== 'object' || !Object.hasOwn(current, parts.at(-1))) return 'missing';
+  const value = current[parts.at(-1)];
+  if (value === null) return 'null';
+  if (value === false) return 'false';
+  if (value === 0) return 'zero';
+  if (value === '') return 'empty';
+  return 'value';
+};
+
+export const validateJ04FixtureContract = (contract, sourceRecords) => {
+  if (!contract || typeof contract !== 'object' || contract.version !== 1) throw new Error('J04 fixture contract must have version 1');
+  if (typeof contract.sourceFile !== 'string' || !/^j04-[a-z0-9-]+\.ndjson\.fixture$/.test(contract.sourceFile)) throw new Error('J04 fixture contract must name one J04-specific NDJSON fixture');
+  if (!Array.isArray(contract.sourceRecords) || !contract.sourceRecords.length) throw new Error('J04 fixture contract must list its source records');
+  if (!Array.isArray(sourceRecords) || sourceRecords.length !== contract.sourceRecords.length) throw new Error('J04 fixture source record count differs from the contract');
+  const expectedIDs = contract.sourceRecords.map((record) => `${record?.resourceType}/${record?.id}`);
+  const actualIDs = sourceRecords.map((record) => `${record?.resourceType}/${record?.id}`);
+  if (expectedIDs.some((identity) => identity === 'undefined/undefined') || new Set(expectedIDs).size !== expectedIDs.length) throw new Error('J04 fixture contract has invalid or duplicate source record identities');
+  if (!j04ExactEqual(expectedIDs, actualIDs)) throw new Error('J04 fixture source identities or order differ from the contract');
+  const sourceByID = new Map(sourceRecords.map((record) => [record.id, record]));
+  const hasSource = (id) => sourceByID.has(id);
+  const numericOperators = ['count', 'exists', 'min', 'max', 'mean', 'sum'];
+  if (!Array.isArray(contract.baseColumns) || contract.baseColumns.length < 2 || contract.baseColumns.some((column) => !column?.path || !column?.label)) throw new Error('J04 fixture must declare at least two named base columns');
+  if (new Set(contract.baseColumns.map((column) => column.path)).size !== contract.baseColumns.length) throw new Error('J04 base column paths must be distinct');
+  if (!Array.isArray(contract.expectedAggregates) || !contract.expectedAggregates.length) throw new Error('J04 fixture contract must list exact aggregate outcomes');
+  for (const aggregate of contract.expectedAggregates) {
+    if (typeof aggregate?.rowIdentity !== 'string' || !Array.isArray(aggregate.operatorSourceRecordIds) || !aggregate.operatorSourceRecordIds.every(hasSource)) throw new Error('J04 aggregate outcome has invalid row or source identities');
+    if (!numericOperators.every((operator) => Object.hasOwn(aggregate, operator))) throw new Error('J04 aggregate outcome must declare COUNT, EXISTS, MIN, MAX, MEAN, and SUM');
+    if (!Number.isInteger(aggregate.count) || aggregate.count < 0 || typeof aggregate.exists !== 'boolean') throw new Error('J04 aggregate count and existence outcomes are invalid');
+    if (numericOperators.slice(2).some((operator) => aggregate[operator] !== null && !Number.isFinite(aggregate[operator]))) throw new Error('J04 aggregate numeric outcomes must be finite numbers or null');
+    if ((aggregate.count > 0) !== aggregate.exists || (aggregate.count === 0 && numericOperators.slice(2).some((operator) => aggregate[operator] !== null))) throw new Error('J04 empty aggregate outcomes must distinguish absent results from numeric zero');
+  }
+  const temporal = contract.temporalOutcomes;
+  if (!temporal?.window || !Number.isFinite(Date.parse(temporal.window.startInclusive)) || !Number.isFinite(Date.parse(temporal.window.endExclusive)) || Date.parse(temporal.window.endExclusive) <= Date.parse(temporal.window.startInclusive)) throw new Error('J04 temporal window must have a valid exclusive upper bound');
+  if (!hasSource(temporal.earliestRecordId) || !hasSource(temporal.latestSelectedRecordId) || !Array.isArray(temporal.latestTieRecordIds) || temporal.latestTieRecordIds.length < 2 || !temporal.latestTieRecordIds.every(hasSource) || !temporal.latestTieRecordIds.includes(temporal.latestSelectedRecordId)) throw new Error('J04 temporal outcomes must name the earliest record and an exact latest tie winner');
+  if (temporal.latestTiePolicy !== 'SOURCE_ID_ASCENDING' || !Array.isArray(temporal.excludedRecordIds) || !temporal.excludedRecordIds.length || !temporal.excludedRecordIds.every(hasSource)) throw new Error('J04 temporal tie and exclusion policies are incomplete');
+  if (!Array.isArray(contract.normalizationRefusalCases) || !contract.normalizationRefusalCases.some((item) => item.status === 'REFUSED')) throw new Error('J04 normalization cases must include an unsupported-unit refusal');
+  for (const item of contract.normalizationRefusalCases) {
+    if (!hasSource(item?.sourceRecordId) || !Number.isFinite(item?.input?.value) || typeof item?.input?.unit !== 'string' || !item.input.unit) throw new Error('J04 normalization case has invalid source or input');
+    if (item.status === 'NORMALIZED' && (!Number.isFinite(item.expected?.value) || typeof item.expected?.unit !== 'string' || !item.expected.unit)) throw new Error('J04 normalized result must include a finite value and unit');
+    if (item.status === 'REFUSED' && typeof item.reason !== 'string') throw new Error('J04 refusal case must name its reason');
+    if (!['NORMALIZED', 'REFUSED'].includes(item.status)) throw new Error(`J04 normalization status is unsupported: ${item.status}`);
+  }
+  const recoding = contract.recodingOutcomes;
+  if (!recoding?.sourcePath || recoding.casePolicy !== 'EXACT' || recoding.unknownPolicy !== 'KEEP' || !recoding.mapping || typeof recoding.mapping !== 'object' || !Array.isArray(recoding.cases) || !recoding.cases.length) throw new Error('J04 recoding outcomes must declare exact-case mapping and unknown preservation');
+  if (!recoding.cases.every((item) => hasSource(item?.sourceRecordId) && typeof item.input === 'string' && typeof item.expected === 'string')) throw new Error('J04 recoding cases must have source and literal output values');
+  if (!recoding.cases.some((item) => item.input.toLowerCase() === item.input && Object.hasOwn(recoding.mapping, item.input.toUpperCase())) || !recoding.cases.some((item) => !Object.hasOwn(recoding.mapping, item.input))) throw new Error('J04 recoding cases must cover case mismatch and an unknown code');
+  const pivot = contract.pivot;
+  if (!Array.isArray(pivot?.categories) || pivot.categories.length < 2 || pivot.categories.some((item) => !item?.code || !item?.outputColumn)) throw new Error('J04 pivot must list categories and output names');
+  if (new Set(pivot.categories.map((item) => item.outputColumn)).size !== pivot.categories.length || !['ERROR', 'FIRST', 'LAST'].includes(pivot.duplicatePolicy) || !['NULL', 'OMIT', 'ERROR'].includes(pivot.missingPolicy) || !['IGNORE', 'ERROR'].includes(pivot.unlistedCategoryPolicy)) throw new Error('J04 pivot categories or policies are invalid');
+  if (!Array.isArray(pivot.cells) || !['missing', 'null', 'false', 'zero', 'empty'].every((state) => pivot.cells.some((cell) => cell.presence === state))) throw new Error('J04 pivot cells must cover missing, null, false, zero, and empty values');
+  for (const cell of pivot.cells) {
+    if (typeof cell?.rowIdentity !== 'string' || !cell.column || !J04_PRESENCE_STATES.has(cell.presence)) throw new Error('J04 pivot cell identity or presence is invalid');
+    if (cell.presence === 'missing' ? Object.hasOwn(cell, 'value') : !Object.hasOwn(cell, 'value')) throw new Error(`J04 pivot ${cell.presence} cell has an invalid value-presence contract`);
+    if (cell.presence === 'null' && cell.value !== null || cell.presence === 'false' && cell.value !== false || cell.presence === 'zero' && cell.value !== 0 || cell.presence === 'empty' && cell.value !== '') throw new Error(`J04 pivot ${cell.presence} cell has the wrong literal value`);
+  }
+  if (!Array.isArray(contract.derivedResults) || contract.derivedResults.length < 3) throw new Error('J04 derived outcomes must cover numeric, division-by-zero, and later-derived cases');
+  const byName = new Map(contract.derivedResults.map((item) => [item?.name, item]));
+  const numericDerived = contract.derivedResults.some((item) => item.expectedPresence === 'value' && Number.isFinite(item.expected));
+  const divisionByZero = contract.derivedResults.some((item) => item.divisionByZeroPolicy === 'NULL' && item.expectedPresence === 'null' && item.expected === null);
+  const laterDerived = contract.derivedResults.some((item, index) => contract.derivedResults.slice(0, index).some((earlier) => earlier?.name && item.expression?.includes(earlier.name)));
+  if (!numericDerived || !divisionByZero || !laterDerived || [...byName.values()].some((item) => !item?.name || typeof item.expression !== 'string')) throw new Error('J04 derived outcomes are missing a required literal or dependency');
+  const unrelated = contract.unrelatedColumnLiteral;
+  if (!unrelated?.column || !unrelated.rowIdentity || !hasSource(unrelated.rowIdentity.split('/').at(-1)) || typeof unrelated.value !== 'string') throw new Error('J04 unrelated column must have one exact source literal');
+  if (!Array.isArray(contract.presenceCases) || !['missing', 'null', 'false', 'zero', 'empty'].every((state) => contract.presenceCases.some((item) => item.presence === state))) throw new Error('J04 fixture must declare all five presence distinctions');
+  for (const item of contract.presenceCases) {
+    const source = sourceByID.get(item?.sourceRecordId);
+    if (!source || typeof item.fieldPath !== 'string' || !J04_PRESENCE_STATES.has(item.presence) || j04Presence(source, item.fieldPath) !== item.presence) throw new Error(`J04 source record does not preserve the declared ${item?.presence ?? 'unknown'} distinction`);
+    if (item.presence === 'missing' ? Object.hasOwn(item, 'value') : !Object.hasOwn(item, 'value')) throw new Error(`J04 ${item.presence} presence case has an invalid value-presence contract`);
+    if (item.presence !== 'missing' && !j04ExactEqual(j04ValueAtPath(source, item.fieldPath), item.value)) throw new Error(`J04 source record differs from its declared ${item.presence} literal`);
+  }
+  return true;
+};
+
+export const loadJ04FixtureContract = (fixtureDir) => {
+  const contract = JSON.parse(readFileSync(join(fixtureDir, 'j04-contract.fixture.json'), 'utf8'));
+  if (typeof contract.sourceFile !== 'string' || !/^j04-[a-z0-9-]+\.ndjson\.fixture$/.test(contract.sourceFile)) throw new Error('J04 fixture contract must name one J04-specific NDJSON fixture');
+  const sourceRecords = readFileSync(join(fixtureDir, contract.sourceFile), 'utf8')
+    .split(/\r?\n/).filter(Boolean).map((line, index) => {
+      try { return JSON.parse(line); } catch (error) {
+        throw new Error(`J04 source record ${index + 1} is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  validateJ04FixtureContract(contract, sourceRecords);
+  return { contract, sourceRecords };
+};
+
+export const j04ExactEqual = (expected, actual) => {
+  if (Object.is(expected, actual)) return true;
+  if (expected === null || actual === null || typeof expected !== typeof actual) return false;
+  if (Array.isArray(expected) || Array.isArray(actual)) return Array.isArray(expected) && Array.isArray(actual)
+    && expected.length === actual.length && expected.every((value, index) => j04ExactEqual(value, actual[index]));
+  if (typeof expected !== 'object') return false;
+  const expectedKeys = Object.keys(expected).sort();
+  const actualKeys = Object.keys(actual).sort();
+  return j04ExactEqual(expectedKeys, actualKeys) && expectedKeys.every((key) => j04ExactEqual(expected[key], actual[key]));
+};
+
+const j04ValueEvidence = (values, columnID) => {
+  if (!Object.hasOwn(values, columnID)) return { presence: 'missing' };
+  const value = values[columnID];
+  if (value === null) return { presence: 'null', value: null };
+  if (value === false) return { presence: 'false', value: false };
+  if (value === 0) return { presence: 'zero', value: 0 };
+  if (value === '') return { presence: 'empty', value: '' };
+  return { presence: 'value', value };
+};
+
+export const shapeJ04Evidence = ({ columns, rows }) => {
+  if (!Array.isArray(columns) || columns.some((column) => !column?.id || !column?.name || !column?.logicalType)) throw new Error('J04 evidence columns must declare stable identity, name, and logical type');
+  if (new Set(columns.map((column) => column.id)).size !== columns.length) throw new Error('J04 evidence columns must have distinct stable identities');
+  if (!Array.isArray(rows)) throw new Error('J04 evidence rows must be an array');
+  const schema = columns.map(({ id, name, logicalType }) => ({ id, name, logicalType }));
+  const shapedRows = rows.map((row) => {
+    if (row?.rowId === undefined || row.rowId === null || !row.values || typeof row.values !== 'object' || Array.isArray(row.values)) throw new Error('J04 evidence rows must have a stable row identity and values object');
+    return {
+      rowId: row.rowId,
+      values: columns.map((column) => ({ columnId: column.id, ...j04ValueEvidence(row.values, column.id) })),
+    };
+  });
+  return { schema, rows: shapedRows };
+};
+
+export const compareJ04Evidence = (expected, actual) => {
+  const expectedEvidence = shapeJ04Evidence(expected);
+  const actualEvidence = shapeJ04Evidence(actual);
+  return { matches: j04ExactEqual(expectedEvidence, actualEvidence), expected: expectedEvidence, actual: actualEvidence };
+};
+
 const parseArtifactJSONMember = (members, name) => {
   const bytes = members.get(name);
   if (!bytes) throw new Error(`J05 artifact is missing ${name}`);
@@ -5461,6 +5601,247 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   }
 };
 
+const j04UnprovenAssertions = [
+  'j04-count-exists-min-max-mean-sum-match-literal-oracle',
+  'j04-earliest-latest-tie-and-window-exclusion-match-literal-oracle',
+  'j04-unit-normalization-preserves-zero-and-refuses-unsupported-units',
+  'j04-exact-recoding-honors-case-and-unknown-policy',
+  'j04-pivot-freezes-category-names-and-policies',
+  'j04-pivot-preserves-missing-null-false-zero-and-empty',
+  'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
+  'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
+  'j04-receipt-apply-and-stale-proposal-rejection-preserve-workspace-contract',
+  'j04-reload-preserves-stable-output-and-column-identities',
+  'j04-preview-viewer-and-downloaded-typed-artifact-agree-exactly',
+  'j04-unrelated-column-remains-literal',
+  'j04-contributor-exclusion-and-information-loss-evidence-is-exact',
+];
+
+const markJ04DownstreamUnproven = (report) => {
+  const detail = report.target.firstMissingDOMAction
+    ? 'The Builder route did not render the required UI04 editor action.'
+    : `The journey stopped before those assertions could run: ${report.error ?? 'setup did not complete'}`;
+  for (const name of j04UnprovenAssertions) {
+    if (report.assertions.some((assertion) => assertion.name === name)) continue;
+    report.assertions.push({ name, status: 'not-proven', detail });
+  }
+};
+
+const j04WorkspaceSnapshot = (state) => ({
+  draftVersion: state?.draftVersion,
+  draftDigest: state?.draftDigest,
+  semanticsVersion: state?.workspace?.semanticsVersion,
+  workspace: state?.workspace,
+});
+
+const j04EvidenceDocument = (report) => {
+  const missing = report.target.firstMissingDOMAction;
+  const lines = [
+    '# J04 browser verification evidence',
+    '',
+    `Status: ${report.status}`,
+    `Evidence directory: ${report.target.evidenceDirectory ?? '(not created)'}`,
+    `Fixture project: ${report.target.project ?? '(not created)'}`,
+    `Fixture generation: ${report.target.generation ?? '(unknown)'}`,
+    '',
+    missing
+      ? `First missing DOM action: ${missing.action} requires selector ${missing.selector}. ${missing.reason}`
+      : `First missing DOM action: ${report.error ?? 'none recorded'}`,
+    '',
+    'Assertions after the first missing action are marked not-proven in report.json.',
+    'The driver did not substitute API authoring for the missing Builder action.',
+  ];
+  return `${lines.join('\n')}\n`;
+};
+
+const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) => {
+  const evidenceDirectory = report.target.evidenceDirectory;
+  const downloadDirectory = join(evidenceDirectory, 'downloads');
+  mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
+  report.target.ports = { api: target.apiPort, ui: target.uiPort };
+  report.target.fixtureContract = 'j04-contract.fixture.json';
+  report.target.workspaceSnapshots = {};
+  report.target.capabilityIdentities = [];
+  report.target.proposalIdentities = [];
+  report.target.previewRows = null;
+  report.target.viewerRows = null;
+  report.target.downloadedTypedArtifact = null;
+  report.target.contributorEvidence = null;
+  report.target.exclusionEvidence = null;
+  report.target.informationLossEvidence = null;
+  report.target.appliedComparisonScreenshot = null;
+  const network = [];
+  let browser;
+  let cdp;
+  let failure;
+  const started = Date.now();
+  const captureDOM = async (name) => {
+    const path = join(evidenceDirectory, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+    return path;
+  };
+  const captureScreenshot = async (name) => {
+    const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const path = join(evidenceDirectory, `${name}.png`);
+    writeFileSync(path, Buffer.from(shot.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, path);
+    return path;
+  };
+  const action = async (name, operation) => {
+    const actionStarted = Date.now();
+    await operation();
+    report.actions ??= [];
+    report.actions.push({ name, elapsedMs: Date.now() - actionStarted });
+  };
+  const saveWorkspaceSnapshot = async (stage, explorerId) => {
+    const state = await fetchBuilderState(target, explorerId);
+    const snapshotValue = j04WorkspaceSnapshot(state);
+    report.target.workspaceSnapshots[stage] = snapshotValue;
+    const path = join(evidenceDirectory, `workspace-${stage}.json`);
+    writeJSON(path, snapshotValue);
+    recordEvidence(report, path);
+    return state;
+  };
+  const waitForColumnCount = async (explorerId, outputId, count) => {
+    const startedWaiting = Date.now();
+    while (Date.now() - startedWaiting < 60000) {
+      const state = await fetchBuilderState(target, explorerId);
+      const document = state.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
+      if (document?.columns?.length === count) return state;
+      await sleep(100);
+    }
+    throw new Error(`J04 Builder did not persist ${count} browser-authored base columns`);
+  };
+
+  try {
+    browser = await launchBrowser(downloadDirectory);
+    cdp = browser.cdp;
+    cdp.on('Network.requestWillBeSent', (event) => {
+      if (!event.request.url.includes('/authoring/v2/')) return;
+      network.push({ requestId: event.requestId, path: new URL(event.request.url).pathname, method: event.request.method });
+    });
+    cdp.on('Network.responseReceived', (event) => {
+      const item = network.find((candidate) => candidate.requestId === event.requestId);
+      if (item) item.status = event.response.status;
+    });
+    const explorerId = report.target.bootstrapExplorerId;
+    if (!explorerId) throw new Error('J04 fixture seed has no empty bootstrap Explorer identity');
+    report.target.explorerId = explorerId;
+    const before = await saveWorkspaceSnapshot('before', explorerId);
+    recordAssertion(report, 'j04-fixture-starts-with-an-empty-editor-workspace', 0, before.workspace?.documents?.length ?? 0);
+    const builderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+    await navigate(cdp, entryTarget.uiUrl);
+    await navigate(cdp, builderURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Create your first table')`, 60000);
+    await captureDOM('j04-builder-before');
+
+    await action('create-observation-table-in-builder', async () => {
+      await browserEval(cdp, `setInput('first-table-name', 'J04 measurements')`);
+      await browserEval(cdp, `clickButton('Create table')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose Observation rows"]'))`, 60000);
+      await browserEval(cdp, `clickButton('Choose Observation rows')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`, 60000);
+    });
+
+    let state = await fetchBuilderState(target, explorerId);
+    const root = state.catalog?.nodes?.find((node) => node.resourceType === 'Observation' && node.rowRootEligible);
+    const outputDocument = state.workspace?.documents?.find((document) => document.rootResourceType === 'Observation');
+    if (!root?.nodeId || !outputDocument?.output?.id) throw new Error('J04 Observation row selection did not create a saved output table');
+    const outputId = outputDocument.output.id;
+    report.target.outputId = outputId;
+    const candidatePath = (candidate) => String(candidate?.fieldPath ?? '').replace(/^root\./, '');
+    const fieldChoices = fixture.contract.baseColumns.map((column) => {
+      const candidate = state.catalog?.candidates?.find((item) => item.nodeId === root.nodeId && candidatePath(item) === column.path);
+      const options = candidate?.constructionChoice?.options ?? [];
+      const defaultOptions = options.filter((option) => option.decision === 'DEFAULT');
+      if (!candidate?.candidateId || candidate.constructionChoice?.source?.kind !== 'FIELD' || defaultOptions.length !== 1) {
+        throw new Error(`J04 cannot browser-author the required base field Observation.${column.path} from the saved catalog`);
+      }
+      return { ...column, candidate, selection: { choiceId: candidate.constructionChoice.choiceId, form: defaultOptions[0].form } };
+    });
+    report.target.capabilityIdentities = fieldChoices.map(({ path, candidate, selection }) => ({
+      path,
+      candidateId: candidate.candidateId,
+      choiceId: selection.choiceId,
+      form: selection.form,
+    }));
+    recordAssertion(report, 'j04-base-field-capability-identities-come-from-the-saved-catalog', fixture.contract.baseColumns.map((column) => column.path), fieldChoices.map((choice) => candidatePath(choice.candidate)));
+
+    await action('add-base-columns-through-visible-builder-controls', async () => {
+      for (let index = 0; index < fieldChoices.length; index += 1) {
+        const field = fieldChoices[index];
+        await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(field.path)})`);
+        await browserEval(cdp, `clickButton('Search')`);
+        await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Select Observation.${field.path}"]:not(:disabled)`)}))`, 60000);
+        await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select Observation.${field.path}`)}); if (!input || input.disabled) throw new Error('J04 visible field choice is unavailable: ' + ${JSON.stringify(field.path)}); input.click();`);
+        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+        state = await waitForColumnCount(explorerId, outputId, index + 1);
+      }
+    });
+
+    const authored = state.workspace?.documents?.find((document) => document.output?.id === outputId);
+    if (!authored) throw new Error('J04 browser-authored output disappeared from the saved workspace');
+    report.target.exactOutputSchemaColumns = authored.columns.map((column) => ({
+      id: column.column,
+      name: column.label,
+      position: column.table?.order,
+      source: {
+        kind: column.source?.kind,
+        path: column.source?.field?.path?.replace(/^root\./, ''),
+      },
+    }));
+    recordAssertion(report, 'j04-builder-saves-the-literal-browser-authored-base-column-identities', fixture.contract.baseColumns.map((column) => column.path), report.target.exactOutputSchemaColumns.map((column) => column.source.path));
+    await saveWorkspaceSnapshot('after-base-authoring', explorerId);
+    await captureDOM('j04-builder-base-authored');
+
+    const selector = '[data-testid="ui04-table-shape-editor"]';
+    const editorVisible = await evaluate(cdp, `Boolean(document.querySelector(${JSON.stringify(selector)}))`);
+    if (!editorVisible) {
+      const visibleShapeActions = await evaluate(cdp, `([...document.querySelectorAll('button')].map((button) => button.textContent.trim()).filter((label) => /shape|reshape|pivot|transform/i.test(label)))`);
+      report.target.firstMissingDOMAction = {
+        action: 'open-ui04-table-shape-editor',
+        selector,
+        reason: 'The saved-table Builder route has no visible action that renders the UI04 table-shape editor.',
+        visibleShapeActions,
+        baseColumnCount: authored.columns.length,
+      };
+      report.assertions.push({ name: 'j04-builder-renders-the-ui04-table-shape-editor-after-base-authoring', status: 'failed', expected: selector, actual: null });
+      markJ04DownstreamUnproven(report);
+      throw new Error(`J04 first missing DOM action: Builder does not render the Table shape editor ${selector} after ${authored.columns.length} base columns were authored through visible controls`);
+    }
+    throw new Error('J04 verifier reached the UI04 table-shape editor, but the downstream browser workflow is not implemented');
+  } catch (error) {
+    failure = error;
+    report.status = 'failed';
+    report.error = error instanceof Error ? error.message : String(error);
+    if (report.target.firstMissingDOMAction) markJ04DownstreamUnproven(report);
+    throw error;
+  } finally {
+    if (cdp) {
+      try { await captureDOM('j04-failure-dom'); } catch {}
+      try { report.target.failureScreenshot = await captureScreenshot('j04-failure'); } catch {}
+      try {
+        const explorerId = report.target.explorerId ?? report.target.bootstrapExplorerId;
+        if (explorerId) await saveWorkspaceSnapshot('after', explorerId);
+      } catch (error) {
+        report.target.afterWorkspaceError = String(error);
+      }
+      try { await browser.close(); } catch {}
+    }
+    report.target.networkSummary = network.map((item) => ({ path: item.path, method: item.method, status: item.status }));
+    const networkPath = join(evidenceDirectory, 'network-summary.json');
+    writeJSON(networkPath, report.target.networkSummary);
+    recordEvidence(report, networkPath);
+    report.timings.j04_browser_journey_ms = Date.now() - started;
+    if (failure && !report.target.firstMissingDOMAction) markJ04DownstreamUnproven(report);
+    const evidenceDoc = join(evidenceDirectory, 'J04-evidence.md');
+    writeFileSync(evidenceDoc, j04EvidenceDocument(report), { mode: 0o600 });
+    recordEvidence(report, evidenceDoc);
+    writeJSON(join(evidenceDirectory, 'report.json'), report);
+  }
+};
+
 const cleanup = async (target, purge = false) => {
   await inspectOwnedResources(target);
   const args = ['down', '--remove-orphans'];
@@ -5480,7 +5861,8 @@ const main = async (argv) => {
     command === 'verify-current' ? 'current-builder-hotreload'
       : command === 'verify-j01' ? j01Scenario
         : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
-          : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
+      : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
+            : command === 'verify-j04' ? 'S04-J04-values-time-shape-typed-pivot-derived'
             : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
           : undefined);
   let activeReport = report;
@@ -5536,7 +5918,14 @@ const main = async (argv) => {
       activeReport = verificationReport;
       verificationReport.timings.startup_ms = report.timings.startup_ms;
       verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      const seed = await seedFixture(verificationTarget, {
+        requireFresh: true,
+        populateBootstrap: false,
+        fixtureManifest: {
+          files: [{ name: 'j04-records.ndjson', contents: readFileSync(join(verificationTarget.fixtureDir, fixture.contract.sourceFile)) }],
+          summary: { sourceFile: fixture.contract.sourceFile, sourceRecords: fixture.sourceRecords.length },
+        },
+      });
       if (seed.reused || !seed.fresh) throw new Error(`J02 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
       verificationReport.target.fixtureSeed = 'seeded';
       verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
@@ -5584,6 +5973,45 @@ const main = async (argv) => {
       } finally {
         rmSync(j03FixtureDirectory, { recursive: true, force: true });
       }
+      return;
+    }
+    if (command === 'verify-j04') {
+      const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+      const verificationTarget = createVerificationTarget(target, runID);
+      const verificationReport = createVerificationReport(verificationTarget, 'S04-J04-values-time-shape-typed-pivot-derived');
+      activeReport = verificationReport;
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      verificationReport.target.evidenceDirectory = join(verificationTarget.artifacts, runID);
+      mkdirSync(verificationReport.target.evidenceDirectory, { recursive: true, mode: 0o700 });
+      recordEvidence(verificationReport, verificationReport.target.evidenceDirectory);
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+
+      const fixture = loadJ04FixtureContract(verificationTarget.fixtureDir);
+      verificationReport.target.fixtureContractSummary = {
+        sourceFile: fixture.contract.sourceFile,
+        sourceRecords: fixture.contract.sourceRecords,
+        baseColumns: fixture.contract.baseColumns,
+        expectedAggregateRows: fixture.contract.expectedAggregates.length,
+        normalizationCases: fixture.contract.normalizationRefusalCases.length,
+        pivotCategories: fixture.contract.pivot.categories,
+      };
+      await ensureDev(target, report);
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J04 fixture project was not freshly seeded with an empty Explorer: ${verificationTarget.fixtureProject}`);
+      verificationReport.target.fixtureSeed = 'seeded';
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(verificationReport, 'j04-seeds-a-fresh-isolated-project-with-an-empty-builder', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && !seed.bootstrapWorkspace?.workspace?.documents?.length);
+      await verifyJ04BrowserScenario(verificationTarget, verificationReport, target, fixture);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeFileSync(join(verificationReport.target.evidenceDirectory, 'J04-evidence.md'), j04EvidenceDocument(verificationReport), { mode: 0o600 });
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+      console.log(`DEV_J04_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
       return;
     }
     if (command === 'verify-j05') {
@@ -5668,10 +6096,16 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j05, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j05, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);
+    if (activeReport.scenario === 'S04-J04-values-time-shape-typed-pivot-derived' && activeReport.target.evidenceDirectory) {
+      markJ04DownstreamUnproven(activeReport);
+      const evidenceDoc = join(activeReport.target.evidenceDirectory, 'J04-evidence.md');
+      try { writeFileSync(evidenceDoc, j04EvidenceDocument(activeReport), { mode: 0o600 }); } catch {}
+      if (!activeReport.evidencePaths.includes(evidenceDoc)) recordEvidence(activeReport, evidenceDoc);
+    }
     if (activeReport.target.evidenceDirectory) writeJSON(join(activeReport.target.evidenceDirectory, 'report.json'), activeReport);
     try { writeJSON(join(activeReport.target.artifacts ?? target.artifacts, 'report.json'), activeReport); } catch { /* Keep the original command error. */ }
     console.error(`DEV_VERIFY_FAILED ${activeReport.error}`);
