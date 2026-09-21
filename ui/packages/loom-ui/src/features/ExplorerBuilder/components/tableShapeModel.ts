@@ -32,6 +32,59 @@ export type MissingInputPolicyChoice = ServerChoice<'missingInputPolicy'>;
 export type DivisionByZeroPolicyChoice = ServerChoice<'divisionByZeroPolicy'>;
 export type UnpivotNullRowPolicyChoice = ServerChoice<'unpivotNullRowPolicy'>;
 export type OperandChoice = ServerChoice<'operand'>;
+export type NumericLiteralRepresentation = 'integer' | 'decimal';
+
+export type PivotOutputReference =
+  | {
+      readonly kind: 'group';
+      readonly column: ChoiceReference<'column'>;
+    }
+  | {
+      readonly kind: 'category';
+      readonly category: ChoiceReference<'pivotCategory'>;
+    };
+
+export interface PivotOutputChoice {
+  readonly reference: PivotOutputReference;
+  readonly label: string;
+}
+
+export type DerivedOperandDraft =
+  | {
+      readonly kind: 'base';
+      readonly reference: ChoiceReference<'operand'> | null;
+    }
+  | {
+      readonly kind: 'derived';
+      readonly localId: string | null;
+    }
+  | {
+      readonly kind: 'pivotOutput';
+      readonly reference: PivotOutputReference | null;
+    }
+  | {
+      readonly kind: 'literal';
+      readonly text: string;
+    };
+
+export type DerivedOperandIntent =
+  | {
+      readonly kind: 'base';
+      readonly reference: ChoiceReference<'operand'>;
+    }
+  | {
+      readonly kind: 'derived';
+      readonly localId: string;
+    }
+  | {
+      readonly kind: 'pivotOutput';
+      readonly reference: PivotOutputReference;
+    }
+  | {
+      readonly kind: 'literal';
+      readonly representation: NumericLiteralRepresentation;
+      readonly text: string;
+    };
 
 export interface OutputNameSuggestion<Kind extends string> extends ServerChoice<Kind> {
   readonly suggestedOutput: OutputNameDraft;
@@ -125,10 +178,11 @@ export interface UnpivotProposal {
 }
 
 interface DerivedColumnProposalBase {
+  readonly localId: string;
   readonly output: OutputNameDraft;
   readonly operator: ChoiceReference<'binaryOperator'>;
-  readonly leftOperand: ChoiceReference<'operand'>;
-  readonly rightOperand: ChoiceReference<'operand'>;
+  readonly leftOperand: DerivedOperandIntent;
+  readonly rightOperand: DerivedOperandIntent;
   readonly missingInputPolicy: ChoiceReference<'missingInputPolicy'>;
 }
 
@@ -178,8 +232,8 @@ export interface DerivedColumnFormState {
   readonly localId: string;
   readonly output: OutputNameDraft;
   readonly operator: ChoiceReference<'binaryOperator'> | null;
-  readonly leftOperand: ChoiceReference<'operand'> | null;
-  readonly rightOperand: ChoiceReference<'operand'> | null;
+  readonly leftOperand: DerivedOperandDraft;
+  readonly rightOperand: DerivedOperandDraft;
   readonly missingInputPolicy: ChoiceReference<'missingInputPolicy'> | null;
   readonly divisionByZeroPolicy: ChoiceReference<'divisionByZeroPolicy'> | null;
 }
@@ -192,6 +246,8 @@ export interface TableShapeFormState {
 }
 
 export const emptyOutputName = (): OutputNameDraft => ({ column: '', label: '' });
+
+export const emptyOperandDraft = (): DerivedOperandDraft => ({ kind: 'base', reference: null });
 
 export const emptyPivot = (): PivotFormState => ({
   groupColumns: [],
@@ -220,6 +276,57 @@ export const choiceFor = <Choice extends ServerChoice<string>>(
 ): Choice | undefined =>
   reference ? choices.find((choice) => choice.choiceId === reference.choiceId) : undefined;
 
+export const pivotOutputReferenceKey = (reference: PivotOutputReference): string => {
+  switch (reference.kind) {
+    case 'group':
+      return `group:${reference.column.choiceId}`;
+    case 'category':
+      return `category:${reference.category.choiceId}`;
+    default: {
+      const exhaustive: never = reference;
+      return exhaustive;
+    }
+  }
+};
+
+export const samePivotOutputReference = (
+  left: PivotOutputReference,
+  right: PivotOutputReference,
+): boolean => {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === 'group' && right.kind === 'group') {
+    return sameChoiceReference(left.column, right.column);
+  }
+  if (left.kind === 'category' && right.kind === 'category') {
+    return sameChoiceReference(left.category, right.category);
+  }
+  return false;
+};
+
+export const pivotOutputChoicesFor = (
+  pivot: PivotFormState,
+  choices: TableShapeEditorChoices,
+): ReadonlyArray<PivotOutputChoice> => {
+  const groupOutputs = pivot.groupColumns.map((column, index) => ({
+    reference: { kind: 'group', column } satisfies PivotOutputReference,
+    label: `Group output: ${choiceFor(choices.groupColumns, column)?.label ?? `Group column ${index + 1}`}`,
+  }));
+  const categoryOutputs = pivot.includedCategories.map((selection, index) => {
+    const serverCategory = choices.pivotCategoryDiscovery.kind === 'complete'
+      ? choices.pivotCategoryDiscovery.categories.find(
+          (category) => category.choiceId === selection.category.choiceId,
+        )
+      : undefined;
+    const outputLabel = selection.output.column.trim() || selection.output.label.trim() ||
+      serverCategory?.label || `Category output ${index + 1}`;
+    return {
+      reference: { kind: 'category', category: selection.category } satisfies PivotOutputReference,
+      label: `Category output: ${outputLabel}`,
+    };
+  });
+  return [...groupOutputs, ...categoryOutputs];
+};
+
 export const sameChoiceReference = <Kind extends string>(
   left: ChoiceReference<Kind> | null,
   right: ChoiceReference<Kind> | null,
@@ -236,12 +343,12 @@ export const samePivotPair = (left: PivotCategoryPair, right: PivotCategoryPair)
   sameChoiceReference(left.valueColumn, right.valueColumn);
 
 export const proposalIntentToForm = (intent: TableShapeProposalIntent): TableShapeFormState => {
-  const derivedColumns = intent.derivedColumns.map((derivedColumn, index) => ({
-    localId: `saved-${index + 1}`,
+  const derivedColumns = intent.derivedColumns.map((derivedColumn) => ({
+    localId: derivedColumn.localId,
     output: derivedColumn.output,
     operator: derivedColumn.operator,
-    leftOperand: derivedColumn.leftOperand,
-    rightOperand: derivedColumn.rightOperand,
+    leftOperand: operandDraftFor(derivedColumn.leftOperand),
+    rightOperand: operandDraftFor(derivedColumn.rightOperand),
     missingInputPolicy: derivedColumn.missingInputPolicy,
     divisionByZeroPolicy: derivedColumn.divisionByZeroPolicy ?? null,
   }));
@@ -308,34 +415,136 @@ const outputNamesAreCompleteAndUnique = (
     new Set(normalizedColumns).size === normalizedColumns.length;
 };
 
+const operandDraftFor = (operand: DerivedOperandIntent): DerivedOperandDraft => {
+  switch (operand.kind) {
+    case 'base':
+      return { kind: 'base', reference: operand.reference };
+    case 'derived':
+      return { kind: 'derived', localId: operand.localId };
+    case 'pivotOutput':
+      return { kind: 'pivotOutput', reference: operand.reference };
+    case 'literal':
+      return { kind: 'literal', text: operand.text };
+    default: {
+      const exhaustive: never = operand;
+      return exhaustive;
+    }
+  }
+};
+
+const numericLiteralFor = (draft: Extract<DerivedOperandDraft, { readonly kind: 'literal' }>): DerivedOperandIntent | undefined => {
+  const text = draft.text.trim();
+  if (text === '' || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) {
+    return undefined;
+  }
+  const value = Number(text);
+  if (!Number.isFinite(value)) return undefined;
+
+  const representation: NumericLiteralRepresentation = /[.eE]/.test(text) ? 'decimal' : 'integer';
+  if (representation === 'integer' && !Number.isInteger(value)) return undefined;
+  return { kind: 'literal', representation, text };
+};
+
+const derivedColumnIdsAreUnique = (columns: ReadonlyArray<DerivedColumnFormState>): boolean => {
+  const localIds = columns.map((column) => column.localId.trim());
+  return localIds.every((localId) => localId !== '') &&
+    new Set(localIds).size === localIds.length;
+};
+
+const operandIntentFor = ({
+  operand,
+  columnIndex,
+  columns,
+  mode,
+  pivot,
+  choices,
+}: {
+  readonly operand: DerivedOperandDraft;
+  readonly columnIndex: number;
+  readonly columns: ReadonlyArray<DerivedColumnFormState>;
+  readonly mode: ReshapeMode;
+  readonly pivot: PivotFormState;
+  readonly choices: TableShapeEditorChoices;
+}): DerivedOperandIntent | undefined => {
+  switch (operand.kind) {
+    case 'base': {
+      if (mode === 'GROUPED_PIVOT') return undefined;
+      const choice = choiceFor(choices.operands, operand.reference);
+      return choice?.availability.kind === 'supported'
+        ? { kind: 'base', reference: referenceFor(choice) }
+        : undefined;
+    }
+    case 'derived': {
+      if (operand.localId === null) return undefined;
+      const referencedIndex = columns.findIndex((column) => column.localId === operand.localId);
+      return referencedIndex >= 0 && referencedIndex < columnIndex
+        ? { kind: 'derived', localId: operand.localId }
+        : undefined;
+    }
+    case 'pivotOutput': {
+      const reference = operand.reference;
+      if (reference === null || mode !== 'GROUPED_PIVOT') return undefined;
+      const isSelected = reference.kind === 'group'
+        ? pivot.groupColumns.some((column) => sameChoiceReference(column, reference.column))
+        : pivot.includedCategories.some((selection) =>
+            sameChoiceReference(selection.category, reference.category),
+          );
+      return isSelected ? { kind: 'pivotOutput', reference } : undefined;
+    }
+    case 'literal':
+      return numericLiteralFor(operand);
+    default: {
+      const exhaustive: never = operand;
+      return exhaustive;
+    }
+  }
+};
+
 const derivedProposalsFor = (
   form: TableShapeFormState,
   choices: TableShapeEditorChoices,
+  mode: ReshapeMode,
 ): ReadonlyArray<DerivedColumnProposal> | undefined => {
   if (form.derivedColumns.length > 0 && choices.derivedAvailability.kind === 'unsupported') {
     return undefined;
   }
+  if (!derivedColumnIdsAreUnique(form.derivedColumns)) return undefined;
 
   const result: DerivedColumnProposal[] = [];
-  for (const derivedColumn of form.derivedColumns) {
+  for (const [columnIndex, derivedColumn] of form.derivedColumns.entries()) {
     const operator = choiceFor(choices.binaryOperators, derivedColumn.operator);
-    const leftOperand = choiceFor(choices.operands, derivedColumn.leftOperand);
-    const rightOperand = choiceFor(choices.operands, derivedColumn.rightOperand);
+    const leftOperand = operandIntentFor({
+      operand: derivedColumn.leftOperand,
+      columnIndex,
+      columns: form.derivedColumns,
+      mode,
+      pivot: form.pivot,
+      choices,
+    });
+    const rightOperand = operandIntentFor({
+      operand: derivedColumn.rightOperand,
+      columnIndex,
+      columns: form.derivedColumns,
+      mode,
+      pivot: form.pivot,
+      choices,
+    });
     const missingInputPolicy = choiceFor(choices.missingInputPolicies, derivedColumn.missingInputPolicy);
     if (
       !operator || operator.availability.kind !== 'supported' ||
-      !leftOperand || leftOperand.availability.kind !== 'supported' ||
-      !rightOperand || rightOperand.availability.kind !== 'supported' ||
+      !leftOperand ||
+      !rightOperand ||
       !missingInputPolicy || missingInputPolicy.availability.kind !== 'supported'
     ) {
       return undefined;
     }
 
     const base = {
+      localId: derivedColumn.localId,
       output: derivedColumn.output,
       operator: referenceFor(operator),
-      leftOperand: referenceFor(leftOperand),
-      rightOperand: referenceFor(rightOperand),
+      leftOperand,
+      rightOperand,
       missingInputPolicy: referenceFor(missingInputPolicy),
     };
 
@@ -368,7 +577,7 @@ export const proposalIntentFor = ({
 }): TableShapeProposalIntent | undefined => {
   const modeChoice = choiceFor(choices.reshapeModes, form.mode);
   if (!modeChoice || modeChoice.availability.kind !== 'supported' || !form.mode) return undefined;
-  const derivedColumns = derivedProposalsFor(form, choices);
+  const derivedColumns = derivedProposalsFor(form, choices, modeChoice.mode);
   if (!derivedColumns) return undefined;
 
   switch (modeChoice.mode) {

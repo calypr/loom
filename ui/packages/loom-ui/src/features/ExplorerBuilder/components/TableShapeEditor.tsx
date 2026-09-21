@@ -12,7 +12,13 @@ import type {
   TableShapeEditorChoices,
   TableShapeProposalIntent,
 } from './tableShapeModel';
-import { choiceFor, proposalIntentFor, proposalIntentToForm, samePivotPair } from './tableShapeModel';
+import {
+  choiceFor,
+  emptyOperandDraft,
+  proposalIntentFor,
+  proposalIntentToForm,
+  samePivotPair,
+} from './tableShapeModel';
 
 interface PendingCategoryRequest {
   readonly pair: PivotCategoryPair;
@@ -123,6 +129,30 @@ export const TableShapeEditor = ({
     onCancel();
   };
 
+  const addDerivedColumn = () => {
+    let localId = `draft-${nextLocalId.current++}`;
+    while (latestForm.current.derivedColumns.some((column) => column.localId === localId)) {
+      localId = `draft-${nextLocalId.current++}`;
+    }
+    setForm((previous) => ({
+      ...previous,
+      derivedColumns: [...previous.derivedColumns, {
+        localId,
+        output: withOutputSuggestions(
+          { column: '', label: '' },
+          choices.derivedOutputSuggestions.find(
+            (suggestion) => suggestion.availability.kind === 'supported',
+          )?.suggestedOutput,
+        ),
+        operator: null,
+        leftOperand: emptyOperandDraft(),
+        rightOperand: emptyOperandDraft(),
+        missingInputPolicy: null,
+        divisionByZeroPolicy: null,
+      }],
+    }));
+  };
+
   return (
     <section aria-label="Table shape editor" data-testid="ui04-table-shape-editor" className="grid gap-4 rounded-xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm">
       <div>
@@ -181,26 +211,11 @@ export const TableShapeEditor = ({
       <DerivedColumnsEditor
         columns={form.derivedColumns}
         mode={modeChoice?.mode}
+        pivot={form.pivot}
         choices={choices}
         disabled={disabled}
         onChange={(derivedColumns) => setForm((previous) => ({ ...previous, derivedColumns }))}
-        onAdd={() => setForm((previous) => ({
-          ...previous,
-          derivedColumns: [...previous.derivedColumns, {
-            localId: `draft-${nextLocalId.current++}`,
-            output: withOutputSuggestions(
-              { column: '', label: '' },
-              choices.derivedOutputSuggestions.find(
-                (suggestion) => suggestion.availability.kind === 'supported',
-              )?.suggestedOutput,
-            ),
-            operator: null,
-            leftOperand: null,
-            rightOperand: null,
-            missingInputPolicy: null,
-            divisionByZeroPolicy: null,
-          }],
-        }))}
+        onAdd={addDerivedColumn}
       />
 
       <div className="flex flex-wrap justify-end gap-2">
@@ -236,9 +251,11 @@ const formPair = (form: ReturnType<typeof proposalIntentToForm>): PivotCategoryP
 export type {
   ChoiceAvailability,
   ChoiceReference,
+  DerivedOperandIntent,
   OutputNameDraft,
   PivotCategoryDiscovery,
   PivotCategoryPair,
+  PivotOutputReference,
   ReshapeMode,
   ServerChoice,
   TableShapeEditorChoices,

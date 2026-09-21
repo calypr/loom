@@ -12,6 +12,12 @@ import {
   type TableShapeEditorChoices,
   type TableShapeProposalIntent,
 } from './TableShapeEditor';
+import { proposalIntentFor, proposalIntentToForm } from './tableShapeModel';
+import type {
+  DerivedColumnFormState,
+  PivotCategorySelection,
+  TableShapeFormState,
+} from './tableShapeModel';
 
 const supported: ChoiceAvailability = { kind: 'supported' };
 
@@ -125,7 +131,11 @@ const choices: TableShapeEditorChoices = {
     { ...choice('binaryOperator', 'divide', 'Divide'), requiresDivisionByZeroPolicy: true },
     { ...choice('binaryOperator', 'add', 'Add'), requiresDivisionByZeroPolicy: false },
   ],
-  operands: [choice('operand', 'weight-kg', 'Weight in kilograms'), choice('operand', 'height-m', 'Height in meters')],
+  operands: [
+    choice('operand', 'weight-kg', 'Weight in kilograms'),
+    choice('operand', 'height-m', 'Height in meters'),
+    choice('operand', 'count-rows', 'Count of rows'),
+  ],
   missingInputPolicies: [choice('missingInputPolicy', 'propagate-null', 'Propagate null')],
   divisionByZeroPolicies: [choice('divisionByZeroPolicy', 'zero-error', 'Report division by zero')],
 };
@@ -136,15 +146,35 @@ const savedProposalIntent: TableShapeProposalIntent = {
   derivedColumns: [],
 };
 
+const savedDerivedIntent = (): TableShapeProposalIntent => ({
+  kind: 'NONE',
+  reshapeMode: { kind: 'reshapeMode', choiceId: 'shape-none' },
+  derivedColumns: [{
+    localId: 'saved-sum-plus-count',
+    output: { column: 'sum_plus_count', label: 'Sum plus count' },
+    operator: { kind: 'binaryOperator', choiceId: 'add' },
+    leftOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'weight-kg' } },
+    rightOperand: { kind: 'literal', representation: 'decimal', text: '0.50' },
+    missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+  }, {
+    localId: 'saved-plus-one',
+    output: { column: 'sum_plus_count_plus_one', label: 'Sum plus count plus one' },
+    operator: { kind: 'binaryOperator', choiceId: 'add' },
+    leftOperand: { kind: 'derived', localId: 'saved-sum-plus-count' },
+    rightOperand: { kind: 'literal', representation: 'integer', text: '1' },
+    missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+  }],
+});
+
 const renderEditor = (options: {
   readonly availableChoices?: TableShapeEditorChoices;
   readonly proposalIntent?: TableShapeProposalIntent;
   readonly proposalKey?: string;
   readonly recoverableError?: string;
 } = {}) => {
-  const onApply = vi.fn();
-  const onCancel = vi.fn();
-  const onRequestCategoryDiscovery = vi.fn();
+  const onApply = vi.fn<(proposalIntent: TableShapeProposalIntent) => void>();
+  const onCancel = vi.fn<() => void>();
+  const onRequestCategoryDiscovery = vi.fn<(pair: PivotCategoryPair) => void>();
   const view = render(
     <TableShapeEditor
       savedProposalKey={options.proposalKey ?? 'saved-1'}
@@ -175,6 +205,49 @@ const selectedValue = (label: string): string | undefined => {
 const inputValue = (label: string): string | undefined => {
   const element = screen.getByRole('textbox', { name: label });
   return element instanceof HTMLInputElement ? element.value : undefined;
+};
+
+const selectByTestId = (testId: string, value: string) => {
+  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+};
+
+const selectedTestValue = (testId: string): string | undefined => {
+  const element = screen.getByTestId(testId);
+  return element instanceof HTMLSelectElement ? element.value : undefined;
+};
+
+const testInputValue = (testId: string): string | undefined => {
+  const element = screen.getByTestId(testId);
+  return element instanceof HTMLInputElement ? element.value : undefined;
+};
+
+const valueForOption = (testId: string, label: string): string => {
+  const element = screen.getByTestId(testId);
+  if (!(element instanceof HTMLSelectElement)) throw new Error(`${testId} is not a select`);
+  const option = Array.from(element.options).find((item) => item.textContent === label);
+  if (!option) throw new Error(`${label} is not an option in ${testId}`);
+  return option.value;
+};
+
+const selectOptionByLabel = (testId: string, label: string) => {
+  const value = valueForOption(testId, label);
+  selectByTestId(testId, value);
+  return value;
+};
+
+const completeBaseDerivedColumn = (
+  index: number,
+  outputColumn: string,
+  outputLabel: string,
+  leftOperand = 'weight-kg',
+  rightOperand = 'height-m',
+) => {
+  enterText(`Derived column ${index} output column`, outputColumn);
+  enterText(`Derived column ${index} output label`, outputLabel);
+  selectOption(`Derived column ${index} operation`, 'add');
+  selectOption(`Derived column ${index} first operand`, leftOperand);
+  selectOption(`Derived column ${index} second operand`, rightOperand);
+  selectOption(`Derived column ${index} missing-input policy`, 'propagate-null');
 };
 
 const selectPivotPolicies = () => {
@@ -217,6 +290,28 @@ const savedPivotIntent = (): TableShapeProposalIntent => ({
   },
   derivedColumns: [],
 });
+
+const savedPivotIntentWithTwoCategories = (): Extract<
+  TableShapeProposalIntent,
+  { readonly kind: 'GROUPED_PIVOT' }
+> => {
+  const intent = savedPivotIntent();
+  if (intent.kind !== 'GROUPED_PIVOT') throw new Error('Expected a grouped pivot intent');
+  const includedCategories: readonly [PivotCategorySelection, ...PivotCategorySelection[]] = [{
+    category: { kind: 'pivotCategory', choiceId: 'category-sys' },
+    output: { column: 'alpha', label: 'Alpha output' },
+  }, {
+    category: { kind: 'pivotCategory', choiceId: 'category-dia' },
+    output: { column: 'zero', label: 'Zero output' },
+  }];
+  return {
+    ...intent,
+    pivot: {
+      ...intent.pivot,
+      includedCategories,
+    },
+  };
+};
 
 describe('TableShapeEditor', () => {
   afterEach(cleanup);
@@ -459,7 +554,9 @@ describe('TableShapeEditor', () => {
     selectOption('Derived column 1 first operand', 'weight-kg');
     selectOption('Derived column 1 second operand', 'height-m');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
     selectOption('Derived column 1 division-by-zero policy', 'zero-error');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
 
@@ -467,14 +564,391 @@ describe('TableShapeEditor', () => {
       kind: 'NONE',
       reshapeMode: { kind: 'reshapeMode', choiceId: 'shape-none' },
       derivedColumns: [{
+        localId: 'draft-0',
         output: { column: 'bmi_calculated', label: 'BMI calculated' },
         operator: { kind: 'binaryOperator', choiceId: 'divide' },
-        leftOperand: { kind: 'operand', choiceId: 'weight-kg' },
-        rightOperand: { kind: 'operand', choiceId: 'height-m' },
+        leftOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'weight-kg' } },
+        rightOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'height-m' } },
         missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
         divisionByZeroPolicy: { kind: 'divisionByZeroPolicy', choiceId: 'zero-error' },
       }],
     });
+  });
+
+  it('lets a later derived column use sum_plus_count plus the integer literal 1', () => {
+    const { onApply } = renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    completeBaseDerivedColumn(1, 'sum_plus_count', 'Sum plus count', 'weight-kg', 'count-rows');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 2 output column', 'sum_plus_count_plus_one');
+    enterText('Derived column 2 output label', 'Sum plus count plus one');
+    selectOption('Derived column 2 operation', 'add');
+    selectOption('Derived column 2 first operand source', 'derived');
+    selectOptionByLabel('ui04-derived-left-operand-2-derived', 'sum_plus_count');
+    selectOption('Derived column 2 second operand source', 'literal');
+    enterText('Derived column 2 second operand numeric literal', '1');
+    selectOption('Derived column 2 missing-input policy', 'propagate-null');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+
+    const intent = onApply.mock.calls[0]?.[0];
+    if (!intent || intent.kind !== 'NONE') throw new Error('Expected a table shape proposal');
+    const [sumPlusCount, sumPlusOne] = intent.derivedColumns;
+    expect(sumPlusCount?.output.column).toBe('sum_plus_count');
+    expect(sumPlusOne?.output.column).toBe('sum_plus_count_plus_one');
+    expect(sumPlusOne?.leftOperand).toEqual({ kind: 'derived', localId: sumPlusCount?.localId });
+    expect(sumPlusOne?.rightOperand).toEqual({
+      kind: 'literal',
+      representation: 'integer',
+      text: '1',
+    });
+  });
+
+  it('preserves integer zero, decimal 0.5, and exact large-integer literal text', () => {
+    const { onApply } = renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 1 output column', 'zero_plus_fraction');
+    enterText('Derived column 1 output label', 'Zero plus fraction');
+    selectOption('Derived column 1 operation', 'add');
+    selectOption('Derived column 1 first operand source', 'literal');
+    enterText('Derived column 1 first operand numeric literal', '0');
+    selectOption('Derived column 1 second operand source', 'literal');
+    enterText('Derived column 1 second operand numeric literal', '0.5');
+    selectOption('Derived column 1 missing-input policy', 'propagate-null');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    completeBaseDerivedColumn(2, 'large_integer', 'Large integer');
+    selectOption('Derived column 2 first operand source', 'literal');
+    enterText('Derived column 2 first operand numeric literal', '9007199254740993');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+
+    const intent = onApply.mock.calls[0]?.[0];
+    if (!intent || intent.kind !== 'NONE') throw new Error('Expected a table shape proposal');
+    expect(intent.derivedColumns[0]?.leftOperand).toEqual({
+      kind: 'literal',
+      representation: 'integer',
+      text: '0',
+    });
+    expect(intent.derivedColumns[0]?.rightOperand).toEqual({
+      kind: 'literal',
+      representation: 'decimal',
+      text: '0.5',
+    });
+    expect(intent.derivedColumns[1]?.leftOperand).toEqual({
+      kind: 'literal',
+      representation: 'integer',
+      text: '9007199254740993',
+    });
+  });
+
+  it('rejects a non-finite numeric literal until it is repaired', () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 1 output column', 'finite_check');
+    enterText('Derived column 1 output label', 'Finite check');
+    selectOption('Derived column 1 operation', 'add');
+    selectOption('Derived column 1 first operand source', 'literal');
+    enterText('Derived column 1 first operand numeric literal', '1e999');
+    selectOption('Derived column 1 second operand', 'weight-kg');
+    selectOption('Derived column 1 missing-input policy', 'propagate-null');
+
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+
+    enterText('Derived column 1 first operand numeric literal', '1e2');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('rejects a forward derived-column reference in proposal intent construction', () => {
+    const initialForm = proposalIntentToForm(savedProposalIntent);
+    const derivedColumns: ReadonlyArray<DerivedColumnFormState> = [{
+      localId: 'first-row',
+      output: { column: 'first_result', label: 'First result' },
+      operator: { kind: 'binaryOperator', choiceId: 'add' },
+      leftOperand: { kind: 'derived', localId: 'later-row' },
+      rightOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'weight-kg' } },
+      missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+      divisionByZeroPolicy: null,
+    }, {
+      localId: 'later-row',
+      output: { column: 'later_result', label: 'Later result' },
+      operator: { kind: 'binaryOperator', choiceId: 'add' },
+      leftOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'weight-kg' } },
+      rightOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'height-m' } },
+      missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+      divisionByZeroPolicy: null,
+    }];
+    const form: TableShapeFormState = { ...initialForm, derivedColumns };
+
+    expect(proposalIntentFor({
+      form,
+      choices,
+      categoryDiscovery: { kind: 'not-requested' },
+    })).toBeUndefined();
+  });
+
+  it('lets derived columns choose two current pivot category outputs by their server references', () => {
+    const savedIntent = savedPivotIntentWithTwoCategories();
+    const { onApply } = renderEditor({
+      proposalIntent: savedIntent,
+      availableChoices: completeChoices(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 1 output column', 'alpha_plus_zero');
+    enterText('Derived column 1 output label', 'Alpha plus zero');
+    selectOption('Derived column 1 operation', 'add');
+    selectOption('Derived column 1 first operand source', 'pivotOutput');
+    selectOptionByLabel('ui04-derived-left-operand-1-pivot-output', 'Category output: alpha');
+    selectOption('Derived column 1 second operand source', 'pivotOutput');
+    selectOptionByLabel('ui04-derived-right-operand-1-pivot-output', 'Category output: zero');
+    selectOption('Derived column 1 missing-input policy', 'propagate-null');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+
+    const intent = onApply.mock.calls[0]?.[0];
+    if (!intent || intent.kind !== 'GROUPED_PIVOT') throw new Error('Expected a grouped pivot proposal');
+    expect(intent.pivot.includedCategories.map((selection) => selection.output.column))
+      .toEqual(['alpha', 'zero']);
+    expect(intent.derivedColumns[0]?.output.column).toBe('alpha_plus_zero');
+    expect(intent.derivedColumns[0]?.leftOperand).toEqual({
+      kind: 'pivotOutput',
+      reference: {
+        kind: 'category',
+        category: { kind: 'pivotCategory', choiceId: 'category-sys' },
+      },
+    });
+    expect(intent.derivedColumns[0]?.rightOperand).toEqual({
+      kind: 'pivotOutput',
+      reference: {
+        kind: 'category',
+        category: { kind: 'pivotCategory', choiceId: 'category-dia' },
+      },
+    });
+  });
+
+  it('supports pivot outputs, earlier derived outputs, and numeric literals after grouped pivot', () => {
+    const { onApply } = renderEditor({
+      proposalIntent: savedPivotIntentWithTwoCategories(),
+      availableChoices: completeChoices(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 1 output column', 'alpha_plus_one');
+    enterText('Derived column 1 output label', 'Alpha plus one');
+    selectOption('Derived column 1 operation', 'add');
+    selectOption('Derived column 1 first operand source', 'pivotOutput');
+    selectOptionByLabel('ui04-derived-left-operand-1-pivot-output', 'Category output: alpha');
+    selectOption('Derived column 1 second operand source', 'literal');
+    enterText('Derived column 1 second operand numeric literal', '1');
+    selectOption('Derived column 1 missing-input policy', 'propagate-null');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 2 output column', 'alpha_plus_one_plus_zero');
+    enterText('Derived column 2 output label', 'Alpha plus one plus zero');
+    selectOption('Derived column 2 operation', 'add');
+    selectOption('Derived column 2 first operand source', 'derived');
+    selectOptionByLabel('ui04-derived-left-operand-2-derived', 'alpha_plus_one');
+    selectOption('Derived column 2 second operand source', 'pivotOutput');
+    selectOptionByLabel('ui04-derived-right-operand-2-pivot-output', 'Category output: zero');
+    selectOption('Derived column 2 missing-input policy', 'propagate-null');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+
+    const intent = onApply.mock.calls[0]?.[0];
+    if (!intent || intent.kind !== 'GROUPED_PIVOT') throw new Error('Expected a grouped pivot proposal');
+    const [alphaPlusOne, alphaPlusOnePlusZero] = intent.derivedColumns;
+    expect(alphaPlusOne?.leftOperand).toEqual({
+      kind: 'pivotOutput',
+      reference: { kind: 'category', category: { kind: 'pivotCategory', choiceId: 'category-sys' } },
+    });
+    expect(alphaPlusOne?.rightOperand).toEqual({ kind: 'literal', representation: 'integer', text: '1' });
+    expect(alphaPlusOnePlusZero?.leftOperand).toEqual({
+      kind: 'derived',
+      localId: alphaPlusOne?.localId,
+    });
+    expect(alphaPlusOnePlusZero?.rightOperand).toEqual({
+      kind: 'pivotOutput',
+      reference: { kind: 'category', category: { kind: 'pivotCategory', choiceId: 'category-dia' } },
+    });
+  });
+
+  it('restores saved pivot-output references after Cancel', () => {
+    const pivotIntent = savedPivotIntentWithTwoCategories();
+    const savedIntent: TableShapeProposalIntent = {
+      ...pivotIntent,
+      derivedColumns: [{
+        localId: 'saved-pivot-derived',
+        output: { column: 'alpha_plus_zero', label: 'Alpha plus zero' },
+        operator: { kind: 'binaryOperator', choiceId: 'add' },
+        leftOperand: {
+          kind: 'pivotOutput',
+          reference: {
+            kind: 'category',
+            category: { kind: 'pivotCategory', choiceId: 'category-sys' },
+          },
+        },
+        rightOperand: {
+          kind: 'pivotOutput',
+          reference: {
+            kind: 'category',
+            category: { kind: 'pivotCategory', choiceId: 'category-dia' },
+          },
+        },
+        missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+      }],
+    };
+    const { onApply, onCancel } = renderEditor({
+      proposalIntent: savedIntent,
+      availableChoices: completeChoices(),
+    });
+
+    expect(selectedValue('Derived column 1 first operand source')).toBe('pivotOutput');
+    expect(selectedTestValue('ui04-derived-left-operand-1-pivot-output')).toBe('category:category-sys');
+    expect(selectedValue('Derived column 1 second operand source')).toBe('pivotOutput');
+    expect(selectedTestValue('ui04-derived-right-operand-1-pivot-output')).toBe('category:category-dia');
+
+    selectOption('Derived column 1 second operand source', 'literal');
+    enterText('Derived column 1 second operand numeric literal', '1');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(selectedValue('Derived column 1 second operand source')).toBe('pivotOutput');
+    expect(selectedTestValue('ui04-derived-right-operand-1-pivot-output')).toBe('category:category-dia');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    const restoredIntent = onApply.mock.calls[0]?.[0];
+    if (!restoredIntent || restoredIntent.kind !== 'GROUPED_PIVOT') {
+      throw new Error('Expected a restored grouped pivot proposal');
+    }
+    expect(restoredIntent.pivot.includedCategories).toEqual(savedIntent.pivot.includedCategories);
+    expect(restoredIntent.derivedColumns).toEqual(savedIntent.derivedColumns);
+  });
+
+  it('keeps saved base operands invalid after grouped pivot until repaired', () => {
+    const pivotIntent = savedPivotIntentWithTwoCategories();
+    const savedIntent: TableShapeProposalIntent = {
+      ...pivotIntent,
+      derivedColumns: [{
+        localId: 'saved-base-derived',
+        output: { column: 'sum_after_pivot', label: 'Sum after pivot' },
+        operator: { kind: 'binaryOperator', choiceId: 'add' },
+        leftOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'weight-kg' } },
+        rightOperand: { kind: 'base', reference: { kind: 'operand', choiceId: 'height-m' } },
+        missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+      }],
+    };
+    renderEditor({ proposalIntent: savedIntent, availableChoices: completeChoices() });
+
+    expect(selectedValue('Derived column 1 first operand source')).toBe('base');
+    expect(screen.getByTestId('ui04-derived-left-operand-1-base-reference-error').textContent)
+      .toContain('removed by grouped pivot');
+    const unavailableBaseOptions = screen.getAllByRole('option', {
+      name: 'Base column is unavailable after grouped pivot',
+    });
+    expect(unavailableBaseOptions).toHaveLength(2);
+    expect(unavailableBaseOptions.every((option) => option.hasAttribute('disabled'))).toBe(true);
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('rejects pivot outputs outside grouped-pivot mode and after their outputs are removed', () => {
+    const initialForm = proposalIntentToForm(savedPivotIntentWithTwoCategories());
+    const derivedColumns: ReadonlyArray<DerivedColumnFormState> = [{
+      localId: 'after-pivot',
+      output: { column: 'alpha_plus_zero', label: 'Alpha plus zero' },
+      operator: { kind: 'binaryOperator', choiceId: 'add' },
+      leftOperand: {
+        kind: 'pivotOutput',
+        reference: {
+          kind: 'category',
+          category: { kind: 'pivotCategory', choiceId: 'category-dia' },
+        },
+      },
+      rightOperand: {
+        kind: 'pivotOutput',
+        reference: {
+          kind: 'category',
+          category: { kind: 'pivotCategory', choiceId: 'category-sys' },
+        },
+      },
+      missingInputPolicy: { kind: 'missingInputPolicy', choiceId: 'propagate-null' },
+      divisionByZeroPolicy: null,
+    }];
+    const form: TableShapeFormState = { ...initialForm, derivedColumns };
+    const categoryDiscovery = makeDiscovery();
+    const removedOutputForm: TableShapeFormState = {
+      ...form,
+      pivot: {
+        ...form.pivot,
+        includedCategories: form.pivot.includedCategories.slice(0, 1),
+      },
+    };
+    const nonPivotForm: TableShapeFormState = {
+      ...form,
+      mode: { kind: 'reshapeMode', choiceId: 'shape-none' },
+    };
+
+    expect(proposalIntentFor({ form: removedOutputForm, choices: completeChoices(), categoryDiscovery }))
+      .toBeUndefined();
+    expect(proposalIntentFor({ form: nonPivotForm, choices, categoryDiscovery }))
+      .toBeUndefined();
+  });
+
+  it('keeps deleted derived references invalid until the user repairs them', () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    completeBaseDerivedColumn(1, 'sum_plus_count', 'Sum plus count');
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    completeBaseDerivedColumn(2, 'sum_plus_value', 'Sum plus value');
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    enterText('Derived column 3 output column', 'sum_plus_value_plus_weight');
+    enterText('Derived column 3 output label', 'Sum plus value plus weight');
+    selectOption('Derived column 3 operation', 'add');
+    selectOption('Derived column 3 first operand source', 'derived');
+    const removedLocalId = selectOptionByLabel('ui04-derived-left-operand-3-derived', 'sum_plus_value');
+    selectOption('Derived column 3 second operand', 'weight-kg');
+    selectOption('Derived column 3 missing-input policy', 'propagate-null');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove derived column 2' }));
+
+    const remainingEarlierId = valueForOption('ui04-derived-left-operand-2-derived', 'sum_plus_count');
+    expect(remainingEarlierId).not.toBe(removedLocalId);
+    expect(selectedTestValue('ui04-derived-left-operand-2-derived')).toBe(removedLocalId);
+    expect(screen.getByTestId('ui04-derived-left-operand-2-reference-error').textContent)
+      .toContain('not an earlier row');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
+
+    selectOptionByLabel('ui04-derived-left-operand-2-derived', 'sum_plus_count');
+    expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(false);
+  });
+
+  it('restores all saved operand variants and their authored text on Cancel', () => {
+    const savedIntent = savedDerivedIntent();
+    const { onApply, onCancel } = renderEditor({ proposalIntent: savedIntent });
+
+    expect(selectedValue('Derived column 1 first operand source')).toBe('base');
+    expect(selectedValue('Derived column 1 first operand')).toBe('weight-kg');
+    expect(selectedValue('Derived column 1 second operand source')).toBe('literal');
+    expect(testInputValue('ui04-derived-right-operand-1-literal')).toBe('0.50');
+    expect(selectedValue('Derived column 2 first operand source')).toBe('derived');
+    expect(selectedTestValue('ui04-derived-left-operand-2-derived')).toBe('saved-sum-plus-count');
+    expect(testInputValue('ui04-derived-right-operand-2-literal')).toBe('1');
+
+    enterText('Derived column 1 second operand numeric literal', '2.50');
+    selectOption('Derived column 2 first operand source', 'base');
+    selectOption('Derived column 2 first operand', 'count-rows');
+    fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('group', { name: 'Derived column 3' })).toBeNull();
+    expect(selectedValue('Derived column 1 first operand')).toBe('weight-kg');
+    expect(testInputValue('ui04-derived-right-operand-1-literal')).toBe('0.50');
+    expect(selectedValue('Derived column 2 first operand source')).toBe('derived');
+    expect(selectedTestValue('ui04-derived-left-operand-2-derived')).toBe('saved-sum-plus-count');
+    expect(testInputValue('ui04-derived-right-operand-2-literal')).toBe('1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply table shape' }));
+    expect(onApply).toHaveBeenCalledWith(savedIntent);
   });
 
   it('disables Apply for blank output columns or labels after the other choices are complete', () => {
@@ -533,8 +1007,10 @@ describe('TableShapeEditor', () => {
     enterText('Derived column 1 output column', 'systolic_bp');
     enterText('Derived column 1 output label', 'Another systolic value');
     selectOption('Derived column 1 operation', 'add');
-    selectOption('Derived column 1 first operand', 'weight-kg');
-    selectOption('Derived column 1 second operand', 'height-m');
+    selectOption('Derived column 1 first operand source', 'pivotOutput');
+    selectOptionByLabel('ui04-derived-left-operand-1-pivot-output', 'Group output: Patient ID');
+    selectOption('Derived column 1 second operand source', 'literal');
+    enterText('Derived column 1 second operand numeric literal', '1');
     selectOption('Derived column 1 missing-input policy', 'propagate-null');
 
     expect(screen.getByRole('button', { name: 'Apply table shape' }).hasAttribute('disabled')).toBe(true);
