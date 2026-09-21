@@ -36,9 +36,11 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		collect = append(collect, fmt.Sprintf("%s = %s.%s", key.Variable, pivot.InputRowVariable, key.Column))
 		sort = append(sort, key.Variable+" ASC")
 	}
-	collect = append(collect, fmt.Sprintf("INTO %s = %s", pivot.GroupRowsVariable, pivot.InputRowVariable))
+	collectClause := fmt.Sprintf(
+		"  COLLECT %s INTO %s = %s", strings.Join(collect, ", "), pivot.GroupRowsVariable, pivot.InputRowVariable,
+	)
 	lines = append(lines,
-		"  COLLECT "+strings.Join(collect, ", "),
+		collectClause,
 		"  SORT "+strings.Join(sort, ", "),
 	)
 
