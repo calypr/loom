@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const explicitRowsSemanticsVersion = 8
+
 type RowDefinitionKind string
 
 const (
@@ -236,7 +238,7 @@ func missingRowDefinition(rows RowDefinition) bool {
 // across the semantics-version boundary. It copies the document slice before
 // editing and deliberately leaves the version bump to its migration owner.
 func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
-	if workspace.SemanticsVersion >= CurrentSemanticsVersion {
+	if workspace.SemanticsVersion >= explicitRowsSemanticsVersion {
 		return workspace
 	}
 	needsMigration := false

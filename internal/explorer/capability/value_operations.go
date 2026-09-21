@@ -28,12 +28,13 @@ const (
 )
 
 type AggregateInput struct {
-	LogicalType              string
-	Cardinality              string
-	HasField                 bool
-	RelatedResource          bool
-	TemporalConfigured       bool
-	RequiredValuesConfigured bool
+	LogicalType                 string
+	Cardinality                 string
+	HasField                    bool
+	RelatedResource             bool
+	ContributorWindowConfigured bool
+	OrderingConfigured          bool
+	RequiredValuesConfigured    bool
 }
 
 type AggregateOperationCapability struct {
@@ -106,8 +107,13 @@ func DeriveAggregateOperationCapabilities(input AggregateInput, rows AggregateRo
 				choice.ReasonCode = "RELATED_RESOURCE_REQUIRED"
 				choice.Reason = "ordered selection requires a related-resource source"
 				choice.RequiresConfiguration = nil
-			} else if !input.TemporalConfigured {
-				choice.RequiresConfiguration = []string{"temporal"}
+			} else {
+				if !input.ContributorWindowConfigured {
+					choice.RequiresConfiguration = append(choice.RequiresConfiguration, "contributorWindow")
+				}
+				if !input.OrderingConfigured {
+					choice.RequiresConfiguration = append(choice.RequiresConfiguration, "ordering")
+				}
 			}
 		}
 		if choice.Operation == AggregateContainsAll && input.HasField && !input.RequiredValuesConfigured {

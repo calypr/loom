@@ -228,6 +228,9 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceAggregate:
 			if source := column.Source.Aggregate; source != nil {
+				if source.ContributorWindow != nil && column.OccurrenceID == authoringv2.RootOccurrenceID {
+					return Result{}, fail("intent", "CONTRIBUTOR_WINDOW_REQUIRES_RELATED_RESOURCE", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow", index), "contributor windows require a related resource occurrence", nil, nil)
+				}
 				operation := capability.AggregateOperation(strings.ToUpper(strings.TrimSpace(source.Operation)))
 				path := strings.TrimPrefix(strings.TrimSpace(source.Path), "root.")
 				candidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, path)
@@ -235,7 +238,9 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 					input := capability.AggregateInput{
 						LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality,
 						HasField: path != "", RelatedResource: column.OccurrenceID != authoringv2.RootOccurrenceID,
-						TemporalConfigured: source.Temporal != nil, RequiredValuesConfigured: len(source.RequiredValues) > 0,
+						ContributorWindowConfigured: source.ContributorWindow != nil,
+						OrderingConfigured:          source.Ordering != nil,
+						RequiredValuesConfigured:    len(source.RequiredValues) > 0,
 					}
 					choices := capability.DeriveAggregateOperationCapabilities(input, capability.AggregateRowContext(document.Rows.Kind))
 					for _, choice := range choices {
@@ -267,28 +272,45 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": path}, nil)
 					}
 				}
-				if temporal := column.Source.Aggregate.Temporal; temporal != nil {
-					aggregatePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root.")
-					aggregateCandidate, aggregateFound := semanticFieldCandidate(snapshot, occurrence.graph.ID, aggregatePath)
-					if !aggregateFound {
-						return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is not present on the resolved capability node", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": aggregatePath}, nil)
-					}
-					transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, aggregateCandidate.ID)
-					timestampPath := strings.TrimPrefix(strings.TrimSpace(temporal.TimestampPath), "root.")
+				if window := column.Source.Aggregate.ContributorWindow; window != nil {
+					timestampPath := strings.TrimPrefix(strings.TrimSpace(window.TimestampPath), "root.")
 					timestampCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, timestampPath)
 					if !found || !strings.EqualFold(timestampCandidate.LogicalType, "date_time") {
-						return Result{}, fail("intent", "INVALID_TEMPORAL_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.timestampPath", index), "temporal timestamp must be a date_time field on the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
+						return Result{}, fail("intent", "INVALID_CONTRIBUTOR_WINDOW_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow.timestampPath", index), "contributor window timestamp must be a date_time field on the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
 					}
+					transformCandidate := timestampCandidate
+					aggregatePath := strings.TrimPrefix(strings.TrimSpace(column.Source.Aggregate.Path), "root.")
+					if aggregatePath != "" {
+						if aggregateCandidate, hasAggregate := semanticFieldCandidate(snapshot, occurrence.graph.ID, aggregatePath); hasAggregate {
+							transformCandidate = aggregateCandidate
+						}
+					} else {
+						operation := strings.ToUpper(strings.TrimSpace(column.Source.Aggregate.Operation))
+						if operation != "COUNT" && operation != "EXISTS" {
+							return Result{}, fail("intent", "STALE_FIELD", fmt.Sprintf("$.columns[%d].source.aggregate.path", index), "aggregate path is required for this operation", map[string]any{"operation": operation}, nil)
+						}
+					}
+					transformations := authoringv2.AggregateTransformationCapabilitiesForCapability(snapshot, transformCandidate.ID)
 					if !transformations.Temporal.SupportsTimestamp(occurrence.graph.ResourceType, timestampPath) {
-						return Result{}, fail("capability", "UNADVERTISED_TEMPORAL_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.timestampPath", index), "temporal timestamp is not an advertised scalar date_time choice for the aggregate candidate", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
+						return Result{}, fail("capability", "UNADVERTISED_CONTRIBUTOR_WINDOW_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow.timestampPath", index), "contributor window timestamp is not an advertised scalar date_time choice for the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": timestampPath}, nil)
 					}
-					anchorPath := strings.TrimPrefix(strings.TrimSpace(temporal.AnchorPath), "root.")
+					anchorPath := strings.TrimPrefix(strings.TrimSpace(window.AnchorPath), "root.")
 					anchorCandidate, found := semanticFieldCandidate(snapshot, root.graph.ID, anchorPath)
 					if !found || !strings.EqualFold(anchorCandidate.LogicalType, "date_time") {
-						return Result{}, fail("intent", "INVALID_TEMPORAL_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.anchorPath", index), "temporal anchor must be a date_time field on the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+						return Result{}, fail("intent", "INVALID_CONTRIBUTOR_WINDOW_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow.anchorPath", index), "contributor window anchor must be a date_time field on the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
 					}
 					if !transformations.Temporal.SupportsAnchor(root.graph.ResourceType, anchorPath) {
-						return Result{}, fail("capability", "UNADVERTISED_TEMPORAL_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.temporal.anchorPath", index), "temporal anchor is not an advertised scalar date_time choice for the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+						return Result{}, fail("capability", "UNADVERTISED_CONTRIBUTOR_WINDOW_ANCHOR", fmt.Sprintf("$.columns[%d].source.aggregate.contributorWindow.anchorPath", index), "contributor window anchor is not an advertised scalar date_time choice for the root row", map[string]any{"resourceType": root.graph.ResourceType, "fieldPath": anchorPath}, nil)
+					}
+					if ordering := column.Source.Aggregate.Ordering; ordering != nil {
+						orderingPath := strings.TrimPrefix(strings.TrimSpace(ordering.TimestampPath), "root.")
+						orderingCandidate, found := semanticFieldCandidate(snapshot, occurrence.graph.ID, orderingPath)
+						if !found || !strings.EqualFold(orderingCandidate.LogicalType, "date_time") {
+							return Result{}, fail("intent", "INVALID_ORDERING_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.ordering.timestampPath", index), "ordering timestamp must be a date_time field on the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": orderingPath}, nil)
+						}
+						if !transformations.Temporal.SupportsTimestamp(occurrence.graph.ResourceType, orderingPath) {
+							return Result{}, fail("capability", "UNADVERTISED_ORDERING_TIMESTAMP", fmt.Sprintf("$.columns[%d].source.aggregate.ordering.timestampPath", index), "ordering timestamp is not an advertised scalar date_time choice for the contributing resource", map[string]any{"resourceType": occurrence.graph.ResourceType, "fieldPath": orderingPath}, nil)
+						}
 					}
 				}
 				if policy := column.Source.Aggregate.UnitNormalization; policy != nil {
@@ -405,7 +427,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			lossReasons = append(lossReasons, "AGGREGATE_REDUCTION")
 			if column.Source.Aggregate != nil && strings.EqualFold(column.Source.Aggregate.Operation, "FIRST_ORDERED") {
 				lossReasons = append(lossReasons, "TEMPORAL_SELECTION")
-				if column.Source.Aggregate.Temporal != nil && strings.EqualFold(column.Source.Aggregate.Temporal.TiePolicy, "RESOURCE_KEY") {
+				if column.Source.Aggregate.Ordering != nil && strings.EqualFold(column.Source.Aggregate.Ordering.TiePolicy, "RESOURCE_KEY") {
 					lossReasons = append(lossReasons, "RESOURCE_KEY_TIE_BREAK")
 				}
 			}
@@ -785,15 +807,22 @@ func semanticAggregate(column authoringv2.Column, alias, resourceType string, co
 		Operation: operation, FieldRef: column.Column, ValueMode: recipe.ValueModeAuto,
 		RequiredValues: append([]string(nil), source.RequiredValues...),
 	}
-	if source.Temporal != nil {
-		timestampPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(source.Temporal.TimestampPath), "."), "root.")
-		anchorPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(source.Temporal.AnchorPath), "."), "root.")
-		aggregate.Temporal = &recipe.TemporalReduction{
+	if window := source.ContributorWindow; window != nil {
+		timestampPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(window.TimestampPath), "."), "root.")
+		anchorPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(window.AnchorPath), "."), "root.")
+		aggregate.ContributorWindow = &recipe.ContributorWindow{
 			Timestamp:   recipe.Expression{Select: alias + "." + timestampPath},
 			Anchor:      recipe.Expression{Select: "root." + anchorPath},
-			LowerOffset: source.Temporal.LowerOffset, UpperOffset: source.Temporal.UpperOffset,
-			LowerInclusive: source.Temporal.LowerInclusive, UpperInclusive: source.Temporal.UpperInclusive,
-			Direction: recipe.TemporalDirection(source.Temporal.Direction), Precision: recipe.TemporalPrecision(source.Temporal.Precision), TiePolicy: recipe.TemporalTiePolicy(source.Temporal.TiePolicy),
+			LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
+			LowerInclusive: window.LowerInclusive, UpperInclusive: window.UpperInclusive,
+			Precision: recipe.TemporalPrecision(window.Precision),
+		}
+	}
+	if ordering := source.Ordering; ordering != nil {
+		timestampPath := strings.TrimPrefix(strings.Trim(strings.TrimSpace(ordering.TimestampPath), "."), "root.")
+		aggregate.Ordering = &recipe.TemporalOrdering{
+			Timestamp: recipe.Expression{Select: alias + "." + timestampPath},
+			Direction: recipe.TemporalDirection(ordering.Direction), TiePolicy: recipe.TemporalTiePolicy(ordering.TiePolicy),
 		}
 	}
 	if strings.TrimSpace(source.Path) != "" {

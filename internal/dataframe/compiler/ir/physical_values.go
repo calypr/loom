@@ -179,16 +179,20 @@ const (
 	PhysicalFirstOrderedAggregate   PhysicalAggregateOperation = "FIRST_ORDERED"
 )
 
-type PhysicalTemporalReduction struct {
+type PhysicalContributorWindow struct {
 	Timestamp      PhysicalExpression
 	Anchor         PhysicalExpression
 	LowerOffset    int64
 	UpperOffset    int64
 	LowerInclusive bool
 	UpperInclusive bool
-	Direction      string
 	Precision      string
-	TiePolicy      string
+}
+
+type PhysicalTemporalOrdering struct {
+	Timestamp PhysicalExpression
+	Direction string
+	TiePolicy string
 }
 
 type PhysicalAggregate struct {
@@ -197,7 +201,8 @@ type PhysicalAggregate struct {
 	Value                 *PhysicalExpression
 	Predicate             *PhysicalPredicateExpression
 	RequiredValuesBindKey string
-	Temporal              *PhysicalTemporalReduction
+	ContributorWindow     *PhysicalContributorWindow
+	Ordering              *PhysicalTemporalOrdering
 }
 
 type PhysicalPivotMap struct {

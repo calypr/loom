@@ -1384,8 +1384,9 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 			related := occurrenceID != RootOccurrenceID
 			input := capability.AggregateInput{
 				HasField: path != "" && hasSelected, RelatedResource: related,
-				TemporalConfigured:       source.Aggregate.Temporal != nil,
-				RequiredValuesConfigured: len(source.Aggregate.RequiredValues) > 0,
+				ContributorWindowConfigured: source.Aggregate.ContributorWindow != nil,
+				OrderingConfigured:          source.Aggregate.Ordering != nil,
+				RequiredValuesConfigured:    len(source.Aggregate.RequiredValues) > 0,
 			}
 			if hasSelected {
 				input.LogicalType, input.Cardinality = selected.LogicalType, selected.Cardinality
@@ -1402,22 +1403,39 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 				break
 			}
 		}
-		if source.Aggregate != nil && source.Aggregate.Temporal != nil {
-			if !hasSelected {
-				return fmt.Errorf("temporal reduction requires an advertised aggregate candidate")
+		if source.Aggregate != nil && source.Aggregate.ContributorWindow != nil {
+			if occurrenceID == RootOccurrenceID {
+				return fmt.Errorf("contributor window requires a related resource occurrence")
 			}
-			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, selected.ID)
+			window := source.Aggregate.ContributorWindow
+			timestampPath := canonicalTransformPath(window.TimestampPath)
+			timestampCandidate, hasTimestamp := findCandidate(timestampPath)
+			if !hasTimestamp {
+				return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
+			}
+			transformCandidate := timestampCandidate
+			if hasSelected {
+				transformCandidate = selected
+			} else if operation := strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)); operation != "COUNT" && operation != "EXISTS" {
+				return fmt.Errorf("contributor window requires an advertised aggregate candidate")
+			}
+			transformations := AggregateTransformationCapabilitiesForCatalog(catalog, transformCandidate.ID)
 			if !transformations.Temporal.Available {
-				return fmt.Errorf("temporal reduction unavailable (%s): %s", transformations.Temporal.ReasonCode, transformations.Temporal.Reason)
+				return fmt.Errorf("contributor window unavailable (%s): %s", transformations.Temporal.ReasonCode, transformations.Temporal.Reason)
 			}
-			timestampPath := canonicalTransformPath(source.Aggregate.Temporal.TimestampPath)
 			if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, timestampPath) {
-				return fmt.Errorf("temporal timestamp path %q is not advertised for occurrence %q", source.Aggregate.Temporal.TimestampPath, occurrenceID)
+				return fmt.Errorf("contributor window timestamp path %q is not advertised for occurrence %q", window.TimestampPath, occurrenceID)
 			}
-			anchorPath := canonicalTransformPath(source.Aggregate.Temporal.AnchorPath)
+			anchorPath := canonicalTransformPath(window.AnchorPath)
 			root := findRoute(&document.Route, RootOccurrenceID)
 			if root == nil || !transformations.Temporal.SupportsAnchor(root.ResourceType, anchorPath) {
-				return fmt.Errorf("temporal anchor path %q is not advertised for the root resource", source.Aggregate.Temporal.AnchorPath)
+				return fmt.Errorf("contributor window anchor path %q is not advertised for the root resource", window.AnchorPath)
+			}
+			if ordering := source.Aggregate.Ordering; ordering != nil {
+				orderingPath := canonicalTransformPath(ordering.TimestampPath)
+				if !transformations.Temporal.SupportsTimestamp(occurrence.ResourceType, orderingPath) {
+					return fmt.Errorf("ordering timestamp path %q is not advertised for occurrence %q", ordering.TimestampPath, occurrenceID)
+				}
 			}
 		}
 		if source.Aggregate != nil && source.Aggregate.UnitNormalization != nil {

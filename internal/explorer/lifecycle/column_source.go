@@ -211,8 +211,8 @@ func columnSourcePresentation(column authoringv2.Column, resourceType string) (s
 	if source.Aggregate != nil {
 		add("Operation", source.Aggregate.Operation)
 		add("Input path", source.Aggregate.Path)
-		if source.Aggregate.Temporal != nil {
-			add("Time direction", source.Aggregate.Temporal.Direction)
+		if source.Aggregate.Ordering != nil {
+			add("Time direction", source.Aggregate.Ordering.Direction)
 		}
 		if source.Aggregate.UnitNormalization != nil {
 			add("Unit policy", source.Aggregate.UnitNormalization.PolicyID+"@"+source.Aggregate.UnitNormalization.Version)

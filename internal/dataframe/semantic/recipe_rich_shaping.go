@@ -505,29 +505,44 @@ func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggrega
 				semanticAggregate.ValueKind = expression.KindString
 			}
 		}
-		if input.Temporal != nil {
-			timestamp, err := recipeNodeSelector(resourceType, alias, scope, input.Temporal.Timestamp, path+".temporal.timestamp")
+		if input.ContributorWindow != nil {
+			window := input.ContributorWindow
+			timestamp, err := recipeNodeSelector(resourceType, alias, scope, window.Timestamp, path+".contributorWindow.timestamp")
 			if err != nil {
 				return nil, err
 			}
 			timestampMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, timestamp.CanonicalPath())
 			if !ok || timestampMetadata.Primitive != fhirschema.PrimitiveDateTime || timestampMetadata.Repeated {
-				return nil, fmt.Errorf("%s.temporal.timestamp must resolve to one date_time value", path)
+				return nil, fmt.Errorf("%s.contributorWindow.timestamp must resolve to one date_time value", path)
 			}
 			root := scope.aliases["root"]
-			anchor, err := recipeNodeSelector(root.ResourceType, "root", scope, input.Temporal.Anchor, path+".temporal.anchor")
+			anchor, err := recipeNodeSelector(root.ResourceType, "root", scope, window.Anchor, path+".contributorWindow.anchor")
 			if err != nil {
 				return nil, err
 			}
 			anchorMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(root.ResourceType, anchor.CanonicalPath())
 			if !ok || anchorMetadata.Primitive != fhirschema.PrimitiveDateTime || anchorMetadata.Repeated {
-				return nil, fmt.Errorf("%s.temporal.anchor must resolve to one root date_time value", path)
+				return nil, fmt.Errorf("%s.contributorWindow.anchor must resolve to one root date_time value", path)
 			}
-			semanticAggregate.Temporal = &SemanticTemporalReduction{
+			semanticAggregate.ContributorWindow = &SemanticContributorWindow{
 				Timestamp: timestamp, Anchor: anchor, AnchorResource: root.ResourceType,
-				LowerOffset: input.Temporal.LowerOffset, UpperOffset: input.Temporal.UpperOffset,
-				LowerInclusive: input.Temporal.LowerInclusive, UpperInclusive: input.Temporal.UpperInclusive,
-				Direction: string(input.Temporal.Direction), Precision: string(input.Temporal.Precision), TiePolicy: string(input.Temporal.TiePolicy),
+				LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
+				LowerInclusive: window.LowerInclusive, UpperInclusive: window.UpperInclusive,
+				Precision: string(window.Precision),
+			}
+		}
+		if input.Ordering != nil {
+			ordering := input.Ordering
+			timestamp, err := recipeNodeSelector(resourceType, alias, scope, ordering.Timestamp, path+".ordering.timestamp")
+			if err != nil {
+				return nil, err
+			}
+			timestampMetadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, timestamp.CanonicalPath())
+			if !ok || timestampMetadata.Primitive != fhirschema.PrimitiveDateTime || timestampMetadata.Repeated {
+				return nil, fmt.Errorf("%s.ordering.timestamp must resolve to one date_time value", path)
+			}
+			semanticAggregate.Ordering = &SemanticTemporalOrdering{
+				Timestamp: timestamp, Direction: string(ordering.Direction), TiePolicy: string(ordering.TiePolicy),
 			}
 		}
 		if input.Where != nil {

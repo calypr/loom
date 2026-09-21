@@ -8,17 +8,67 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-func TestAggregateSourceAcceptsClosedOrderedTemporalReduction(t *testing.T) {
-	raw := []byte(`{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":true,"direction":"DESC","precision":"INSTANT","tiePolicy":"REQUIRE_UNIQUE"}}}`)
+func TestAggregateSourceAcceptsContributorWindowsAndKeepsOrderingFirstOrderedOnly(t *testing.T) {
+	window := `"contributorWindow":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"precision":"INSTANT"}`
+	for _, operation := range []string{"COUNT", "EXISTS", "MIN", "MAX", "MEAN", "SUM"} {
+		t.Run(operation, func(t *testing.T) {
+			path := ""
+			if operation != "COUNT" && operation != "EXISTS" {
+				path = `"path":"valueQuantity.value",`
+			}
+			raw := `{"kind":"aggregate","aggregate":{"operation":"` + operation + `",` + path + window + `}}`
+			var source ColumnSource
+			if err := json.Unmarshal([]byte(raw), &source); err != nil {
+				t.Fatal(err)
+			}
+			if err := source.validate("source"); err != nil {
+				t.Fatalf("windowed %s source rejected: %v", operation, err)
+			}
+			if source.Aggregate == nil || source.Aggregate.ContributorWindow == nil || source.Aggregate.Ordering != nil {
+				t.Fatalf("windowed source = %#v", source)
+			}
+		})
+	}
+	for _, operation := range []string{"COUNT_DISTINCT", "DISTINCT_VALUES", "CONTAINS_ALL", "REQUIRE_ONE", "COLLECT"} {
+		t.Run(operation+"_rejects_window", func(t *testing.T) {
+			raw := `{"kind":"aggregate","aggregate":{"operation":"` + operation + `","path":"status",` + window + `}}`
+			var source ColumnSource
+			if err := json.Unmarshal([]byte(raw), &source); err != nil {
+				t.Fatal(err)
+			}
+			if err := source.validate("source"); err == nil || !strings.Contains(err.Error(), "contributorWindow is not supported") {
+				t.Fatalf("windowed %s source error = %v, want unsupported operation", operation, err)
+			}
+		})
+	}
+
+	ordered := `{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value",` + window + `,"ordering":{"timestampPath":"effectiveDateTime","direction":"DESC","tiePolicy":"REQUIRE_UNIQUE"}}}`
 	var source ColumnSource
-	if err := json.Unmarshal(raw, &source); err != nil {
+	if err := json.Unmarshal([]byte(ordered), &source); err != nil {
 		t.Fatal(err)
 	}
 	if err := source.validate("source"); err != nil {
-		t.Fatalf("ordered temporal source rejected: %v", err)
+		t.Fatalf("ordered contributor window rejected: %v", err)
 	}
-	if source.Aggregate == nil || source.Aggregate.Temporal == nil || source.Aggregate.Temporal.AnchorPath != "meta.lastUpdated" {
-		t.Fatalf("ordered temporal source = %#v", source)
+	if source.Aggregate == nil || source.Aggregate.ContributorWindow == nil || source.Aggregate.Ordering == nil || source.Aggregate.Ordering.TimestampPath != "effectiveDateTime" {
+		t.Fatalf("ordered contributor window = %#v", source)
+	}
+	for _, operation := range []string{"COUNT", "SUM"} {
+		t.Run(operation+"_rejects_ordering", func(t *testing.T) {
+			raw := `{"kind":"aggregate","aggregate":{"operation":"` + operation + `","path":"valueQuantity.value","ordering":{"timestampPath":"effectiveDateTime","direction":"DESC","tiePolicy":"RESOURCE_KEY"}}}`
+			var source ColumnSource
+			if err := json.Unmarshal([]byte(raw), &source); err != nil {
+				t.Fatal(err)
+			}
+			if err := source.validate("source"); err == nil || !strings.Contains(err.Error(), "ordering is only valid for FIRST_ORDERED") {
+				t.Fatalf("%s ordering error = %v, want FIRST_ORDERED-only error", operation, err)
+			}
+		})
+	}
+
+	var legacy ColumnSource
+	if err := json.Unmarshal([]byte(`{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{}}}`), &legacy); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("legacy temporal field was accepted on writable source JSON: %v", err)
 	}
 }
 

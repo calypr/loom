@@ -148,21 +148,40 @@ func validatePhysicalAggregate(aggregate PhysicalAggregate, defined map[string]b
 			return fmt.Errorf("aggregate predicate: %w", err)
 		}
 	}
+	if aggregate.ContributorWindow != nil {
+		switch aggregate.Operation {
+		case PhysicalCountAggregate, PhysicalExistsAggregate, PhysicalMinAggregate, PhysicalMaxAggregate, PhysicalSumAggregate, PhysicalMeanAggregate, PhysicalFirstOrderedAggregate:
+		default:
+			return fmt.Errorf("aggregate operation %q does not accept a contributor window", aggregate.Operation)
+		}
+		if err := validatePhysicalExpression(aggregate.ContributorWindow.Timestamp, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate contributor-window timestamp: %w", err)
+		}
+		if err := validatePhysicalExpression(aggregate.ContributorWindow.Anchor, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate contributor-window anchor: %w", err)
+		}
+		if aggregate.ContributorWindow.LowerOffset > aggregate.ContributorWindow.UpperOffset || aggregate.ContributorWindow.Precision != "INSTANT" {
+			return fmt.Errorf("aggregate contributor window is invalid")
+		}
+	}
 	if aggregate.Operation == PhysicalFirstOrderedAggregate {
-		if aggregate.Temporal == nil {
-			return fmt.Errorf("FIRST_ORDERED requires temporal policy")
+		if aggregate.ContributorWindow == nil {
+			return fmt.Errorf("FIRST_ORDERED requires a contributor window")
 		}
-		if err := validatePhysicalExpression(aggregate.Temporal.Timestamp, defined, bindVars); err != nil {
-			return fmt.Errorf("aggregate timestamp: %w", err)
+		if aggregate.Ordering == nil {
+			return fmt.Errorf("FIRST_ORDERED requires temporal ordering")
 		}
-		if err := validatePhysicalExpression(aggregate.Temporal.Anchor, defined, bindVars); err != nil {
-			return fmt.Errorf("aggregate anchor: %w", err)
+	}
+	if aggregate.Ordering != nil {
+		if aggregate.Operation != PhysicalFirstOrderedAggregate {
+			return fmt.Errorf("aggregate operation %q does not accept ordering", aggregate.Operation)
 		}
-		if aggregate.Temporal.LowerOffset > aggregate.Temporal.UpperOffset || (aggregate.Temporal.Direction != "ASC" && aggregate.Temporal.Direction != "DESC") || aggregate.Temporal.Precision != "INSTANT" || (aggregate.Temporal.TiePolicy != "REQUIRE_UNIQUE" && aggregate.Temporal.TiePolicy != "RESOURCE_KEY") {
-			return fmt.Errorf("FIRST_ORDERED temporal policy is invalid")
+		if err := validatePhysicalExpression(aggregate.Ordering.Timestamp, defined, bindVars); err != nil {
+			return fmt.Errorf("aggregate ordering timestamp: %w", err)
 		}
-	} else if aggregate.Temporal != nil {
-		return fmt.Errorf("aggregate operation %q does not accept temporal policy", aggregate.Operation)
+		if (aggregate.Ordering.Direction != "ASC" && aggregate.Ordering.Direction != "DESC") || (aggregate.Ordering.TiePolicy != "REQUIRE_UNIQUE" && aggregate.Ordering.TiePolicy != "RESOURCE_KEY") {
+			return fmt.Errorf("FIRST_ORDERED temporal ordering is invalid")
+		}
 	}
 	if aggregate.Operation == PhysicalContainsAllAggregate {
 		if strings.TrimSpace(aggregate.RequiredValuesBindKey) == "" {

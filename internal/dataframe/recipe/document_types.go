@@ -415,19 +415,23 @@ const (
 	TemporalTieResourceKey   TemporalTiePolicy = "RESOURCE_KEY"
 )
 
-// TemporalReduction selects one contributing resource relative to a timestamp
-// on the root row. Offsets are seconds relative to the anchor and always form
-// one closed, explicit interval.
-type TemporalReduction struct {
+// ContributorWindow selects related resources relative to a root-row anchor.
+// Offsets are seconds relative to the anchor and form an explicit interval.
+type ContributorWindow struct {
 	Timestamp      Expression        `json:"timestamp"`
 	Anchor         Expression        `json:"anchor"`
 	LowerOffset    int64             `json:"lowerOffsetSeconds"`
 	UpperOffset    int64             `json:"upperOffsetSeconds"`
 	LowerInclusive bool              `json:"lowerInclusive"`
 	UpperInclusive bool              `json:"upperInclusive"`
-	Direction      TemporalDirection `json:"direction"`
 	Precision      TemporalPrecision `json:"precision"`
-	TiePolicy      TemporalTiePolicy `json:"tiePolicy"`
+}
+
+// TemporalOrdering chooses one eligible contributor for FIRST_ORDERED.
+type TemporalOrdering struct {
+	Timestamp Expression        `json:"timestamp"`
+	Direction TemporalDirection `json:"direction"`
+	TiePolicy TemporalTiePolicy `json:"tiePolicy"`
 }
 
 type Aggregate struct {
@@ -439,7 +443,8 @@ type Aggregate struct {
 	Where             *Filter                  `json:"where,omitempty"`
 	ValueMode         ValueMode                `json:"valueMode,omitempty"`
 	RequiredValues    []string                 `json:"requiredValues,omitempty"`
-	Temporal          *TemporalReduction       `json:"temporal,omitempty"`
+	ContributorWindow *ContributorWindow       `json:"contributorWindow,omitempty"`
+	Ordering          *TemporalOrdering        `json:"ordering,omitempty"`
 	UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
 }
 

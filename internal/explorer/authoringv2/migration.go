@@ -7,6 +7,16 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+// MigrateAggregateTemporalPolicy advances v8 workspaces to the split
+// contributor-window and ordering contract. Persisted source conversion runs
+// in DecodeWorkspace before this version boundary is applied.
+func MigrateAggregateTemporalPolicy(workspace Workspace) Workspace {
+	if workspace.SemanticsVersion == CurrentSemanticsVersion-1 {
+		workspace.SemanticsVersion = CurrentSemanticsVersion
+	}
+	return workspace
+}
+
 // MigrateLegacyContributors converts the private v3 aggregate where wire into
 // the v4 catalog-bound contributor intent. It is intentionally error-returning
 // and transactional: callers must have the pinned catalog before interpreting

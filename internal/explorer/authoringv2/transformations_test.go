@@ -7,11 +7,17 @@ import (
 
 func TestTemporalCapabilitiesUseGeneratedSchemaForUnfamiliarResource(t *testing.T) {
 	catalog := CatalogSnapshot{
-		Nodes: []CatalogNode{{ID: "diagnostic-report", ResourceType: "DiagnosticReport", RowRootEligible: true}},
+		Nodes: []CatalogNode{
+			{ID: "diagnostic-report", ResourceType: "DiagnosticReport", RowRootEligible: true},
+			{ID: "observation", ResourceType: "Observation"},
+		},
 		Candidates: []CatalogCandidate{
 			{ID: "report-id", NodeID: "diagnostic-report", FieldPath: "id", LogicalType: "string", Cardinality: "optional_one"},
-			{ID: "report-status", NodeID: "diagnostic-report", FieldPath: "status", LogicalType: "string", Cardinality: "optional_one"},
 			{ID: "report-issued", NodeID: "diagnostic-report", FieldPath: "issued", LogicalType: "date_time", Cardinality: "optional_one"},
+			{ID: "report-last-updated", NodeID: "diagnostic-report", FieldPath: "meta.lastUpdated", LogicalType: "date_time", Cardinality: "optional_one"},
+			{ID: "observation-id", NodeID: "observation", FieldPath: "id", LogicalType: "id", Cardinality: "optional_one"},
+			{ID: "observation-status", NodeID: "observation", FieldPath: "status", LogicalType: "string", Cardinality: "optional_one"},
+			{ID: "observation-effective", NodeID: "observation", FieldPath: "effectiveDateTime", LogicalType: "date_time", Cardinality: "optional_one"},
 		},
 	}
 	choices := AggregateTransformationCapabilitiesForCatalog(catalog, "report-id")
@@ -22,13 +28,26 @@ func TestTemporalCapabilitiesUseGeneratedSchemaForUnfamiliarResource(t *testing.
 		t.Fatalf("string field was advertised as a timestamp: %#v", choices.Temporal)
 	}
 
-	document := Document{Rows: RecordsRowDefinition(), RootResourceType: "DiagnosticReport", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "DiagnosticReport"}}
+	document := Document{Rows: RecordsRowDefinition(), RootResourceType: "DiagnosticReport", Route: RouteNode{
+		OccurrenceID: RootOccurrenceID, ResourceType: "DiagnosticReport",
+		Children: []RouteNode{{OccurrenceID: "observation", ResourceType: "Observation"}},
+	}}
 	source := ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{
 		Operation: "COUNT", Path: "id",
-		Temporal: &TemporalReductionSource{TimestampPath: "status", AnchorPath: "issued", Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE"},
+		ContributorWindow: &ContributorWindowSource{TimestampPath: "status", AnchorPath: "meta.lastUpdated", Precision: "INSTANT"},
 	}}
-	if err := validateEditableSource(document, catalog, RootOccurrenceID, source); err == nil || !strings.Contains(err.Error(), "temporal timestamp") {
+	if err := validateEditableSource(document, catalog, "observation", source); err == nil || !strings.Contains(err.Error(), "contributor window timestamp") {
 		t.Fatalf("wrong timestamp type error = %v", err)
+	}
+	pathlessCount := ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{
+		Operation:         "COUNT",
+		ContributorWindow: &ContributorWindowSource{TimestampPath: "effectiveDateTime", AnchorPath: "meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0, Precision: "INSTANT"},
+	}}
+	if err := validateEditableSource(document, catalog, "observation", pathlessCount); err != nil {
+		t.Fatalf("pathless COUNT did not use the advertised timestamp candidate capability: %v", err)
+	}
+	if err := validateEditableSource(document, catalog, RootOccurrenceID, pathlessCount); err == nil || !strings.Contains(err.Error(), "requires a related resource occurrence") {
+		t.Fatalf("root-row contributor window error = %v, want related resource requirement", err)
 	}
 }
 

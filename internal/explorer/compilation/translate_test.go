@@ -907,7 +907,7 @@ func TestCompileExplicitRelatedValueReductionsPublishHonestShapes(t *testing.T) 
 	}
 }
 
-func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
+func TestCompileOrderedContributorWindowPreservesWindowAndOrdering(t *testing.T) {
 	visible := true
 	snapshot := contributorSnapshot()
 	for index := range snapshot.Candidates {
@@ -924,10 +924,11 @@ func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
 			Column: "latest_value", Label: "Latest value", OccurrenceID: "observation",
 			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{
 				Operation: "FIRST_ORDERED", Path: "valueQuantity.value",
-				Temporal: &authoringv2.TemporalReductionSource{
+				ContributorWindow: &authoringv2.ContributorWindowSource{
 					TimestampPath: "effectiveDateTime", AnchorPath: "root.meta.lastUpdated", LowerOffset: -86400, UpperOffset: 0,
-					LowerInclusive: true, UpperInclusive: true, Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE",
+					LowerInclusive: true, UpperInclusive: true, Precision: "INSTANT",
 				},
+				Ordering:          &authoringv2.TemporalOrderingSource{TimestampPath: "effectiveDateTime", Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
 				UnitNormalization: &authoringv2.UnitNormalizationPolicy{PolicyID: "to-centimeters", Version: "1"},
 			}}, Table: &authoringv2.TablePresentation{Visible: &visible},
 		}},
@@ -937,8 +938,8 @@ func TestCompileOrderedTemporalReductionPreservesCompletePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	aggregate := result.Bundle.Outputs[0].Traversals[0].Aggregates[0]
-	if aggregate.Temporal == nil || aggregate.Temporal.Timestamp.Select != "observation.effectiveDateTime" || aggregate.Temporal.Anchor.Select != "root.meta.lastUpdated" || aggregate.Temporal.Direction != recipe.TemporalDescending || aggregate.Temporal.TiePolicy != recipe.TemporalTieRequireUnique {
-		t.Fatalf("temporal aggregate = %#v", aggregate)
+	if aggregate.ContributorWindow == nil || aggregate.ContributorWindow.Timestamp.Select != "observation.effectiveDateTime" || aggregate.ContributorWindow.Anchor.Select != "root.meta.lastUpdated" || !aggregate.ContributorWindow.UpperInclusive || aggregate.Ordering == nil || aggregate.Ordering.Timestamp.Select != "observation.effectiveDateTime" || aggregate.Ordering.Direction != recipe.TemporalDescending || aggregate.Ordering.TiePolicy != recipe.TemporalTieRequireUnique {
+		t.Fatalf("contributor-window aggregate = %#v", aggregate)
 	}
 	if aggregate.UnitNormalization == nil || aggregate.UnitNormalization.Target.Code != "cm" || len(aggregate.UnitNormalization.Rules) == 0 {
 		t.Fatalf("unit-normalized aggregate = %#v", aggregate.UnitNormalization)

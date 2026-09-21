@@ -256,7 +256,7 @@ func TestBuildAndRenderGenericPhysicalPlanAggregates(t *testing.T) {
 	}
 }
 
-func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
+func TestBuildAndRenderOrderedContributorWindowAggregate(t *testing.T) {
 	value, err := spec.ParseSelector("valueQuantity.value")
 	if err != nil {
 		t.Fatal(err)
@@ -285,20 +285,30 @@ func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	window := &semantic.SemanticContributorWindow{
+		Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
+		LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
+		Precision: "INSTANT",
+	}
 	plan, err := buildGenericPhysicalPlan(semantic.OutputPlan{Root: semantic.SemanticNode{
 		Alias: "root", ResourceType: "Patient",
 		Children: []semantic.SemanticNode{{
 			Alias: "observation", ResourceType: "Observation", EdgeLabel: "subject_Patient",
-			Aggregates: []semantic.SemanticAggregate{{
-				Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
-				UnitSystemSelector: &system, UnitCodeSelector: &code,
-				UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
-				Temporal: &semantic.SemanticTemporalReduction{
-					Timestamp: timestamp, Anchor: anchor, AnchorResource: "Patient",
-					LowerOffset: -86400, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
-					Direction: "DESC", Precision: "INSTANT", TiePolicy: "REQUIRE_UNIQUE",
+			Aggregates: []semantic.SemanticAggregate{
+				{
+					Name: "latest_height", Operation: "FIRST_ORDERED", Selector: &value,
+					UnitSystemSelector: &system, UnitCodeSelector: &code,
+					UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
+					ContributorWindow: window,
+					Ordering:          &semantic.SemanticTemporalOrdering{Timestamp: timestamp, Direction: "DESC", TiePolicy: "REQUIRE_UNIQUE"},
 				},
-			}},
+				{
+					Name: "sum_height", Operation: "SUM", Selector: &value,
+					UnitSystemSelector: &system, UnitCodeSelector: &code,
+					UnitNormalization: &unit.UnitNormalization{Target: policy.Target, Dimension: dimension, Rules: rules},
+					ContributorWindow: window,
+				},
+			},
 		}},
 	}})
 	if err != nil {
@@ -308,12 +318,23 @@ func TestBuildAndRenderOrderedTemporalAggregate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "temporal_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_temporal_anchor", "UNIT_IDENTITY_UNKNOWN", ".scale +"} {
+	for _, want := range []string{"TEMPORAL_ANCHOR_INVALID", "TEMPORAL_PRECISION_UNSUPPORTED", "TEMPORAL_TIE_AMBIGUOUS", "SORT DATE_TIMESTAMP(__loom_temporal_timestamp) DESC", "__loom_physical_contributor_window_anchor = root.payload.meta.lastUpdated", "DATE_ADD(__loom_physical_contributor_window_anchor", "UNIT_IDENTITY_UNKNOWN", ".scale +"} {
 		if !strings.Contains(rendered.Query, want) {
 			t.Fatalf("ordered temporal query missing %q:\n%s", want, rendered.Query)
 		}
 	}
-	if got := strings.Count(rendered.Query, " IN child_set_1 LET __loom_temporal_value"); got != 1 {
+	windowFilter := strings.Index(rendered.Query, "LET __loom_physical_contributor_window_eligible =")
+	unitIdentityCheck := strings.Index(rendered.Query, "UNIT_IDENTITY_UNKNOWN")
+	if windowFilter < 0 || unitIdentityCheck <= windowFilter {
+		t.Fatalf("contributor window must filter resources before unit normalization; filter=%d conversion=%d:\n%s", windowFilter, unitIdentityCheck, rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "LET __loom_physical_contributor_window_eligible"); got != 2 {
+		t.Fatalf("ordered and numeric reducers must each consume a contributor window, got %d filters:\n%s", got, rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "FOR __loom_physical_aggregate_value_item IN FIRST(FOR __loom_physical_contributor_window_scope") {
+		t.Fatalf("numeric value extraction did not iterate the eligible window set:\n%s", rendered.Query)
+	}
+	if got := strings.Count(rendered.Query, "LET __loom_physical_temporal_candidates ="); got != 1 {
 		t.Fatalf("temporal candidates evaluated %d times, want once:\n%s", got, rendered.Query)
 	}
 	foundLower, foundUpper := false, false

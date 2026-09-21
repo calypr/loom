@@ -287,6 +287,7 @@ func (s BuilderState) Digest() (string, error) {
 func DecodeWorkspace(raw []byte) (Workspace, error) {
 	var out Workspace
 	if err := strictDecode(raw, &out); err == nil {
+		out = MigrateAggregateTemporalPolicy(out)
 		out = migrateMissingRowsBeforeCurrent(out)
 		if err := out.Validate(); err != nil {
 			return out, err
@@ -308,6 +309,7 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 		out = migrated
 	}
+	out = MigrateAggregateTemporalPolicy(out)
 	out = migrateMissingRowsBeforeCurrent(out)
 	if err := out.Validate(); err != nil {
 		return out, err
@@ -381,7 +383,7 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 	for documentIndex, document := range wire.Documents {
 		converted := Document{Kind: document.Kind, Output: document.Output, RootResourceType: document.RootResourceType, Route: document.Route, Rows: document.Rows, FixedFilters: document.FixedFilters, Actions: document.Actions, Columns: make([]Column, 0, len(document.Columns))}
 		for columnIndex, column := range document.Columns {
-			source, err := decodePersistedSource(column.Source)
+			source, err := decodePersistedSource(column.Source, wire.SemanticsVersion)
 			if err != nil {
 				return Workspace{}, fmt.Errorf("documents[%d].columns[%d].source: %w", documentIndex, columnIndex, err)
 			}
@@ -392,7 +394,7 @@ func decodePersistedLegacyWorkspace(raw []byte) (Workspace, error) {
 	return out, nil
 }
 
-func decodePersistedSource(raw json.RawMessage) (ColumnSource, error) {
+func decodePersistedSource(raw json.RawMessage, semanticsVersion int) (ColumnSource, error) {
 	var current ColumnSource
 	if err := strictDecode(raw, &current); err == nil {
 		return current, nil
@@ -418,23 +420,53 @@ func decodePersistedSource(raw json.RawMessage) (ColumnSource, error) {
 		Kind      string       `json:"kind"`
 		Field     *FieldSource `json:"field,omitempty"`
 		Aggregate *struct {
-			Operation      string       `json:"operation"`
-			Path           string       `json:"path,omitempty"`
-			Where          *SourceWhere `json:"where,omitempty"`
-			RequiredValues []string     `json:"requiredValues,omitempty"`
+			Operation         string                            `json:"operation"`
+			Path              string                            `json:"path,omitempty"`
+			Where             *SourceWhere                      `json:"where,omitempty"`
+			RequiredValues    []string                          `json:"requiredValues,omitempty"`
+			UnitNormalization *UnitNormalizationPolicy          `json:"unitNormalization,omitempty"`
+			Temporal          *persistedTemporalReductionSource `json:"temporal,omitempty"`
 		} `json:"aggregate,omitempty"`
 		Lookup *LookupSource `json:"lookup,omitempty"`
 	}
 	if nestedErr := strictDecode(raw, &nested); nestedErr != nil {
 		return ColumnSource{}, nestedErr
 	}
-	if nested.Aggregate == nil || nested.Aggregate.Where == nil {
+	if nested.Aggregate != nil && nested.Aggregate.Temporal != nil && semanticsVersion != CurrentSemanticsVersion-1 {
+		return ColumnSource{}, fmt.Errorf("persisted aggregate temporal policy is only supported at semantics version %d", CurrentSemanticsVersion-1)
+	}
+	if nested.Aggregate == nil || (nested.Aggregate.Where == nil && nested.Aggregate.Temporal == nil) {
 		return ColumnSource{}, fmt.Errorf("source is not a supported legacy wire")
 	}
-	return ColumnSource{Kind: SourceAggregate, Aggregate: &AggregateSource{
+	aggregate := &AggregateSource{
 		Operation: strings.ToUpper(strings.TrimSpace(nested.Aggregate.Operation)), Path: nested.Aggregate.Path,
 		Where: nested.Aggregate.Where, RequiredValues: append([]string(nil), nested.Aggregate.RequiredValues...),
-	}}, nil
+		UnitNormalization: cloneUnitNormalization(nested.Aggregate.UnitNormalization),
+	}
+	if temporal := nested.Aggregate.Temporal; temporal != nil {
+		aggregate.ContributorWindow = &ContributorWindowSource{
+			TimestampPath: temporal.TimestampPath, AnchorPath: temporal.AnchorPath,
+			LowerOffset: temporal.LowerOffset, UpperOffset: temporal.UpperOffset,
+			LowerInclusive: temporal.LowerInclusive, UpperInclusive: temporal.UpperInclusive,
+			Precision: temporal.Precision,
+		}
+		aggregate.Ordering = &TemporalOrderingSource{
+			TimestampPath: temporal.TimestampPath, Direction: temporal.Direction, TiePolicy: temporal.TiePolicy,
+		}
+	}
+	return ColumnSource{Kind: SourceAggregate, Aggregate: aggregate}, nil
+}
+
+type persistedTemporalReductionSource struct {
+	TimestampPath  string `json:"timestampPath"`
+	AnchorPath     string `json:"anchorPath"`
+	LowerOffset    int64  `json:"lowerOffsetSeconds"`
+	UpperOffset    int64  `json:"upperOffsetSeconds"`
+	LowerInclusive bool   `json:"lowerInclusive"`
+	UpperInclusive bool   `json:"upperInclusive"`
+	Direction      string `json:"direction"`
+	Precision      string `json:"precision"`
+	TiePolicy      string `json:"tiePolicy"`
 }
 
 func decodeLegacyFlatSource(legacy legacyColumnSource) (ColumnSource, error) {

@@ -524,7 +524,58 @@ func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggreg
 		}
 		items = "(FOR " + item + " IN " + items + " FILTER " + predicate + " RETURN " + item + ")"
 	}
+	if aggregate.ContributorWindow != nil {
+		items, err = r.renderContributorWindowItems(aggregate, items)
+		if err != nil {
+			return "", false, err
+		}
+		perItem = true
+	}
 	return items, perItem, nil
+}
+
+func (r *physicalPlanRenderer) renderContributorWindowItems(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	window := aggregate.ContributorWindow
+	if window == nil {
+		return items, nil
+	}
+	item := r.newInternalVariable("contributor_window_item")
+	timestamp, err := r.renderAggregateItemValue(window.Timestamp, item)
+	if err != nil {
+		return "", fmt.Errorf("contributor window timestamp: %w", err)
+	}
+	anchor, err := r.renderExpression(window.Anchor)
+	if err != nil {
+		return "", fmt.Errorf("contributor window anchor: %w", err)
+	}
+	patternKey := r.newInternalBindKey("contributor_window_instant_pattern")
+	lowerKey := r.newInternalBindKey("contributor_window_lower_offset_seconds")
+	upperKey := r.newInternalBindKey("contributor_window_upper_offset_seconds")
+	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
+	r.bindVars[lowerKey] = window.LowerOffset
+	r.bindVars[upperKey] = window.UpperOffset
+	lowerOperator, upperOperator := ">", "<"
+	if window.LowerInclusive {
+		lowerOperator = ">="
+	}
+	if window.UpperInclusive {
+		upperOperator = "<="
+	}
+	anchorVariable := r.newInternalVariable("contributor_window_anchor")
+	scopeVariable := r.newInternalVariable("contributor_window_scope")
+	eligibleVariable := r.newInternalVariable("contributor_window_eligible")
+	timestampVariable := r.newInternalVariable("contributor_window_timestamp")
+	candidates := "(FOR " + item + " IN " + items +
+		" LET " + timestampVariable + " = FIRST(FLATTEN([" + timestamp + "]))" +
+		" FILTER ASSERT(" + timestampVariable + " != null AND REGEX_TEST(TO_STRING(" + timestampVariable + "), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
+		" FILTER DATE_TIMESTAMP(" + timestampVariable + ") " + lowerOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + lowerKey + ", \"second\"))" +
+		" FILTER DATE_TIMESTAMP(" + timestampVariable + ") " + upperOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + upperKey + ", \"second\"))" +
+		" RETURN " + item + ")"
+	return "FIRST(FOR " + scopeVariable + " IN [1]" +
+		" LET " + anchorVariable + " = " + anchor +
+		" FILTER ASSERT(" + anchorVariable + " != null AND REGEX_TEST(TO_STRING(" + anchorVariable + "), @" + patternKey + "), \"TEMPORAL_ANCHOR_INVALID\")" +
+		" LET " + eligibleVariable + " = " + candidates +
+		" RETURN " + eligibleVariable + ")", nil
 }
 
 func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.PhysicalAggregate, items string) (string, error) {
@@ -537,8 +588,8 @@ func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.Physica
 }
 
 func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.PhysicalAggregate, items string) (string, error) {
-	if aggregate.Temporal == nil || aggregate.Value == nil {
-		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal policy")
+	if aggregate.Ordering == nil || aggregate.Value == nil {
+		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal ordering")
 	}
 	item := r.newInternalVariable("temporal_item")
 	value, err := r.renderAggregateItemValue(*aggregate.Value, item)
@@ -546,51 +597,30 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 		return "", err
 	}
 	value = "FIRST(FLATTEN([" + value + "]))"
-	timestamp, err := r.renderAggregateItemValue(aggregate.Temporal.Timestamp, item)
+	timestamp, err := r.renderAggregateItemValue(aggregate.Ordering.Timestamp, item)
 	if err != nil {
 		return "", err
 	}
 	timestamp = "FIRST(FLATTEN([" + timestamp + "]))"
-	anchor, err := r.renderExpression(aggregate.Temporal.Anchor)
-	if err != nil {
-		return "", err
-	}
 	patternKey := r.newInternalBindKey("temporal_instant_pattern")
-	lowerKey := r.newInternalBindKey("temporal_lower_offset_seconds")
-	upperKey := r.newInternalBindKey("temporal_upper_offset_seconds")
 	r.bindVars[patternKey] = `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$`
-	r.bindVars[lowerKey] = aggregate.Temporal.LowerOffset
-	r.bindVars[upperKey] = aggregate.Temporal.UpperOffset
-	lowerOperator, upperOperator := ">", "<"
-	if aggregate.Temporal.LowerInclusive {
-		lowerOperator = ">="
-	}
-	if aggregate.Temporal.UpperInclusive {
-		upperOperator = "<="
-	}
-	direction := strings.ToUpper(aggregate.Temporal.Direction)
-	anchorVariable := r.newInternalVariable("temporal_anchor")
+	direction := strings.ToUpper(aggregate.Ordering.Direction)
 	candidatesVariable := r.newInternalVariable("temporal_candidates")
 	selectedVariable := r.newInternalVariable("temporal_selected")
-	scopeVariable := r.newInternalVariable("temporal_scope")
 	candidates := "(FOR " + item + " IN " + items +
 		" LET __loom_temporal_value = " + value +
 		" LET __loom_temporal_timestamp = " + timestamp +
 		" FILTER __loom_temporal_value != null" +
 		" FILTER ASSERT(__loom_temporal_timestamp != null AND REGEX_TEST(TO_STRING(__loom_temporal_timestamp), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
-		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + lowerOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + lowerKey + ", \"second\"))" +
-		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + upperOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + upperKey + ", \"second\"))" +
 		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction + ", " + item + "._key ASC" +
 		" RETURN { resourceType: " + item + ".resourceType, resourceId: " + item + ".id, value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
 	result := selectedVariable
-	if aggregate.Temporal.TiePolicy == "REQUIRE_UNIQUE" {
+	if aggregate.Ordering.TiePolicy == "REQUIRE_UNIQUE" {
 		tie := r.newInternalVariable("temporal_tie")
 		ties := "LENGTH(FOR " + tie + " IN " + candidatesVariable + " FILTER DATE_TIMESTAMP(" + tie + ".timestamp) == DATE_TIMESTAMP(" + selectedVariable + ".timestamp) LIMIT 2 RETURN 1)"
 		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + " : null)"
 	}
-	return "FIRST(FOR " + scopeVariable + " IN [1]" +
-		" LET " + anchorVariable + " = " + anchor +
-		" FILTER ASSERT(" + anchorVariable + " != null AND REGEX_TEST(TO_STRING(" + anchorVariable + "), @" + patternKey + "), \"TEMPORAL_ANCHOR_INVALID\")" +
+	return "FIRST(FOR __loom_temporal_scope IN [1]" +
 		" LET " + candidatesVariable + " = " + candidates +
 		" LET " + selectedVariable + " = FIRST(" + candidatesVariable + ")" +
 		" RETURN " + result + ")", nil
@@ -598,6 +628,9 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 
 func aggregatePreparedVariable(aggregate *ir.PhysicalAggregate) string {
 	if aggregate == nil {
+		return ""
+	}
+	if aggregate.ContributorWindow != nil {
 		return ""
 	}
 	// Prepared child sets contain raw selector columns. Unit normalization

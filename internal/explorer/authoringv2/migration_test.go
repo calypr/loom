@@ -2,12 +2,13 @@ package authoringv2
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
 
 func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.T) {
-	legacy, err := DecodeWorkspace(persistedWorkspaceWithoutRows(CurrentSemanticsVersion - 1))
+	legacy, err := DecodeWorkspace(persistedWorkspaceWithoutRows(explicitRowsSemanticsVersion - 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +44,46 @@ func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 	}
 	if _, err := json.Marshal(migrated); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDecodeWorkspaceMigratesPersistedFirstOrderedTemporalPolicy(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion-1) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	workspace, err := DecodeWorkspace([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate := workspace.Documents[0].Columns[0].Source.Aggregate
+	if workspace.SemanticsVersion != CurrentSemanticsVersion || aggregate == nil || aggregate.ContributorWindow == nil || aggregate.Ordering == nil {
+		t.Fatalf("migrated workspace version=%d aggregate=%#v", workspace.SemanticsVersion, aggregate)
+	}
+	if aggregate.ContributorWindow.TimestampPath != "effectiveDateTime" || aggregate.ContributorWindow.AnchorPath != "meta.lastUpdated" || aggregate.Ordering.TimestampPath != "effectiveDateTime" || aggregate.Ordering.Direction != "DESC" || aggregate.Ordering.TiePolicy != "RESOURCE_KEY" {
+		t.Fatalf("migrated temporal policy = window %#v ordering %#v", aggregate.ContributorWindow, aggregate.Ordering)
+	}
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(canonical), `"temporal":`) || !strings.Contains(string(canonical), `"contributorWindow":`) || !strings.Contains(string(canonical), `"ordering":`) {
+		t.Fatalf("canonical persisted source did not use the new contract: %s", canonical)
+	}
+	reloaded, err := DecodeWorkspace(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadedCanonical, err := reloaded.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(reloadedCanonical) != string(canonical) {
+		t.Fatalf("persisted migration was not idempotent:\nfirst=%s\nsecond=%s", canonical, reloadedCanonical)
+	}
+}
+
+func TestDecodeWorkspaceRejectsLegacyTemporalAtCurrentSemanticsVersion(t *testing.T) {
+	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":` + fmt.Sprint(CurrentSemanticsVersion) + `,"explorer":{"title":"Observations"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient","children":[{"occurrenceId":"observations","resourceType":"Observation","relationship":"subject_Patient"}]},"rows":{"kind":"RECORDS","records":{}},"columns":[{"column":"latest","label":"Latest","occurrenceId":"observations","source":{"kind":"aggregate","aggregate":{"operation":"FIRST_ORDERED","path":"valueQuantity.value","temporal":{"timestampPath":"effectiveDateTime","anchorPath":"meta.lastUpdated","lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"direction":"DESC","precision":"INSTANT","tiePolicy":"RESOURCE_KEY"}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
+	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("current semantics accepted the legacy temporal field: %v", err)
 	}
 }
 

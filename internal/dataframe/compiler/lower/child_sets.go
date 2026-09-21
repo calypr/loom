@@ -259,8 +259,11 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 				if expression.Aggregate.Value != nil {
 					collect(expression.Aggregate.Value)
 				}
-				if expression.Aggregate.Temporal != nil {
-					collect(&expression.Aggregate.Temporal.Timestamp)
+				if expression.Aggregate.ContributorWindow != nil {
+					collect(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					collect(&expression.Aggregate.Ordering.Timestamp)
 				}
 				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
 					collect(expression.Aggregate.Predicate.Comparison.LeftExpression)
@@ -344,8 +347,11 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 				if expression.Aggregate.Value != nil {
 					annotate(expression.Aggregate.Value)
 				}
-				if expression.Aggregate.Temporal != nil {
-					annotate(&expression.Aggregate.Temporal.Timestamp)
+				if expression.Aggregate.ContributorWindow != nil {
+					annotate(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					annotate(&expression.Aggregate.Ordering.Timestamp)
 				}
 				if expression.Aggregate.Predicate != nil && expression.Aggregate.Predicate.Comparison != nil {
 					annotate(expression.Aggregate.Predicate.Comparison.LeftExpression)
@@ -433,8 +439,11 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
 				collect(expression.Aggregate.Value, false)
-				if expression.Aggregate.Temporal != nil {
-					collect(&expression.Aggregate.Temporal.Timestamp, true)
+				if expression.Aggregate.ContributorWindow != nil {
+					collect(&expression.Aggregate.ContributorWindow.Timestamp, true)
+				}
+				if expression.Aggregate.Ordering != nil {
+					collect(&expression.Aggregate.Ordering.Timestamp, true)
 				}
 				collectPredicate(expression.Aggregate.Predicate)
 			}
@@ -548,8 +557,11 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		case ir.PhysicalAggregateExpression:
 			if expression.Aggregate != nil {
 				rewrite(expression.Aggregate.Value)
-				if expression.Aggregate.Temporal != nil {
-					rewrite(&expression.Aggregate.Temporal.Timestamp)
+				if expression.Aggregate.ContributorWindow != nil {
+					rewrite(&expression.Aggregate.ContributorWindow.Timestamp)
+				}
+				if expression.Aggregate.Ordering != nil {
+					rewrite(&expression.Aggregate.Ordering.Timestamp)
 				}
 				rewritePredicate(expression.Aggregate.Predicate)
 			}

@@ -322,21 +322,31 @@ func physicalAggregateExpression(physical *ir.PhysicalPlan, resourceType string,
 		}
 		aggregatePhysical.Predicate = predicate
 	}
-	if aggregate.Temporal != nil {
+	if aggregate.ContributorWindow != nil {
 		if !sourceIsSet {
-			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q temporal reduction requires a related resource set", aggregate.Name)
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q contributor window requires a related resource set", aggregate.Name)
 		}
+		window := aggregate.ContributorWindow
 		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: aggregate.Temporal.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, aggregate.Temporal.Timestamp)}}
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: window.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, window.Timestamp)}}
 		anchorSource := ir.PhysicalValue{Variable: "root", Path: []string{"payload"}}
 		anchor := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: aggregate.Temporal.AnchorResource, Selector: aggregate.Temporal.Anchor, ExecutionMode: selectorExecutionMode(aggregate.Temporal.AnchorResource, aggregate.Temporal.Anchor)}}
-		aggregatePhysical.Temporal = &ir.PhysicalTemporalReduction{
+			Extract: &ir.PhysicalExtract{Source: anchorSource, ResourceType: window.AnchorResource, Selector: window.Anchor, ExecutionMode: selectorExecutionMode(window.AnchorResource, window.Anchor)}}
+		aggregatePhysical.ContributorWindow = &ir.PhysicalContributorWindow{
 			Timestamp: timestamp, Anchor: anchor,
-			LowerOffset: aggregate.Temporal.LowerOffset, UpperOffset: aggregate.Temporal.UpperOffset,
-			LowerInclusive: aggregate.Temporal.LowerInclusive, UpperInclusive: aggregate.Temporal.UpperInclusive,
-			Direction: aggregate.Temporal.Direction, Precision: aggregate.Temporal.Precision, TiePolicy: aggregate.Temporal.TiePolicy,
+			LowerOffset: window.LowerOffset, UpperOffset: window.UpperOffset,
+			LowerInclusive: window.LowerInclusive, UpperInclusive: window.UpperInclusive,
+			Precision: window.Precision,
 		}
+	}
+	if aggregate.Ordering != nil {
+		if !sourceIsSet {
+			return ir.PhysicalExpression{}, fmt.Errorf("aggregate %q ordering requires a related resource set", aggregate.Name)
+		}
+		ordering := aggregate.Ordering
+		timestamp := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{Source: source, ResourceType: resourceType, Selector: ordering.Timestamp, ExecutionMode: selectorExecutionMode(resourceType, ordering.Timestamp)}}
+		aggregatePhysical.Ordering = &ir.PhysicalTemporalOrdering{Timestamp: timestamp, Direction: ordering.Direction, TiePolicy: ordering.TiePolicy}
 	}
 	cardinality := ir.PhysicalScalarCardinality
 	nullBehavior := ir.PhysicalEmptyOnNull

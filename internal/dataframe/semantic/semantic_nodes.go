@@ -91,10 +91,11 @@ type SemanticAggregate struct {
 	UnitNormalization  *unit.UnitNormalization
 	UnitSystemSelector *spec.Selector
 	UnitCodeSelector   *spec.Selector
-	Temporal           *SemanticTemporalReduction
+	ContributorWindow  *SemanticContributorWindow
+	Ordering           *SemanticTemporalOrdering
 }
 
-type SemanticTemporalReduction struct {
+type SemanticContributorWindow struct {
 	Timestamp      spec.Selector
 	Anchor         spec.Selector
 	AnchorResource string
@@ -102,9 +103,13 @@ type SemanticTemporalReduction struct {
 	UpperOffset    int64
 	LowerInclusive bool
 	UpperInclusive bool
-	Direction      string
 	Precision      string
-	TiePolicy      string
+}
+
+type SemanticTemporalOrdering struct {
+	Timestamp spec.Selector
+	Direction string
+	TiePolicy string
 }
 
 type SemanticSlice struct {

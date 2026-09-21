@@ -170,9 +170,12 @@ func canonicalizePhysicalExpression(expression *PhysicalExpression) {
 	}
 	if expression.Aggregate != nil {
 		canonicalizePhysicalExpression(expression.Aggregate.Value)
-		if expression.Aggregate.Temporal != nil {
-			canonicalizePhysicalExpression(&expression.Aggregate.Temporal.Timestamp)
-			canonicalizePhysicalExpression(&expression.Aggregate.Temporal.Anchor)
+		if expression.Aggregate.ContributorWindow != nil {
+			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Timestamp)
+			canonicalizePhysicalExpression(&expression.Aggregate.ContributorWindow.Anchor)
+		}
+		if expression.Aggregate.Ordering != nil {
+			canonicalizePhysicalExpression(&expression.Aggregate.Ordering.Timestamp)
 		}
 		canonicalizePhysicalPredicateExpression(expression.Aggregate.Predicate)
 	}
@@ -595,11 +598,16 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 			value := clonePhysicalExpression(*aggregate.Value)
 			aggregate.Value = &value
 		}
-		if aggregate.Temporal != nil {
-			temporal := *aggregate.Temporal
-			temporal.Timestamp = clonePhysicalExpression(aggregate.Temporal.Timestamp)
-			temporal.Anchor = clonePhysicalExpression(aggregate.Temporal.Anchor)
-			aggregate.Temporal = &temporal
+		if aggregate.ContributorWindow != nil {
+			window := *aggregate.ContributorWindow
+			window.Timestamp = clonePhysicalExpression(aggregate.ContributorWindow.Timestamp)
+			window.Anchor = clonePhysicalExpression(aggregate.ContributorWindow.Anchor)
+			aggregate.ContributorWindow = &window
+		}
+		if aggregate.Ordering != nil {
+			ordering := *aggregate.Ordering
+			ordering.Timestamp = clonePhysicalExpression(aggregate.Ordering.Timestamp)
+			aggregate.Ordering = &ordering
 		}
 		copy.Aggregate = &aggregate
 	}

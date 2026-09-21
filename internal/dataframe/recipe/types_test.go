@@ -189,14 +189,30 @@ func TestValidationAcceptsCountAndExistsOverExtractedValues(t *testing.T) {
 	}
 }
 
-func TestValidationAcceptsClosedOrderedTemporalReduction(t *testing.T) {
-	input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"latest","operation":"FIRST_ORDERED","expr":{"select":"observation.valueQuantity.value"},"temporal":{"timestamp":{"select":"observation.effectiveDateTime"},"anchor":{"select":"root.meta.lastUpdated"},"lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":true,"direction":"DESC","precision":"INSTANT","tiePolicy":"REQUIRE_UNIQUE"}}]}]}]}`
-	if _, err := Parse([]byte(input)); err != nil {
-		t.Fatalf("expected ordered temporal reduction to validate, got %v", err)
+func TestValidationAcceptsWindowedReducersWithoutValuesAndOrderedWindow(t *testing.T) {
+	window := `"contributorWindow":{"timestamp":{"select":"observation.effectiveDateTime"},"anchor":{"select":"root.meta.lastUpdated"},"lowerOffsetSeconds":-86400,"upperOffsetSeconds":0,"lowerInclusive":true,"upperInclusive":false,"precision":"INSTANT"}`
+	for _, operation := range []string{"COUNT", "EXISTS"} {
+		input := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"values","operation":"` + operation + `",` + window + `}]}]}]}`
+		if _, err := Parse([]byte(input)); err != nil {
+			t.Fatalf("expected pathless windowed %s to validate, got %v", operation, err)
+		}
 	}
-	invalid := strings.Replace(input, `"lowerOffsetSeconds":-86400`, `"lowerOffsetSeconds":1`, 1)
+
+	ordered := `{"recipeSchemaVersion":1,"name":"x","translationVersion":"1","outputs":[{"name":"x","rootResourceType":"Patient","rowGrain":"patient","traversals":[{"name":"observations","alias":"observation","toResourceType":"Observation","aggregates":[{"name":"latest","operation":"FIRST_ORDERED","expr":{"select":"observation.valueQuantity.value"},` + window + `,"ordering":{"timestamp":{"select":"observation.effectiveDateTime"},"direction":"DESC","tiePolicy":"REQUIRE_UNIQUE"}}]}]}]}`
+	if _, err := Parse([]byte(ordered)); err != nil {
+		t.Fatalf("expected ordered contributor window to validate, got %v", err)
+	}
+	invalid := strings.Replace(ordered, `"lowerOffsetSeconds":-86400`, `"lowerOffsetSeconds":1`, 1)
 	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "lowerOffsetSeconds") {
-		t.Fatalf("expected inverted temporal window rejection, got %v", err)
+		t.Fatalf("expected inverted contributor window rejection, got %v", err)
+	}
+	missingOrdering := strings.Replace(ordered, `,"ordering":{"timestamp":{"select":"observation.effectiveDateTime"},"direction":"DESC","tiePolicy":"REQUIRE_UNIQUE"}`, "", 1)
+	if _, err := Parse([]byte(missingOrdering)); err == nil || !strings.Contains(err.Error(), "ordering") {
+		t.Fatalf("expected FIRST_ORDERED ordering to be required, got %v", err)
+	}
+	invalidOrdering := strings.Replace(ordered, `"operation":"FIRST_ORDERED"`, `"operation":"SUM"`, 1)
+	if _, err := Parse([]byte(invalidOrdering)); err == nil || !strings.Contains(err.Error(), "ordering is only valid") {
+		t.Fatalf("expected ordering on SUM to be rejected, got %v", err)
 	}
 }
 

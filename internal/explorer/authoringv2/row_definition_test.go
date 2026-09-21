@@ -225,17 +225,17 @@ func TestDecodeWorkspaceRejectsPoliciesOnTheWrongGroupSourceArm(t *testing.T) {
 	}
 }
 
-func TestDecodeWorkspaceDefaultsMissingRowsBeforeValidatingPreV7PersistedDocument(t *testing.T) {
+func TestDecodeWorkspaceDefaultsMissingRowsBeforeValidatingPreV8PersistedDocument(t *testing.T) {
 	workspace, err := DecodeWorkspace(persistedWorkspaceWithoutRows(6))
 	if err != nil {
-		t.Fatalf("pre-v7 workspace did not migrate before validation: %v", err)
+		t.Fatalf("pre-v8 workspace did not migrate before validation: %v", err)
 	}
 	if len(workspace.Documents) != 1 || workspace.Documents[0].Rows.Kind != RowDefinitionRecords || workspace.Documents[0].Rows.Records == nil {
 		t.Fatalf("migrated row definition = %#v", workspace.Documents)
 	}
 }
 
-func TestDecodeWorkspaceRejectsMissingRowsAtV7(t *testing.T) {
+func TestDecodeWorkspaceRejectsMissingRowsAtCurrentSemanticsVersion(t *testing.T) {
 	if _, err := DecodeWorkspace(persistedWorkspaceWithoutRows(CurrentSemanticsVersion)); err == nil || !strings.Contains(err.Error(), "rows") {
 		t.Fatalf("current-version missing rows error = %v", err)
 	}
@@ -269,7 +269,7 @@ func TestCanonicalRoundTripIncludesRowsAndKeepsDigestStable(t *testing.T) {
 
 func TestMigrateLosslessDefaultsInstallsRowsIdempotentlyWithoutMutatingInput(t *testing.T) {
 	legacy := rowDefinitionTestWorkspace(RowDefinition{})
-	legacy.SemanticsVersion = CurrentSemanticsVersion - 1
+	legacy.SemanticsVersion = explicitRowsSemanticsVersion - 1
 	original := legacy
 	first := MigrateLosslessDefaults(legacy, CatalogSnapshot{})
 	if first.SemanticsVersion != CurrentSemanticsVersion || first.Documents[0].Rows.Kind != RowDefinitionRecords || first.Documents[0].Rows.Records == nil {
@@ -279,7 +279,7 @@ func TestMigrateLosslessDefaultsInstallsRowsIdempotentlyWithoutMutatingInput(t *
 	if !reflect.DeepEqual(first, second) {
 		t.Fatalf("row migration was not idempotent:\nfirst=%#v\nsecond=%#v", first, second)
 	}
-	if !reflect.DeepEqual(original, legacy) || legacy.SemanticsVersion != CurrentSemanticsVersion-1 || legacy.Documents[0].Rows != (RowDefinition{}) {
+	if !reflect.DeepEqual(original, legacy) || legacy.SemanticsVersion != explicitRowsSemanticsVersion-1 || legacy.Documents[0].Rows != (RowDefinition{}) {
 		t.Fatal("row migration mutated its input")
 	}
 }

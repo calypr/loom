@@ -344,15 +344,28 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 			return validationError("invalid_unit_normalization", path+".unitNormalization", err.Error())
 		}
 	}
-	if a.Operation == AggregateFirstOrdered {
-		if a.Temporal == nil {
-			return validationError("required", path+".temporal", "FIRST_ORDERED requires temporal policy")
+	if a.ContributorWindow != nil {
+		switch a.Operation {
+		case AggregateCount, AggregateExists, AggregateMin, AggregateMax, AggregateMean, AggregateSum, AggregateFirstOrdered:
+		default:
+			return validationError("invalid_contributor_window", path+".contributorWindow", "contributor window is not valid for this aggregate operation")
 		}
-		if err := a.Temporal.validateAt(path+".temporal", budget); err != nil {
+		if err := a.ContributorWindow.validateAt(path+".contributorWindow", budget); err != nil {
 			return err
 		}
-	} else if a.Temporal != nil {
-		return validationError("invalid_temporal", path+".temporal", "temporal policy is only valid for FIRST_ORDERED")
+	}
+	if a.Operation == AggregateFirstOrdered {
+		if a.ContributorWindow == nil {
+			return validationError("required", path+".contributorWindow", "FIRST_ORDERED requires a contributor window")
+		}
+		if a.Ordering == nil {
+			return validationError("required", path+".ordering", "FIRST_ORDERED requires temporal ordering")
+		}
+		if err := a.Ordering.validateAt(path+".ordering", budget); err != nil {
+			return err
+		}
+	} else if a.Ordering != nil {
+		return validationError("invalid_ordering", path+".ordering", "ordering is only valid for FIRST_ORDERED")
 	}
 	if a.Where != nil {
 		if err := validateRichFilterAt(*a.Where, path+".where", true); err != nil {
@@ -379,29 +392,39 @@ func (a Aggregate) validateAt(path string, budget *int) error {
 	return nil
 }
 
-func (t TemporalReduction) validateAt(path string, budget *int) error {
-	if err := validateSelectorExpression(t.Timestamp, path+".timestamp"); err != nil {
+func (w ContributorWindow) validateAt(path string, budget *int) error {
+	if err := validateSelectorExpression(w.Timestamp, path+".timestamp"); err != nil {
 		return err
 	}
-	if err := validateExpressionBudget(t.Timestamp, path+".timestamp", budget); err != nil {
+	if err := validateExpressionBudget(w.Timestamp, path+".timestamp", budget); err != nil {
 		return err
 	}
-	if err := validateSelectorExpression(t.Anchor, path+".anchor"); err != nil {
+	if err := validateSelectorExpression(w.Anchor, path+".anchor"); err != nil {
 		return err
 	}
-	if err := validateExpressionBudget(t.Anchor, path+".anchor", budget); err != nil {
+	if err := validateExpressionBudget(w.Anchor, path+".anchor", budget); err != nil {
 		return err
 	}
-	if t.LowerOffset > t.UpperOffset {
+	if w.LowerOffset > w.UpperOffset {
 		return validationError("invalid_temporal_window", path, "lowerOffsetSeconds must not exceed upperOffsetSeconds")
 	}
-	if t.Direction != TemporalAscending && t.Direction != TemporalDescending {
-		return validationError("invalid_temporal_direction", path+".direction", "direction must be ASC or DESC")
-	}
-	if t.Precision != TemporalPrecisionInstant {
+	if w.Precision != TemporalPrecisionInstant {
 		return validationError("invalid_temporal_precision", path+".precision", "precision must be INSTANT")
 	}
-	if t.TiePolicy != TemporalTieRequireUnique && t.TiePolicy != TemporalTieResourceKey {
+	return nil
+}
+
+func (o TemporalOrdering) validateAt(path string, budget *int) error {
+	if err := validateSelectorExpression(o.Timestamp, path+".timestamp"); err != nil {
+		return err
+	}
+	if err := validateExpressionBudget(o.Timestamp, path+".timestamp", budget); err != nil {
+		return err
+	}
+	if o.Direction != TemporalAscending && o.Direction != TemporalDescending {
+		return validationError("invalid_temporal_direction", path+".direction", "direction must be ASC or DESC")
+	}
+	if o.TiePolicy != TemporalTieRequireUnique && o.TiePolicy != TemporalTieResourceKey {
 		return validationError("invalid_temporal_tie_policy", path+".tiePolicy", "tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY")
 	}
 	return nil

@@ -90,7 +90,7 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 		if itemsErr != nil {
 			return "", "", false, "", itemsErr
 		}
-		if aggregate.Temporal != nil {
+		if aggregate.Ordering != nil {
 			return r.renderFirstOrderedTraceContributors(aggregate, items, terminal)
 		}
 		if aggregate.Value == nil {

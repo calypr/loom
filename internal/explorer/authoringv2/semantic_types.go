@@ -133,21 +133,26 @@ type AggregateSource struct {
 	// Where is retained only for decoding immutable/pre-v3 in-memory recipes.
 	// It is deliberately omitted from the current authoring JSON contract;
 	// writable contributor intent lives on Column.Contributor instead.
-	Where          *SourceWhere             `json:"-"`
-	RequiredValues []string                 `json:"requiredValues,omitempty"`
-	Temporal       *TemporalReductionSource `json:"temporal,omitempty"`
+	Where             *SourceWhere             `json:"-"`
+	RequiredValues    []string                 `json:"requiredValues,omitempty"`
+	ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
+	Ordering          *TemporalOrderingSource  `json:"ordering,omitempty"`
 }
 
-type TemporalReductionSource struct {
+type ContributorWindowSource struct {
 	TimestampPath  string `json:"timestampPath"`
 	AnchorPath     string `json:"anchorPath"`
 	LowerOffset    int64  `json:"lowerOffsetSeconds"`
 	UpperOffset    int64  `json:"upperOffsetSeconds"`
 	LowerInclusive bool   `json:"lowerInclusive"`
 	UpperInclusive bool   `json:"upperInclusive"`
-	Direction      string `json:"direction"`
 	Precision      string `json:"precision"`
-	TiePolicy      string `json:"tiePolicy"`
+}
+
+type TemporalOrderingSource struct {
+	TimestampPath string `json:"timestampPath"`
+	Direction     string `json:"direction"`
+	TiePolicy     string `json:"tiePolicy"`
 }
 
 type SourceWhere struct {
@@ -165,13 +170,18 @@ func (s *AggregateSource) UnmarshalJSON(raw []byte) error {
 		Path              string                   `json:"path,omitempty"`
 		UnitNormalization *UnitNormalizationPolicy `json:"unitNormalization,omitempty"`
 		RequiredValues    []string                 `json:"requiredValues,omitempty"`
-		Temporal          *TemporalReductionSource `json:"temporal,omitempty"`
+		ContributorWindow *ContributorWindowSource `json:"contributorWindow,omitempty"`
+		Ordering          *TemporalOrderingSource  `json:"ordering,omitempty"`
 	}
 	var decoded wire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
 	}
-	*s = AggregateSource{Operation: decoded.Operation, Path: decoded.Path, UnitNormalization: cloneUnitNormalization(decoded.UnitNormalization), RequiredValues: append([]string(nil), decoded.RequiredValues...), Temporal: decoded.Temporal}
+	*s = AggregateSource{
+		Operation: decoded.Operation, Path: decoded.Path,
+		UnitNormalization: cloneUnitNormalization(decoded.UnitNormalization), RequiredValues: append([]string(nil), decoded.RequiredValues...),
+		ContributorWindow: cloneContributorWindow(decoded.ContributorWindow), Ordering: cloneTemporalOrdering(decoded.Ordering),
+	}
 	return nil
 }
 
@@ -345,16 +355,30 @@ func (s ColumnSource) Normalized() ColumnSource {
 			where := *n.Aggregate.Where
 			aggregate.Where = &where
 		}
-		if n.Aggregate.Temporal != nil {
-			temporal := *n.Aggregate.Temporal
-			aggregate.Temporal = &temporal
-		}
+		aggregate.ContributorWindow = cloneContributorWindow(n.Aggregate.ContributorWindow)
+		aggregate.Ordering = cloneTemporalOrdering(n.Aggregate.Ordering)
 		n.Aggregate = &aggregate
 	}
 	return n
 }
 
 func cloneUnitNormalization(input *UnitNormalizationPolicy) *UnitNormalizationPolicy {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
+func cloneContributorWindow(input *ContributorWindowSource) *ContributorWindowSource {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	return &copy
+}
+
+func cloneTemporalOrdering(input *TemporalOrderingSource) *TemporalOrderingSource {
 	if input == nil {
 		return nil
 	}
@@ -721,11 +745,26 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s.aggregate.where requires path", path)
 		}
 		if op == "FIRST_ORDERED" {
-			if err := s.Aggregate.Temporal.validate(path + ".aggregate.temporal"); err != nil {
+			if err := s.Aggregate.ContributorWindow.validate(path + ".aggregate.contributorWindow"); err != nil {
 				return err
 			}
-		} else if s.Aggregate.Temporal != nil {
-			return fmt.Errorf("%s.aggregate.temporal is only valid for FIRST_ORDERED", path)
+			if err := s.Aggregate.Ordering.validate(path + ".aggregate.ordering"); err != nil {
+				return err
+			}
+		} else {
+			if s.Aggregate.ContributorWindow != nil {
+				switch op {
+				case "COUNT", "EXISTS", "MIN", "MAX", "MEAN", "SUM":
+				default:
+					return fmt.Errorf("%s.aggregate.contributorWindow is not supported for %s", path, op)
+				}
+				if err := s.Aggregate.ContributorWindow.validate(path + ".aggregate.contributorWindow"); err != nil {
+					return err
+				}
+			}
+			if s.Aggregate.Ordering != nil {
+				return fmt.Errorf("%s.aggregate.ordering is only valid for FIRST_ORDERED", path)
+			}
 		}
 		if op == "CONTAINS_ALL" {
 			if len(s.Aggregate.RequiredValues) == 0 {
@@ -750,23 +789,33 @@ func (s ColumnSource) validate(path string) error {
 	return nil
 }
 
-func (t *TemporalReductionSource) validate(path string) error {
-	if t == nil {
+func (w *ContributorWindowSource) validate(path string) error {
+	if w == nil {
 		return fmt.Errorf("%s is required", path)
 	}
-	if strings.TrimSpace(t.TimestampPath) == "" || strings.TrimSpace(t.AnchorPath) == "" {
+	if strings.TrimSpace(w.TimestampPath) == "" || strings.TrimSpace(w.AnchorPath) == "" {
 		return fmt.Errorf("%s requires timestampPath and anchorPath", path)
 	}
-	if t.LowerOffset > t.UpperOffset {
+	if w.LowerOffset > w.UpperOffset {
 		return fmt.Errorf("%s lowerOffsetSeconds must not exceed upperOffsetSeconds", path)
 	}
-	if t.Direction != "ASC" && t.Direction != "DESC" {
-		return fmt.Errorf("%s.direction must be ASC or DESC", path)
-	}
-	if t.Precision != "INSTANT" {
+	if w.Precision != "INSTANT" {
 		return fmt.Errorf("%s.precision must be INSTANT", path)
 	}
-	if t.TiePolicy != "REQUIRE_UNIQUE" && t.TiePolicy != "RESOURCE_KEY" {
+	return nil
+}
+
+func (o *TemporalOrderingSource) validate(path string) error {
+	if o == nil {
+		return fmt.Errorf("%s is required", path)
+	}
+	if strings.TrimSpace(o.TimestampPath) == "" {
+		return fmt.Errorf("%s.timestampPath is required", path)
+	}
+	if o.Direction != "ASC" && o.Direction != "DESC" {
+		return fmt.Errorf("%s.direction must be ASC or DESC", path)
+	}
+	if o.TiePolicy != "REQUIRE_UNIQUE" && o.TiePolicy != "RESOURCE_KEY" {
 		return fmt.Errorf("%s.tiePolicy must be REQUIRE_UNIQUE or RESOURCE_KEY", path)
 	}
 	return nil
@@ -800,6 +849,9 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if column.Source.Aggregate != nil && column.Source.Aggregate.ContributorWindow != nil && column.OccurrenceID == RootOccurrenceID {
+			return fmt.Errorf("%s.source.aggregate.contributorWindow requires a related resource occurrence", path)
 		}
 		if column.ValueTransformation != nil {
 			if err := column.ValueTransformation.Validate(); err != nil {

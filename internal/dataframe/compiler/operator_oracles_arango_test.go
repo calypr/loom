@@ -36,6 +36,7 @@ type operatorOracleFixture struct {
 	project     string
 	patientID   string
 	category    string
+	rootAnchor  string
 	sourceID    string
 	state       operatorOracleRawState
 	integer     *int64
@@ -114,9 +115,10 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		{project: "main", patientID: "patient-numeric", category: "female", sourceID: "obs-zero", state: operatorOracleInteger, integer: operatorOracleInt(0), timestamp: "2020-01-09T23:45:00Z"},
 		{project: "main", patientID: "patient-numeric", category: "female", sourceID: "obs-missing", state: operatorOracleMissing},
 		{project: "main", patientID: "patient-numeric", category: "female", sourceID: "obs-absence", state: operatorOracleAbsent, absenceText: "not-performed"},
-		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-cm", state: operatorOracleQuantity, quantity: operatorOracleFloat(180), unitSystem: "http://unitsofmeasure.org", unitCode: "cm"},
-		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-m", state: operatorOracleQuantity, quantity: operatorOracleFloat(1.8), unitSystem: "http://unitsofmeasure.org", unitCode: "m"},
-		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-zero", state: operatorOracleQuantity, quantity: operatorOracleFloat(0), unitSystem: "http://unitsofmeasure.org", unitCode: "cm"},
+		{project: "main", patientID: "patient-units", category: "female", rootAnchor: "2025-01-03T00:00:00Z", sourceID: "obs-height-cm", state: operatorOracleQuantity, quantity: operatorOracleFloat(180), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "2025-01-01T00:00:00Z"},
+		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-m", state: operatorOracleQuantity, quantity: operatorOracleFloat(1.8), unitSystem: "http://unitsofmeasure.org", unitCode: "m", timestamp: "2025-01-02T00:00:00Z"},
+		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-zero", state: operatorOracleQuantity, quantity: operatorOracleFloat(0), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "2025-01-02T00:00:00Z"},
+		{project: "main", patientID: "patient-units", category: "female", sourceID: "obs-height-outside", state: operatorOracleQuantity, quantity: operatorOracleFloat(900), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "2025-01-10T00:00:00Z"},
 		{project: "main", patientID: "patient-states", category: "Female", sourceID: "obs-state-zero", state: operatorOracleInteger, integer: operatorOracleInt(0), timestamp: anchor},
 		{project: "main", patientID: "patient-states", category: "Female", sourceID: "obs-state-false", state: operatorOracleBoolean, boolean: operatorOracleBool(false)},
 		{project: "main", patientID: "patient-states", category: "Female", sourceID: "obs-state-empty", state: operatorOracleStateString, text: operatorOracleText("")},
@@ -139,10 +141,14 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		}
 		if _, exists := patients[project][fixture.patientID]; !exists {
 			patients[project][fixture.patientID] = fixture.category
+			rootAnchor := fixture.rootAnchor
+			if rootAnchor == "" {
+				rootAnchor = anchor
+			}
 			patientRaw, marshalErr := json.Marshal(map[string]any{
 				"_key": patientKey, "id": fixture.patientID, "project": project, "project_id": project,
 				"dataset_generation": generation, "resourceType": "Patient",
-				"payload": map[string]any{"id": fixture.patientID, "resourceType": "Patient", "gender": fixture.category, "meta": map[string]any{"lastUpdated": anchor}},
+				"payload": map[string]any{"id": fixture.patientID, "resourceType": "Patient", "gender": fixture.category, "meta": map[string]any{"lastUpdated": rootAnchor}},
 			})
 			if marshalErr != nil {
 				t.Fatal(marshalErr)
@@ -208,12 +214,13 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	ordered := func(name string, direction recipe.TemporalDirection, tie recipe.TemporalTiePolicy) recipe.Aggregate {
 		return recipe.Aggregate{
 			Name: name, OutputName: name, Operation: recipe.AggregateFirstOrdered, Expr: &countExpr,
-			Temporal: &recipe.TemporalReduction{
+			ContributorWindow: &recipe.ContributorWindow{
 				Timestamp:   recipe.Expression{Select: "observation.effectiveDateTime"},
 				Anchor:      recipe.Expression{Select: "root.meta.lastUpdated"},
 				LowerOffset: -3600, UpperOffset: 0, LowerInclusive: true, UpperInclusive: true,
-				Direction: direction, Precision: recipe.TemporalPrecisionInstant, TiePolicy: tie,
+				Precision: recipe.TemporalPrecisionInstant,
 			},
+			Ordering: &recipe.TemporalOrdering{Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Direction: direction, TiePolicy: tie},
 		}
 	}
 	unitAggregate := recipe.Aggregate{
@@ -232,6 +239,43 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		ordered("earliest", recipe.TemporalAscending, recipe.TemporalTieResourceKey),
 		ordered("latest", recipe.TemporalDescending, recipe.TemporalTieResourceKey),
 		unitAggregate,
+	}
+	window := &recipe.ContributorWindow{
+		Timestamp:   recipe.Expression{Select: "observation.effectiveDateTime"},
+		Anchor:      recipe.Expression{Select: "root.meta.lastUpdated"},
+		LowerOffset: -172800, UpperOffset: 0, LowerInclusive: true, UpperInclusive: false,
+		Precision: recipe.TemporalPrecisionInstant,
+	}
+	windowedAggregate := func(name string, operation recipe.AggregateOperation, expr *recipe.Expression, normalize bool) recipe.Aggregate {
+		aggregate := recipe.Aggregate{Name: name, OutputName: name, Operation: operation, Expr: expr, ContributorWindow: window}
+		if normalize {
+			aggregate.UnitNormalization = &recipe.UnitNormalizationPolicy{
+				SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code", Target: policy.Target, Rules: policy.Rules,
+			}
+		}
+		return aggregate
+	}
+	windowedSummary := recipe.Output{
+		Name: "windowed_units", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", Alias: "observation", ToResourceType: "Observation",
+			Aggregates: []recipe.Aggregate{
+				windowedAggregate("window_count", recipe.AggregateCount, nil, false),
+				windowedAggregate("window_exists", recipe.AggregateExists, nil, false),
+				windowedAggregate("window_minimum", recipe.AggregateMin, &quantityExpr, true),
+				windowedAggregate("window_maximum", recipe.AggregateMax, &quantityExpr, true),
+				windowedAggregate("window_mean", recipe.AggregateMean, &quantityExpr, true),
+				windowedAggregate("window_sum", recipe.AggregateSum, &quantityExpr, true),
+				{
+					Name: "window_first_ordered", OutputName: "window_first_ordered", Operation: recipe.AggregateFirstOrdered, Expr: &quantityExpr,
+					ContributorWindow: window,
+					Ordering:          &recipe.TemporalOrdering{Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Direction: recipe.TemporalDescending, TiePolicy: recipe.TemporalTieResourceKey},
+					UnitNormalization: &recipe.UnitNormalizationPolicy{SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code", Target: policy.Target, Rules: policy.Rules},
+				},
+			},
+		}},
 	}
 	keepUnknown := recipe.ColumnTransformation{
 		Column: "category", Transformation: columntransform.ValueTransformation{
@@ -280,13 +324,46 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	}
 	mainCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-operator-oracle", TranslationVersion: "1",
-		Outputs: []recipe.Output{patientSummary, strictCategory, rawOutput},
+		Outputs: []recipe.Output{patientSummary, strictCategory, rawOutput, windowedSummary},
 	}, projects["main"], generation)
 	wants := []operatorOracleOutputWant{
 		{patientID: "patient-numeric", category: "woman", count: float64(5), exists: true, minimum: float64(0), maximum: float64(99), mean: float64(21.8), sum: float64(109), earliest: float64(2), latest: float64(3), unitSum: nil},
-		{patientID: "patient-units", category: "woman", count: float64(0), exists: false, minimum: nil, maximum: nil, mean: nil, sum: nil, earliest: nil, latest: nil, unitSum: float64(360)},
+		{patientID: "patient-units", category: "woman", count: float64(0), exists: false, minimum: nil, maximum: nil, mean: nil, sum: nil, earliest: nil, latest: nil, unitSum: float64(1260)},
 		{patientID: "patient-states", category: "Female", count: float64(1), exists: true, minimum: float64(0), maximum: float64(0), mean: float64(0), sum: float64(0), earliest: float64(0), latest: float64(0), unitSum: nil},
 		{patientID: "patient-unknown-category", category: "mystery", count: float64(1), exists: true, minimum: float64(4), maximum: float64(4), mean: float64(4), sum: float64(4), earliest: float64(4), latest: float64(4), unitSum: nil},
+	}
+	windowedRows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[3])
+	var windowedRow map[string]any
+	for _, row := range windowedRows {
+		if row["patient_id"] == "patient-units" {
+			windowedRow = row
+			break
+		}
+	}
+	if windowedRow == nil {
+		t.Fatalf("windowed output omitted patient-units: %#v", windowedRows)
+	}
+	for column, expected := range map[string]any{
+		"window_count": float64(3), "window_exists": true, "window_minimum": float64(0), "window_maximum": float64(180),
+		"window_mean": float64(120), "window_sum": float64(360), "window_first_ordered": float64(180),
+	} {
+		if got := windowedRow[column]; !reflect.DeepEqual(got, expected) {
+			t.Errorf("patient-units.%s = %#v, want literal %#v", column, got, expected)
+		}
+	}
+	windowedTrace := executeOracleTrace(t, ctx, client, mainCompiled.Outputs[3], "window_sum")
+	windowedWant := []operatorOracleContributor{
+		{resourceType: "Observation", resourceID: "obs-height-cm", value: float64(180)},
+		{resourceType: "Observation", resourceID: "obs-height-m", value: float64(180)},
+		{resourceType: "Observation", resourceID: "obs-height-zero", value: float64(0)},
+	}
+	if got := windowedTrace["patient-units"]; !reflect.DeepEqual(got, windowedWant) {
+		t.Errorf("window_sum contributors = %#v, want exact eligible normalized contributors %#v", got, windowedWant)
+	}
+	windowedFirstTrace := executeOracleTrace(t, ctx, client, mainCompiled.Outputs[3], "window_first_ordered")
+	windowedFirstWant := []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-height-m", value: float64(180)}}
+	if got := windowedFirstTrace["patient-units"]; !reflect.DeepEqual(got, windowedFirstWant) {
+		t.Errorf("window_first_ordered contributors = %#v, want first keyed eligible contributor %#v", got, windowedFirstWant)
 	}
 	rows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[0])
 	if len(rows) != len(wants) {
@@ -481,6 +558,23 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	uniqueRows, uniqueErr := queryOracleOutput(ctx, client, uniqueCompiled.Outputs[0])
 	if uniqueErr == nil || !strings.Contains(uniqueErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
 		t.Fatalf("REQUIRE_UNIQUE temporal query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS", uniqueRows, uniqueErr)
+	}
+	uniqueWindowed := windowedSummary
+	uniqueWindowed.Name = "unique_windowed_temporal"
+	uniqueAggregate := windowedSummary.Traversals[0].Aggregates[6]
+	uniqueAggregate.Name = "window_first_ordered_unique"
+	uniqueAggregate.OutputName = "window_first_ordered_unique"
+	uniqueAggregate.Ordering = &recipe.TemporalOrdering{Timestamp: recipe.Expression{Select: "observation.effectiveDateTime"}, Direction: recipe.TemporalDescending, TiePolicy: recipe.TemporalTieRequireUnique}
+	uniqueWindowed.Traversals = []recipe.Traversal{{
+		Name: "subject_Patient", Alias: "observation", ToResourceType: "Observation",
+		Aggregates: []recipe.Aggregate{uniqueAggregate},
+	}}
+	uniqueWindowedCompiled := compileOracleBundle(t, recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unique-windowed-tie", TranslationVersion: "1", Outputs: []recipe.Output{uniqueWindowed},
+	}, projects["main"], generation)
+	uniqueWindowedRows, uniqueWindowedErr := queryOracleOutput(ctx, client, uniqueWindowedCompiled.Outputs[0])
+	if uniqueWindowedErr == nil || !strings.Contains(uniqueWindowedErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
+		t.Fatalf("windowed REQUIRE_UNIQUE query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS for the two eligible Jan 2 items", uniqueWindowedRows, uniqueWindowedErr)
 	}
 
 	unsupportedOutput := recipe.Output{

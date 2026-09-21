@@ -105,6 +105,41 @@ func TestCompileCellTraceExplainsNumericAggregateContributors(t *testing.T) {
 	}
 }
 
+func TestCompileWindowedAggregateCellTraceUsesEligibleContributors(t *testing.T) {
+	value := recipe.Expression{Select: "valueQuantity.value"}
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
+			Aggregates: []recipe.Aggregate{{
+				Name: "window_sum", Operation: recipe.AggregateSum, Expr: &value,
+				ContributorWindow: &recipe.ContributorWindow{
+					Timestamp:   recipe.Expression{Select: "observation.effectiveDateTime"},
+					Anchor:      recipe.Expression{Select: "root.meta.lastUpdated"},
+					LowerOffset: -172800, UpperOffset: 0, LowerInclusive: true, UpperInclusive: false,
+					Precision: recipe.TemporalPrecisionInstant,
+				},
+			}},
+		}},
+	})
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "window_sum", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"__loom_physical_contributor_window_eligible",
+		"DATE_ADD(__loom_physical_contributor_window_anchor",
+		"FOR __loom_physical_trace_numeric_contributor IN FIRST(FOR __loom_physical_contributor_window_scope",
+		"__loom_physical_contributor_window_timestamp",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("windowed aggregate trace query missing eligible contributor evidence %q:\n%s", want, compiled.Query)
+		}
+	}
+}
+
 func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Observations", RootResourceType: "Observation", RowGrain: "observation",

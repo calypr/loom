@@ -2108,7 +2108,8 @@ components:
           type: array
           items: {type: string}
         unitNormalization: {$ref: '#/components/schemas/UnitNormalizationPolicy'}
-        temporal: {$ref: '#/components/schemas/TemporalReductionSource'}
+        contributorWindow: {$ref: '#/components/schemas/ContributorWindowSource'}
+        ordering: {$ref: '#/components/schemas/TemporalOrderingSource'}
     UnitIdentity:
       type: object
       additionalProperties: false
@@ -2140,10 +2141,10 @@ components:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/UnitRuleReference'}
-    TemporalReductionSource:
+    ContributorWindowSource:
       type: object
       additionalProperties: false
-      required: [timestampPath, anchorPath, lowerOffsetSeconds, upperOffsetSeconds, lowerInclusive, upperInclusive, direction, precision, tiePolicy]
+      required: [timestampPath, anchorPath, lowerOffsetSeconds, upperOffsetSeconds, lowerInclusive, upperInclusive, precision]
       properties:
         timestampPath: {type: string, minLength: 1}
         anchorPath: {type: string, minLength: 1}
@@ -2151,8 +2152,14 @@ components:
         upperOffsetSeconds: {type: integer, format: int64}
         lowerInclusive: {type: boolean}
         upperInclusive: {type: boolean}
-        direction: {type: string, enum: [ASC, DESC]}
         precision: {type: string, enum: [INSTANT]}
+    TemporalOrderingSource:
+      type: object
+      additionalProperties: false
+      required: [timestampPath, direction, tiePolicy]
+      properties:
+        timestampPath: {type: string, minLength: 1}
+        direction: {type: string, enum: [ASC, DESC]}
         tiePolicy: {type: string, enum: [REQUIRE_UNIQUE, RESOURCE_KEY]}
     ContributorPredicate:
       type: object
