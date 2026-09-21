@@ -31,7 +31,7 @@ const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
-export const AUTHORING_SEMANTICS_VERSION = 7;
+export const AUTHORING_SEMANTICS_VERSION = 8;
 
 export const canonicalProjectID = (raw) => {
   const value = String(raw ?? '').trim().replace(/^\/+|\/+$/g, '');
