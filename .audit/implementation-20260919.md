@@ -19,7 +19,7 @@ Implement S01/UI01 through S05/UI05 from `docs/product/ML_DATAFRAMER_DELIVERY_PL
 - [x] S02/UI02. Add server-planned relationships and editable graph source selection.
 - [ ] S03/UI03. Add record, group, and expanded row definitions.
 - [ ] S04/UI04. Add typed transformations and before/after inspection.
-- [ ] S05/UI05. Add dataset review and faithful typed publication/export.
+- [x] S05/UI05. Add dataset review and faithful typed publication/export.
 
 S02/UI02 and S03/UI03 may use separate worktrees only after S01/UI01 freezes the shared contract. Root owns OpenAPI, generated contracts, `types.ts`, `api.ts`, `react.tsx`, `BuilderWorkspace.tsx`, and integration.
 
@@ -105,3 +105,11 @@ S02/UI02 and S03/UI03 may use separate worktrees only after S01/UI01 freezes the
 - Verification: 135 authoring tests passed; the full `internal/explorer/...` subtree passed 447 tests across seven packages; `git diff --check` passed.
 - S03-01b schema resolution is accepted. `schema.Index.ResolveRowPath` resolves unfamiliar generated members without resource-name branches and reports canonical path, generated type, shape, repetition, reference status, and presentation facts. The capability package turns those detached facts into closed field-group or expanded-scope choices pinned to the schema digest, capability snapshot, and one exact authorized route occurrence.
 - Row-choice verification covers unfamiliar synthetic types, generated Patient scalar, repeated, nested, and reference paths, stale schema facts, stale snapshots, duplicate occurrences, altered routes, scalar expansion, repeated grouping, object grouping, and reference expansion. Focused tests and `go vet` pass across schema, capability, and authoring. The remaining S03-01b work is immutable explicit-group storage and lifecycle adaptation.
+
+## S05/UI05 verification checkpoints
+
+- Published materialization preserves Loom-owned physical columns and authored ordering. Review and artifact contracts ignore unselected Loom-owned columns while retaining any that the user explicitly selected.
+- Focused Go verification passed across `internal/dataframe/published`, `internal/explorer/compilation`, `internal/explorer/lifecycle`, and `internal/server`.
+- The complete development-verifier suite passed 39 tests after adding authored-versus-physical column checks, exact fixture values, typed Viewer normalization, order-independent artifact row comparison, distinct materialization and resolved schema digests, stable Patient cell evidence, a real download link, and the accessible evidence dialog.
+- `rtk make verify-j05` passed against the live stack. The journey recorded 32 passing assertions over two rows and five physical feature columns. Preview, Viewer, cell evidence, and the downloaded CSV artifact agreed on exact values and nulls.
+- Live evidence is under `.artifacts/loom-dev/6d7df93d6a37/muahj7ji-bfaaa862`. S05/UI05 is accepted.
