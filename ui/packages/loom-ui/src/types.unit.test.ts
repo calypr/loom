@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EXPLORER_AUTHORING_SEMANTICS_VERSION,
   assertExplorerBuilderPreviewResult,
   assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
@@ -20,6 +21,12 @@ import {
   tableShapeProposalRequestSchema,
   tableShapeTaggedScalarSchema,
 } from './types';
+
+describe('Explorer authoring contract version', () => {
+  it('bumps for the contributor-window aggregate wire contract', () => {
+    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(9);
+  });
+});
 
 describe('explorerBuilderDocumentSchema', () => {
   const document = {
@@ -318,6 +325,156 @@ describe('explorerColumnSourceSchema', () => {
     expect(explorerColumnSourceSchema.safeParse({
       kind: 'aggregate',
       aggregate: { operation: 'MEDIAN', path: 'valueQuantity.value' },
+    }).success).toBe(false);
+  });
+
+  it('models contributor windows separately from first-ordered tie breaking', () => {
+    const contributorWindow = {
+      timestampPath: 'effectiveDateTime',
+      anchorPath: 'meta.lastUpdated',
+      lowerOffsetSeconds: -172_800,
+      upperOffsetSeconds: 0,
+      lowerInclusive: true,
+      upperInclusive: false,
+      precision: 'INSTANT',
+    };
+    const ordering = {
+      timestampPath: 'effectiveDateTime',
+      direction: 'DESC',
+      tiePolicy: 'RESOURCE_KEY',
+    };
+
+    expect(explorerColumnSourceSchema.parse({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'SUM',
+        path: 'valueQuantity.value',
+        contributorWindow,
+        unitNormalization: { policyId: 'to-centimeters', version: '2' },
+      },
+    })).toEqual({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'SUM',
+        path: 'valueQuantity.value',
+        contributorWindow,
+        unitNormalization: { policyId: 'to-centimeters', version: '2' },
+      },
+    });
+    expect(explorerColumnSourceSchema.parse({
+      kind: 'aggregate',
+      aggregate: { operation: 'COUNT', path: 'valueQuantity.value', contributorWindow },
+    })).toEqual({
+      kind: 'aggregate',
+      aggregate: { operation: 'COUNT', path: 'valueQuantity.value', contributorWindow },
+    });
+    expect(explorerColumnSourceSchema.parse({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        contributorWindow,
+        ordering,
+      },
+    })).toEqual({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        contributorWindow,
+        ordering,
+      },
+    });
+  });
+
+  it('rejects aggregate fields that the selected operation cannot use', () => {
+    const contributorWindow = {
+      timestampPath: 'effectiveDateTime',
+      anchorPath: 'meta.lastUpdated',
+      lowerOffsetSeconds: -86_400,
+      upperOffsetSeconds: 0,
+      lowerInclusive: true,
+      upperInclusive: true,
+      precision: 'INSTANT',
+    };
+    const ordering = {
+      timestampPath: 'effectiveDateTime',
+      direction: 'DESC',
+      tiePolicy: 'REQUIRE_UNIQUE',
+    };
+    const unitNormalization = { policyId: 'to-centimeters', version: '2' };
+
+    for (const operation of ['COUNT', 'EXISTS'] as const) {
+      expect(explorerColumnSourceSchema.safeParse({
+        kind: 'aggregate',
+        aggregate: { operation, path: 'valueQuantity.value', unitNormalization },
+      }).success).toBe(false);
+    }
+    expect(explorerColumnSourceSchema.safeParse({
+      kind: 'aggregate',
+      aggregate: { operation: 'SUM', path: 'valueQuantity.value', ordering },
+    }).success).toBe(false);
+    for (const operation of [
+      'MIN',
+      'MAX',
+      'SUM',
+      'MEAN',
+      'COUNT_DISTINCT',
+      'DISTINCT_VALUES',
+      'REQUIRE_ONE',
+      'COLLECT',
+    ] as const) {
+      expect(explorerColumnSourceSchema.safeParse({
+        kind: 'aggregate',
+        aggregate: { operation },
+      }).success).toBe(false);
+    }
+    for (const requiredValues of [undefined, [], ['  '], ['Tumor', 'Tumor']]) {
+      expect(explorerColumnSourceSchema.safeParse({
+        kind: 'aggregate',
+        aggregate: { operation: 'CONTAINS_ALL', path: 'type.coding[].code', requiredValues },
+      }).success).toBe(false);
+    }
+    for (const operation of [
+      'COUNT',
+      'EXISTS',
+      'MIN',
+      'MAX',
+      'SUM',
+      'MEAN',
+      'COUNT_DISTINCT',
+      'DISTINCT_VALUES',
+      'REQUIRE_ONE',
+      'COLLECT',
+    ] as const) {
+      expect(explorerColumnSourceSchema.safeParse({
+        kind: 'aggregate',
+        aggregate: { operation, path: 'valueQuantity.value', requiredValues: ['not-valid-here'] },
+      }).success).toBe(false);
+    }
+    expect(explorerColumnSourceSchema.safeParse({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        contributorWindow,
+      },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'FIRST_ORDERED',
+        path: 'valueQuantity.value',
+        ordering,
+      },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      kind: 'aggregate',
+      aggregate: {
+        operation: 'SUM',
+        path: 'valueQuantity.value',
+        contributorWindow: { ...contributorWindow, unexpected: true },
+      },
     }).success).toBe(false);
   });
 });

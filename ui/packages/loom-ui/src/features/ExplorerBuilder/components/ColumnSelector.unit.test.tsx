@@ -902,15 +902,18 @@ describe('configured V2 columns', () => {
       aggregate: {
         operation: 'FIRST_ORDERED',
         path: 'valueQuantity.value',
-        temporal: {
+        contributorWindow: {
           timestampPath: 'effectiveDateTime',
           anchorPath: 'meta.lastUpdated',
           lowerOffsetSeconds: -7_776_000,
           upperOffsetSeconds: 0,
           lowerInclusive: true,
           upperInclusive: true,
-          direction: 'DESC',
           precision: 'INSTANT',
+        },
+        ordering: {
+          timestampPath: 'effectiveDateTime',
+          direction: 'DESC',
           tiePolicy: 'RESOURCE_KEY',
         },
       },

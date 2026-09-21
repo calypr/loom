@@ -8,7 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 8;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 9;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -165,20 +165,25 @@ const ownerRecordsColumnSourceSchema = z.object({
     key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
   }).strict(),
 }).strict();
-const temporalReductionSchema = z.object({
+export const contributorWindowSchema = z.object({
   timestampPath: opaqueIdSchema,
   anchorPath: opaqueIdSchema,
   lowerOffsetSeconds: z.number().int(),
   upperOffsetSeconds: z.number().int(),
   lowerInclusive: z.boolean(),
   upperInclusive: z.boolean(),
-  direction: z.enum(['ASC', 'DESC']),
   precision: z.literal('INSTANT'),
-  tiePolicy: z.enum(['REQUIRE_UNIQUE', 'RESOURCE_KEY']),
 }).strict().refine(
   ({ lowerOffsetSeconds, upperOffsetSeconds }) => lowerOffsetSeconds <= upperOffsetSeconds,
   { message: 'lowerOffsetSeconds must not exceed upperOffsetSeconds' },
 );
+export type ContributorWindow = z.infer<typeof contributorWindowSchema>;
+export const aggregateOrderingSchema = z.object({
+  timestampPath: opaqueIdSchema,
+  direction: z.enum(['ASC', 'DESC']),
+  tiePolicy: z.enum(['REQUIRE_UNIQUE', 'RESOURCE_KEY']),
+}).strict();
+export type AggregateOrdering = z.infer<typeof aggregateOrderingSchema>;
 const unitNormalizationSchema = z.object({
   policyId: opaqueIdSchema,
   version: opaqueIdSchema,
@@ -192,27 +197,36 @@ const aggregateColumnSourceSchema = z.object({
   kind: z.literal('aggregate'),
   aggregate: z.discriminatedUnion('operation', [
     z.object({
-      operation: z.enum([
-        'COUNT',
-        'COUNT_DISTINCT',
-        'DISTINCT_VALUES',
-        'MIN',
-        'MAX',
-        'SUM',
-        'MEAN',
-        'EXISTS',
-        'CONTAINS_ALL',
-        'REQUIRE_ONE',
-        'COLLECT',
-      ]),
+      operation: z.enum(['COUNT', 'EXISTS']),
       path: opaqueIdSchema.optional(),
-      requiredValues: z.array(z.string()).optional(),
+      contributorWindow: contributorWindowSchema.optional(),
+    }).strict(),
+    z.object({
+      operation: z.enum(['MIN', 'MAX', 'SUM', 'MEAN']),
+      path: opaqueIdSchema,
+      contributorWindow: contributorWindowSchema.optional(),
+      unitNormalization: unitNormalizationSchema.optional(),
+    }).strict(),
+    z.object({
+      operation: z.literal('COUNT_DISTINCT'),
+      path: opaqueIdSchema,
+    }).strict(),
+    z.object({
+      operation: z.literal('CONTAINS_ALL'),
+      path: opaqueIdSchema,
+      requiredValues: z.array(z.string().refine((value) => value.trim().length > 0)).min(1)
+        .refine((values) => new Set(values).size === values.length),
+    }).strict(),
+    z.object({
+      operation: z.enum(['DISTINCT_VALUES', 'REQUIRE_ONE', 'COLLECT']),
+      path: opaqueIdSchema,
       unitNormalization: unitNormalizationSchema.optional(),
     }).strict(),
     z.object({
       operation: z.literal('FIRST_ORDERED'),
       path: opaqueIdSchema,
-      temporal: temporalReductionSchema,
+      contributorWindow: contributorWindowSchema,
+      ordering: aggregateOrderingSchema,
       unitNormalization: unitNormalizationSchema.optional(),
     }).strict(),
   ]),

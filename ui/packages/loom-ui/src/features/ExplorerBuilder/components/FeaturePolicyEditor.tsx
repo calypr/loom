@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type {
+  AggregateOrdering,
   AggregateOperationCapability,
+  ContributorWindow,
   TemporalFieldChoice,
   TemporalReductionCapability,
   UnitNormalizationCapability,
@@ -218,10 +220,6 @@ const nestedValueLabels = {
   DISTINCT: 'Unique values',
 } as const;
 
-type TemporalAggregateSource = Extract<
-  ExplorerColumnSource,
-  { kind: 'aggregate' }
->['aggregate'] & { operation: 'FIRST_ORDERED' };
 type AggregateSource = Extract<ExplorerColumnSource, { kind: 'aggregate' }>;
 type AggregateOperation = AggregateSource['aggregate']['operation'];
 type AggregateMenuOption =
@@ -241,7 +239,162 @@ type AggregateMenuOption =
       readonly operation: 'FIRST_BY_RESOURCE_KEY';
       readonly label: string;
     };
-type UnitNormalizationDraft = NonNullable<AggregateSource['aggregate']['unitNormalization']>;
+type UnitNormalizationDraft = NonNullable<
+  Extract<AggregateSource['aggregate'], { unitNormalization?: unknown }>['unitNormalization']
+>;
+type WindowableAggregate = Extract<
+  AggregateSource['aggregate'],
+  { operation: 'COUNT' | 'EXISTS' | 'MIN' | 'MAX' | 'SUM' | 'MEAN' }
+>;
+type WindowEditorOperation = WindowableAggregate['operation'] | 'FIRST_ORDERED';
+type WindowEditorValue = {
+  readonly contributorWindow: ContributorWindow;
+  readonly ordering?: AggregateOrdering;
+};
+
+const unitNormalizationOperations = new Set<AggregateOperation>([
+  'MIN',
+  'MAX',
+  'SUM',
+  'MEAN',
+  'DISTINCT_VALUES',
+  'REQUIRE_ONE',
+  'COLLECT',
+  'FIRST_ORDERED',
+]);
+
+const contributorWindowOperations = new Set<AggregateOperation>([
+  'COUNT',
+  'EXISTS',
+  'MIN',
+  'MAX',
+  'SUM',
+  'MEAN',
+]);
+
+const isWindowEditorOperation = (
+  operation: AggregateOperation,
+): operation is WindowEditorOperation =>
+  operation === 'FIRST_ORDERED' || contributorWindowOperations.has(operation);
+
+const aggregateForOperation = (
+  current: AggregateSource['aggregate'],
+  operation: AggregateOperation,
+): AggregateSource['aggregate'] | undefined => {
+  const path = current.path;
+  const contributorWindow = 'contributorWindow' in current
+    ? current.contributorWindow
+    : undefined;
+  const unitNormalization = 'unitNormalization' in current
+    ? current.unitNormalization
+    : undefined;
+
+  switch (operation) {
+    case 'COUNT':
+    case 'EXISTS':
+      return {
+        operation,
+        ...(path === undefined ? {} : { path }),
+        ...(contributorWindow ? { contributorWindow } : {}),
+      };
+    case 'MIN':
+    case 'MAX':
+    case 'SUM':
+    case 'MEAN':
+      if (path === undefined) return undefined;
+      return {
+        operation,
+        path,
+        ...(contributorWindow ? { contributorWindow } : {}),
+        ...(unitNormalization ? { unitNormalization } : {}),
+      };
+    case 'COUNT_DISTINCT':
+      return path === undefined ? undefined : { operation, path };
+    case 'DISTINCT_VALUES':
+    case 'REQUIRE_ONE':
+    case 'COLLECT':
+      if (path === undefined) return undefined;
+      return {
+        operation,
+        path,
+        ...(unitNormalization ? { unitNormalization } : {}),
+      };
+    case 'CONTAINS_ALL':
+      return current.operation === 'CONTAINS_ALL' ? current : undefined;
+    case 'FIRST_ORDERED':
+      return undefined;
+    default: {
+      const exhaustive: never = operation;
+      return exhaustive;
+    }
+  }
+};
+
+const aggregateWithWindow = (
+  operation: WindowEditorOperation,
+  path: string,
+  current: AggregateSource['aggregate'] | undefined,
+  value: WindowEditorValue,
+): AggregateSource['aggregate'] | undefined => {
+  const unitNormalization = current && 'unitNormalization' in current
+    ? current.unitNormalization
+    : undefined;
+
+  switch (operation) {
+    case 'COUNT':
+    case 'EXISTS':
+      return { operation, path, contributorWindow: value.contributorWindow };
+    case 'MIN':
+    case 'MAX':
+    case 'SUM':
+    case 'MEAN':
+      return {
+        operation,
+        path,
+        contributorWindow: value.contributorWindow,
+        ...(unitNormalization ? { unitNormalization } : {}),
+      };
+    case 'FIRST_ORDERED':
+      if (!value.ordering) return undefined;
+      return {
+        operation,
+        path,
+        contributorWindow: value.contributorWindow,
+        ordering: value.ordering,
+        ...(unitNormalization ? { unitNormalization } : {}),
+      };
+    default: {
+      const exhaustive: never = operation;
+      return exhaustive;
+    }
+  }
+};
+
+const aggregateWithUnitNormalization = (
+  aggregate: AggregateSource['aggregate'],
+  unitNormalization: UnitNormalizationDraft | undefined,
+): AggregateSource['aggregate'] => {
+  switch (aggregate.operation) {
+    case 'MIN':
+    case 'MAX':
+    case 'SUM':
+    case 'MEAN':
+    case 'DISTINCT_VALUES':
+    case 'REQUIRE_ONE':
+    case 'COLLECT':
+    case 'FIRST_ORDERED':
+      return { ...aggregate, unitNormalization };
+    case 'COUNT':
+    case 'EXISTS':
+    case 'COUNT_DISTINCT':
+    case 'CONTAINS_ALL':
+      return aggregate;
+    default: {
+      const exhaustive: never = aggregate;
+      return exhaustive;
+    }
+  }
+};
 
 const aggregateOperationLabels = {
   COUNT: 'Count values or records',
@@ -621,46 +774,59 @@ const ContributorEditor = ({
   );
 };
 
-const TemporalReductionEditor = ({
+const ContributorWindowEditor = ({
   path,
+  operation,
   current,
   capability,
   disabled,
   onApply,
+  onCancel,
 }: {
   readonly path: string;
-  readonly current?: TemporalAggregateSource;
+  readonly operation: WindowEditorOperation;
+  readonly current?: AggregateSource['aggregate'];
   readonly capability: TemporalReductionCapability;
   readonly disabled: boolean;
-  readonly onApply: (source: ExplorerColumnSource) => void;
+  readonly onApply: (value: WindowEditorValue) => void;
+  readonly onCancel: () => void;
 }) => {
-  const temporal = current?.temporal;
+  const contributorWindow = current && 'contributorWindow' in current
+    ? current.contributorWindow
+    : undefined;
+  const ordering = current?.operation === 'FIRST_ORDERED'
+    ? current.ordering
+    : undefined;
   const timestampFields: ReadonlyArray<TemporalFieldChoice> = capability.timestampFields;
   const anchorFields: ReadonlyArray<TemporalFieldChoice> = capability.anchorFields;
   const [timestampPath, setTimestampPath] = useState(
-    temporal?.timestampPath ?? timestampFields[0]?.fieldPath ?? '',
+    contributorWindow?.timestampPath ?? timestampFields[0]?.fieldPath ?? '',
   );
   const [anchorPath, setAnchorPath] = useState(
-    temporal?.anchorPath ?? anchorFields[0]?.fieldPath ?? '',
+    contributorWindow?.anchorPath ?? anchorFields[0]?.fieldPath ?? '',
   );
   const [lookbackDays, setLookbackDays] = useState(
-    Math.max(0, Math.round(-(temporal?.lowerOffsetSeconds ?? -31_536_000) / 86_400)),
+    Math.max(0, Math.round(-(contributorWindow?.lowerOffsetSeconds ?? -31_536_000) / 86_400)),
   );
-  const [lowerInclusive, setLowerInclusive] = useState(temporal?.lowerInclusive ?? true);
-  const [upperInclusive, setUpperInclusive] = useState(temporal?.upperInclusive ?? true);
+  const [lowerInclusive, setLowerInclusive] = useState(contributorWindow?.lowerInclusive ?? true);
+  const [upperInclusive, setUpperInclusive] = useState(contributorWindow?.upperInclusive ?? true);
   const [direction, setDirection] = useState<'ASC' | 'DESC'>(
-    temporal?.direction ?? 'DESC',
+    ordering?.direction ?? 'DESC',
   );
   const [tiePolicy, setTiePolicy] = useState<'REQUIRE_UNIQUE' | 'RESOURCE_KEY'>(
-    temporal?.tiePolicy ?? 'REQUIRE_UNIQUE',
+    ordering?.tiePolicy ?? 'REQUIRE_UNIQUE',
   );
-  const ready = Boolean(
-    capability.available && timestampPath && anchorPath && Number.isInteger(lookbackDays),
-  );
+  const timestampReady = timestampFields.some((field) => field.fieldPath === timestampPath);
+  const anchorReady = anchorFields.some((field) => field.fieldPath === anchorPath);
+  const ready = capability.available && timestampReady && anchorReady &&
+    Number.isSafeInteger(lookbackDays) && lookbackDays >= 0;
+  const isFirstOrdered = operation === 'FIRST_ORDERED';
 
   return (
     <fieldset className="mt-1 grid w-full grid-cols-2 gap-2 rounded border border-blue-200 bg-blue-50/60 p-2 text-[11px] text-slate-700">
-      <legend className="px-1 font-semibold text-blue-900">Date-aware value selection</legend>
+      <legend className="px-1 font-semibold text-blue-900">
+        {isFirstOrdered ? 'Date selection' : 'Contributor date window'}
+      </legend>
       <label className="flex min-w-0 flex-col gap-0.5 font-medium">
         <span>Record date</span>
         <select
@@ -695,21 +861,26 @@ const TemporalReductionEditor = ({
           ))}
         </select>
       </label>
+      {isFirstOrdered ? (
+        <label className="flex flex-col gap-0.5 font-medium">
+          <span>Choose</span>
+          <select
+            aria-label="Date selection direction"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+            value={direction}
+            disabled={disabled}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (value === 'ASC' || value === 'DESC') setDirection(value);
+            }}
+          >
+            <option value="DESC">Latest value</option>
+            <option value="ASC">Earliest value</option>
+          </select>
+        </label>
+      ) : null}
       <label className="flex flex-col gap-0.5 font-medium">
-        <span>Choose</span>
-        <select
-          aria-label="Date selection direction"
-          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
-          value={direction}
-          disabled={disabled}
-          onChange={(event) => setDirection(event.currentTarget.value as 'ASC' | 'DESC')}
-        >
-          <option value="DESC">Latest value</option>
-          <option value="ASC">Earliest value</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-0.5 font-medium">
-        <span>Look back (days)</span>
+        <span>Look back days</span>
         <input
           aria-label="Look back days"
           type="number"
@@ -739,59 +910,70 @@ const TemporalReductionEditor = ({
         />
         <span>Include end boundary</span>
       </label>
-      <label className="col-span-2 flex items-center gap-1.5 font-medium">
-        <span>If dates tie</span>
-        <select
-          aria-label="Equal date handling"
-          className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
-          value={tiePolicy}
-          disabled={disabled}
-          onChange={(event) => setTiePolicy(event.currentTarget.value as 'REQUIRE_UNIQUE' | 'RESOURCE_KEY')}
-        >
-          <option value="REQUIRE_UNIQUE">Stop and ask me to resolve it</option>
-          <option value="RESOURCE_KEY">Choose deterministically by resource key</option>
-        </select>
-      </label>
+      {isFirstOrdered ? (
+        <label className="col-span-2 flex items-center gap-1.5 font-medium">
+          <span>If dates tie</span>
+          <select
+            aria-label="Equal date handling"
+            className="rounded border border-slate-300 bg-white px-1.5 py-1 font-normal"
+            value={tiePolicy}
+            disabled={disabled}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (value === 'REQUIRE_UNIQUE' || value === 'RESOURCE_KEY') setTiePolicy(value);
+            }}
+          >
+            <option value="REQUIRE_UNIQUE">Stop and ask me to resolve it</option>
+            <option value="RESOURCE_KEY">Choose deterministically by resource key</option>
+          </select>
+        </label>
+      ) : null}
       <p className="col-span-2 text-slate-600">
-        {direction === 'DESC' ? 'Latest' : 'Earliest'} {path} dated from {lookbackDays} days before the row date to the row date; start is {lowerInclusive ? 'inclusive' : 'exclusive'} and end is {upperInclusive ? 'inclusive' : 'exclusive'}.
+        {isFirstOrdered ? `${direction === 'DESC' ? 'Latest' : 'Earliest'} ` : ''}{path} dated from {lookbackDays} days before the row date to the row date; start is {lowerInclusive ? 'inclusive' : 'exclusive'} and end is {upperInclusive ? 'inclusive' : 'exclusive'}.
       </p>
       {!capability.available ? (
         <p role="status" className="col-span-2 text-amber-800">
           Unavailable: {capability.reason ?? 'No temporal choices are available.'}
         </p>
       ) : null}
-      {capability.available && (timestampFields.length === 0 || anchorFields.length === 0) ? (
+      {capability.available && (!timestampReady || !anchorReady) ? (
         <p role="status" className="col-span-2 text-amber-800">
           {capability.reason ?? 'The server did not provide a complete set of temporal choices.'}
         </p>
       ) : null}
-      <button
-        type="button"
-        className="col-span-2 justify-self-start rounded bg-blue-700 px-2.5 py-1 font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
-        disabled={disabled || !ready || lookbackDays < 0}
-        onClick={() =>
-          onApply({
-            kind: 'aggregate',
-            aggregate: {
-              operation: 'FIRST_ORDERED',
-              path,
-              temporal: {
-                timestampPath,
-                anchorPath,
-                lowerOffsetSeconds: -lookbackDays * 86_400,
-                upperOffsetSeconds: 0,
-                lowerInclusive,
-                upperInclusive,
-                direction,
-                precision: 'INSTANT',
-                tiePolicy,
-              },
-            },
-          })
-        }
-      >
-        Apply date selection
-      </button>
+      <div className="col-span-2 flex gap-2">
+        <button
+          type="button"
+          className="rounded bg-blue-700 px-2.5 py-1 font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
+          disabled={disabled || !ready}
+          onClick={() => {
+            const windowValue: ContributorWindow = {
+              timestampPath,
+              anchorPath,
+              lowerOffsetSeconds: -lookbackDays * 86_400,
+              upperOffsetSeconds: 0,
+              lowerInclusive,
+              upperInclusive,
+              precision: 'INSTANT',
+            };
+            onApply(isFirstOrdered
+              ? {
+                contributorWindow: windowValue,
+                ordering: { timestampPath, direction, tiePolicy },
+              }
+              : { contributorWindow: windowValue });
+          }}
+        >
+          {isFirstOrdered ? 'Apply date selection' : 'Apply date window'}
+        </button>
+        <button
+          type="button"
+          className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50"
+          onClick={onCancel}
+        >
+          Cancel date window
+        </button>
+      </div>
     </fieldset>
   );
 };
@@ -839,7 +1021,7 @@ export const FeaturePolicyEditor = ({
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
 }) => {
-  const [draftTemporalPath, setDraftTemporalPath] = useState<string>();
+  const [draftWindowOperation, setDraftWindowOperation] = useState<WindowEditorOperation>();
   const [editingUnitNormalization, setEditingUnitNormalization] = useState(false);
   if (column.source.kind === 'field') {
     const source = column.source;
@@ -869,17 +1051,16 @@ export const FeaturePolicyEditor = ({
                     );
                     if (!option || option.kind === 'relatedSelection') return;
                     if (option.operation === 'FIRST_ORDERED') {
-                      setDraftTemporalPath(source.field.path);
+                      setDraftWindowOperation('FIRST_ORDERED');
                       return;
                     }
                     if (optionIsDisabled(option)) return;
-                    onSourceChange({
-                      kind: 'aggregate',
-                      aggregate: {
-                        operation: option.operation,
-                        path: source.field.path,
-                      },
-                    });
+                    setDraftWindowOperation(undefined);
+                    const aggregate = aggregateForOperation(
+                      { operation: 'COUNT', path: source.field.path },
+                      option.operation,
+                    );
+                    if (aggregate) onSourceChange({ kind: 'aggregate', aggregate });
                   }}
                 >
                   {relatedOptions.map((option) => (
@@ -954,23 +1135,33 @@ export const FeaturePolicyEditor = ({
         </fieldset>
         <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-time-units">
           <legend className="px-1 text-xs font-semibold text-slate-800">Time and units</legend>
-          {draftTemporalPath === source.field.path && candidate ? (
-            <TemporalReductionEditor
+          {draftWindowOperation === 'FIRST_ORDERED' && candidate ? (
+            <ContributorWindowEditor
               path={source.field.path}
+              operation="FIRST_ORDERED"
+              current={undefined}
               capability={candidate.transformations.temporalReduction}
               disabled={disabled}
-              onApply={(nextSource) => {
-                setDraftTemporalPath(undefined);
-                onSourceChange(nextSource);
+              onApply={(value) => {
+                const aggregate = aggregateWithWindow(
+                  'FIRST_ORDERED',
+                  source.field.path,
+                  undefined,
+                  value,
+                );
+                if (!aggregate) return;
+                setDraftWindowOperation(undefined);
+                onSourceChange({ kind: 'aggregate', aggregate });
               }}
+              onCancel={() => setDraftWindowOperation(undefined)}
             />
           ) : null}
-          {draftTemporalPath === source.field.path && !candidate ? (
+          {draftWindowOperation === 'FIRST_ORDERED' && !candidate ? (
             <p role="status" className="text-amber-800">
               Temporal choices are unavailable until the server resolves this candidate.
             </p>
           ) : null}
-          {draftTemporalPath !== source.field.path ? (
+          {draftWindowOperation === undefined ? (
             <p className="text-[11px] text-slate-600">
               Choose a date-aware value selection to configure its time window here.
             </p>
@@ -982,14 +1173,22 @@ export const FeaturePolicyEditor = ({
 
   if (column.source.kind === 'aggregate') {
     const aggregateSource = column.source;
-    const path = aggregateSource.aggregate.path;
-    const operation = aggregateSource.aggregate.operation;
+    const currentAggregate = aggregateSource.aggregate;
+    const path = currentAggregate.path;
+    const operation = draftWindowOperation ?? currentAggregate.operation;
     const options = aggregateOptions(candidate, rowContext, path, related);
     const operationCapability = selectedOperationCapability(options, operation);
     const temporalCapability = candidate?.transformations.temporalReduction;
     const unitCapability = candidate?.transformations.unitNormalization;
-    const editingTemporal = operation === 'FIRST_ORDERED' || draftTemporalPath === path;
-    const unitNormalization = aggregateSource.aggregate.unitNormalization;
+    const editingWindow = draftWindowOperation !== undefined;
+    const canConfigureWindow = operation === 'FIRST_ORDERED' ||
+      (related && contributorWindowOperations.has(operation));
+    const unitNormalization = 'unitNormalization' in currentAggregate
+      ? currentAggregate.unitNormalization
+      : undefined;
+    const contributorWindow = 'contributorWindow' in currentAggregate
+      ? currentAggregate.contributorWindow
+      : undefined;
     const summary = operationCapability
       ? undefined
       : path
@@ -1014,9 +1213,11 @@ export const FeaturePolicyEditor = ({
                   const selectedOption = options.find(
                     (option) => option.operation === event.currentTarget.value,
                   );
-                  if (!selectedOption || optionIsDisabled(selectedOption, aggregateSource.aggregate)) return;
+                  if (!selectedOption || optionIsDisabled(selectedOption, currentAggregate)) return;
                   if (selectedOption.kind === 'relatedSelection') {
                     if (!path) return;
+                    setDraftWindowOperation(undefined);
+                    setEditingUnitNormalization(false);
                     onSourceChange({
                       kind: 'field',
                       field: {
@@ -1032,25 +1233,22 @@ export const FeaturePolicyEditor = ({
                   }
                   const nextOperation = selectedOption.operation;
                   if (nextOperation === 'FIRST_ORDERED') {
-                    if (path) setDraftTemporalPath(path);
+                    if (path) setDraftWindowOperation('FIRST_ORDERED');
                     return;
                   }
-                  setDraftTemporalPath(undefined);
-                  onSourceChange({
-                    kind: 'aggregate',
-                    aggregate: path
-                      ? { operation: nextOperation, path }
-                      : { operation: nextOperation },
-                  });
+                  setDraftWindowOperation(undefined);
+                  setEditingUnitNormalization(false);
+                  const aggregate = aggregateForOperation(currentAggregate, nextOperation);
+                  if (aggregate) onSourceChange({ kind: 'aggregate', aggregate });
                 }}
               >
                 {options.map((option) => (
                   <option
                     key={option.operation}
                     value={option.operation}
-                    disabled={optionIsDisabled(option, aggregateSource.aggregate)}
+                    disabled={optionIsDisabled(option, currentAggregate)}
                   >
-                    {optionLabel(option, aggregateSource.aggregate)}
+                    {optionLabel(option, currentAggregate)}
                   </option>
                 ))}
               </select>
@@ -1075,7 +1273,7 @@ export const FeaturePolicyEditor = ({
         <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-time-units">
           <legend className="px-1 text-xs font-semibold text-slate-800">Time and units</legend>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-            {unitCapability ? (
+            {unitCapability && unitNormalizationOperations.has(operation) ? (
               <button
                 type="button"
                 className="rounded border border-violet-300 bg-white px-2 py-0.5 font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
@@ -1085,7 +1283,8 @@ export const FeaturePolicyEditor = ({
                 {unitNormalization ? 'Edit unit normalization' : 'Normalize units'}
               </button>
             ) : null}
-            {unitCapability && (editingUnitNormalization || unitNormalization) ? (
+            {unitCapability && unitNormalizationOperations.has(operation) &&
+            (editingUnitNormalization || unitNormalization) ? (
               <UnitNormalizationEditor
                 capability={unitCapability}
                 current={unitNormalization}
@@ -1094,29 +1293,58 @@ export const FeaturePolicyEditor = ({
                   setEditingUnitNormalization(false);
                   onSourceChange({
                     kind: 'aggregate',
-                    aggregate: { ...aggregateSource.aggregate, unitNormalization: nextUnitNormalization },
-                  } as ExplorerColumnSource);
+                    aggregate: aggregateWithUnitNormalization(
+                      currentAggregate,
+                      nextUnitNormalization,
+                    ),
+                  });
                 }}
               />
             ) : null}
-            {editingTemporal && path && temporalCapability ? (
-              <TemporalReductionEditor
+            {canConfigureWindow && path && temporalCapability && !editingWindow &&
+            isWindowEditorOperation(operation) ? (
+              <button
+                type="button"
+                className="rounded border border-blue-300 bg-white px-2 py-0.5 font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-40"
+                disabled={disabled || !temporalCapability.available}
+                onClick={() => setDraftWindowOperation(operation)}
+              >
+                {contributorWindow ? 'Edit date window' : 'Add date window'}
+              </button>
+            ) : null}
+            {editingWindow && path && temporalCapability &&
+            isWindowEditorOperation(operation) ? (
+              <ContributorWindowEditor
                 path={path}
-                current={operation === 'FIRST_ORDERED' ? aggregateSource.aggregate as TemporalAggregateSource : undefined}
+                operation={operation}
+                current={currentAggregate}
                 capability={temporalCapability}
                 disabled={disabled}
-                onApply={(source) => {
-                  setDraftTemporalPath(undefined);
-                  onSourceChange(source);
+                onApply={(value) => {
+                  const aggregate = aggregateWithWindow(
+                    operation,
+                    path,
+                    currentAggregate,
+                    value,
+                  );
+                  if (!aggregate) return;
+                  setDraftWindowOperation(undefined);
+                  onSourceChange({ kind: 'aggregate', aggregate });
                 }}
+                onCancel={() => setDraftWindowOperation(undefined)}
               />
             ) : null}
-            {editingTemporal && path && !temporalCapability ? (
+            {canConfigureWindow && path && !temporalCapability ? (
               <p role="status" className="text-amber-800">
                 Temporal choices are unavailable until the server resolves this candidate.
               </p>
             ) : null}
-            {!unitCapability && !editingTemporal ? (
+            {canConfigureWindow && path && temporalCapability && !temporalCapability.available ? (
+              <p role="status" className="text-amber-800">
+                Unavailable: {temporalCapability.reason ?? 'No temporal choices are available.'}
+              </p>
+            ) : null}
+            {!canConfigureWindow && !unitNormalizationOperations.has(operation) ? (
               <p className="text-[11px] text-slate-600">No time or unit choice is available for this value selection.</p>
             ) : null}
           </div>
