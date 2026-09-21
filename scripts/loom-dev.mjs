@@ -1518,67 +1518,292 @@ const j04Presence = (record, path) => {
   return 'value';
 };
 
+const j04Identity = (record) => `${record?.resourceType}/${record?.id}`;
+
+const j04IdentityParts = (identity) => {
+  if (typeof identity !== 'string') return null;
+  const separator = identity.indexOf('/');
+  if (separator <= 0 || separator === identity.length - 1) return null;
+  return { resourceType: identity.slice(0, separator), id: identity.slice(separator + 1) };
+};
+
+const j04AssertEqual = (expected, actual, label) => {
+  if (!j04ExactEqual(expected, actual)) throw new Error(`J04 ${label} differs from the source fixture`);
+};
+
+const j04WindowBounds = (window, label) => {
+  const start = Date.parse(window?.startInclusive);
+  const end = Date.parse(window?.endExclusive);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new Error(`J04 ${label} must have a valid exclusive upper bound`);
+  return { start, end };
+};
+
+const j04IsInWindow = (record, path, { start, end }) => {
+  const timestamp = Date.parse(j04ValueAtPath(record, path));
+  if (!Number.isFinite(timestamp)) throw new Error(`J04 source record ${record.id} has no valid time at ${path}`);
+  return timestamp >= start && timestamp < end;
+};
+
+const j04GroupValues = (record, columns) => Object.fromEntries(columns.map(({ path }) => [path, j04ValueAtPath(record, path)]));
+
 export const validateJ04FixtureContract = (contract, sourceRecords) => {
-  if (!contract || typeof contract !== 'object' || contract.version !== 1) throw new Error('J04 fixture contract must have version 1');
+  if (!contract || typeof contract !== 'object' || contract.version !== 2) throw new Error('J04 fixture contract must have version 2');
   if (typeof contract.sourceFile !== 'string' || !/^j04-[a-z0-9-]+\.ndjson\.fixture$/.test(contract.sourceFile)) throw new Error('J04 fixture contract must name one J04-specific NDJSON fixture');
   if (!Array.isArray(contract.sourceRecords) || !contract.sourceRecords.length) throw new Error('J04 fixture contract must list its source records');
   if (!Array.isArray(sourceRecords) || sourceRecords.length !== contract.sourceRecords.length) throw new Error('J04 fixture source record count differs from the contract');
-  const expectedIDs = contract.sourceRecords.map((record) => `${record?.resourceType}/${record?.id}`);
-  const actualIDs = sourceRecords.map((record) => `${record?.resourceType}/${record?.id}`);
-  if (expectedIDs.some((identity) => identity === 'undefined/undefined') || new Set(expectedIDs).size !== expectedIDs.length) throw new Error('J04 fixture contract has invalid or duplicate source record identities');
+  const expectedIDs = contract.sourceRecords.map(j04Identity);
+  const actualIDs = sourceRecords.map(j04Identity);
+  if (expectedIDs.some((identity) => !j04IdentityParts(identity)) || new Set(expectedIDs).size !== expectedIDs.length) throw new Error('J04 fixture contract has invalid or duplicate source record identities');
+  if (new Set(sourceRecords.map((record) => record?.id)).size !== sourceRecords.length) throw new Error('J04 source record IDs must be unique across resource types');
   if (!j04ExactEqual(expectedIDs, actualIDs)) throw new Error('J04 fixture source identities or order differ from the contract');
   const sourceByID = new Map(sourceRecords.map((record) => [record.id, record]));
+  const sourceByIdentity = new Map(sourceRecords.map((record) => [j04Identity(record), record]));
   const hasSource = (id) => sourceByID.has(id);
   const numericOperators = ['count', 'exists', 'min', 'max', 'mean', 'sum'];
+  const baseResourceType = contract.baseRowResourceType;
+  if (typeof baseResourceType !== 'string' || !baseResourceType) throw new Error('J04 base output must name its row resource type');
   if (!Array.isArray(contract.baseColumns) || contract.baseColumns.length < 2 || contract.baseColumns.some((column) => !column?.path || !column?.label)) throw new Error('J04 fixture must declare at least two named base columns');
   if (new Set(contract.baseColumns.map((column) => column.path)).size !== contract.baseColumns.length) throw new Error('J04 base column paths must be distinct');
+  const baseRows = sourceRecords.filter((record) => record.resourceType === baseResourceType);
+  if (!baseRows.length || baseRows.some((record) => contract.baseColumns.some(({ path, optional }) => !optional && j04ValueAtPath(record, path) === undefined))) throw new Error(`J04 required base columns must resolve against ${baseResourceType} rows`);
+
+  const scope = contract.aggregateScope;
+  if (!scope || scope.rowResourceType !== 'Patient' || scope.rowResourceType === baseResourceType || scope.sourceResourceType !== 'Observation' || !Array.isArray(scope.selectedRowIdentities) || !scope.selectedRowIdentities.length || !scope.ownerReferencePath || !scope.categoryPath || !scope.categoryCode || !scope.valuePath || !scope.unitPath || !scope.timePath || !scope.normalizedUnit) throw new Error('J04 aggregate scope must describe selected Patient rows separate from the Observation base output');
+  const aggregateWindow = j04WindowBounds(scope.window, 'aggregate time window');
   if (!Array.isArray(contract.expectedAggregates) || !contract.expectedAggregates.length) throw new Error('J04 fixture contract must list exact aggregate outcomes');
-  for (const aggregate of contract.expectedAggregates) {
-    if (typeof aggregate?.rowIdentity !== 'string' || !Array.isArray(aggregate.operatorSourceRecordIds) || !aggregate.operatorSourceRecordIds.every(hasSource)) throw new Error('J04 aggregate outcome has invalid row or source identities');
-    if (!numericOperators.every((operator) => Object.hasOwn(aggregate, operator))) throw new Error('J04 aggregate outcome must declare COUNT, EXISTS, MIN, MAX, MEAN, and SUM');
-    if (!Number.isInteger(aggregate.count) || aggregate.count < 0 || typeof aggregate.exists !== 'boolean') throw new Error('J04 aggregate count and existence outcomes are invalid');
-    if (numericOperators.slice(2).some((operator) => aggregate[operator] !== null && !Number.isFinite(aggregate[operator]))) throw new Error('J04 aggregate numeric outcomes must be finite numbers or null');
-    if ((aggregate.count > 0) !== aggregate.exists || (aggregate.count === 0 && numericOperators.slice(2).some((operator) => aggregate[operator] !== null))) throw new Error('J04 empty aggregate outcomes must distinguish absent results from numeric zero');
+  const normalization = contract.normalizationPolicy;
+  if (normalization?.targetUnit !== scope.normalizedUnit || !normalization.factorByUnit || typeof normalization.factorByUnit !== 'object') throw new Error('J04 normalization policy must define the aggregate target unit and supported conversion factors');
+  for (const [unit, factor] of Object.entries(normalization.factorByUnit)) {
+    if (!unit || !Number.isFinite(factor) || factor <= 0) throw new Error(`J04 unit conversion factor for ${unit || '(empty)'} is invalid`);
   }
-  const temporal = contract.temporalOutcomes;
-  if (!temporal?.window || !Number.isFinite(Date.parse(temporal.window.startInclusive)) || !Number.isFinite(Date.parse(temporal.window.endExclusive)) || Date.parse(temporal.window.endExclusive) <= Date.parse(temporal.window.startInclusive)) throw new Error('J04 temporal window must have a valid exclusive upper bound');
-  if (!hasSource(temporal.earliestRecordId) || !hasSource(temporal.latestSelectedRecordId) || !Array.isArray(temporal.latestTieRecordIds) || temporal.latestTieRecordIds.length < 2 || !temporal.latestTieRecordIds.every(hasSource) || !temporal.latestTieRecordIds.includes(temporal.latestSelectedRecordId)) throw new Error('J04 temporal outcomes must name the earliest record and an exact latest tie winner');
-  if (temporal.latestTiePolicy !== 'SOURCE_ID_ASCENDING' || !Array.isArray(temporal.excludedRecordIds) || !temporal.excludedRecordIds.length || !temporal.excludedRecordIds.every(hasSource)) throw new Error('J04 temporal tie and exclusion policies are incomplete');
-  if (!Array.isArray(contract.normalizationRefusalCases) || !contract.normalizationRefusalCases.some((item) => item.status === 'REFUSED')) throw new Error('J04 normalization cases must include an unsupported-unit refusal');
-  for (const item of contract.normalizationRefusalCases) {
-    if (!hasSource(item?.sourceRecordId) || !Number.isFinite(item?.input?.value) || typeof item?.input?.unit !== 'string' || !item.input.unit) throw new Error('J04 normalization case has invalid source or input');
-    if (item.status === 'NORMALIZED' && (!Number.isFinite(item.expected?.value) || typeof item.expected?.unit !== 'string' || !item.expected.unit)) throw new Error('J04 normalized result must include a finite value and unit');
-    if (item.status === 'REFUSED' && typeof item.reason !== 'string') throw new Error('J04 refusal case must name its reason');
+  if (!Array.isArray(contract.normalizationCases) || !contract.normalizationCases.some((item) => item.status === 'REFUSED')) throw new Error('J04 normalization cases must include an unsupported-unit refusal');
+  const normalizationBySource = new Map();
+  for (const item of contract.normalizationCases) {
+    const source = sourceByID.get(item?.sourceRecordId);
+    const actualValue = j04ValueAtPath(source, scope.valuePath);
+    const actualUnit = j04ValueAtPath(source, scope.unitPath);
+    if (!source || !Number.isFinite(item?.input?.value) || typeof item.input.unit !== 'string' || !item.input.unit || actualValue !== item.input.value || actualUnit !== item.input.unit) throw new Error('J04 normalization case differs from its source value or unit');
+    if (normalizationBySource.has(item.sourceRecordId)) throw new Error(`J04 source ${item.sourceRecordId} has duplicate normalization outcomes`);
+    const factor = normalization.factorByUnit[item.input.unit];
+    if (factor === undefined) {
+      if (item.status !== 'REFUSED' || item.reason !== 'UNIT_IDENTITY_UNKNOWN') throw new Error(`J04 unsupported unit ${item.input.unit} must be refused as UNIT_IDENTITY_UNKNOWN`);
+    } else if (item.status !== 'NORMALIZED' || !j04ExactEqual(item.expected, { value: item.input.value * factor, unit: normalization.targetUnit })) {
+      throw new Error(`J04 normalization of ${item.sourceRecordId} differs from its declared conversion`);
+    }
     if (!['NORMALIZED', 'REFUSED'].includes(item.status)) throw new Error(`J04 normalization status is unsupported: ${item.status}`);
+    normalizationBySource.set(item.sourceRecordId, item);
   }
+  const patientRows = scope.selectedRowIdentities;
+  if (new Set(patientRows).size !== patientRows.length || patientRows.some((identity) => sourceByIdentity.get(identity)?.resourceType !== scope.rowResourceType)) throw new Error('J04 aggregate population must contain unique existing Patient rows');
+  const aggregateRowIdentities = contract.expectedAggregates.map(({ rowIdentity }) => rowIdentity).sort();
+  j04AssertEqual([...patientRows].sort(), aggregateRowIdentities, 'selected aggregate row identities');
+  const aggregateByRow = new Map();
+  for (const aggregate of contract.expectedAggregates) {
+    const row = sourceByIdentity.get(aggregate?.rowIdentity);
+    if (!row || row.resourceType !== scope.rowResourceType || !Array.isArray(aggregate.matchingSourceRecordIds) || !Array.isArray(aggregate.operatorSourceRecordIds)) throw new Error('J04 aggregate row must exist in the declared Patient row scope');
+    if (!numericOperators.every((operator) => Object.hasOwn(aggregate, operator))) throw new Error('J04 aggregate outcome must declare COUNT, EXISTS, MIN, MAX, MEAN, and SUM');
+    const rowSources = sourceRecords.filter((record) => record.resourceType === scope.sourceResourceType
+      && j04ValueAtPath(record, scope.ownerReferencePath) === aggregate.rowIdentity
+      && j04ValueAtPath(record, scope.categoryPath) === scope.categoryCode);
+    const sourceIDs = rowSources.map((record) => record.id);
+    j04AssertEqual(sourceIDs, aggregate.matchingSourceRecordIds, `aggregate matched sources for ${aggregate.rowIdentity}`);
+    const inWindow = rowSources.filter((record) => j04IsInWindow(record, scope.timePath, aggregateWindow));
+    const contributors = inWindow.filter((record) => normalizationBySource.get(record.id)?.status === 'NORMALIZED');
+    const contributorIDs = contributors.map((record) => record.id);
+    const timeExcludedIDs = rowSources.filter((record) => !j04IsInWindow(record, scope.timePath, aggregateWindow)).map((record) => record.id);
+    const refusedIDs = inWindow.filter((record) => normalizationBySource.get(record.id)?.status === 'REFUSED').map((record) => record.id);
+    if (inWindow.some((record) => !normalizationBySource.has(record.id))) throw new Error(`J04 aggregate source for ${aggregate.rowIdentity} has no unit outcome`);
+    j04AssertEqual(contributorIDs, aggregate.operatorSourceRecordIds, `aggregate contributors for ${aggregate.rowIdentity}`);
+    j04AssertEqual(timeExcludedIDs, aggregate.timeExcludedRecordIds, `aggregate time exclusions for ${aggregate.rowIdentity}`);
+    j04AssertEqual(refusedIDs, aggregate.normalizationRefusedRecordIds, `aggregate unit refusals for ${aggregate.rowIdentity}`);
+    const values = contributors.map((record) => normalizationBySource.get(record.id).expected.value);
+    const sum = values.reduce((total, value) => total + value, 0);
+    const computed = {
+      count: values.length,
+      exists: values.length > 0,
+      min: values.length ? Math.min(...values) : null,
+      max: values.length ? Math.max(...values) : null,
+      mean: values.length ? sum / values.length : null,
+      sum: values.length ? sum : null,
+    };
+    for (const operator of numericOperators) j04AssertEqual(computed[operator], aggregate[operator], `${operator.toUpperCase()} for ${aggregate.rowIdentity}`);
+    aggregateByRow.set(aggregate.rowIdentity, aggregate);
+  }
+  const unitRefusal = contract.unsupportedUnitRefusal;
+  const refusalSource = sourceByID.get(unitRefusal?.sourceRecordId);
+  const refusalRow = sourceByIdentity.get(unitRefusal?.rowIdentity);
+  const refusalOutcome = normalizationBySource.get(unitRefusal?.sourceRecordId);
+  if (!refusalSource || refusalRow?.resourceType !== scope.rowResourceType
+    || j04ValueAtPath(refusalSource, scope.ownerReferencePath) !== unitRefusal.rowIdentity
+    || refusalOutcome?.status !== 'REFUSED' || unitRefusal.status !== 'REFUSED'
+    || unitRefusal.reason !== 'UNIT_IDENTITY_UNKNOWN' || refusalOutcome.reason !== unitRefusal.reason
+    || unitRefusal.applied !== false || aggregateByRow.has(unitRefusal.rowIdentity)) {
+    throw new Error('J04 unsupported-unit input must remain a separate refused preview with no applied aggregate row');
+  }
+
+  const temporal = contract.temporalOutcomes;
+  const temporalWindow = j04WindowBounds(temporal?.window, 'temporal window');
+  if (!temporal?.rowIdentity || !aggregateByRow.has(temporal.rowIdentity) || !j04ExactEqual(temporal.window, scope.window)) throw new Error('J04 temporal outcomes must use a declared Patient row and the aggregate time window');
+  if (temporal.latestTiePolicy !== 'SOURCE_ID_ASCENDING') throw new Error('J04 temporal outcomes must declare deterministic source-ID tie ordering');
+  const temporalSources = sourceRecords.filter((record) => record.resourceType === scope.sourceResourceType
+    && j04ValueAtPath(record, scope.ownerReferencePath) === temporal.rowIdentity
+    && j04ValueAtPath(record, scope.categoryPath) === scope.categoryCode);
+  const withinWindow = temporalSources.filter((record) => j04IsInWindow(record, scope.timePath, temporalWindow));
+  const outsideWindowIDs = temporalSources.filter((record) => !j04IsInWindow(record, scope.timePath, temporalWindow)).map((record) => record.id);
+  const orderedByTime = [...withinWindow].sort((left, right) => Date.parse(j04ValueAtPath(left, scope.timePath)) - Date.parse(j04ValueAtPath(right, scope.timePath)) || left.id.localeCompare(right.id));
+  const earliestID = orderedByTime[0]?.id;
+  const latestTimestamp = orderedByTime.length ? Date.parse(j04ValueAtPath(orderedByTime.at(-1), scope.timePath)) : null;
+  const latestTieIDs = orderedByTime.filter((record) => Date.parse(j04ValueAtPath(record, scope.timePath)) === latestTimestamp).map((record) => record.id).sort();
+  j04AssertEqual(earliestID, temporal.earliestRecordId, 'earliest in-window record');
+  j04AssertEqual(latestTieIDs, temporal.latestTieRecordIds, 'latest timestamp tie members');
+  j04AssertEqual(latestTieIDs[0], temporal.latestSelectedRecordId, 'deterministic latest tie winner');
+  j04AssertEqual(outsideWindowIDs, temporal.excludedRecordIds, 'temporal window exclusions');
+
   const recoding = contract.recodingOutcomes;
   if (!recoding?.sourcePath || recoding.casePolicy !== 'EXACT' || recoding.unknownPolicy !== 'KEEP_ORIGINAL' || !recoding.mapping || typeof recoding.mapping !== 'object' || !Array.isArray(recoding.cases) || !recoding.cases.length) throw new Error('J04 recoding outcomes must declare exact-case mapping and unknown preservation');
-  if (!recoding.cases.every((item) => hasSource(item?.sourceRecordId) && typeof item.input === 'string' && typeof item.expected === 'string')) throw new Error('J04 recoding cases must have source and literal output values');
+  if (!recoding.cases.every((item) => hasSource(item?.sourceRecordId) && typeof item.input === 'string' && typeof item.expected === 'string' && j04ValueAtPath(sourceByID.get(item.sourceRecordId), recoding.sourcePath) === item.input)) throw new Error('J04 recoding cases must match source codes and literal input values');
+  for (const item of recoding.cases) j04AssertEqual(Object.hasOwn(recoding.mapping, item.input) ? recoding.mapping[item.input] : item.input, item.expected, `exact recoding for ${item.sourceRecordId}`);
   if (!recoding.cases.some((item) => item.input.toLowerCase() === item.input && Object.hasOwn(recoding.mapping, item.input.toUpperCase())) || !recoding.cases.some((item) => !Object.hasOwn(recoding.mapping, item.input))) throw new Error('J04 recoding cases must cover case mismatch and an unknown code');
+
   const pivot = contract.pivot;
-  if (!Array.isArray(pivot?.categories) || pivot.categories.length < 2 || pivot.categories.some((item) => !item?.code || !item?.outputColumn)) throw new Error('J04 pivot must list categories and output names');
-  if (new Set(pivot.categories.map((item) => item.outputColumn)).size !== pivot.categories.length || !['ERROR', 'SUM', 'MIN', 'MAX'].includes(pivot.duplicatePolicy) || !['NULL', 'ERROR'].includes(pivot.missingPolicy) || !['ERROR', 'EXCLUDE_WITH_EVIDENCE'].includes(pivot.unlistedCategoryPolicy)) throw new Error('J04 pivot categories or policies are invalid');
-  if (!Array.isArray(pivot.cells) || !['missing', 'null', 'false', 'zero', 'empty'].every((state) => pivot.cells.some((cell) => cell.presence === state))) throw new Error('J04 pivot cells must cover missing, null, false, zero, and empty values');
-  for (const cell of pivot.cells) {
-    if (typeof cell?.rowIdentity !== 'string' || !cell.column || !J04_PRESENCE_STATES.has(cell.presence)) throw new Error('J04 pivot cell identity or presence is invalid');
-    if (cell.presence === 'missing' ? Object.hasOwn(cell, 'value') : !Object.hasOwn(cell, 'value')) throw new Error(`J04 pivot ${cell.presence} cell has an invalid value-presence contract`);
-    if (cell.presence === 'null' && cell.value !== null || cell.presence === 'false' && cell.value !== false || cell.presence === 'zero' && cell.value !== 0 || cell.presence === 'empty' && cell.value !== '') throw new Error(`J04 pivot ${cell.presence} cell has the wrong literal value`);
+  if (pivot?.sourceResourceType !== baseResourceType || pivot.categoryColumn?.logicalType !== 'string' || pivot.valueColumn?.logicalType !== 'number' || pivot.categoryColumn.path === pivot.valueColumn.path || !Array.isArray(pivot.categories) || pivot.categories.length < 2 || pivot.categories.some((item) => typeof item?.code !== 'string' || !item.code || !item.outputColumn)) throw new Error('J04 pivot must use one string category column and one distinct numeric value column');
+  if (new Set(pivot.categories.map((item) => item.outputColumn)).size !== pivot.categories.length || new Set(pivot.categories.map((item) => item.code)).size !== pivot.categories.length || pivot.duplicatePolicy !== 'SUM' || pivot.missingPolicy !== 'NULL' || pivot.unlistedCategoryPolicy !== 'EXCLUDE_WITH_EVIDENCE') throw new Error('J04 pivot categories or policies are invalid');
+  if (!Array.isArray(pivot.groupColumns) || !pivot.groupColumns.length || pivot.groupColumns.some((column) => column.logicalType !== 'string' || !column.path)) throw new Error('J04 pivot group columns must have declared string types');
+  if (!Array.isArray(pivot.requiredSourceColumns) || pivot.requiredSourceColumns.some((column) => !column?.path || !column?.label)) throw new Error('J04 pivot phase must declare its additional source columns');
+  const availablePivotPaths = new Set([...contract.baseColumns, ...pivot.requiredSourceColumns].map((column) => column.path));
+  const requiredPivotPaths = [...pivot.groupColumns.map(({ path }) => path), pivot.categoryColumn.path, pivot.valueColumn.path, pivot.valueColumn.unitPath];
+  if (requiredPivotPaths.some((path) => !availablePivotPaths.has(path))) throw new Error('J04 pivot phase must author its group, category, numeric value, and unit-code source columns');
+  const pivotSources = sourceRecords.filter((record) => record.resourceType === pivot.sourceResourceType);
+  if (pivotSources.some((record) => typeof j04ValueAtPath(record, pivot.categoryColumn.path) !== 'string')) throw new Error('J04 pivot category values must all use the declared string type');
+  const selectedCodes = new Set(pivot.categories.map((item) => item.code));
+  const selectedSources = pivotSources.filter((record) => selectedCodes.has(j04ValueAtPath(record, pivot.categoryColumn.path)));
+  const excludedSources = pivotSources.filter((record) => !selectedCodes.has(j04ValueAtPath(record, pivot.categoryColumn.path)));
+  for (const record of selectedSources) {
+    const value = j04ValueAtPath(record, pivot.valueColumn.path);
+    const unit = j04ValueAtPath(record, pivot.valueColumn.unitPath);
+    if (!Number.isFinite(value) || unit !== pivot.valueColumn.unit || pivot.valueColumn.unit !== 'cm') throw new Error(`J04 selected pivot source ${record.id} does not match the numeric ${pivot.valueColumn.unit} value type`);
+    for (const column of pivot.groupColumns) if (typeof j04ValueAtPath(record, column.path) !== column.logicalType) throw new Error(`J04 pivot group source ${record.id} does not match ${column.logicalType} at ${column.path}`);
   }
+  const groupMap = new Map();
+  for (const record of selectedSources) {
+    const groupValues = j04GroupValues(record, pivot.groupColumns);
+    const groupKey = JSON.stringify(groupValues);
+    const categoryCode = j04ValueAtPath(record, pivot.categoryColumn.path);
+    const group = groupMap.get(groupKey) ?? { groupValues, cells: new Map() };
+    const cell = group.cells.get(categoryCode) ?? [];
+    cell.push(record);
+    group.cells.set(categoryCode, cell);
+    groupMap.set(groupKey, group);
+  }
+  const orderedGroups = [...groupMap.values()].sort((left, right) => JSON.stringify(left.groupValues).localeCompare(JSON.stringify(right.groupValues)));
+  const computedPivotRows = orderedGroups.map((group) => ({
+    groupValues: group.groupValues,
+    values: Object.fromEntries(pivot.categories.map(({ code, outputColumn }) => {
+      const cell = group.cells.get(code) ?? [];
+      return [outputColumn, cell.length ? cell.reduce((total, record) => total + j04ValueAtPath(record, pivot.valueColumn.path), 0) : null];
+    })),
+  }));
+  if (!Array.isArray(pivot.derivedColumns) || !pivot.derivedColumns.length) throw new Error('J04 grouped pivot must declare a derived output that uses pivot columns');
+  const pivotOutputNames = new Set(pivot.categories.map((item) => item.outputColumn));
+  for (const derived of pivot.derivedColumns) {
+    if (!derived?.name || pivotOutputNames.has(derived.name) || derived.operation !== 'ADD' || derived.nullPolicy !== 'PROPAGATE_NULL'
+      || !Array.isArray(derived.operands) || derived.operands.length !== 2 || !Array.isArray(derived.expectedByGroup)) {
+      throw new Error('J04 pivot-derived outputs must add two distinct pivot columns with null propagation');
+    }
+    const operands = derived.operands.map((operand) => {
+      const category = pivot.categories.find((item) => item.outputColumn === operand?.name);
+      if (operand?.kind !== 'pivot' || !category) throw new Error(`J04 pivot-derived output ${derived.name} has an unavailable pivot operand`);
+      return category.outputColumn;
+    });
+    const expectedByGroup = [];
+    for (const row of computedPivotRows) {
+      const [left, right] = operands.map((name) => row.values[name]);
+      const value = left === null || right === null ? null : left + right;
+      expectedByGroup.push({ groupValues: row.groupValues, presence: value === null ? 'null' : 'value', value });
+      row.values[derived.name] = value;
+    }
+    j04AssertEqual(expectedByGroup, derived.expectedByGroup, `pivot-derived values for ${derived.name}`);
+    pivotOutputNames.add(derived.name);
+  }
+  j04AssertEqual(computedPivotRows, pivot.expectedRows, 'grouped pivot output rows');
+  const computedContributors = orderedGroups.flatMap((group) => pivot.categories.flatMap(({ code }) => {
+    const records = [...(group.cells.get(code) ?? [])].sort((left, right) => left.id.localeCompare(right.id));
+    if (!records.length) return [];
+    return [{
+      groupValues: group.groupValues,
+      categoryCode: code,
+      sourceRecordIds: records.map((record) => record.id),
+      inputValues: records.map((record) => j04ValueAtPath(record, pivot.valueColumn.path)),
+      outputValue: records.reduce((total, record) => total + j04ValueAtPath(record, pivot.valueColumn.path), 0),
+    }];
+  }));
+  j04AssertEqual(computedContributors, pivot.expectedContributors, 'grouped pivot contributor evidence');
+  const computedExclusions = excludedSources.map((record) => ({
+    sourceRecordId: record.id,
+    categoryCode: j04ValueAtPath(record, pivot.categoryColumn.path),
+    reason: 'UNLISTED_CATEGORY',
+  }));
+  j04AssertEqual(computedExclusions, pivot.expectedExclusions, 'grouped pivot exclusion evidence');
+  const contributingIDs = selectedSources.map((record) => record.id);
+  const missingCategoryCells = computedPivotRows.flatMap((row) => pivot.categories.flatMap(({ code, outputColumn }) => {
+    const hasCategory = groupMap.get(JSON.stringify(row.groupValues)).cells.has(code);
+    return hasCategory ? [] : [{ groupValues: row.groupValues, categoryCode: code, outputColumn, presence: 'null' }];
+  }));
+  j04AssertEqual({
+    sourceRowResourceType: pivot.sourceResourceType,
+    groupedRowCount: computedPivotRows.length,
+    contributingSourceRecordIds: contributingIDs,
+    unlistedExcludedRecordCount: excludedSources.length,
+    missingCategoryCells,
+  }, pivot.expectedInformationLoss, 'grouped pivot information-loss evidence');
+
   if (!Array.isArray(contract.derivedResults) || contract.derivedResults.length < 3) throw new Error('J04 derived outcomes must cover numeric, division-by-zero, and later-derived cases');
-  const byName = new Map(contract.derivedResults.map((item) => [item?.name, item]));
-  const numericDerived = contract.derivedResults.some((item) => item.expectedPresence === 'value' && Number.isFinite(item.expected));
-  const divisionByZero = contract.derivedResults.some((item) => item.divisionByZeroPolicy === 'NULL' && item.expectedPresence === 'null' && item.expected === null);
-  const laterDerived = contract.derivedResults.some((item, index) => contract.derivedResults.slice(0, index).some((earlier) => earlier?.name && item.expression?.includes(earlier.name)));
-  if (!numericDerived || !divisionByZero || !laterDerived || [...byName.values()].some((item) => !item?.name || typeof item.expression !== 'string')) throw new Error('J04 derived outcomes are missing a required literal or dependency');
+  const derivedByName = new Map();
+  for (const result of contract.derivedResults) {
+    if (!result?.name || derivedByName.has(result.name) || !Array.isArray(result.operands) || result.operands.length !== 2 || !aggregateByRow.has(result.rowIdentity)) throw new Error('J04 derived outcomes must have unique names, two operands, and a declared Patient row');
+    const aggregate = aggregateByRow.get(result.rowIdentity);
+    const resolve = (operand) => {
+      if (operand?.kind === 'literal' && Number.isFinite(operand.value)) return operand.value;
+      if (operand?.kind === 'aggregate' && Object.hasOwn(aggregate, operand.name) && Number.isFinite(aggregate[operand.name])) return aggregate[operand.name];
+      if (operand?.kind === 'derived' && derivedByName.has(operand.name)) return derivedByName.get(operand.name);
+      throw new Error(`J04 derived column ${result.name} has an unavailable or forward operand`);
+    };
+    const [left, right] = result.operands.map(resolve);
+    let computed;
+    if (result.operation === 'ADD') computed = left + right;
+    else if (result.operation === 'DIVIDE' && right !== 0) computed = left / right;
+    else if (result.operation === 'DIVIDE' && right === 0 && result.divisionByZeroPolicy === 'NULL') computed = null;
+    else throw new Error(`J04 derived column ${result.name} has an unsupported operation or division policy`);
+    const presence = computed === null ? 'null' : 'value';
+    j04AssertEqual({ presence, value: computed }, { presence: result.expectedPresence, value: result.expected }, `derived output ${result.name}`);
+    derivedByName.set(result.name, computed);
+  }
+  if (!contract.derivedResults.some((item) => item.operation === 'DIVIDE' && item.divisionByZeroPolicy === 'NULL' && item.expectedPresence === 'null' && item.expected === null)
+    || !contract.derivedResults.some((item) => item.operands.some((operand) => operand.kind === 'derived'))) throw new Error('J04 derived outcomes must include division-by-zero null and an earlier derived reference');
+
   const unrelated = contract.unrelatedColumnLiteral;
-  if (!unrelated?.column || !unrelated.rowIdentity || !hasSource(unrelated.rowIdentity.split('/').at(-1)) || typeof unrelated.value !== 'string') throw new Error('J04 unrelated column must have one exact source literal');
+  const unrelatedRow = sourceByIdentity.get(unrelated?.rowIdentity);
+  if (!unrelated?.column || !unrelatedRow || typeof unrelated.value !== 'string') throw new Error('J04 unrelated column must have one exact source literal');
+  j04AssertEqual(j04ValueAtPath(unrelatedRow, unrelated.column), unrelated.value, 'unrelated source column literal');
+
   if (!Array.isArray(contract.presenceCases) || !['missing', 'null', 'false', 'zero', 'empty'].every((state) => contract.presenceCases.some((item) => item.presence === state))) throw new Error('J04 fixture must declare all five presence distinctions');
   for (const item of contract.presenceCases) {
     const source = sourceByID.get(item?.sourceRecordId);
-    if (!source || typeof item.fieldPath !== 'string' || !J04_PRESENCE_STATES.has(item.presence) || j04Presence(source, item.fieldPath) !== item.presence) throw new Error(`J04 source record does not preserve the declared ${item?.presence ?? 'unknown'} distinction`);
+    if (!source || source.resourceType !== baseResourceType || typeof item.fieldPath !== 'string' || !J04_PRESENCE_STATES.has(item.presence) || j04Presence(source, item.fieldPath) !== item.presence) throw new Error(`J04 ${item?.presence ?? 'unknown'} scalar evidence must belong to ${baseResourceType} rows`);
     if (item.presence === 'missing' ? Object.hasOwn(item, 'value') : !Object.hasOwn(item, 'value')) throw new Error(`J04 ${item.presence} presence case has an invalid value-presence contract`);
     if (item.presence !== 'missing' && !j04ExactEqual(j04ValueAtPath(source, item.fieldPath), item.value)) throw new Error(`J04 source record differs from its declared ${item.presence} literal`);
   }
+  if (!j04ExactEqual(contract.acceptanceExpectations, {
+    unsupportedUnitProposalIsRefused: true,
+    previewProposalIsNonMutating: true,
+    cancelPreservesSavedDefinition: true,
+    applyRequiresProposalReceipt: true,
+    staleApplyStatus: 409,
+    reloadPreservesAppliedDefinition: true,
+    previewViewerAndTypedArtifactAgree: true,
+    typedArtifactFormat: 'JSONL',
+    typedArtifactPreservesNativeJSONTypes: true,
+  })) throw new Error('J04 acceptance expectations must retain receipt, reload, cross-surface, and native-typing checks');
   return true;
 };
 
@@ -5605,9 +5830,12 @@ const j04UnprovenAssertions = [
   'j04-count-exists-min-max-mean-sum-match-literal-oracle',
   'j04-earliest-latest-tie-and-window-exclusion-match-literal-oracle',
   'j04-unit-normalization-preserves-zero-and-refuses-unsupported-units',
+  'j04-unsupported-unit-preview-refuses-without-applying',
   'j04-exact-recoding-honors-case-and-unknown-policy',
+  'j04-pivot-source-columns-come-from-the-saved-catalog',
   'j04-pivot-freezes-category-names-and-policies',
-  'j04-pivot-preserves-missing-null-false-zero-and-empty',
+  'j04-scalar-evidence-preserves-missing-null-false-zero-and-empty',
+  'j04-pivot-derived-alpha-plus-beta-matches-literals-with-null-propagation',
   'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
   'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
   'j04-receipt-apply-and-stale-proposal-rejection-preserve-workspace-contract',
@@ -5662,6 +5890,8 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   report.target.fixtureContract = 'j04-contract.fixture.json';
   report.target.workspaceSnapshots = {};
   report.target.capabilityIdentities = [];
+  report.target.pivotCapabilityIdentities = [];
+  report.target.pivotSourceColumns = null;
   report.target.proposalIdentities = [];
   report.target.previewRows = null;
   report.target.viewerRows = null;
@@ -5711,7 +5941,29 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       if (document?.columns?.length === count) return state;
       await sleep(100);
     }
-    throw new Error(`J04 Builder did not persist ${count} browser-authored base columns`);
+    throw new Error(`J04 Builder did not persist ${count} browser-authored columns`);
+  };
+  const candidatePath = (candidate) => String(candidate?.fieldPath ?? '').replace(/^root\./, '');
+  const fieldChoicesFromCatalog = (state, nodeId, columns) => columns.map((column) => {
+    const candidate = state.catalog?.candidates?.find((item) => item.nodeId === nodeId && candidatePath(item) === column.path);
+    const defaultOptions = candidate?.constructionChoice?.options?.filter((option) => option.decision === 'DEFAULT') ?? [];
+    if (!candidate?.candidateId || candidate.constructionChoice?.source?.kind !== 'FIELD' || defaultOptions.length !== 1) {
+      throw new Error(`J04 cannot browser-author required field ${fixture.contract.baseRowResourceType}.${column.path} from the saved catalog`);
+    }
+    return { ...column, candidate, selection: { choiceId: candidate.constructionChoice.choiceId, form: defaultOptions[0].form } };
+  });
+  const authorCatalogFields = async (explorerId, outputId, resourceType, fields, initialColumnCount) => {
+    for (let index = 0; index < fields.length; index += 1) {
+      const field = fields[index];
+      await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(field.path)})`);
+      await browserEval(cdp, `clickButton('Search')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Select ${resourceType}.${field.path}"]:not(:disabled)`)}))`, 60000);
+      await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select ${resourceType}.${field.path}`)}); if (!input || input.disabled) throw new Error('J04 visible field choice is unavailable: ' + ${JSON.stringify(field.path)}); input.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      const count = initialColumnCount + index + 1;
+      await waitForColumnCount(explorerId, outputId, count);
+    }
+    return fetchBuilderState(target, explorerId);
   };
 
   try {
@@ -5745,21 +5997,13 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     });
 
     let state = await fetchBuilderState(target, explorerId);
-    const root = state.catalog?.nodes?.find((node) => node.resourceType === 'Observation' && node.rowRootEligible);
-    const outputDocument = state.workspace?.documents?.find((document) => document.rootResourceType === 'Observation');
-    if (!root?.nodeId || !outputDocument?.output?.id) throw new Error('J04 Observation row selection did not create a saved output table');
+    const rowResourceType = fixture.contract.baseRowResourceType;
+    const root = state.catalog?.nodes?.find((node) => node.resourceType === rowResourceType && node.rowRootEligible);
+    const outputDocument = state.workspace?.documents?.find((document) => document.rootResourceType === rowResourceType);
+    if (!root?.nodeId || !outputDocument?.output?.id) throw new Error(`J04 ${rowResourceType} row selection did not create a saved output table`);
     const outputId = outputDocument.output.id;
     report.target.outputId = outputId;
-    const candidatePath = (candidate) => String(candidate?.fieldPath ?? '').replace(/^root\./, '');
-    const fieldChoices = fixture.contract.baseColumns.map((column) => {
-      const candidate = state.catalog?.candidates?.find((item) => item.nodeId === root.nodeId && candidatePath(item) === column.path);
-      const options = candidate?.constructionChoice?.options ?? [];
-      const defaultOptions = options.filter((option) => option.decision === 'DEFAULT');
-      if (!candidate?.candidateId || candidate.constructionChoice?.source?.kind !== 'FIELD' || defaultOptions.length !== 1) {
-        throw new Error(`J04 cannot browser-author the required base field Observation.${column.path} from the saved catalog`);
-      }
-      return { ...column, candidate, selection: { choiceId: candidate.constructionChoice.choiceId, form: defaultOptions[0].form } };
-    });
+    const fieldChoices = fieldChoicesFromCatalog(state, root.nodeId, fixture.contract.baseColumns);
     report.target.capabilityIdentities = fieldChoices.map(({ path, candidate, selection }) => ({
       path,
       candidateId: candidate.candidateId,
@@ -5769,15 +6013,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     recordAssertion(report, 'j04-base-field-capability-identities-come-from-the-saved-catalog', fixture.contract.baseColumns.map((column) => column.path), fieldChoices.map((choice) => candidatePath(choice.candidate)));
 
     await action('add-base-columns-through-visible-builder-controls', async () => {
-      for (let index = 0; index < fieldChoices.length; index += 1) {
-        const field = fieldChoices[index];
-        await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(field.path)})`);
-        await browserEval(cdp, `clickButton('Search')`);
-        await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Select Observation.${field.path}"]:not(:disabled)`)}))`, 60000);
-        await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select Observation.${field.path}`)}); if (!input || input.disabled) throw new Error('J04 visible field choice is unavailable: ' + ${JSON.stringify(field.path)}); input.click();`);
-        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-        state = await waitForColumnCount(explorerId, outputId, index + 1);
-      }
+      state = await authorCatalogFields(explorerId, outputId, rowResourceType, fieldChoices, 0);
     });
 
     const authored = state.workspace?.documents?.find((document) => document.output?.id === outputId);
@@ -5810,6 +6046,27 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       markJ04DownstreamUnproven(report);
       throw new Error(`J04 first missing DOM action: Builder does not render the Table shape editor ${selector} after ${authored.columns.length} base columns were authored through visible controls`);
     }
+    const pivotFieldChoices = fieldChoicesFromCatalog(state, root.nodeId, fixture.contract.pivot.requiredSourceColumns);
+    report.target.pivotCapabilityIdentities = pivotFieldChoices.map(({ path, candidate, selection }) => ({
+      path,
+      candidateId: candidate.candidateId,
+      choiceId: selection.choiceId,
+      form: selection.form,
+    }));
+    recordAssertion(report, 'j04-pivot-source-columns-come-from-the-saved-catalog',
+      fixture.contract.pivot.requiredSourceColumns.map((column) => column.path),
+      pivotFieldChoices.map((choice) => candidatePath(choice.candidate)));
+    await action('add-pivot-source-columns-through-visible-builder-controls', async () => {
+      state = await authorCatalogFields(explorerId, outputId, rowResourceType, pivotFieldChoices, authored.columns.length);
+    });
+    const pivotAuthored = state.workspace?.documents?.find((document) => document.output?.id === outputId);
+    if (!pivotAuthored) throw new Error('J04 pivot source columns were not saved in the Observation output');
+    report.target.pivotSourceColumns = pivotAuthored.columns.map((column) => column.source?.field?.path?.replace(/^root\./, ''));
+    recordAssertion(report, 'j04-pivot-source-columns-are-saved-before-pivot-configuration',
+      [...fixture.contract.baseColumns, ...fixture.contract.pivot.requiredSourceColumns].map((column) => column.path),
+      report.target.pivotSourceColumns);
+    await saveWorkspaceSnapshot('after-pivot-source-authoring', explorerId);
+    await captureDOM('j04-builder-pivot-sources-authored');
     throw new Error('J04 verifier reached the UI04 table-shape editor, but the downstream browser workflow is not implemented');
   } catch (error) {
     failure = error;
@@ -5991,10 +6248,16 @@ const main = async (argv) => {
       verificationReport.target.fixtureContractSummary = {
         sourceFile: fixture.contract.sourceFile,
         sourceRecords: fixture.contract.sourceRecords,
+        baseRowResourceType: fixture.contract.baseRowResourceType,
         baseColumns: fixture.contract.baseColumns,
+        aggregateRowResourceType: fixture.contract.aggregateScope.rowResourceType,
+        aggregatePopulation: fixture.contract.aggregateScope.selectedRowIdentities,
         expectedAggregateRows: fixture.contract.expectedAggregates.length,
-        normalizationCases: fixture.contract.normalizationRefusalCases.length,
+        unsupportedUnitRefusal: fixture.contract.unsupportedUnitRefusal,
+        normalizationCases: fixture.contract.normalizationCases.length,
+        pivotSourceColumns: fixture.contract.pivot.requiredSourceColumns,
         pivotCategories: fixture.contract.pivot.categories,
+        pivotDerivedColumns: fixture.contract.pivot.derivedColumns,
       };
       await ensureDev(target, report);
       verificationReport.timings.startup_ms = report.timings.startup_ms;

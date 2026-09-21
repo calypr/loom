@@ -6,23 +6,45 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04ExactEqual, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
-test('J04 fixture contract binds the exact J04-only resource identities and raw presence cases', () => {
+test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
   const loaded = loadJ04FixtureContract(fixtureDir);
   assert.equal(loaded.contract.sourceFile, 'j04-records.ndjson.fixture');
-  assert.equal(loaded.sourceRecords.length, 12);
+  assert.equal(loaded.sourceRecords.length, 17);
   assert.equal(validateJ04FixtureContract(loaded.contract, loaded.sourceRecords), true);
+  assert.equal(loaded.contract.baseRowResourceType, 'Observation');
+  assert.equal(loaded.contract.aggregateScope.rowResourceType, 'Patient');
+  assert.deepEqual(loaded.contract.aggregateScope.selectedRowIdentities, ['Patient/j04-patient-001']);
+  assert.deepEqual(loaded.contract.expectedAggregates.map(({ rowIdentity }) => rowIdentity), ['Patient/j04-patient-001']);
+  assert.deepEqual(
+    Object.fromEntries(['count', 'exists', 'min', 'max', 'mean', 'sum'].map((key) => [key, loaded.contract.expectedAggregates[0][key]])),
+    { count: 3, exists: true, min: 0, max: 180, mean: 120, sum: 360 },
+  );
+  assert.equal(loaded.contract.pivot.categoryColumn.logicalType, 'string');
+  assert.equal(loaded.contract.pivot.valueColumn.logicalType, 'number');
+  assert.equal(loaded.contract.pivot.derivedColumns[0].name, 'j04_alpha_plus_beta');
+  assert.deepEqual(loaded.contract.pivot.derivedColumns[0].expectedByGroup.map(({ presence, value }) => ({ presence, value })), [
+    { presence: 'value', value: 7.5 },
+    { presence: 'null', value: null },
+  ]);
+  assert.deepEqual(loaded.contract.unsupportedUnitRefusal, {
+    rowIdentity: 'Patient/j04-patient-002',
+    sourceRecordId: 'j04-unsupported-unit',
+    status: 'REFUSED',
+    reason: 'UNIT_IDENTITY_UNKNOWN',
+    applied: false,
+  });
 
   const changedIdentity = structuredClone(loaded.contract);
   changedIdentity.sourceRecords[0].id = 'j04-patient-substituted';
   assert.throws(() => validateJ04FixtureContract(changedIdentity, loaded.sourceRecords), /identities or order differ/);
 
   const changedSource = structuredClone(loaded.sourceRecords);
-  changedSource.find((record) => record.id === 'j04-pivot-empty').valueString = ' ';
-  assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /declared empty distinction/);
+  changedSource.find((record) => record.id === 'j04-scalar-empty').valueString = ' ';
+  assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /empty scalar evidence/);
 });
 
-test('J04 fixture contract rejects missing aggregate and temporal evidence', () => {
+test('J04 fixture contract recalculates exact aggregate and temporal source evidence', () => {
   const { contract, sourceRecords } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
   const missingOperator = structuredClone(contract);
   delete missingOperator.expectedAggregates[0].sum;
@@ -30,7 +52,55 @@ test('J04 fixture contract rejects missing aggregate and temporal evidence', () 
 
   const changedTie = structuredClone(contract);
   changedTie.temporalOutcomes.latestSelectedRecordId = 'j04-window-excluded';
-  assert.throws(() => validateJ04FixtureContract(changedTie, sourceRecords), /exact latest tie winner/);
+  assert.throws(() => validateJ04FixtureContract(changedTie, sourceRecords), /deterministic latest tie winner/);
+
+  const changedSum = structuredClone(contract);
+  changedSum.expectedAggregates[0].sum = 361;
+  assert.throws(() => validateJ04FixtureContract(changedSum, sourceRecords), /SUM for Patient\/j04-patient-001/);
+
+  const changedPopulation = structuredClone(contract);
+  changedPopulation.aggregateScope.selectedRowIdentities[0] = 'Observation/j04-measure-001';
+  assert.throws(() => validateJ04FixtureContract(changedPopulation, sourceRecords), /unique existing Patient rows/);
+
+  const appliedRefusal = structuredClone(contract);
+  appliedRefusal.unsupportedUnitRefusal.applied = true;
+  assert.throws(() => validateJ04FixtureContract(appliedRefusal, sourceRecords), /separate refused preview/);
+});
+
+test('J04 fixture rejects type-mixed pivot inputs and changed contribution or information-loss evidence', () => {
+  const { contract, sourceRecords } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  const mixedCategory = structuredClone(contract);
+  mixedCategory.pivot.categoryColumn.logicalType = 'number';
+  assert.throws(() => validateJ04FixtureContract(mixedCategory, sourceRecords), /one string category column/);
+
+  const mixedValue = structuredClone(sourceRecords);
+  mixedValue.find((record) => record.id === 'j04-pivot-alpha-a').valueQuantity.value = '2.5';
+  assert.throws(() => validateJ04FixtureContract(contract, mixedValue), /numeric cm value type/);
+
+  const changedContributor = structuredClone(contract);
+  changedContributor.pivot.expectedContributors[0].sourceRecordIds[0] = 'j04-measure-001';
+  assert.throws(() => validateJ04FixtureContract(changedContributor, sourceRecords), /contributor evidence/);
+
+  const changedInformationLoss = structuredClone(contract);
+  changedInformationLoss.pivot.expectedInformationLoss.unlistedExcludedRecordCount = 10;
+  assert.throws(() => validateJ04FixtureContract(changedInformationLoss, sourceRecords), /information-loss evidence/);
+
+  const changedPivotDerived = structuredClone(contract);
+  changedPivotDerived.pivot.expectedRows[0].values.j04_alpha_plus_beta = 8;
+  assert.throws(() => validateJ04FixtureContract(changedPivotDerived, sourceRecords), /pivot output rows/);
+});
+
+test('J04 fixture preserves the receipt, refusal, reload, Preview, Viewer, and typed-artifact acceptance contract', () => {
+  const { contract, sourceRecords } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  assert.equal(contract.acceptanceExpectations.previewProposalIsNonMutating, true);
+  assert.equal(contract.acceptanceExpectations.staleApplyStatus, 409);
+  assert.equal(contract.acceptanceExpectations.reloadPreservesAppliedDefinition, true);
+  assert.equal(contract.acceptanceExpectations.previewViewerAndTypedArtifactAgree, true);
+  assert.equal(contract.acceptanceExpectations.typedArtifactPreservesNativeJSONTypes, true);
+
+  const changedStatus = structuredClone(contract);
+  changedStatus.acceptanceExpectations.staleApplyStatus = 200;
+  assert.throws(() => validateJ04FixtureContract(changedStatus, sourceRecords), /retain receipt, reload, cross-surface, and native-typing checks/);
 
   const changedPresence = structuredClone(contract);
   changedPresence.presenceCases.find((item) => item.presence === 'false').value = true;
