@@ -98,7 +98,11 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				kind = expression.KindString
 			}
 			for _, column := range pivot.Columns {
-				addLogical(prefix+pivot.Name+"__"+sanitizeColumnName(column), recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered)
+				name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
+				if alias, ok := pivot.ColumnAliases[column]; ok {
+					name = prefix + alias
+				}
+				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered)
 			}
 		}
 		for _, ownerRecords := range node.OwnerRecords {

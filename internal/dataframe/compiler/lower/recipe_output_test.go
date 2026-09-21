@@ -786,6 +786,42 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 	}
 }
 
+func TestCompiledRecipeOutputSchemaPreservesAliasedPivotMetadata(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "aliased-observation-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+		Pivots: []recipe.Pivot{{
+			Name:          "observation_values",
+			FieldRef:      "Observation.valueQuantity.value",
+			ColumnExpr:    recipe.Expression{Select: "root.code.text"},
+			ValueExpr:     recipe.Expression{Select: "root.valueQuantity.value"},
+			Columns:       []string{"Biospecimen"},
+			ColumnAliases: map[string]string{"Biospecimen": "biospecimen_value"},
+		}},
+	}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name != "biospecimen_value" {
+			continue
+		}
+		if column.Kind != string(expression.KindDecimal) || column.SemanticPath != "Observation.valueQuantity.value[Biospecimen]" {
+			t.Fatalf("aliased pivot column = %#v", column)
+		}
+		return
+	}
+	t.Fatalf("compiled schema missing aliased pivot column: %#v", compiled.Outputs[0].OutputSchema)
+}
+
 func TestCompiledRecipeOutputSchemaHonorsFirstProjectionCardinality(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "first-projection", TranslationVersion: "test", Outputs: []recipe.Output{{
 		Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "resource",
