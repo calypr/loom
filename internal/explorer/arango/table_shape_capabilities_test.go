@@ -59,11 +59,15 @@ func tableShapeTestBinding() tableshapecap.Binding {
 
 type tableShapeCapabilityClient struct {
 	*capabilitySnapshotClient
-	rows map[string]map[string]any
+	rows             map[string]map[string]any
+	nullInsertResult bool
 }
 
 func (c *tableShapeCapabilityClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
 	c.capabilitySnapshotClient.calls = append(c.capabilitySnapshotClient.calls, queryCall{query: query, binds: binds})
+	if c.nullInsertResult && query == tableShapeCapabilityInsertAQL {
+		return visit(nil)
+	}
 	kind, _ := binds["kind"].(string)
 	id, _ := binds["id"].(string)
 	if kind == "" {
@@ -432,6 +436,49 @@ func TestTableShapeCapabilityRepositoryLoadsPivotContextForDerivedResolution(t *
 
 	if _, err := repository.PutResolution(context.Background(), derived); err != nil {
 		t.Fatalf("persist derived resolution with its earlier pivot context: %v", err)
+	}
+}
+
+func TestTableShapeCapabilityRepositoryFallsBackAfterNullInsertResult(t *testing.T) {
+	client := &tableShapeCapabilityClient{
+		capabilitySnapshotClient: &capabilitySnapshotClient{},
+		rows:                     map[string]map[string]any{},
+		nullInsertResult:         true,
+	}
+	repository, err := NewTableShapeCapabilityRepository(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := tableShapeTestBinding()
+	catalog := tableShapeTestCatalog(t, binding)
+	resolution, scan := tableShapeTestResolution(t, catalog)
+	catalogRow, err := catalogDocument(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanRow, err := categoryScanDocument(scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolutionRow, err := resolutionDocument(resolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.rows["CATALOG"] = catalogRow
+	client.rows["CATEGORY_SCAN:"+scan.ID] = scanRow
+	client.rows["RESOLUTION:"+resolution.ID] = resolutionRow
+
+	storedCatalog, err := repository.PutCatalog(context.Background(), catalog)
+	if err != nil || storedCatalog.ID != catalog.ID {
+		t.Fatalf("put existing catalog after null insert result = %q, %v", storedCatalog.ID, err)
+	}
+	storedScan, err := repository.PutCategoryScan(context.Background(), scan)
+	if err != nil || storedScan.ID != scan.ID {
+		t.Fatalf("put existing category scan after null insert result = %q, %v", storedScan.ID, err)
+	}
+	storedResolution, err := repository.PutResolution(context.Background(), resolution)
+	if err != nil || storedResolution.ID != resolution.ID {
+		t.Fatalf("put existing resolution after null insert result = %q, %v", storedResolution.ID, err)
 	}
 }
 
