@@ -13,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/unit"
@@ -23,6 +24,270 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
+
+func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible, order := true, 1
+	two := int64(2)
+	document := &workspace.Documents[0]
+	document.Columns = append(document.Columns, authoringv2.Column{
+		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+		Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &order},
+	})
+	document.TableShape = &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{{
+		ConstructionID: "scale_patient_count", Output: authoringv2.ColumnOutput{Column: "scaled_patient_count", Label: "Scaled patient count"},
+		Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"},
+		Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &two}},
+		MissingInputPolicy: "ERROR",
+	}}}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("compile receipt with an authored derived column: %v", err)
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
+		t.Fatalf("validate reconciled public output contract: %v", err)
+	}
+	wantColumns := []string{"c_patient", "patient_count", "scaled_patient_count"}
+	if got := emittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
+		t.Fatalf("receipt public columns = %#v, want %#v", got, wantColumns)
+	}
+	derived := receipt.EmittedColumns[2]
+	if derived.Label != "Scaled patient count" || derived.ConstructionID != "scale_patient_count" || !reflect.DeepEqual(derived.AuthoredColumns, []string{"patient_count"}) {
+		t.Fatalf("derived authored metadata = %#v", derived)
+	}
+	if derived.SourcePath != "" || derived.SourceResourceType != "" || derived.Filterable || derived.Chartable {
+		t.Fatalf("derived column fabricated source or browser metadata: %#v", derived)
+	}
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("compile identical derived receipt again: %v", err)
+	}
+	if receipt.CompilationKey != repeated.CompilationKey || receipt.ID != repeated.ID {
+		t.Fatalf("derived receipt identity changed: first=(%q,%q) second=(%q,%q)", receipt.CompilationKey, receipt.ID, repeated.CompilationKey, repeated.ID)
+	}
+}
+
+func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantColumns := []string{"patient_id", "score", "scaled_score"}
+	if got := emittedPublicColumnNames(reconciled.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
+		t.Fatalf("emitted public columns = %#v, want %#v", got, wantColumns)
+	}
+	if got := []string{reconciled.Presentations[0].Columns[0].PublicColumn, reconciled.Presentations[0].Columns[1].PublicColumn, reconciled.Presentations[0].Columns[2].PublicColumn}; !reflect.DeepEqual(got, wantColumns) {
+		t.Fatalf("presentation columns = %#v, want %#v", got, wantColumns)
+	}
+	for index, column := range reconciled.Presentations[0].Columns {
+		if column.PhysicalOrder != index {
+			t.Fatalf("presentation column %q physical order = %d, want %d", column.PublicColumn, column.PhysicalOrder, index)
+		}
+	}
+	if !reflect.DeepEqual(reconciled.IdentityMappings, []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score"}}}) {
+		t.Fatalf("identity mappings retained non-final emission: %#v", reconciled.IdentityMappings)
+	}
+
+	id := reconciled.EmittedColumns[0]
+	if id.NodeID != "node-patient" || id.CandidateID != "candidate-id" || id.SourcePath != "id" || !id.Lossless || !id.MLReady {
+		t.Fatalf("source metadata was not preserved: %#v", id)
+	}
+	score := reconciled.EmittedColumns[1]
+	wantUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
+	if score.LogicalType != "decimal" || score.Cardinality != "required_one" || score.Nullable || !reflect.DeepEqual(score.ResultUnit, wantUnit) {
+		t.Fatalf("compiler metadata for base column = %#v", score)
+	}
+	wantSourcePolicy := &explorer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []explorer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
+	if !reflect.DeepEqual(score.UnitNormalization, wantSourcePolicy) {
+		t.Fatalf("source unit normalization policy changed: %#v", score.UnitNormalization)
+	}
+	derived := reconciled.EmittedColumns[2]
+	if derived.Label != "Scaled score" || derived.ConstructionID != "scale_score" || !reflect.DeepEqual(derived.AuthoredColumns, []string{"score"}) {
+		t.Fatalf("derived table-shape metadata = %#v", derived)
+	}
+	if derived.LogicalType != "decimal" || derived.Cardinality != "optional_one" || !derived.Nullable || !reflect.DeepEqual(derived.ResultUnit, wantUnit) {
+		t.Fatalf("compiler metadata for derived column = %#v", derived)
+	}
+	if derived.SourcePath != "" || derived.SourceResourceType != "" || derived.CandidateID != "" || derived.Filterable || derived.Chartable || derived.UnitNormalization != nil {
+		t.Fatalf("derived column fabricated source or browser metadata: %#v", derived)
+	}
+
+	contract := reconciled.OutputContracts[0]
+	if got := publicContractColumnNames(contract.Columns); !reflect.DeepEqual(got, wantColumns) {
+		t.Fatalf("contract columns = %#v, want %#v", got, wantColumns)
+	}
+	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss"}) {
+		t.Fatalf("aggregate contract quality = %#v", contract)
+	}
+	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
+		t.Fatalf("validate reconciled output contract: %v", err)
+	}
+}
+
+func TestReconcileFinalOutputMetadataRejectsMissingOutputIdentity(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	resolved.Compiled.Outputs[0].Name = ""
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("missing compiler output identity error = %v", err)
+	}
+}
+
+func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	translated.EmittedColumns[2].EmissionID = constructedEmissionID("scale_score", "scaled_score")
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "duplicates translated emission identity") {
+		t.Fatalf("constructed emission collision error = %v", err)
+	}
+}
+
+func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}
+	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{
+		{Output: authoringv2.Output{ID: "pivoted"}, TableShape: &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{
+			Kind: "PIVOT",
+			Pivot: &authoringv2.PivotConstruction{
+				ConstructionID: "pivot_vitals", GroupKeys: []string{"patient_id"}, CategoryColumn: "kind", ValueColumn: "value",
+				Categories: []authoringv2.PivotCategory{{Output: authoringv2.ColumnOutput{Column: "systolic", Label: "Systolic"}}},
+			},
+		}}},
+		{Output: authoringv2.Output{ID: "unpivoted"}, TableShape: &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{
+			Kind: "UNPIVOT",
+			Unpivot: &authoringv2.UnpivotConstruction{
+				ConstructionID: "unpivot_vitals", Inputs: []authoringv2.UnpivotInput{{Column: "height"}, {Column: "weight"}},
+				KeyOutput:   authoringv2.ColumnOutput{Column: "measure_name", Label: "Measure"},
+				ValueOutput: authoringv2.ColumnOutput{Column: "measure_value", Label: "Value"},
+			},
+		}}},
+	}}
+	translated := explorercompilation.WorkspaceResult{
+		Bundle: bundle, Workspace: workspace,
+		OutputContracts: []explorer.PublicOutputContract{{OutputID: "pivoted", Lossless: true, MLReady: true}, {OutputID: "unpivoted", Lossless: true, MLReady: true}},
+		Presentations:   []explorercompilation.PresentationConfig{{OutputID: "pivoted", Title: "Pivoted"}, {OutputID: "unpivoted", Title: "Unpivoted"}},
+	}
+	resolved := dataframeexecution.Resolved{Bundle: bundle, Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{
+		{Name: "pivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
+		{Name: "unpivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "measure_name", Kind: "string", Cardinality: "required_one"}, {Name: "measure_value", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
+	}}}
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		column, construction string
+		dependencies         []string
+	}{
+		{column: "systolic", construction: "pivot_vitals", dependencies: []string{"patient_id", "kind", "value"}},
+		{column: "measure_name", construction: "unpivot_vitals", dependencies: []string{"height", "weight"}},
+		{column: "measure_value", construction: "unpivot_vitals", dependencies: []string{"height", "weight"}},
+	}
+	if len(reconciled.EmittedColumns) != len(want) {
+		t.Fatalf("reconciled output column count = %d, want %d", len(reconciled.EmittedColumns), len(want))
+	}
+	for index, expected := range want {
+		actual := reconciled.EmittedColumns[index]
+		if actual.PublicColumn != expected.column || actual.ConstructionID != expected.construction || !reflect.DeepEqual(actual.AuthoredColumns, expected.dependencies) {
+			t.Errorf("reshape output %d = %#v, want column/construction/dependencies %q/%q/%#v", index, actual, expected.column, expected.construction, expected.dependencies)
+		}
+		if actual.SourcePath != "" || actual.SourceResourceType != "" || actual.Filterable || actual.Chartable {
+			t.Errorf("reshape output %q fabricated source or browser metadata: %#v", actual.PublicColumn, actual)
+		}
+	}
+}
+
+func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexecution.Resolved) {
+	shape := &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{{
+		ConstructionID: "scale_score", Output: authoringv2.ColumnOutput{Column: "scaled_score", Label: "Scaled score"},
+		Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
+		Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "DECIMAL", Decimal: float64Pointer(2)}},
+		MissingInputPolicy: "PROPAGATE_NULL",
+	}}}
+	policy := &explorer.PublicUnitNormalization{Target: unit.UnitIdentity{System: "urn:test:source", Code: "source-unit"}, Rules: []explorer.PublicUnitRuleIdentity{{ID: "source-to-target", Version: "1"}}}
+	emitted := []explorer.EmittedColumn{
+		{EmissionID: "emit_patient_id", OutputID: "patients", NodeID: "node-patient", CandidateID: "candidate-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Patient", SourcePath: "id", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Filterable: true, Chartable: true},
+		{EmissionID: "emit_score", OutputID: "patients", NodeID: "node-observation", CandidateID: "candidate-score", AuthoredColumns: []string{"score"}, PublicColumn: "score", Label: "Authored score", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Observation", SourcePath: "valueQuantity.value", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"source-loss"}, Filterable: true, Chartable: true, UnitNormalization: policy},
+		{EmissionID: "emit_stale", OutputID: "patients", NodeID: "node-observation", CandidateID: "candidate-stale", AuthoredColumns: []string{"stale"}, PublicColumn: "stale", Label: "Stale", LogicalType: "string", Nullable: true, Shape: "scalar", SourceResourceType: "Observation", SourcePath: "value", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"dropped-loss"}},
+	}
+	contractColumns := []explorer.PublicOutputColumn{
+		receiptTestPublicColumn(emitted[0]), receiptTestPublicColumn(emitted[1]), receiptTestPublicColumn(emitted[2]),
+	}
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "patients", RootResourceType: "Patient", RowGrain: "patient"}}}
+	translated := explorercompilation.WorkspaceResult{
+		Bundle: bundle, EmittedColumns: emitted,
+		OutputContracts: []explorer.PublicOutputContract{{OutputID: "patients", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"source-loss", "dropped-loss"}, Columns: contractColumns}},
+		Presentations: []explorercompilation.PresentationConfig{{OutputID: "patients", Title: "Patients", Columns: []explorercompilation.PresentationColumn{
+			{EmissionID: "emit_patient_id", PublicColumn: "patient_id", Label: "Patient ID", Visible: true, Order: 0, PhysicalOrder: 0},
+			{EmissionID: "emit_score", PublicColumn: "score", Label: "Authored score", Visible: true, Order: 1, PhysicalOrder: 1},
+			{EmissionID: "emit_stale", PublicColumn: "stale", Label: "Stale", Visible: true, Order: 50, PhysicalOrder: 2},
+		}}},
+		IdentityMappings: []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score", "emit_stale"}}},
+		Workspace:        authoringv2.Workspace{Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, TableShape: shape}}},
+	}
+	resolved := dataframeexecution.Resolved{
+		Bundle: bundle,
+		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{
+			{Name: "patient_id", SemanticPath: "Patient.id", Kind: "string", Cardinality: "required_one", Nullable: false},
+			{Name: "score", SemanticPath: "Observation.score", Kind: "decimal", Cardinality: "required_one", Nullable: false, NormalizedUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}},
+			{Name: "scaled_score", SemanticPath: "derived:scale_score", Kind: "decimal", Cardinality: "optional_one", Nullable: true, NormalizedUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}},
+			{Name: "internal_identity", SemanticPath: "internal:identity", Kind: "string", Cardinality: "required_one", Identity: true},
+			{Name: "__loom_row_id", SemanticPath: "internal:row", Kind: "object", Cardinality: "required_one", Internal: true, Identity: true},
+		}}}},
+	}
+	return translated, resolved
+}
+
+func receiptTestPublicColumn(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
+	return explorer.PublicOutputColumn{
+		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...),
+		Label: emitted.Label, LogicalType: emitted.LogicalType, Nullable: emitted.Nullable, Shape: emitted.Shape,
+		SourceResourceType: emitted.SourceResourceType, SourcePath: emitted.SourcePath,
+		Lossless: emitted.Lossless, MLReady: emitted.MLReady, StructuralSuitability: emitted.StructuralSuitability,
+		LossReasons: append([]string(nil), emitted.LossReasons...), Filterable: emitted.Filterable, Chartable: emitted.Chartable,
+		UnitNormalization: emitted.UnitNormalization,
+	}
+}
+
+func emittedPublicColumnNames(values []explorer.EmittedColumn) []string {
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		names = append(names, value.PublicColumn)
+	}
+	return names
+}
+
+func publicContractColumnNames(values []explorer.PublicOutputColumn) []string {
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		names = append(names, value.Column)
+	}
+	return names
+}
+
+func float64Pointer(value float64) *float64 { return &value }
 
 func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()

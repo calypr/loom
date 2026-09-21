@@ -1,6 +1,9 @@
 package explorer
 
-import "github.com/calypr/loom/internal/explorer/capability"
+import (
+	"github.com/calypr/loom/internal/dataframe/unit"
+	"github.com/calypr/loom/internal/explorer/capability"
+)
 
 type EmittedColumn struct {
 	EmissionID            string                          `json:"emissionId"`
@@ -11,10 +14,13 @@ type EmittedColumn struct {
 	OccurrenceID          string                          `json:"occurrenceId,omitempty"`
 	ProjectionMode        string                          `json:"projectionMode,omitempty"`
 	AuthoredColumns       []string                        `json:"authoredColumns,omitempty"`
+	ConstructionID        string                          `json:"constructionId,omitempty"`
 	PublicColumn          string                          `json:"publicColumn"`
 	Label                 string                          `json:"label,omitempty"`
 	LogicalType           string                          `json:"logicalType"`
+	Cardinality           string                          `json:"cardinality,omitempty"`
 	Nullable              bool                            `json:"nullable,omitempty"`
+	ResultUnit            *unit.UnitIdentity              `json:"resultUnit,omitempty"`
 	Shape                 string                          `json:"shape"`
 	SourceResourceType    string                          `json:"sourceResourceType,omitempty"`
 	SourcePath            string                          `json:"sourcePath,omitempty"`

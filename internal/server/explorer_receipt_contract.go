@@ -59,6 +59,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	translated, err = reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("reconcile receipt output metadata: %w", err)
+	}
 	contract, err := json.Marshal(explorer.PublicOutputContracts{Outputs: translated.OutputContracts})
 	if err != nil {
 		return nil, err

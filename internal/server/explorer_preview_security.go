@@ -80,7 +80,7 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 		}
 		actual := make([]string, 0, len(output.OutputSchema))
 		for _, column := range output.OutputSchema {
-			if !column.Internal {
+			if !column.Internal && !column.Identity {
 				actual = append(actual, column.Name)
 			}
 		}

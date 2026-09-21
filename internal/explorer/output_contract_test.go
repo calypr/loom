@@ -127,6 +127,41 @@ func TestPublicOutputContractPinsUnitTargetAndRuleIdentity(t *testing.T) {
 	}
 }
 
+func TestPublicOutputContractPinsCompilerColumnMetadata(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "compiler-metadata", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "out", RootResourceType: "Observation", RowGrain: "observation"}}}
+	resultUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
+	emitted := []EmittedColumn{{
+		OutputID: "out", PublicColumn: "weight", Label: "Weight", ConstructionID: "derive_weight",
+		LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, ResultUnit: resultUnit,
+	}}
+	contract := PublicOutputContracts{Outputs: []PublicOutputContract{{OutputID: "out", Columns: []PublicOutputColumn{{
+		Column: "weight", Label: "Weight", ConstructionID: "derive_weight", LogicalType: "decimal",
+		Cardinality: "optional_one", Nullable: true, ResultUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"},
+	}}}}}
+	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*PublicOutputContracts){
+		"construction identity": func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ConstructionID = "forged" },
+		"cardinality":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].Cardinality = "required_one" },
+		"result unit":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ResultUnit.Code = "g" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			forged := contract
+			forged.Outputs = append([]PublicOutputContract(nil), contract.Outputs...)
+			forged.Outputs[0].Columns = append([]PublicOutputColumn(nil), contract.Outputs[0].Columns...)
+			if forged.Outputs[0].Columns[0].ResultUnit != nil {
+				result := *forged.Outputs[0].Columns[0].ResultUnit
+				forged.Outputs[0].Columns[0].ResultUnit = &result
+			}
+			mutate(&forged)
+			if err := forged.ValidateAgainst(bundle, emitted); !errors.Is(err, ErrReceiptRecompileRequired) {
+				t.Fatalf("forged compiler metadata error=%v, want ErrReceiptRecompileRequired", err)
+			}
+		})
+	}
+}
+
 func TestCompilationReceiptValidateRejectsMismatchedPublicContract(t *testing.T) {
 	r := testReceipt()
 	r.PublicOutputContract = json.RawMessage(`{"outputs":[{"outputId":"out","columns":[{"column":"c_bad","label":"Bad","logicalType":"string","filterable":false,"chartable":false}]}]}`)

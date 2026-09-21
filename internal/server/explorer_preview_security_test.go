@@ -31,7 +31,7 @@ func TestValidateAuthorizedReadScopePreservesRestrictedEmpty(t *testing.T) {
 func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T) {
 	snapshot := testAuthorizedCapabilitySnapshot(t, "generation-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := testSecurityReceipt(t, snapshot, "patients", []string{"id", "name"})
-	resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "name"}}}}}}
+	resolved := dataframeexecution.Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{Name: "patients", OutputSchema: []lower.CompiledOutputColumn{{Name: "id"}, {Name: "__loom_row_id", Internal: true}, {Name: "__loom_identity", Identity: true}, {Name: "name"}}}}}}
 	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
 		t.Fatal(err)
 	}

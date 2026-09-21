@@ -37,9 +37,12 @@ type PublicOutputContract struct {
 type PublicOutputColumn struct {
 	Column                string                          `json:"column"`
 	AuthoredColumns       []string                        `json:"authoredColumns,omitempty"`
+	ConstructionID        string                          `json:"constructionId,omitempty"`
 	Label                 string                          `json:"label"`
 	LogicalType           string                          `json:"logicalType"`
+	Cardinality           string                          `json:"cardinality,omitempty"`
 	Nullable              bool                            `json:"nullable"`
+	ResultUnit            *unit.UnitIdentity              `json:"resultUnit,omitempty"`
 	Shape                 string                          `json:"shape,omitempty"`
 	SourceResourceType    string                          `json:"sourceResourceType,omitempty"`
 	SourcePath            string                          `json:"sourcePath,omitempty"`
@@ -243,7 +246,7 @@ func (c PublicOutputContract) ValidateAgainst(bundle recipe.Bundle, emitted []Em
 			}
 		}
 		actual := c.Columns[i]
-		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Nullable != column.Nullable || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable || !reflect.DeepEqual(actual.UnitNormalization, column.UnitNormalization) {
+		if actual.Column != column.PublicColumn || !reflect.DeepEqual(actual.AuthoredColumns, column.AuthoredColumns) || actual.ConstructionID != column.ConstructionID || actual.Label != column.Label || actual.LogicalType != column.LogicalType || actual.Cardinality != column.Cardinality || actual.Nullable != column.Nullable || !reflect.DeepEqual(actual.ResultUnit, column.ResultUnit) || actual.Shape != column.Shape || actual.SourceResourceType != column.SourceResourceType || actual.SourcePath != column.SourcePath || actual.ChoiceArm != column.ChoiceArm || !reflect.DeepEqual(actual.Coordinates, column.Coordinates) || actual.Lossless != column.Lossless || actual.MLReady != column.MLReady || actual.StructuralSuitability != column.StructuralSuitability || !reflect.DeepEqual(actual.LossReasons, column.LossReasons) || actual.Filterable != column.Filterable || actual.Chartable != column.Chartable || !reflect.DeepEqual(actual.UnitNormalization, column.UnitNormalization) {
 			return invalidOutputContract("columns[%d] does not match emittedColumns[%d]", i, i)
 		}
 	}
