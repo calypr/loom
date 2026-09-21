@@ -15,7 +15,7 @@ Implement S01/UI01 through S05/UI05 from `docs/product/ML_DATAFRAMER_DELIVERY_PL
 
 ## Execution order
 
-- [ ] S01/UI01. Establish the shared schema-derived construction contract and add a real column through the ordinary Builder.
+- [x] S01/UI01. Establish the shared schema-derived construction contract and add a real column through the ordinary Builder.
 - [x] S02/UI02. Add server-planned relationships and editable graph source selection.
 - [ ] S03/UI03. Add record, group, and expanded row definitions.
 - [ ] S04/UI04. Add typed transformations and before/after inspection.
@@ -80,7 +80,10 @@ S02/UI02 and S03/UI03 may use separate worktrees only after S01/UI01 freezes the
 - Focused Go verification passed across schema, catalog, recipe, semantic, IR, lowering, AQL, compiler capability/execution, authoring, lifecycle, compilation, and server. The executed Arango regression preserved duplicate Coding aliases, `0`, `false`, empty string, units, raw unknown owner fields, and `VALUE`, `ABSENT`, `INVALID_CHOICE_ARM`, and `INVALID_MULTIPLE_VALUES` statuses. OpenAPI ownership checks passed.
 - UI verification passed 184 tests and both production builds. The Preview inspector exposes structured repeated records, validity, exact `system · code`, value, unit, source coordinates, and expandable raw FHIR without flattening the saved cell.
 - The dedicated live browser journey passed in `rtk make verify-fast` for project `loom_dev_verify_mu9737yc-0760dbda`. It created an Observation table without opening the graph, searched `shared`, selected `urn:study:A`, chose `Keep each matching record`, persisted the typed source, exposed the invalid `valueString` arm, and inspected the valid `111 cm` record from `dev-pair-001`. Evidence is under `.artifacts/loom-dev/6d7df93d6a37`.
-- S01-01, S01-02, and S01-03 are accepted. S01-04 remains in progress for the broader J01/CDA and combined three-column reload/export closure; the construction contract is frozen so S02 implementation may proceed.
+- S01-01, S01-02, and S01-03 are accepted. The construction contract is frozen so S02 implementation may proceed.
+- S01-04 is accepted on the integration branch. The synthetic J01 journey passed 61 assertions over 1,006 rows and three authored columns. Builder, Preview, Publish, Viewer, and the downloaded JSONL artifact agreed on exact row membership and typed values. Evidence is under `.artifacts/j01-integration-v8-final/mual6vll-d84404f5`.
+- The external CDA J01 journey passed 58 assertions. It published 32 Patient rows and 33 Observation rows, preserved repeated `specimen_type` owner records, and matched Preview, Viewer, and downloaded artifacts. The source selection digest remained `sha256:ad7aa6ee0d59fb83ea54c70a785d1d86fac87395b9ba70473a2209d94560b6b0`; source sizes, modification times, inodes, and selected content remained unchanged. Evidence is under `.artifacts/j01-cda-integration-v8-final/j01-cda-mual8zs0-e74bbc74`.
+- The integration run found and fixed two cross-slice defects. JSONL artifacts now normalize driver strings to declared integer, decimal, and boolean types, and reject contradictory values. The J01 Viewer check now compares the complete Viewer page with the complete artifact while requiring Preview agreement for rows inside the bounded Preview sample.
 
 ## S02/UI02 verification checkpoints
 
