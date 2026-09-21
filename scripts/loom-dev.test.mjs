@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -170,6 +170,80 @@ test('J04 evidence comparison rejects changed stable schema identity and literal
   const changedValue = structuredClone(expected);
   changedValue.rows[0].values['column-j04-1'] = 361;
   assert.equal(compareJ04Evidence(expected, changedValue).matches, false);
+});
+
+test('J04 Preview, Viewer, and artifact normalize to one grouped schema without losing units or native scalar presence', () => {
+  const identity = ['subject-id', 'status-id'];
+  const unit = { system: 'http://unitsofmeasure.org', code: 'cm', display: 'centimeter' };
+  const preview = normalizeJ04Surface({
+    columns: [
+      { column: 'subject-id', label: 'Subject reference', logicalType: 'string', sourcePath: 'subject.reference', nullable: false },
+      { column: 'status-id', label: 'Status', logicalType: 'string', sourcePath: 'status', nullable: false },
+      { column: 'alpha-id', label: 'j04_alpha', logicalType: 'number', resultUnit: unit, nullable: true },
+      { column: 'total-id', label: 'j04_alpha_plus_beta', logicalType: 'number', resultUnit: unit, nullable: true },
+    ],
+    rows: [
+      { 'subject-id': 'Patient/2', 'status-id': 'final', 'alpha-id': 8, 'total-id': null },
+      { 'subject-id': 'Patient/1', 'status-id': 'final', 'alpha-id': 4, 'total-id': 7.5 },
+    ],
+    identityColumns: identity,
+  });
+  const viewer = normalizeJ04Surface({
+    columns: preview.columns.map(({ id, name, logicalType, ...metadata }) => ({ column: id, label: name, logicalType, ...metadata })),
+    rows: [
+      { 'subject-id': 'Patient/1', 'status-id': 'final', 'alpha-id': 4, 'total-id': 7.5 },
+      { 'subject-id': 'Patient/2', 'status-id': 'final', 'alpha-id': 8, 'total-id': null },
+    ],
+    identityColumns: identity,
+  });
+  const artifact = normalizeJ04Surface({
+    columns: preview.columns.map(({ id, name, logicalType, ...metadata }) => ({
+      id,
+      name,
+      rowKey: `${id}-artifact`,
+      logicalType,
+      ...metadata,
+    })),
+    rows: [
+      { 'subject-id-artifact': 'Patient/1', 'status-id-artifact': 'final', 'alpha-id-artifact': 4, 'total-id-artifact': 7.5 },
+      { 'subject-id-artifact': 'Patient/2', 'status-id-artifact': 'final', 'alpha-id-artifact': 8, 'total-id-artifact': null },
+    ],
+    identityColumns: identity,
+  });
+  assert.equal(compareJ04Evidence(preview, viewer).matches, true);
+  assert.equal(compareJ04Evidence(preview, artifact).matches, true);
+  assert.deepEqual(preview.columns.find((column) => column.id === 'total-id').resultUnit, unit);
+  assert.deepEqual(preview.rows.map((row) => row.rowId), ['["Patient/1","final"]', '["Patient/2","final"]']);
+});
+
+test('J04 surface normalization reuses J05 row parsing and preserves missing versus recorded null', () => {
+  const parsed = readJ05OutputRows([
+    { 'group-id': 'Patient/1', 'missing-id': null },
+    { 'group-id': 'Patient/2' },
+  ], ['group-id', 'missing-id'], { preserveMissing: true });
+  assert.deepEqual(parsed, [
+    { 'group-id': 'Patient/1', 'missing-id': null },
+    { 'group-id': 'Patient/2' },
+  ]);
+  const surface = normalizeJ04Surface({
+    columns: [
+      { column: 'group-id', label: 'Group', logicalType: 'string' },
+      { column: 'missing-id', label: 'Missing', logicalType: 'string' },
+      { column: 'false-id', label: 'False', logicalType: 'boolean' },
+      { column: 'zero-id', label: 'Zero', logicalType: 'integer' },
+      { column: 'blank-id', label: 'Blank', logicalType: 'string' },
+    ],
+    rows: [{ 'group-id': 'Patient/1', 'missing-id': null, 'false-id': false, 'zero-id': 0, 'blank-id': ' ' }, { 'group-id': 'Patient/2' }],
+    identityColumns: ['group-id'],
+  });
+  const first = shapeJ04Evidence({ columns: surface.columns, rows: surface.rows }).rows[0];
+  const second = shapeJ04Evidence({ columns: surface.columns, rows: surface.rows }).rows[1];
+  assert.deepEqual(first.values.map((cell) => cell.presence), ['value', 'null', 'false', 'zero', 'blank']);
+  assert.deepEqual(second.values.map((cell) => cell.presence), ['value', 'missing', 'missing', 'missing', 'missing']);
+  const altered = structuredClone(surface);
+  altered.rows[1].values['missing-id'] = null;
+  assert.equal(compareJ04Evidence(surface, altered).matches, false);
+  assert.throws(() => normalizeJ04Surface({ columns: surface.columns, rows: [{ 'missing-id': 'no group' }], identityColumns: ['group-id'] }), /omits grouped identity column/);
 });
 
 const j05Identity = {

@@ -495,6 +495,7 @@ const tableShapeJSONValueSchema: z.ZodType<TableShapeJSONValue> = z.lazy(() => z
   z.array(tableShapeJSONValueSchema),
   z.record(z.string(), tableShapeJSONValueSchema),
 ]));
+const persistedTableShapeSchema = z.record(z.string(), tableShapeJSONValueSchema);
 
 export const tableShapeTaggedScalarSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
@@ -1038,6 +1039,7 @@ export const explorerBuilderDocumentSchema = z
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
     columns: z.array(explorerBuilderColumnSchema),
+    tableShape: persistedTableShapeSchema.optional(),
     fixedFilters: z
       .array(
         z

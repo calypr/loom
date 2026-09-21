@@ -94,6 +94,45 @@ describe('explorerBuilderDocumentSchema', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('preserves a persisted server table shape as opaque JSON during Builder reload parsing', () => {
+    const tableShape = {
+      reshape: {
+        kind: 'GROUPED_PIVOT',
+        pivot: {
+          groupKeys: ['subject-column', 'status-column'],
+          categories: [{ key: { kind: 'STRING', value: 'alpha' }, output: { column: 'alpha', label: 'Alpha' } }],
+          duplicatePolicy: 'SUM',
+          missingCellPolicy: 'NULL',
+          unlistedCategoryPolicy: 'EXCLUDE',
+        },
+      },
+      derived: [{ output: { column: 'alpha_total', label: 'Alpha total' }, operation: 'ADD' }],
+      serverOwnedMetadata: { version: 1, durable: true },
+    };
+    const parsed = explorerBuilderDocumentSchema.parse({
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      tableShape,
+    });
+
+    expect(parsed.tableShape).toEqual(tableShape);
+    expect(JSON.parse(JSON.stringify(parsed)).tableShape).toEqual(tableShape);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      tableShape,
+      unexpectedDocumentField: true,
+    }).success).toBe(false);
+
+    for (const invalidTableShape of ['GROUPED_PIVOT', []]) {
+      expect(explorerBuilderDocumentSchema.safeParse({
+        ...document,
+        rows: { kind: 'RECORDS', records: {} },
+        tableShape: invalidTableShape,
+      }).success).toBe(false);
+    }
+  });
 });
 
 describe('row-definition contract schemas', () => {

@@ -1903,6 +1903,7 @@ const j04ValueEvidence = (values, columnID) => {
   if (value === false) return { presence: 'false', value: false };
   if (value === 0) return { presence: 'zero', value: 0 };
   if (value === '') return { presence: 'empty', value: '' };
+  if (typeof value === 'string' && value.trim() === '') return { presence: 'blank', value };
   return { presence: 'value', value };
 };
 
@@ -1910,7 +1911,13 @@ export const shapeJ04Evidence = ({ columns, rows }) => {
   if (!Array.isArray(columns) || columns.some((column) => !column?.id || !column?.name || !column?.logicalType)) throw new Error('J04 evidence columns must declare stable identity, name, and logical type');
   if (new Set(columns.map((column) => column.id)).size !== columns.length) throw new Error('J04 evidence columns must have distinct stable identities');
   if (!Array.isArray(rows)) throw new Error('J04 evidence rows must be an array');
-  const schema = columns.map(({ id, name, logicalType }) => ({ id, name, logicalType }));
+  const schema = columns.map((column) => ({
+    id: column.id,
+    name: column.name,
+    logicalType: column.logicalType,
+    ...Object.fromEntries(['resultUnit', 'shape', 'nullable', 'repeated', 'sourcePath', 'sourceResourceType', 'authoredColumns']
+      .filter((key) => Object.hasOwn(column, key)).map((key) => [key, column[key]])),
+  }));
   const shapedRows = rows.map((row) => {
     if (row?.rowId === undefined || row.rowId === null || !row.values || typeof row.values !== 'object' || Array.isArray(row.values)) throw new Error('J04 evidence rows must have a stable row identity and values object');
     return {
@@ -1919,6 +1926,56 @@ export const shapeJ04Evidence = ({ columns, rows }) => {
     };
   });
   return { schema, rows: shapedRows };
+};
+
+export const readJ05OutputRows = (rows, names, { preserveMissing = false } = {}) => (Array.isArray(rows) ? rows : []).map((row) => {
+  if (Array.isArray(row)) return Object.fromEntries(names.flatMap((name, index) =>
+    index < row.length && row[index] !== undefined ? [[name, row[index]]] : []));
+  if (row && typeof row === 'object' && Array.isArray(row.values)) {
+    return Object.fromEntries(names.flatMap((name, index) =>
+      index < row.values.length && row.values[index] !== undefined ? [[name, row.values[index]]] : []));
+  }
+  return Object.fromEntries(names.flatMap((name) => Object.hasOwn(row ?? {}, name)
+    ? [[name, row[name]]]
+    : preserveMissing ? [] : [[name, undefined]]));
+});
+
+export const normalizeJ04Surface = ({ columns, rows, identityColumns }) => {
+  if (!Array.isArray(columns) || !columns.length) throw new Error('J04 surface requires declared output columns');
+  if (!Array.isArray(identityColumns) || !identityColumns.length) throw new Error('J04 surface requires stable grouped identity columns');
+  const normalizedColumns = columns.map((column) => {
+    const id = column?.id ?? column?.column ?? column?.outputKey ?? column?.name;
+    const name = column?.name ?? column?.label ?? column?.column ?? id;
+    const logicalType = column?.logicalType;
+    if (typeof id !== 'string' || !id || typeof name !== 'string' || !name || typeof logicalType !== 'string' || !logicalType) {
+      throw new Error(`J04 surface column must declare stable identity, name, and logical type: ${JSON.stringify(column)}`);
+    }
+    return {
+      id,
+      name,
+      logicalType,
+      ...Object.fromEntries(['resultUnit', 'shape', 'nullable', 'repeated', 'sourcePath', 'sourceResourceType', 'authoredColumns']
+        .filter((key) => Object.hasOwn(column, key)).map((key) => [key, column[key]])),
+    };
+  });
+  const rowKeys = columns.map((column, index) => column?.rowKey ?? column?.outputKey ?? column?.column ?? column?.name ?? normalizedColumns[index].id);
+  const identityIDs = identityColumns.map((identity) => typeof identity === 'string' ? identity : identity.id);
+  if (identityIDs.some((id) => !normalizedColumns.some((column) => column.id === id))) {
+    throw new Error(`J04 surface identity columns are absent from the declared schema: ${JSON.stringify(identityIDs)}`);
+  }
+  const normalizedRows = readJ05OutputRows(rows, rowKeys, { preserveMissing: true }).map((rawValues) => {
+    const values = Object.fromEntries(columns.flatMap((_column, index) =>
+      Object.hasOwn(rawValues, rowKeys[index]) ? [[normalizedColumns[index].id, rawValues[rowKeys[index]]]] : []));
+    const identity = identityIDs.map((id) => {
+      if (!Object.hasOwn(values, id)) throw new Error(`J04 surface row omits grouped identity column ${id}`);
+      return values[id];
+    });
+    return { rowId: JSON.stringify(identity), values };
+  }).sort((left, right) => left.rowId.localeCompare(right.rowId));
+  if (new Set(normalizedRows.map((row) => row.rowId)).size !== normalizedRows.length) {
+    throw new Error('J04 grouped surface contains duplicate stable row identities');
+  }
+  return { columns: normalizedColumns, rows: normalizedRows };
 };
 
 export const compareJ04Evidence = (expected, actual) => {
@@ -2722,11 +2779,7 @@ const verifyJ05BrowserScenario = async (target, report, entryTarget = target) =>
     await snapshot(cdp, path);
     recordEvidence(report, path);
   };
-  const readRows = (rows, names) => (Array.isArray(rows) ? rows : []).map((row) => {
-    if (Array.isArray(row)) return Object.fromEntries(names.map((name, index) => [name, row[index]]));
-    if (row && typeof row === 'object' && Array.isArray(row.values)) return Object.fromEntries(names.map((name, index) => [name, row.values[index]]));
-    return Object.fromEntries(names.map((name) => [name, Object.hasOwn(row ?? {}, name) ? row[name] : undefined]));
-  });
+  const readRows = readJ05OutputRows;
   const asArtifactRows = (rows, names, rowIDs) => rows.map((values, index) => ({
     ...(rowIDs?.[index] !== undefined ? { rowId: rowIDs[index] } : {}),
     values: Object.fromEntries(names.map((name) => [name, values[name]])),
@@ -5899,11 +5952,15 @@ const j04UnprovenAssertions = [
   'j04-exact-recoding-honors-case-and-unknown-policy',
   'j04-pivot-source-columns-come-from-the-saved-catalog',
   'j04-pivot-freezes-category-names-and-policies',
+  'j04-observation-source-preview-preserves-missing-null-false-zero-and-blank',
   'j04-scalar-evidence-preserves-missing-null-false-zero-and-blank',
   'j04-pivot-derived-alpha-plus-beta-matches-literals-with-null-propagation',
   'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
   'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
   'j04-receipt-apply-and-stale-proposal-rejection-preserve-workspace-contract',
+  'j04-pivot-contributor-evidence-is-exact',
+  'j04-pivot-exclusion-evidence-is-complete-and-exact',
+  'j04-grouped-pivot-information-loss-names-every-dropped-column',
   'j04-reload-preserves-stable-output-and-column-identities',
   'j04-preview-viewer-and-downloaded-typed-artifact-agree-exactly',
   'j04-unrelated-column-remains-literal',
@@ -5967,6 +6024,13 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   report.target.informationLossEvidence = null;
   report.target.appliedComparisonScreenshot = null;
   report.target.browserControlPlan = controlPlan;
+  report.target.proposalEvidenceCrossSurfaceGap = {
+    status: 'known-gap',
+    proposalSurface: 'table-shape comparison response',
+    artifactSurface: 'quality.json and provenance.json',
+    detail: 'The typed artifact does not currently carry proposal-time contributor, exclusion, or grouped-pivot information-loss evidence. Final artifact equality is limited to retained schema and rows; proposal evidence is asserted from the server comparison response.',
+  };
+  recordLimitation(report, 'j04-proposal-evidence-is-not-carried-into-typed-artifact', report.target.proposalEvidenceCrossSurfaceGap.detail);
   const network = [];
   const pendingNetworkBodies = new Set();
   let browser;
@@ -6343,6 +6407,51 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === item.fieldPath);
       return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, presence: item.presence, column: column?.column, label: column?.label };
     });
+    await action('preview-observation-source-scalar-presence-before-grouping', async () => {
+      const startIndex = network.length;
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+      const previewDeadline = Date.now() + 30000;
+      let response;
+      while (Date.now() < previewDeadline) {
+        await Promise.allSettled([...pendingNetworkBodies]);
+        response = network.slice(startIndex).find((item) => item.path.endsWith('/preview') && item.responseJSON !== undefined);
+        if (response) break;
+        await sleep(50);
+      }
+      if (!response || response.status !== 200 || !Array.isArray(response.responseJSON?.rows)) {
+        throw new Error(`J04 pre-grouping Observation Preview was unavailable: ${JSON.stringify(network.slice(startIndex).filter((item) => item.path.endsWith('/preview')).map(({ status, responseJSON, responseBodyError }) => ({ status, responseJSON, responseBodyError }))).slice(0, 1000)}`);
+      }
+      const preview = response.responseJSON;
+      const columns = preview.columns ?? [];
+      const rows = readJ05OutputRows(preview.rows, columns.map((column) => column.column), { preserveMissing: true });
+      const previewColumnForAuthored = (authoredColumn) => columns.find((column) =>
+        column.column === authoredColumn.column || column.authoredColumns?.includes(authoredColumn.column));
+      const sourceID = authoredObservation.columns.find((column) => sourcePathFor(column) === 'id');
+      const previewID = sourceID && previewColumnForAuthored(sourceID);
+      if (!previewID) throw new Error('J04 pre-grouping Preview omitted the authored Observation.id column needed to identify scalar examples');
+      const bySourceID = new Map(rows.map((values) => [values[previewID.column], values]));
+      const actual = controlPlan.observation.presenceCases.map((item) => {
+        const authoredColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === item.fieldPath);
+        const previewColumn = authoredColumn && previewColumnForAuthored(authoredColumn);
+        if (!previewColumn) return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, expected: item.presence, actual: 'column-not-emitted' };
+        const row = bySourceID.get(item.sourceRecordId);
+        if (!row) return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, expected: item.presence, actual: 'source-row-not-emitted' };
+        return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, ...j04ValueEvidence(row, previewColumn.column) };
+      });
+      const expected = controlPlan.observation.presenceCases.map((item) => ({
+        sourceRecordId: item.sourceRecordId,
+        fieldPath: item.fieldPath,
+        presence: item.presence,
+        ...(Object.hasOwn(item, 'value') ? { value: item.value } : {}),
+      }));
+      recordAssertion(report, 'j04-observation-source-preview-preserves-missing-null-false-zero-and-blank', expected, actual);
+      recordAssertion(report, 'j04-scalar-evidence-preserves-missing-null-false-zero-and-blank', expected, actual);
+      report.target.sourcePresenceEvidence = { previewReceiptId: preview.receiptId, values: actual };
+      await captureDOM('j04-observation-source-preview-presence');
+      await navigate(cdp, builderURL);
+      await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]'))`, 60000);
+    });
     const policyRegions = await evaluate(cdp, `({ values: document.querySelectorAll('[data-testid="feature-policy-values"]').length, timeUnits: document.querySelectorAll('[data-testid="feature-policy-time-units"]').length })`);
     recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns', authoredObservation.columns.length, policyRegions.values);
     report.target.observationPolicyRegions = policyRegions;
@@ -6431,9 +6540,46 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       return latestComparison?.responseJSON;
     };
     const requestProposal = async (stage) => {
+      const visibleProposalError = async () => String(await evaluate(cdp,
+        `document.querySelector('[data-testid="ui04-table-shape-error"]')?.innerText?.trim() ?? ''`));
+      const beforeRequestError = await visibleProposalError();
+      if (beforeRequestError) {
+        report.target.tableShapeProposalFailure = { stage, source: 'ui04-table-shape-error', message: beforeRequestError };
+        recordAssertion(report, `j04-${stage}-table-shape-proposal-has-no-visible-error`, '', beforeRequestError);
+        throw new Error(`J04 table-shape editor is already showing a proposal failure: ${beforeRequestError}`);
+      }
       await requiredEditor('ui04-preview-table-shape', 'request-table-shape-proposal', 'The editor does not expose its proposal preview action.');
-      await clickTestID('ui04-preview-table-shape');
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-comparison"]'))`, 60000);
+      try {
+        await clickTestID('ui04-preview-table-shape');
+      } catch (error) {
+        const currentError = await visibleProposalError();
+        if (!currentError) throw error;
+        report.target.tableShapeProposalFailure = { stage, source: 'ui04-table-shape-error', message: currentError };
+        recordAssertion(report, `j04-${stage}-table-shape-proposal-has-no-visible-error`, '', currentError);
+        throw new Error(`J04 table-shape proposal failed visibly: ${currentError}`);
+      }
+      const proposalDeadline = Date.now() + 60000;
+      let comparisonVisible = false;
+      let proposalError = '';
+      while (Date.now() < proposalDeadline) {
+        proposalError = await visibleProposalError();
+        if (proposalError) break;
+        comparisonVisible = await evaluate(cdp,
+          `Boolean(document.querySelector('[data-testid="ui04-table-shape-comparison"]'))`);
+        if (comparisonVisible) break;
+        await sleep(100);
+      }
+      if (proposalError) {
+        await captureDOM(`j04-${stage}-proposal-error`);
+        await summarizeShapeNetwork(`${stage}-proposal-error`);
+        report.target.tableShapeProposalFailure = { stage, source: 'ui04-table-shape-error', message: proposalError };
+        recordAssertion(report, `j04-${stage}-table-shape-proposal-has-no-visible-error`, '', proposalError);
+        throw new Error(`J04 table-shape proposal failed visibly: ${proposalError}`);
+      }
+      if (!comparisonVisible) {
+        const currentError = await visibleProposalError();
+        throw new Error(`J04 table-shape proposal produced neither a comparison nor a visible error before timeout${currentError ? `: ${currentError}` : ''}`);
+      }
       await captureDOM(`j04-${stage}-comparison`);
       const text = await evaluate(cdp, `document.querySelector('[data-testid="ui04-table-shape-comparison"]')?.innerText ?? ''`);
       const details = await summarizeShapeNetwork(stage);
@@ -6457,12 +6603,48 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const previewComparison = await requestProposal('cancelled');
       const proposalState = await saveWorkspaceSnapshot('after-proposal-preview', explorerId);
       recordAssertion(report, 'j04-preview-proposal-does-not-mutate-saved-workspace', beforeDefinition, j04WorkspaceSnapshot(proposalState));
-      const expectedContributorIDs = controlPlan.observation.pivot.expectedContributors.flatMap((item) => item.sourceRecordIds).sort();
-      const expectedExcludedIDs = controlPlan.observation.pivot.expectedExclusions.map((item) => item.sourceRecordId).sort();
-      const evidenceText = `${previewComparison.text}\n${JSON.stringify(previewComparison.response ?? {})}`;
-      report.target.contributorEvidence = { expected: expectedContributorIDs, visibleOrReceipt: expectedContributorIDs.filter((id) => evidenceText.includes(id)), ui: previewComparison.contributors };
-      report.target.exclusionEvidence = { expected: expectedExcludedIDs, visibleOrReceipt: expectedExcludedIDs.filter((id) => evidenceText.includes(id)), ui: previewComparison.exclusions };
-      report.target.informationLossEvidence = { expected: controlPlan.observation.pivot.expectedInformationLoss, ui: previewComparison.informationLoss, comparisonText: previewComparison.text };
+      const comparison = previewComparison.response?.comparison;
+      if (!comparison) throw new Error(`J04 proposal response omitted structured comparison evidence: ${JSON.stringify(previewComparison.response).slice(0, 1000)}`);
+      const expectedContributorIDs = [...new Set(controlPlan.observation.pivot.expectedContributors.flatMap((item) => item.sourceRecordIds))].sort();
+      const actualContributorIDs = [...new Set((comparison.contributors ?? []).map((item) => `${item.resourceType}/${item.resourceId}`))].sort();
+      recordAssertion(report, 'j04-pivot-contributor-evidence-is-exact', expectedContributorIDs.map((id) => `Observation/${id}`), actualContributorIDs);
+      report.target.contributorEvidence = { expected: expectedContributorIDs.map((id) => `Observation/${id}`), actual: actualContributorIDs, sampled: comparison.contributorsSampled };
+      if (comparison.contributorsSampled) throw new Error('J04 grouped-pivot contributor evidence was sampled');
+
+      const expectedExclusions = controlPlan.observation.pivot.expectedExclusions.map((item) => ({
+        sourceIdentity: { resourceType: 'Observation', resourceId: item.sourceRecordId },
+        category: { present: true, value: item.categoryCode },
+        categoryType: 'string',
+        reason: item.reason,
+      })).sort((left, right) => left.sourceIdentity.resourceId.localeCompare(right.sourceIdentity.resourceId));
+      const actualExclusions = (comparison.exclusions?.records ?? []).map((item) => ({
+        sourceIdentity: item.sourceIdentity ? { resourceType: item.sourceIdentity.resourceType, resourceId: item.sourceIdentity.resourceId } : null,
+        category: item.category,
+        categoryType: String(item.categoryType ?? '').toLocaleLowerCase(),
+        reason: item.reason,
+      })).sort((left, right) => String(left.sourceIdentity?.resourceId).localeCompare(String(right.sourceIdentity?.resourceId)));
+      recordAssertion(report, 'j04-pivot-exclusion-evidence-is-complete-and-exact', {
+        status: 'COMPLETE', complete: true, sampled: false, records: expectedExclusions,
+      }, {
+        status: comparison.exclusions?.status, complete: comparison.exclusions?.complete, sampled: comparison.exclusions?.sampled,
+        records: actualExclusions,
+      });
+      report.target.exclusionEvidence = { status: comparison.exclusions?.status, complete: comparison.exclusions?.complete, records: actualExclusions };
+
+      const groupPaths = new Set(controlPlan.observation.pivot.groupColumns.map((column) => column.path));
+      const expectedDroppedColumns = authoredObservation.columns
+        .filter((column) => !groupPaths.has(sourcePathFor(column)))
+        .map((column) => column.column)
+        .sort();
+      const informationLoss = (comparison.declaredInformationLoss?.items ?? []).find((item) => item.code === 'GROUPED_PIVOT_DROPS_NON_GROUP_OUTPUT_COLUMNS');
+      const actualDroppedColumns = [...(informationLoss?.affectedColumns ?? [])].sort();
+      recordAssertion(report, 'j04-grouped-pivot-information-loss-names-every-dropped-column', expectedDroppedColumns, actualDroppedColumns);
+      report.target.informationLossEvidence = {
+        status: comparison.declaredInformationLoss?.status,
+        code: informationLoss?.code,
+        affectedColumns: actualDroppedColumns,
+        droppedSourcePaths: authoredObservation.columns.filter((column) => actualDroppedColumns.includes(column.column)).map(sourcePathFor).sort(),
+      };
       await requiredEditor('ui04-cancel-table-shape-proposal', 'cancel-reviewed-table-shape-proposal', 'The receipt-backed comparison does not expose the explicit proposal-cancel action.');
       await clickTestID('ui04-cancel-table-shape-proposal');
       await waitForBrowser(cdp, `!document.querySelector('[data-testid="ui04-table-shape-comparison"]')`, 30000);
@@ -6485,13 +6667,13 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       while (Date.now() - appliedStarted < 60000) {
         appliedState = await fetchBuilderState(target, explorerId);
         savedShape = appliedState.workspace?.documents?.find((document) => document.output?.id === outputId)?.tableShape;
-        if (savedShape?.reshape?.kind === 'GROUPED_PIVOT' && savedShape.derived?.length) break;
+        if (savedShape?.reshape?.kind === 'PIVOT' && savedShape.derived?.length) break;
         await sleep(200);
       }
       if (!savedShape?.reshape?.pivot || !savedShape.derived?.length) throw new Error(`J04 receipt confirmation did not persist a grouped pivot and derived output: ${JSON.stringify(savedShape)}`);
       report.target.appliedTableShape = savedShape;
       recordAssertion(report, 'j04-confirm-applies-only-the-reviewed-receipt-backed-shape', {
-        mode: 'GROUPED_PIVOT',
+        mode: 'PIVOT',
         outputs: [
           ...controlPlan.observation.pivot.categories.map((category) => category.outputColumn),
           ...controlPlan.observation.pivot.derivedColumns.map((column) => column.name),
@@ -6500,13 +6682,217 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         mode: savedShape.reshape.kind,
         outputs: [...(savedShape.reshape.pivot?.categories ?? []).map((category) => category.output?.column), ...(savedShape.derived ?? []).map((column) => column.output?.column)].sort(),
       });
-      await saveWorkspaceSnapshot('after-applied-shape', explorerId);
+      const appliedSnapshot = await saveWorkspaceSnapshot('after-applied-shape', explorerId);
       await captureDOM('j04-table-shape-applied');
-      await summarizeShapeNetwork('stale-rejection-observation');
-      const staleResponse = network.find((item) => /table-shape/i.test(item.path) && item.status === 409);
-      report.assertions.push({ name: 'j04-stale-proposal-application-is-rejected-with-conflict', status: staleResponse ? 'passed' : 'not-proven', expected: 409, actual: staleResponse?.status ?? null,
-        detail: staleResponse ? 'Captured a browser-issued stale table-shape request response.' : 'No stale receipt was available to submit without changing the visible Builder draft in a second user session.' });
+      const staleProposalID = previewComparison.response?.proposalId;
+      if (!staleProposalID) throw new Error('J04 first reviewed proposal did not return an immutable proposal identity for the stale-apply regression');
+      const staleApply = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
+        body: JSON.stringify({
+          commandId: `loom-dev-j04-stale-${randomUUID()}`,
+          semanticsVersion: beforeProposal.workspace.semanticsVersion,
+          snapshotToken: beforeProposal.catalog.snapshotToken,
+          expectedDraftVersion: beforeProposal.draftVersion,
+          expectedDraftDigest: beforeProposal.draftDigest,
+          commands: [{ type: 'APPLY_TABLE_SHAPE_PROPOSAL', outputId, proposalId: staleProposalID }],
+        }),
+      });
+      const afterStaleApply = await fetchBuilderState(target, explorerId);
+      recordAssertion(report, 'j04-stale-proposal-application-is-rejected-with-conflict', 409, staleApply.response.status);
+      recordAssertion(report, 'j04-stale-proposal-application-does-not-mutate-draft', true,
+        j04ExactEqual(j04WorkspaceSnapshot(appliedSnapshot), j04WorkspaceSnapshot(afterStaleApply)));
+      report.target.staleProposalApplication = {
+        proposalId: staleProposalID,
+        status: staleApply.response.status,
+        response: staleApply.value,
+        workspaceUnchanged: j04ExactEqual(j04WorkspaceSnapshot(appliedSnapshot), j04WorkspaceSnapshot(afterStaleApply)),
+      };
       if (applyComparison) report.target.appliedProposalResponse = applyComparison.response ?? null;
+
+      await action('reload-builder-and-prove-table-shape-persisted', async () => {
+        await navigate(cdp, builderURL);
+        await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]')) && !document.body.innerText.includes('EXPLORER_AUTHORING_FAILED')`, 60000);
+        const reloadedState = await fetchBuilderState(target, explorerId);
+        const reloadedDocument = reloadedState.workspace?.documents?.find((document) => document.output?.id === outputId);
+        if (!reloadedDocument) throw new Error('J04 Builder reload did not preserve the Observation output identity');
+        recordAssertion(report, 'j04-reload-preserves-applied-table-shape-and-column-identities', {
+          tableShape: savedShape,
+          columns: appliedState.workspace.documents.find((document) => document.output?.id === outputId)?.columns.map((column) => column.column),
+        }, {
+          tableShape: reloadedDocument.tableShape,
+          columns: reloadedDocument.columns.map((column) => column.column),
+        });
+        report.target.reloadedTableShape = reloadedDocument.tableShape;
+        await captureDOM('j04-builder-after-shape-reload');
+      });
+
+      const previewStart = network.length;
+      await action('preview-applied-grouped-observation-table', async () => {
+        await requiredEditor('ui04-open-table-shape-settings', 'reload-saved-shape-boundary', 'The Builder route did not render after loading the saved tableShape document.');
+        await browserEval(cdp, `clickButton('Preview')`);
+        await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+        const previewDeadline = Date.now() + 30000;
+        let previewRequest;
+        while (Date.now() < previewDeadline) {
+          await Promise.allSettled([...pendingNetworkBodies]);
+          previewRequest = network.slice(previewStart).find((item) => item.path.endsWith('/preview') && item.status === 200 && item.responseJSON?.rows);
+          if (previewRequest) break;
+          await sleep(50);
+        }
+        if (!previewRequest) throw new Error(`J04 grouped Observation Preview response was unavailable: ${JSON.stringify(network.slice(previewStart).filter((item) => item.path.endsWith('/preview')).map(({ status, responseJSON, responseBodyError }) => ({ status, responseJSON, responseBodyError }))).slice(0, 1000)}`);
+
+        const reloadedDocument = (await fetchBuilderState(target, explorerId)).workspace?.documents?.find((document) => document.output?.id === outputId);
+        const pivot = reloadedDocument?.tableShape?.reshape?.pivot;
+        const outputColumns = reloadedDocument?.columns ?? [];
+        if (!pivot || !Array.isArray(pivot.groupKeys) || !Array.isArray(pivot.categories)) throw new Error('J04 persisted table shape omitted its grouped pivot details');
+        const groups = controlPlan.observation.pivot.groupColumns.map((group) => {
+          const column = outputColumns.find((candidate) => candidate.column === group.path || candidate.label === group.path || sourcePathFor(candidate) === group.path);
+          if (!column || !pivot.groupKeys.includes(column.column)) throw new Error(`J04 persisted pivot omitted group source ${group.path}`);
+          return { path: group.path, column };
+        });
+        const categoryOutputs = pivot.categories.map((category) => category.output?.column);
+        const derivedOutput = reloadedDocument.tableShape.derived?.[0]?.output?.column;
+        const expectedOutputIDs = [...groups.map(({ column }) => column.column), ...categoryOutputs, derivedOutput];
+        if (expectedOutputIDs.some((column) => typeof column !== 'string' || !column)) throw new Error(`J04 persisted pivot output identities are incomplete: ${JSON.stringify(expectedOutputIDs)}`);
+        const preview = previewRequest.responseJSON;
+        const actualOutputIDs = preview.columns.map((column) => column.column);
+        recordAssertion(report, 'j04-preview-schema-retains-group-keys-frozen-outputs-and-derived-output', expectedOutputIDs, actualOutputIDs);
+
+        const previewSurface = normalizeJ04Surface({
+          columns: preview.columns.map((column) => ({ ...column })),
+          rows: preview.rows,
+          identityColumns: groups.map(({ column }) => column.column),
+        });
+        const expectedRows = controlPlan.observation.pivot.expectedRows.map((expected) => {
+          const values = Object.fromEntries(groups.map(({ path, column }) => [column.column, expected.groupValues[path]]));
+          for (const category of controlPlan.observation.pivot.categories) values[category.outputColumn] = expected.values[category.outputColumn];
+          for (const derived of controlPlan.observation.pivot.derivedColumns) values[derived.name] = expected.values[derived.name];
+          return { rowId: JSON.stringify(groups.map(({ path }) => expected.groupValues[path])), values };
+        }).sort((left, right) => left.rowId.localeCompare(right.rowId));
+        const expectedSurface = { columns: previewSurface.columns, rows: expectedRows };
+        const previewComparison = compareJ04Evidence(expectedSurface, previewSurface);
+        recordAssertion(report, 'j04-applied-pivot-preview-matches-literal-grouped-rows', true, previewComparison.matches);
+        recordAssertion(report, 'j04-pivot-preview-preserves-native-numeric-and-null-values', true,
+          previewSurface.rows.every((row) => typeof row.values[categoryOutputs[0]] === 'number'
+            && (row.values[categoryOutputs[1]] === null || typeof row.values[categoryOutputs[1]] === 'number')
+            && (row.values[derivedOutput] === null || typeof row.values[derivedOutput] === 'number')));
+        const unitColumns = preview.columns.filter((column) => categoryOutputs.includes(column.column) || column.column === derivedOutput);
+        recordAssertion(report, 'j04-pivot-preview-retains-result-unit-metadata', true,
+          unitColumns.length === 3 && unitColumns.every((column) => column.resultUnit?.code === controlPlan.observation.pivot.valueColumn.unit));
+        report.target.previewRows = previewSurface;
+        report.target.expectedObservationSurface = expectedSurface;
+        report.target.previewReceiptId = preview.receiptId;
+        await captureDOM('j04-grouped-observation-preview');
+      });
+
+      const publishStart = network.length;
+      await action('publish-observation-table-through-visible-builder', async () => {
+        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
+        await browserEval(cdp, `clickButton('Publish')`);
+        const publishDeadline = Date.now() + 90000;
+        let publishedState;
+        let runtime;
+        while (Date.now() < publishDeadline) {
+          await Promise.allSettled([...pendingNetworkBodies]);
+          try {
+            publishedState = await fetchExplorerState(target, explorerId);
+            runtime = publishedState.runtime ?? publishedState;
+            if (runtime?.outputs?.some((output) => output.outputId === outputId) && (runtime.publication?.revisionId || publishedState.active?.revisionId)) break;
+          } catch { /* Publish may still be materializing. */ }
+          await sleep(300);
+        }
+        const publishResponse = network.slice(publishStart).find((item) => item.path.endsWith('/publish'));
+        if (!publishResponse || publishResponse.status !== 200) throw new Error(`J04 visible Publish did not return HTTP 200: ${JSON.stringify(publishResponse ?? network.slice(publishStart).map(({ path, status }) => ({ path, status })))}`);
+        if (!runtime?.outputs?.some((output) => output.outputId === outputId)) throw new Error('J04 published Observation output did not become readable in runtime state');
+        const output = runtime.outputs.find((candidate) => candidate.outputId === outputId);
+        report.target.publication = runtime.publication ?? publishedState.active;
+        report.target.runtimeColumns = output.columns;
+        recordAssertion(report, 'j04-published-output-retains-the-preview-schema',
+          report.target.expectedObservationSurface.columns.map(({ id, name, logicalType }) => ({ id, name, logicalType })),
+          output.columns.map((column) => ({ id: column.column, name: column.label, logicalType: column.logicalType })));
+        recordAssertion(report, 'j04-published-output-retains-result-units',
+          report.target.expectedObservationSurface.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.id, resultUnit: column.resultUnit })),
+          output.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.column, resultUnit: column.resultUnit })));
+        report.target.runtimeOutput = output;
+        await captureDOM('j04-observation-published');
+      });
+
+      await action('open-observation-output-in-visible-viewer', async () => {
+        await browserEval(cdp, `clickButton('Viewer')`);
+        await waitForBrowser(cdp, `new URL(window.location.href).searchParams.get('mode') === 'viewer' && document.querySelector('table[aria-label="J04 measurements results"] tbody')?.querySelectorAll('tr').length === 2`, 60000);
+        const viewer = await evaluate(cdp, `(() => {
+          const table = document.querySelector('table[aria-label="J04 measurements results"]');
+          return {
+            headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()),
+            rows: [...(table?.querySelectorAll('tbody tr') || [])].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+          };
+        })()`);
+        const runtimeColumns = report.target.runtimeOutput.columns;
+        const expectedHeaders = runtimeColumns.map((column) => `${column.label}${column.resultUnit?.code ? ` (${column.resultUnit.code})` : ''}`);
+        recordAssertion(report, 'j04-viewer-renders-stable-typed-grouped-schema', expectedHeaders, viewer.headers);
+        const expectedRows = report.target.expectedObservationSurface.rows.map((row) => runtimeColumns.map((column) => {
+          const value = row.values[column.column];
+          return value === null || value === undefined ? '—' : String(value);
+        }));
+        recordAssertion(report, 'j04-viewer-renders-literal-preview-grouped-rows', expectedRows, viewer.rows);
+        report.target.viewerRows = viewer;
+        report.target.viewerMode = await evaluate(cdp, `new URL(window.location.href).searchParams.get('mode')`);
+        await captureDOM('j04-observation-viewer');
+      });
+
+      await action('download-and-compare-typed-observation-artifact', async () => {
+        await browserEval(cdp, `clickButton('Download dataset')`);
+        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
+        const modal = await evaluate(cdp, `(() => {
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Download dataset') && candidate.querySelector('[aria-label="Declared output types"]'));
+          const value = (label) => [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
+          return { text: dialog?.innerText ?? '', representation: value('Representation'), schemaDigest: value('Schema digest'), types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
+        })()`);
+        await captureDOM('j04-observation-artifact-download-modal');
+        await browserEval(cdp, `const link = [...document.querySelectorAll('a[download]')].find((candidate) => norm(candidate.textContent) === 'Download ZIP'); if (!link) throw new Error('J04 typed artifact modal has no Download ZIP link'); link.click();`);
+        const archivePath = await findDownloadedArchive(downloadDirectory, 60000);
+        recordEvidence(report, archivePath);
+        const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
+        const expectedIdentity = {
+          project: canonicalProjectID(target.fixtureProject),
+          datasetGeneration: target.fixtureGeneration,
+          outputId,
+          revisionId: report.target.publication?.revisionId,
+          schemaDigest: modal.schemaDigest,
+        };
+        assertJ05ArtifactIdentity(artifact, expectedIdentity);
+        recordAssertion(report, 'j04-artifact-is-an-explicitly-typed-native-jsonl-package', 'JSONL', artifact.manifest.format);
+        const artifactSurface = normalizeJ04Surface({
+          columns: artifact.schema.columns.map((column) => ({
+            id: column.outputKey,
+            name: column.name,
+            rowKey: column.name,
+            logicalType: column.logicalType,
+            ...(column.resultUnit ? { resultUnit: column.resultUnit } : {}),
+            ...(column.shape ? { shape: column.shape } : {}),
+            ...(column.nullable !== undefined ? { nullable: column.nullable } : {}),
+            ...(column.repeated !== undefined ? { repeated: column.repeated } : {}),
+          })),
+          rows: artifact.rows.map((row) => row.values),
+          identityColumns: report.target.expectedObservationSurface.columns.slice(0, 2).map((column) => column.id),
+        });
+        const previewSurface = report.target.previewRows;
+        recordAssertion(report, 'j04-artifact-schema-matches-preview-stable-ids-types-and-result-units', previewSurface.columns, artifactSurface.columns);
+        recordAssertion(report, 'j04-artifact-rows-match-preview-and-viewer-native-values', previewSurface.rows, artifactSurface.rows);
+        recordAssertion(report, 'j04-artifact-result-unit-declares-centimeters-for-derived-measures',
+          previewSurface.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.id, resultUnit: column.resultUnit })),
+          artifactSurface.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.id, resultUnit: column.resultUnit })));
+        report.target.downloadedTypedArtifact = {
+          path: archivePath,
+          format: artifact.manifest.format,
+          schema: artifactSurface.columns,
+          rows: artifactSurface.rows,
+          representation: modal.representation,
+          expectedIdentity,
+        };
+      });
     });
   } catch (error) {
     failure = error;
