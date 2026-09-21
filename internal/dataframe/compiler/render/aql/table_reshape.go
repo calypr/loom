@@ -79,7 +79,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	r.bindVars[valueTypeBind] = valueType
 	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+len(pivot.Categories)+2)
 	for _, key := range pivot.GroupKeys {
-		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: key.Column, Value: ir.PhysicalValue{Variable: key.Variable}})
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: key.Column, Hidden: key.Hidden, Value: ir.PhysicalValue{Variable: key.Variable}})
 	}
 	for index, category := range pivot.Categories {
 		cellVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_%d", index))

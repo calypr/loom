@@ -259,6 +259,170 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 	assertReshapeOracleExclusions(t, ctx, client, project, generation)
 }
 
+func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_s04_auth_path_pivot_" + uuid.NewString()
+	const generation = "generation-s04-auth-path-pivot"
+	fixtures := []struct {
+		id, scope, category string
+		value               float64
+	}{
+		{id: "a-alpha", scope: "/scope-a", category: "alpha", value: 10},
+		{id: "a-zero", scope: "/scope-a", category: "zero", value: 2},
+		{id: "b-alpha", scope: "/scope-b", category: "alpha", value: 20},
+		{id: "b-zero", scope: "/scope-b", category: "zero", value: 3},
+	}
+	documents := make([]json.RawMessage, 0, len(fixtures))
+	for _, fixture := range fixtures {
+		payload := map[string]any{
+			"resourceType": "Observation", "id": fixture.id, "status": "final", "valueInteger": 1,
+			"code": map[string]any{"text": fixture.category}, "valueQuantity": map[string]any{"value": fixture.value},
+		}
+		document, err := json.Marshal(map[string]any{
+			"_key": project + "_" + fixture.id, "id": fixture.id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": fixture.scope, "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert auth-scope pivot fixture: %v", err)
+	}
+
+	output := reshapeOracleOutput("auth_scope_pivot", &recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "s04-auth-scope-pivot", GroupKeys: []string{"group_text", "group_number"},
+			CategoryColumn: "string_category", ValueColumn: "numeric_value",
+			Categories: []recipe.GroupedPivotCategory{
+				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
+				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
+			},
+			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	output.DerivedColumns = []recipe.DerivedColumn{{
+		ConstructionID: "s04-auth-scope-derived", Name: "alpha_plus_zero", Label: "Alpha plus zero", Operation: recipe.DerivedAdd,
+		Left:               recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "alpha"},
+		Right:              recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "zero"},
+		MissingInputPolicy: recipe.MissingInputPropagateNull,
+	}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-auth-scope-pivot", TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, IncludeAuthResourcePath: true}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiledOutput := compiled.Outputs[0]
+	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile auth-scoped grouped pivot: %v", err)
+	}
+	for _, column := range query.PublicColumns {
+		if column == "auth_resource_path" || column == "__loom_auth_resource_path" {
+			t.Fatalf("internal authorization projection leaked into public columns: %#v", query.PublicColumns)
+		}
+	}
+	assertAuthScopedPivotRows(t, executeReshapeOracleQuery(t, ctx, client, query))
+
+	page, err := CompileRecipeOutputPageWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile auth-scoped grouped pivot materialization page: %v", err)
+	}
+	rootKeys := make([]string, 0, len(fixtures))
+	if err := client.QueryRows(ctx, page.RootKeysQuery, 500, page.RootKeysBindVars, func(row map[string]any) error {
+		key, ok := row["_key"].(string)
+		if !ok || key == "" {
+			return fmt.Errorf("root-key page returned invalid _key %v", row["_key"])
+		}
+		rootKeys = append(rootKeys, key)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute auth-scoped root-key page: %v\n%s", err, page.RootKeysQuery)
+	}
+	if len(rootKeys) != len(fixtures) {
+		t.Fatalf("root-key page returned %d keys, want %d", len(rootKeys), len(fixtures))
+	}
+	rowBindVars := make(map[string]any, len(page.RowsBindVars)+1)
+	for key, value := range page.RowsBindVars {
+		rowBindVars[key] = value
+	}
+	rowBindVars[RootPageKeysBind] = rootKeys
+	rows := make([]map[string]any, 0, 2)
+	if err := client.QueryRows(ctx, page.RowsQuery, 500, rowBindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute auth-scoped grouped pivot materialization page: %v\n%s", err, page.RowsQuery)
+	}
+	assertAuthScopedPivotRows(t, rows)
+}
+
+func assertAuthScopedPivotRows(t *testing.T, rows []map[string]any) {
+	t.Helper()
+	want := map[string]map[string]float64{
+		"/scope-a": {"alpha": 10, "zero": 2, "alpha_plus_zero": 12},
+		"/scope-b": {"alpha": 20, "zero": 3, "alpha_plus_zero": 23},
+	}
+	wantIdentity := map[string]string{
+		"/scope-a": `["GROUPED_PIVOT","s04-auth-scope-pivot",["STRING","final"],["INTEGER",1],["STRING","/scope-a"]]`,
+		"/scope-b": `["GROUPED_PIVOT","s04-auth-scope-pivot",["STRING","final"],["INTEGER",1],["STRING","/scope-b"]]`,
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("auth-scoped pivot rows = %#v, want one row per scope (%d)", rows, len(want))
+	}
+	for _, row := range rows {
+		scope, ok := row["auth_resource_path"].(string)
+		if !ok {
+			t.Errorf("auth_resource_path projection = %#v, want string scope", row["auth_resource_path"])
+			continue
+		}
+		values, ok := want[scope]
+		if !ok {
+			t.Errorf("unexpected auth scope %q in row %#v", scope, row)
+			continue
+		}
+		if identity, ok := row["__loom_row_id"].(string); !ok || identity != wantIdentity[scope] {
+			t.Errorf("scope %s row identity = %#v, want %s", scope, row["__loom_row_id"], wantIdentity[scope])
+		}
+		for column, expected := range values {
+			if got, ok := row[column].(float64); !ok || got != expected {
+				t.Errorf("scope %s %s = %#v, want %v", scope, column, row[column], expected)
+			}
+		}
+		delete(want, scope)
+		delete(wantIdentity, scope)
+	}
+	if len(want) != 0 {
+		t.Errorf("auth-scoped pivot omitted scopes: %#v", want)
+	}
+}
+
 func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
 	t.Helper()
 	fixtures := []struct {

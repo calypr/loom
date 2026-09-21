@@ -98,6 +98,16 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 }
 
 func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {
+	rootVariable := ""
+	for _, operation := range physical.Operations {
+		if operation.RootScan != nil {
+			rootVariable = operation.RootScan.Variable
+			break
+		}
+	}
+	if rootVariable == "" {
+		return fmt.Errorf("canonical plan has no root scan for auth_resource_path projection")
+	}
 	for index := range physical.Operations {
 		operation := &physical.Operations[index]
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
@@ -108,13 +118,82 @@ func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {
 				return nil
 			}
 		}
+		value := ir.PhysicalValue{Variable: rootVariable, Path: []string{"auth_resource_path"}}
+		for previous := 0; previous < index; previous++ {
+			reshape := &physical.Operations[previous]
+			switch reshape.Kind {
+			case ir.PhysicalGroupedPivotOp:
+				if reshape.GroupedPivot == nil {
+					return fmt.Errorf("grouped pivot is missing payload for auth_resource_path projection")
+				}
+				pivot := reshape.GroupedPivot
+				reserved := []string{pivot.CategoryColumn, pivot.ValueColumn, pivot.CategoryPresenceColumn, pivot.UnlistedEvidenceColumn, "__loom_row_id"}
+				for _, key := range pivot.GroupKeys {
+					reserved = append(reserved, key.Column)
+				}
+				for _, category := range pivot.Categories {
+					reserved = append(reserved, category.Output)
+				}
+				column := uniqueAuthResourcePathColumn(pivot.InputProjections, reserved...)
+				pivot.InputProjections = append(pivot.InputProjections, ir.PhysicalProjection{
+					Name: column, Hidden: true,
+					Value: ir.PhysicalValue{Variable: rootVariable, Path: []string{"auth_resource_path"}},
+				})
+				variable := pivot.GroupRowsVariable + "_auth_resource_path"
+				for _, key := range pivot.GroupKeys {
+					if key.Variable == variable {
+						variable += "_group"
+					}
+				}
+				pivot.GroupKeys = append(pivot.GroupKeys, ir.PhysicalGroupedPivotKey{
+					Column: column, Variable: variable, Kind: "STRING", Hidden: true,
+				})
+				value = ir.PhysicalValue{Variable: pivot.OutputRowVariable, Path: []string{column}}
+			case ir.PhysicalUnpivotOp:
+				if reshape.Unpivot == nil {
+					return fmt.Errorf("unpivot is missing payload for auth_resource_path projection")
+				}
+				unpivot := reshape.Unpivot
+				column := uniqueAuthResourcePathColumn(unpivot.InputProjections, unpivot.KeyOutput, unpivot.ValueOutput, "__loom_row_id")
+				unpivot.InputProjections = append(unpivot.InputProjections, ir.PhysicalProjection{
+					Name: column, Hidden: true,
+					Value: ir.PhysicalValue{Variable: rootVariable, Path: []string{"auth_resource_path"}},
+				})
+				value = ir.PhysicalValue{Variable: unpivot.OutputRowVariable, Path: []string{column}}
+			}
+		}
 		operation.Return.Projections = append(operation.Return.Projections, ir.PhysicalProjection{
 			Name: "auth_resource_path", Hidden: true,
-			Value: ir.PhysicalValue{Variable: "root", Path: []string{"auth_resource_path"}},
+			Value: value,
 		})
 		return nil
 	}
 	return fmt.Errorf("canonical plan has no RETURN operation for auth_resource_path projection")
+}
+
+func uniqueAuthResourcePathColumn(projections []ir.PhysicalProjection, reserved ...string) string {
+	for suffix := 0; ; suffix++ {
+		name := "__loom_auth_resource_path"
+		if suffix > 0 {
+			name = fmt.Sprintf("%s_%d", name, suffix)
+		}
+		found := false
+		for _, projection := range projections {
+			if projection.Name == name {
+				found = true
+				break
+			}
+		}
+		for _, reservedName := range reserved {
+			if reservedName == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return name
+		}
+	}
 }
 
 func recipeOptimizationRules(plan ir.PhysicalPlan) []string {

@@ -490,6 +490,7 @@ type PhysicalGroupedPivotKey struct {
 	Column   string
 	Variable string
 	Kind     string
+	Hidden   bool
 }
 
 type PhysicalGroupedPivotCategory struct {
