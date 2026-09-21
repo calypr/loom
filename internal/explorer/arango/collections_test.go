@@ -7,7 +7,7 @@ import (
 
 func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 	s := CollectionSpecs()
-	if len(s) != 12 {
+	if len(s) != 13 {
 		t.Fatalf("specs=%#v", s)
 	}
 	for _, spec := range s {
@@ -23,6 +23,7 @@ func TestCollectionSpecsArePersistentAndIndexed(t *testing.T) {
 		indexes[spec.Name] = spec.Indexes
 	}
 	for collection, required := range map[string][][]string{
+		TableShapeCapabilitiesCollection:   {{"binding.project", "binding.explorerId", "binding.outputId", "kind", "id"}, {"binding.project", "binding.explorerId", "binding.outputId", "parentCatalogId", "kind"}},
 		ExplicitGroupRevisionsCollection:   {{"project", "id"}, {"project", "idempotencyKey"}, {"project", "generation", "resourceType", "createdAt"}, {"state", "createdAt"}},
 		ExplicitGroupDefinitionsCollection: {{"revisionId", "ordinal"}, {"revisionId", "groupId"}},
 		ExplicitGroupMembershipsCollection: {{"revisionId", "groupId", "id"}, {"revisionId", "project", "generation", "resourceType", "id"}},

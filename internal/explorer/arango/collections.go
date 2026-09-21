@@ -59,6 +59,7 @@ func CollectionSpecs() []store.CollectionSpec {
 		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
+		TableShapeCapabilitiesCollectionSpec(),
 	}
 }
 func BootstrapSpec() store.BootstrapSpec { return store.BootstrapSpec{Collections: CollectionSpecs()} }
