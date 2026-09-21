@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -50,8 +51,166 @@ func TestTableShapeRequiresCurrentSemanticsVersion(t *testing.T) {
 func TestTableScalarRejectsNonFiniteProgrammaticDecimal(t *testing.T) {
 	value := 0.0
 	value /= value
-	if err := (TableScalar{Kind: "DECIMAL", Decimal: &value}).Validate(); err == nil || !strings.Contains(err.Error(), "must be finite") {
+	if err := (TableScalar{Kind: TableScalarDecimal, Decimal: &value}).ValidateStructure(); err == nil || !strings.Contains(err.Error(), "must be finite") {
 		t.Fatalf("Validate error = %v, want finite-decimal rejection", err)
+	}
+}
+
+func TestTableScalarRoundTripsZeroValuesAndSentinels(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		kind TableScalarKind
+	}{
+		{name: "empty string", raw: `{"kind":"STRING","string":""}`, kind: TableScalarString},
+		{name: "zero integer", raw: `{"kind":"INTEGER","integer":0}`, kind: TableScalarInteger},
+		{name: "zero decimal", raw: `{"kind":"DECIMAL","decimal":0.0}`, kind: TableScalarDecimal},
+		{name: "false boolean", raw: `{"kind":"BOOLEAN","boolean":false}`, kind: TableScalarBoolean},
+		{name: "null sentinel", raw: `{"kind":"NULL"}`, kind: TableScalarNull},
+		{name: "missing sentinel", raw: `{"kind":"MISSING"}`, kind: TableScalarMissing},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var scalar TableScalar
+			if err := json.Unmarshal([]byte(test.raw), &scalar); err != nil {
+				t.Fatal(err)
+			}
+			if scalar.Kind != test.kind {
+				t.Fatalf("kind = %q, want %q", scalar.Kind, test.kind)
+			}
+			concreteErr := scalar.ValidateConcreteValue()
+			if sentinel := test.kind == TableScalarNull || test.kind == TableScalarMissing; sentinel != (concreteErr != nil) {
+				t.Fatalf("concrete validation error = %v for %q", concreteErr, test.kind)
+			}
+			encoded, err := json.Marshal(scalar)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var roundTripped TableScalar
+			if err := json.Unmarshal(encoded, &roundTripped); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(roundTripped, scalar) {
+				t.Fatalf("round trip = %#v, want %#v", roundTripped, scalar)
+			}
+		})
+	}
+
+	var emptyString TableScalar
+	if err := json.Unmarshal([]byte(`{"kind":"STRING","string":""}`), &emptyString); err != nil || emptyString.String == nil || *emptyString.String != "" {
+		t.Fatalf("empty string scalar = %#v, err=%v", emptyString, err)
+	}
+	var zeroInteger TableScalar
+	if err := json.Unmarshal([]byte(`{"kind":"INTEGER","integer":0}`), &zeroInteger); err != nil || zeroInteger.Integer == nil || *zeroInteger.Integer != 0 {
+		t.Fatalf("zero integer scalar = %#v, err=%v", zeroInteger, err)
+	}
+	var zeroDecimal TableScalar
+	if err := json.Unmarshal([]byte(`{"kind":"DECIMAL","decimal":0.0}`), &zeroDecimal); err != nil || zeroDecimal.Decimal == nil || *zeroDecimal.Decimal != 0 {
+		t.Fatalf("zero decimal scalar = %#v, err=%v", zeroDecimal, err)
+	}
+	var falseBoolean TableScalar
+	if err := json.Unmarshal([]byte(`{"kind":"BOOLEAN","boolean":false}`), &falseBoolean); err != nil || falseBoolean.Boolean == nil || *falseBoolean.Boolean {
+		t.Fatalf("false boolean scalar = %#v, err=%v", falseBoolean, err)
+	}
+}
+
+func TestTableScalarStrictDecoderRejectsMalformedPayloads(t *testing.T) {
+	invalid := []string{
+		`{"kind":"NULL","string":""}`,
+		`{"kind":"NULL","string":null}`,
+		`{"kind":"MISSING","boolean":false}`,
+		`{"kind":"MISSING","integer":null}`,
+		`{"kind":"STRING"}`,
+		`{"kind":"STRING","string":null}`,
+		`{"kind":"INTEGER"}`,
+		`{"kind":"DECIMAL"}`,
+		`{"kind":"BOOLEAN"}`,
+		`{"kind":"STRING","string":"x","integer":0}`,
+		`{"kind":"STRING","integer":0}`,
+		`{"kind":"UNKNOWN"}`,
+		`{"kind":"NULL","private":true}`,
+	}
+	for _, raw := range invalid {
+		var scalar TableScalar
+		if err := json.Unmarshal([]byte(raw), &scalar); err == nil {
+			t.Errorf("malformed scalar %s was accepted as %#v", raw, scalar)
+		}
+	}
+}
+
+func TestTableScalarIdentityDistinguishesAllSixKinds(t *testing.T) {
+	empty := ""
+	zero := int64(0)
+	decimal := 0.0
+	falseValue := false
+	scalars := []TableScalar{
+		{Kind: TableScalarNull},
+		{Kind: TableScalarMissing},
+		{Kind: TableScalarString, String: &empty},
+		{Kind: TableScalarInteger, Integer: &zero},
+		{Kind: TableScalarDecimal, Decimal: &decimal},
+		{Kind: TableScalarBoolean, Boolean: &falseValue},
+	}
+	identities := map[string]bool{}
+	for _, scalar := range scalars {
+		if err := scalar.ValidateStructure(); err != nil {
+			t.Fatalf("scalar %#v is structurally invalid: %v", scalar, err)
+		}
+		identity := scalar.identity()
+		if identities[identity] {
+			t.Fatalf("identity %q is shared by multiple scalar kinds", identity)
+		}
+		identities[identity] = true
+	}
+	if len(identities) != 6 {
+		t.Fatalf("distinct identities = %d, want 6", len(identities))
+	}
+}
+
+func TestTableScalarSentinelsAreValidOnlyAsPivotCategoryKeys(t *testing.T) {
+	columns := []Column{{Column: "group"}, {Column: "category"}, {Column: "measure"}}
+	sentinels := []TableScalar{{Kind: TableScalarNull}, {Kind: TableScalarMissing}}
+	pivot := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
+		Categories: []PivotCategory{
+			{Key: sentinels[0], Output: ColumnOutput{Column: "null_category", Label: "Null category"}},
+			{Key: sentinels[1], Output: ColumnOutput{Column: "missing_category", Label: "Missing category"}},
+		},
+		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+	}}}
+	if err := pivot.Validate(columns); err != nil {
+		t.Fatalf("pivot sentinel keys rejected: %v", err)
+	}
+
+	duplicatePivot := &TableShape{Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+		ConstructionID: "pivot_1", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "measure",
+		Categories: []PivotCategory{
+			{Key: sentinels[0], Output: ColumnOutput{Column: "null_a", Label: "Null A"}},
+			{Key: sentinels[0], Output: ColumnOutput{Column: "null_b", Label: "Null B"}},
+		},
+		DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+	}}}
+	if err := duplicatePivot.Validate(columns); err == nil || !strings.Contains(err.Error(), "duplicate pivot category key") {
+		t.Fatalf("duplicate pivot sentinel key error = %v", err)
+	}
+
+	zero := int64(1)
+	for index, sentinel := range sentinels {
+		unpivot := &TableShape{Reshape: &TableReshape{Kind: "UNPIVOT", Unpivot: &UnpivotConstruction{
+			ConstructionID: "unpivot_1", Inputs: []UnpivotInput{{Column: "category", Key: sentinel}},
+			KeyOutput: ColumnOutput{Column: "metric_name", Label: "Metric"}, ValueOutput: ColumnOutput{Column: "metric_value", Label: "Value"}, NullRowPolicy: "DROP",
+		}}}
+		if err := unpivot.Validate(columns); err == nil || !strings.Contains(err.Error(), "sentinel scalar is not a concrete value") {
+			t.Errorf("unpivot sentinel %q error = %v", sentinel.Kind, err)
+		}
+
+		derived := &TableShape{Derived: []DerivedConstruction{{
+			ConstructionID: "derived_1", Output: ColumnOutput{Column: fmt.Sprintf("result_%d", index), Label: "Result"}, Operation: "ADD",
+			Left: ArithmeticOperand{Kind: "LITERAL", Literal: &sentinel}, Right: ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: &zero}}, MissingInputPolicy: "PROPAGATE_NULL",
+		}}}
+		if err := derived.Validate(columns); err == nil || !strings.Contains(err.Error(), "sentinel scalar is not a concrete value") {
+			t.Errorf("arithmetic sentinel literal %q error = %v", sentinel.Kind, err)
+		}
 	}
 }
 
@@ -77,9 +236,9 @@ func TestDecodeWorkspaceRejectsMalformedTableShapeUnions(t *testing.T) {
 			want:  `unknown field "privateSelector"`,
 		},
 		{
-			name:  "unknown scalar field",
+			name:  "multiple scalar payloads",
 			shape: strings.Replace(validPivotTableShapeJSON(), `"string":"heart_rate"`, `"string":"heart_rate","integer":2`, 1),
-			want:  `unknown field "integer"`,
+			want:  "cannot contain multiple value payloads",
 		},
 	}
 	for _, test := range tests {

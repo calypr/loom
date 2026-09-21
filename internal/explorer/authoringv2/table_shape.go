@@ -113,77 +113,90 @@ func (o *ArithmeticOperand) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+type TableScalarKind string
+
+const (
+	TableScalarString  TableScalarKind = "STRING"
+	TableScalarInteger TableScalarKind = "INTEGER"
+	TableScalarDecimal TableScalarKind = "DECIMAL"
+	TableScalarBoolean TableScalarKind = "BOOLEAN"
+	TableScalarNull    TableScalarKind = "NULL"
+	TableScalarMissing TableScalarKind = "MISSING"
+)
+
 type TableScalar struct {
-	Kind    string   `json:"kind"`
-	String  *string  `json:"string,omitempty"`
-	Integer *int64   `json:"integer,omitempty"`
-	Decimal *float64 `json:"decimal,omitempty"`
-	Boolean *bool    `json:"boolean,omitempty"`
+	Kind    TableScalarKind `json:"kind"`
+	String  *string         `json:"string,omitempty"`
+	Integer *int64          `json:"integer,omitempty"`
+	Decimal *float64        `json:"decimal,omitempty"`
+	Boolean *bool           `json:"boolean,omitempty"`
 }
 
 func (s *TableScalar) UnmarshalJSON(raw []byte) error {
-	var header struct {
-		Kind string `json:"kind"`
+	var value struct {
+		Kind    TableScalarKind `json:"kind"`
+		String  json.RawMessage `json:"string,omitempty"`
+		Integer json.RawMessage `json:"integer,omitempty"`
+		Decimal json.RawMessage `json:"decimal,omitempty"`
+		Boolean json.RawMessage `json:"boolean,omitempty"`
 	}
-	if err := json.Unmarshal(raw, &header); err != nil {
+	if err := strictDecode(raw, &value); err != nil {
 		return err
 	}
-	switch header.Kind {
-	case "STRING":
-		var value struct {
-			Kind   string  `json:"kind"`
-			String *string `json:"string"`
+	payloads := 0
+	for _, payload := range []json.RawMessage{value.String, value.Integer, value.Decimal, value.Boolean} {
+		if len(payload) != 0 {
+			payloads++
 		}
-		if err := strictDecode(raw, &value); err != nil {
-			return err
-		}
-		if value.String == nil {
-			return fmt.Errorf("STRING scalar requires string")
-		}
-		*s = TableScalar{Kind: value.Kind, String: value.String}
-	case "INTEGER":
-		var value struct {
-			Kind    string `json:"kind"`
-			Integer *int64 `json:"integer"`
-		}
-		if err := strictDecode(raw, &value); err != nil {
-			return err
-		}
-		if value.Integer == nil {
-			return fmt.Errorf("INTEGER scalar requires integer")
-		}
-		*s = TableScalar{Kind: value.Kind, Integer: value.Integer}
-	case "DECIMAL":
-		var value struct {
-			Kind    string   `json:"kind"`
-			Decimal *float64 `json:"decimal"`
-		}
-		if err := strictDecode(raw, &value); err != nil {
-			return err
-		}
-		if value.Decimal == nil {
-			return fmt.Errorf("DECIMAL scalar requires decimal")
-		}
-		*s = TableScalar{Kind: value.Kind, Decimal: value.Decimal}
-	case "BOOLEAN":
-		var value struct {
-			Kind    string `json:"kind"`
-			Boolean *bool  `json:"boolean"`
-		}
-		if err := strictDecode(raw, &value); err != nil {
-			return err
-		}
-		if value.Boolean == nil {
-			return fmt.Errorf("BOOLEAN scalar requires boolean")
-		}
-		*s = TableScalar{Kind: value.Kind, Boolean: value.Boolean}
-	default:
-		return fmt.Errorf("unsupported scalar kind %q", header.Kind)
 	}
+	if value.Kind != TableScalarNull && value.Kind != TableScalarMissing && payloads > 1 {
+		return fmt.Errorf("%s scalar cannot contain multiple value payloads", value.Kind)
+	}
+	scalar := TableScalar{Kind: value.Kind}
+	switch value.Kind {
+	case TableScalarNull, TableScalarMissing:
+		if payloads != 0 {
+			return fmt.Errorf("%s scalar does not accept a value payload", value.Kind)
+		}
+	case TableScalarString:
+		if len(value.String) == 0 {
+			return fmt.Errorf("STRING scalar must contain exactly one string payload")
+		}
+		if err := json.Unmarshal(value.String, &scalar.String); err != nil {
+			return err
+		}
+	case TableScalarInteger:
+		if len(value.Integer) == 0 {
+			return fmt.Errorf("INTEGER scalar must contain exactly one integer payload")
+		}
+		if err := json.Unmarshal(value.Integer, &scalar.Integer); err != nil {
+			return err
+		}
+	case TableScalarDecimal:
+		if len(value.Decimal) == 0 {
+			return fmt.Errorf("DECIMAL scalar must contain exactly one decimal payload")
+		}
+		if err := json.Unmarshal(value.Decimal, &scalar.Decimal); err != nil {
+			return err
+		}
+	case TableScalarBoolean:
+		if len(value.Boolean) == 0 {
+			return fmt.Errorf("BOOLEAN scalar must contain exactly one boolean payload")
+		}
+		if err := json.Unmarshal(value.Boolean, &scalar.Boolean); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported scalar kind %q", value.Kind)
+	}
+	if err := scalar.ValidateStructure(); err != nil {
+		return err
+	}
+	*s = scalar
 	return nil
 }
 
-func (s TableScalar) Validate() error {
+func (s TableScalar) ValidateStructure() error {
 	payloads := 0
 	if s.String != nil {
 		payloads++
@@ -197,17 +210,48 @@ func (s TableScalar) Validate() error {
 	if s.Boolean != nil {
 		payloads++
 	}
-	matching := s.Kind == "STRING" && s.String != nil ||
-		s.Kind == "INTEGER" && s.Integer != nil ||
-		s.Kind == "DECIMAL" && s.Decimal != nil ||
-		s.Kind == "BOOLEAN" && s.Boolean != nil
-	if payloads != 1 || !matching {
-		return fmt.Errorf("scalar must contain exactly one payload matching kind")
+	switch s.Kind {
+	case TableScalarNull, TableScalarMissing:
+		if payloads != 0 {
+			return fmt.Errorf("%s scalar does not accept a value payload", s.Kind)
+		}
+	case TableScalarString:
+		if payloads != 1 || s.String == nil {
+			return fmt.Errorf("STRING scalar must contain exactly one string payload")
+		}
+	case TableScalarInteger:
+		if payloads != 1 || s.Integer == nil {
+			return fmt.Errorf("INTEGER scalar must contain exactly one integer payload")
+		}
+	case TableScalarDecimal:
+		if payloads != 1 || s.Decimal == nil {
+			return fmt.Errorf("DECIMAL scalar must contain exactly one decimal payload")
+		}
+	case TableScalarBoolean:
+		if payloads != 1 || s.Boolean == nil {
+			return fmt.Errorf("BOOLEAN scalar must contain exactly one boolean payload")
+		}
+	default:
+		return fmt.Errorf("unsupported scalar kind %q", s.Kind)
 	}
 	if s.Decimal != nil && (math.IsNaN(*s.Decimal) || math.IsInf(*s.Decimal, 0)) {
 		return fmt.Errorf("DECIMAL scalar must be finite")
 	}
 	return nil
+}
+
+func (s TableScalar) ValidateConcreteValue() error {
+	if err := s.ValidateStructure(); err != nil {
+		return err
+	}
+	if s.Kind == TableScalarNull || s.Kind == TableScalarMissing {
+		return fmt.Errorf("sentinel scalar is not a concrete value")
+	}
+	return nil
+}
+
+func (s TableScalar) ValidatePivotCategoryKey() error {
+	return s.ValidateStructure()
 }
 
 func (s TableScalar) identity() string {
@@ -295,7 +339,7 @@ func (s *TableShape) Validate(columns []Column) error {
 			}
 			seenKeys := map[string]bool{}
 			for index, category := range pivot.Categories {
-				if err := category.Key.Validate(); err != nil {
+				if err := category.Key.ValidatePivotCategoryKey(); err != nil {
 					return fmt.Errorf("categories[%d].key: %w", index, err)
 				}
 				key := category.Key.identity()
@@ -339,7 +383,7 @@ func (s *TableShape) Validate(columns []Column) error {
 					return fmt.Errorf("inputs contains duplicate column %q", input.Column)
 				}
 				seenColumns[input.Column] = true
-				if err := input.Key.Validate(); err != nil {
+				if err := input.Key.ValidateConcreteValue(); err != nil {
 					return fmt.Errorf("inputs[%d].key: %w", index, err)
 				}
 				key := input.Key.identity()
@@ -411,7 +455,7 @@ func (o ArithmeticOperand) Validate(known map[string]bool) error {
 		if o.Column != "" || o.Literal == nil {
 			return fmt.Errorf("operand must contain exactly one payload matching kind")
 		}
-		if err := o.Literal.Validate(); err != nil {
+		if err := o.Literal.ValidateConcreteValue(); err != nil {
 			return err
 		}
 	default:
