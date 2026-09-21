@@ -469,3 +469,18 @@ func workspaceHasTableShape(workspace Workspace) bool {
 	}
 	return false
 }
+
+func cloneTableShape(shape *TableShape) (*TableShape, error) {
+	if shape == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(shape)
+	if err != nil {
+		return nil, fmt.Errorf("clone table shape: %w", err)
+	}
+	var cloned TableShape
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return nil, fmt.Errorf("clone table shape: %w", err)
+	}
+	return &cloned, nil
+}

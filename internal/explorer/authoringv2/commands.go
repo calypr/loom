@@ -36,6 +36,7 @@ const (
 	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
 	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
 	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
+	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
@@ -106,6 +107,8 @@ type Command struct {
 	ResolvedPopulationRoute []PopulationRouteStep         `json:"-"`
 	OutputIDs               []string                      `json:"outputIds,omitempty"`
 	resolvedRowDefinition   *RowDefinition
+	resolvedTableShape      *TableShape
+	resolvedTableShapeSet   bool
 }
 
 // ColumnTransformationChange replaces or removes the one typed value
@@ -227,19 +230,26 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyRowDefinitionProposal {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil {
+	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal {
+		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
-		}
-		allowed := map[string]bool{"type": true, "outputId": true, "proposalId": true}
-		for name := range fields {
-			if !allowed[name] {
-				return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL does not accept field %q", name)
-			}
 		}
 	}
 	*c = Command(decoded)
+	return nil
+}
+
+func rejectUnknownProposalCommandFields(raw []byte, commandType string) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	allowed := map[string]bool{"type": true, "outputId": true, "proposalId": true}
+	for name := range fields {
+		if !allowed[name] {
+			return fmt.Errorf("%s does not accept field %q", commandType, name)
+		}
+	}
 	return nil
 }
 
@@ -262,6 +272,25 @@ func (c *Command) ResolveRowDefinitionProposal(rows RowDefinition) error {
 		return err
 	}
 	c.resolvedRowDefinition = &cloned
+	return nil
+}
+
+// ResolveTableShapeProposal attaches the lifecycle-validated table shape to an
+// apply command. A nil shape is a resolved removal, not an unresolved command.
+func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
+	if c == nil || c.Type != CommandApplyTableShapeProposal {
+		return fmt.Errorf("table shape can only be resolved for APPLY_TABLE_SHAPE_PROPOSAL")
+	}
+	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
+		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		return fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL requires outputId and proposalId")
+	}
+	cloned, err := cloneTableShape(shape)
+	if err != nil {
+		return err
+	}
+	c.resolvedTableShape = cloned
+	c.resolvedTableShapeSet = true
 	return nil
 }
 
@@ -305,7 +334,7 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	semanticCommandCount := 0
 	constructionChoiceCommandCount := 0
-	rowDefinitionProposalCommandCount := 0
+	proposalCommandCount := 0
 	for i, command := range r.Commands {
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
@@ -313,8 +342,8 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandApplyConstructionChoice {
 			constructionChoiceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal {
-			rowDefinitionProposalCommandCount++
+		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal {
+			proposalCommandCount++
 		}
 		if err := command.validate(); err != nil {
 			return fmt.Errorf("commands[%d]: %w", i, err)
@@ -326,12 +355,12 @@ func (r ApplyCommandsRequest) Validate() error {
 	if constructionChoiceCommandCount > 0 && (constructionChoiceCommandCount != len(r.Commands) || constructionChoiceCommandCount > 100) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE commands must form the entire request and contain at most 100 choices")
 	}
-	if rowDefinitionProposalCommandCount > 0 {
-		if rowDefinitionProposalCommandCount != 1 || len(r.Commands) != 1 {
-			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL must be the only command in its atomic request")
+	if proposalCommandCount > 0 {
+		if proposalCommandCount != 1 || len(r.Commands) != 1 {
+			return fmt.Errorf("proposal apply must be the only command in its atomic request")
 		}
 		if r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest) {
-			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires an exact expected draft version and digest")
+			return fmt.Errorf("proposal apply requires an exact expected draft version and digest")
 		}
 	}
 	return nil
@@ -462,16 +491,16 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyRowDefinitionProposal:
-		if !required(c.OutputID, c.ProposalID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
-			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL requires exact outputId and proposalId")
+	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal:
+		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
 		if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
 			len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
 			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
 			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
 			c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
-			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL accepts only outputId and proposalId")
+			return fmt.Errorf("%s accepts only outputId and proposalId", c.Type)
 		}
 	case CommandAddColumnSource:
 		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
@@ -1007,6 +1036,20 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		workspace.Documents[document].Rows = rows
 		return result, nil
+	case CommandApplyTableShapeProposal:
+		if !command.resolvedTableShapeSet {
+			return result, fmt.Errorf("APPLY_TABLE_SHAPE_PROPOSAL has no lifecycle-resolved table shape")
+		}
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		shape, err := cloneTableShape(command.resolvedTableShape)
+		if err != nil {
+			return result, err
+		}
+		workspace.Documents[document].TableShape = shape
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandUpdateColumnSource:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
