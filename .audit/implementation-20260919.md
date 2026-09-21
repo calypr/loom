@@ -113,3 +113,11 @@ S02/UI02 and S03/UI03 may use separate worktrees only after S01/UI01 freezes the
 - The complete development-verifier suite passed 39 tests after adding authored-versus-physical column checks, exact fixture values, typed Viewer normalization, order-independent artifact row comparison, distinct materialization and resolved schema digests, stable Patient cell evidence, a real download link, and the accessible evidence dialog.
 - `rtk make verify-j05` passed against the live stack. The journey recorded 32 passing assertions over two rows and five physical feature columns. Preview, Viewer, cell evidence, and the downloaded CSV artifact agreed on exact values and nulls.
 - Live evidence is under `.artifacts/loom-dev/6d7df93d6a37/muahj7ji-bfaaa862`. S05/UI05 is accepted.
+
+## S04/UI04 verification checkpoints
+
+- Exact scalar-string category recoding is integrated as a closed column transformation. Each mapping uses exact string equality and declares whether an unknown value fails execution or retains its recorded value. Null remains null.
+- The capability response owns availability. The authoring boundary rejects coded values, structured records, repeated projections, and unsupported logical types instead of letting the browser infer compatibility.
+- The compiler applies recoding to the selected public projection after source lowering. The transformation keeps the authored column identity, ordering, source, and unrelated columns unchanged.
+- Focused Go verification passed across the column-transformation domain, recipe, semantic, physical IR, AQL renderer, authoring, compilation, and server packages. Focused UI verification passed 47 tests across the strict contract, catalog, and column editor. Test typechecking and `make openapi-check` passed.
+- S04 remains open. Bounded user-authored pivots, typed arithmetic derived columns, before-and-after evidence, and the live J04 journey are not complete.
