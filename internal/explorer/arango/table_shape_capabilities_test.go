@@ -373,4 +373,66 @@ func TestTableShapeCapabilityRepositoryLoadsNestedDerivedParents(t *testing.T) {
 	}
 }
 
+func TestTableShapeCapabilityRepositoryLoadsPivotContextForDerivedResolution(t *testing.T) {
+	client := &tableShapeCapabilityClient{capabilitySnapshotClient: &capabilitySnapshotClient{}, rows: map[string]map[string]any{}}
+	repository, err := NewTableShapeCapabilityRepository(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := tableShapeTestBinding()
+	catalog := tableShapeTestCatalog(t, binding)
+	pivot, _ := tableShapeTestResolution(t, catalog)
+	pivotOutput := tableshapecap.NamedOutput{Name: "north_value", Label: "North value"}
+	pivotType := tableshapecap.TypeFact{LogicalType: tableshapecap.LogicalInteger}
+	choiceID, err := tableshapecap.NewPivotDerivedOperandChoiceID(catalog.ID, *pivot.Pivot, pivotOutput, pivotType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivot.Pivot.DerivedOperands = []tableshapecap.PivotDerivedOperand{{
+		ChoiceID: choiceID, OutputColumn: pivotOutput.Name, OutputLabel: pivotOutput.Label, Type: pivotType,
+	}}
+	pivot, err = tableshapecap.NewResolutionReceipt(binding, catalog.ID, tableshapecap.ResolutionPivot, pivot.Pivot, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorID := catalog.Choices.Operators[0].ID
+	missingPolicyID := ""
+	for _, choice := range catalog.Choices.Policies {
+		if choice.Role == tableshapecap.RolePolicyDerivedMissing {
+			missingPolicyID = choice.ID
+		}
+	}
+	derived, err := tableshapecap.NewResolutionReceipt(binding, catalog.ID, tableshapecap.ResolutionDerived, nil, nil, &tableshapecap.DerivedResolution{
+		Output:                tableshapecap.NamedOutput{Name: "north_plus_one", Label: "North plus one"},
+		PivotResolutionID:     pivot.ID,
+		OperatorChoiceID:      operatorID,
+		Left:                  tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandCatalogChoice, ChoiceID: choiceID},
+		Right:                 tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandLiteral, Literal: scalarPtr(tableshapecap.IntegerScalar(1))},
+		Result:                tableshapecap.TypeFact{LogicalType: tableshapecap.LogicalInteger},
+		MissingPolicyChoiceID: missingPolicyID,
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogRow, err := catalogDocument(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivotRow, err := resolutionDocument(pivot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	derivedRow, err := resolutionDocument(derived)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.rows["CATALOG"] = catalogRow
+	client.rows["RESOLUTION:"+pivot.ID] = pivotRow
+	client.rows["RESOLUTION:"+derived.ID] = derivedRow
+
+	if _, err := repository.PutResolution(context.Background(), derived); err != nil {
+		t.Fatalf("persist derived resolution with its earlier pivot context: %v", err)
+	}
+}
+
 func scalarPtr(value tableshapecap.Scalar) *tableshapecap.Scalar { return &value }

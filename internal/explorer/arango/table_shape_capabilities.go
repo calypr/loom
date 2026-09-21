@@ -317,21 +317,40 @@ func (r *TableShapeCapabilityRepository) resolutionDependencies(ctx context.Cont
 		if err != nil {
 			return err
 		}
-		if previous.Kind != tableshapecap.ResolutionDerived {
-			return tableshapecap.ErrInvalid
-		}
-		for _, operand := range []tableshapecap.ResolvedOperand{previous.Derived.Left, previous.Derived.Right} {
-			if operand.Kind == tableshapecap.ResolvedOperandResolution {
-				if err := visit(operand.ResolutionID); err != nil {
+		switch previous.Kind {
+		case tableshapecap.ResolutionPivot:
+			if previous.Pivot == nil {
+				return tableshapecap.ErrInvalid
+			}
+		case tableshapecap.ResolutionDerived:
+			if previous.Derived == nil {
+				return tableshapecap.ErrInvalid
+			}
+			if previous.Derived.PivotResolutionID != "" {
+				if err := visit(previous.Derived.PivotResolutionID); err != nil {
 					return err
 				}
 			}
+			for _, operand := range []tableshapecap.ResolvedOperand{previous.Derived.Left, previous.Derived.Right} {
+				if operand.Kind == tableshapecap.ResolvedOperandResolution {
+					if err := visit(operand.ResolutionID); err != nil {
+						return err
+					}
+				}
+			}
+		default:
+			return tableshapecap.ErrInvalid
 		}
 		state[id] = 2
 		ordered = append(ordered, previous)
 		return nil
 	}
 	if current.Kind == tableshapecap.ResolutionDerived {
+		if current.Derived.PivotResolutionID != "" {
+			if err := visit(current.Derived.PivotResolutionID); err != nil {
+				return nil, err
+			}
+		}
 		for _, operand := range []tableshapecap.ResolvedOperand{current.Derived.Left, current.Derived.Right} {
 			if operand.Kind == tableshapecap.ResolvedOperandResolution {
 				if err := visit(operand.ResolutionID); err != nil {
