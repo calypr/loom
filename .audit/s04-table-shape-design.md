@@ -105,18 +105,18 @@ The first read returns one catalog capability receipt. It exposes public columns
 Selections that depend on other selections require an advance request. Each successful advance creates an immutable child resolution receipt:
 
 - A pivot resolution binds ordered group columns, one category column, one value column, the complete typed category set, and the valid policies.
-- An unpivot resolution binds the ordered compatible inputs, the result types, and the valid null-row policies.
-- A derived resolution binds the operator, two typed operands, the compiler-resolved result type and unit, and the valid missing-input and division-by-zero policies.
+- An unpivot resolution binds the ordered compatible inputs and their server-owned typed keys, the user-authored key/value output descriptors, the result types, and the selected null-row policy.
+- A derived resolution binds its user-authored output descriptor, the operator, two typed operands, the compiler-resolved result type and unit, and the selected missing-input and division-by-zero policies.
 
-A derived operand may reference a base-column choice or an earlier derived resolution receipt. This structure supports nested calculations without asking the browser to infer types or units.
+A pivot resolution also exposes opaque, typed operand choices for the group columns and frozen category outputs that survive the reshape. A derived operand may reference a base-column choice when there is no reshape, one of those post-pivot output choices, or an earlier derived resolution receipt. Base columns removed by a pivot are not valid derived operands. This structure supports pivot arithmetic and nested calculations without asking the browser to infer types or units.
 
 Pivot category discovery executes the exact compiled output. The query groups distinct states before applying the `maxPivotCategories + 1` bound. The compiler preserves property presence separately from value, so `0`, `false`, an empty string, recorded null, and missing remain distinct. A timeout, incomplete scan, lost presence bit, unsupported type, or 257th category returns a refusal and no selectable partial set.
 
 Capability and resolution receipt IDs are short store-backed references. The server does not put compiler payloads or category sets into browser-authored tokens. The records are create-once and content-addressed. A later garbage collector may remove stale records because every read and proposal revalidates the live draft, snapshot, authorization scope, output fingerprint, and schema digest.
 
-The browser authors public output names and labels for pivot categories, unpivot outputs, and derived outputs. The server suggests defaults but does not turn output names into closed choices. The server validates names, collisions, reserved names, and lengths when it resolves the proposal.
+The browser authors public output names and labels for pivot categories, unpivot outputs, and derived outputs. The server suggests defaults but does not turn output names into closed choices. The server validates names, collisions, reserved names, and lengths when it creates each immutable resolution. Binding output descriptors there keeps otherwise identical calculations with different output columns distinct and makes later derived references exact.
 
-The proposal endpoint accepts an `ADD`, `REPLACE`, or `REMOVE` change. `ADD` and `REPLACE` refer to the catalog and child resolution receipts plus user-authored output descriptors. They never carry `authoringv2.TableShape`. The server reauthorizes every receipt, assigns construction IDs, reconstructs the durable table shape, clones the workspace, changes only `Document.TableShape`, compiles a candidate receipt, and executes bounded before-and-after previews. The response labels sampled evidence.
+The proposal endpoint accepts an `ADD`, `REPLACE`, or `REMOVE` change. `ADD` and `REPLACE` refer only to the catalog and complete child resolution receipts. They never carry `authoringv2.TableShape`. The server reauthorizes every receipt, assigns construction IDs, reconstructs the durable table shape, clones the workspace, changes only `Document.TableShape`, compiles a candidate receipt, and executes bounded before-and-after previews. The response labels sampled evidence.
 
 Apply sends only `APPLY_TABLE_SHAPE_PROPOSAL`, the output ID, and the proposal receipt ID. The command must be alone in its batch. The candidate receipt binds the draft version, draft digest, snapshot token, output ID, base document digest, and candidate workspace digest. Apply rejects stale or unrelated receipts and verifies that the candidate changed only the requested table shape.
 
