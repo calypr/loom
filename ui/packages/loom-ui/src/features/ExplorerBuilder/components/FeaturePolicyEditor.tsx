@@ -646,6 +646,8 @@ const TemporalReductionEditor = ({
   const [lookbackDays, setLookbackDays] = useState(
     Math.max(0, Math.round(-(temporal?.lowerOffsetSeconds ?? -31_536_000) / 86_400)),
   );
+  const [lowerInclusive, setLowerInclusive] = useState(temporal?.lowerInclusive ?? true);
+  const [upperInclusive, setUpperInclusive] = useState(temporal?.upperInclusive ?? true);
   const [direction, setDirection] = useState<'ASC' | 'DESC'>(
     temporal?.direction ?? 'DESC',
   );
@@ -719,6 +721,24 @@ const TemporalReductionEditor = ({
           onChange={(event) => setLookbackDays(event.currentTarget.valueAsNumber)}
         />
       </label>
+      <label className="flex items-center gap-1.5 font-medium">
+        <input
+          type="checkbox"
+          checked={lowerInclusive}
+          disabled={disabled}
+          onChange={(event) => setLowerInclusive(event.currentTarget.checked)}
+        />
+        <span>Include start boundary</span>
+      </label>
+      <label className="flex items-center gap-1.5 font-medium">
+        <input
+          type="checkbox"
+          checked={upperInclusive}
+          disabled={disabled}
+          onChange={(event) => setUpperInclusive(event.currentTarget.checked)}
+        />
+        <span>Include end boundary</span>
+      </label>
       <label className="col-span-2 flex items-center gap-1.5 font-medium">
         <span>If dates tie</span>
         <select
@@ -733,7 +753,7 @@ const TemporalReductionEditor = ({
         </select>
       </label>
       <p className="col-span-2 text-slate-600">
-        {direction === 'DESC' ? 'Latest' : 'Earliest'} {path} dated from {lookbackDays} days before through the row date.
+        {direction === 'DESC' ? 'Latest' : 'Earliest'} {path} dated from {lookbackDays} days before the row date to the row date; start is {lowerInclusive ? 'inclusive' : 'exclusive'} and end is {upperInclusive ? 'inclusive' : 'exclusive'}.
       </p>
       {!capability.available ? (
         <p role="status" className="col-span-2 text-amber-800">
@@ -760,8 +780,8 @@ const TemporalReductionEditor = ({
                 anchorPath,
                 lowerOffsetSeconds: -lookbackDays * 86_400,
                 upperOffsetSeconds: 0,
-                lowerInclusive: true,
-                upperInclusive: true,
+                lowerInclusive,
+                upperInclusive,
                 direction,
                 precision: 'INSTANT',
                 tiePolicy,
