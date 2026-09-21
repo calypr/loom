@@ -88,6 +88,35 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
 		return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution plan requires a root scan")
 	}
+	if reshapeIndex, outputVariable := physicalTableReshapeOutput(plan.Operations); reshapeIndex >= 0 {
+		out := clonePhysicalPlan(plan)
+		if limit > 0 {
+			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
+				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
+			}
+			out.BindVars[genericPhysicalExecutionLimitBind] = limit
+		}
+		window := []ir.PhysicalOperation{{
+			Kind: ir.PhysicalSortOp, Source: ir.PhysicalSource{SemanticField: "table_shape.row_id"},
+			Sort: &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: outputVariable, Path: []string{"__loom_row_id"}}}},
+		}}
+		if limit > 0 {
+			window = append(window, ir.PhysicalOperation{
+				Kind: ir.PhysicalLimitOp, Source: ir.PhysicalSource{SemanticField: "table_shape.row_id"},
+				Limit: &ir.PhysicalLimit{BindKey: genericPhysicalExecutionLimitBind},
+			})
+		}
+		insertAt := reshapeIndex + 1
+		operations := make([]ir.PhysicalOperation, 0, len(out.Operations)+len(window))
+		operations = append(operations, out.Operations[:insertAt]...)
+		operations = append(operations, window...)
+		operations = append(operations, out.Operations[insertAt:]...)
+		out.Operations = operations
+		if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
+			return ir.PhysicalPlan{}, fmt.Errorf("validate reshaped physical execution window: %w", err)
+		}
+		return out, nil
+	}
 
 	// The generic scope verifier defines the root scope as every operation up
 	// to the first traversal or terminal return. BuildGenericPhysicalPlan has
@@ -144,4 +173,20 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution window: %w", err)
 	}
 	return out, nil
+}
+
+func physicalTableReshapeOutput(operations []ir.PhysicalOperation) (int, string) {
+	for index, operation := range operations {
+		switch operation.Kind {
+		case ir.PhysicalGroupedPivotOp:
+			if operation.GroupedPivot != nil {
+				return index, operation.GroupedPivot.OutputRowVariable
+			}
+		case ir.PhysicalUnpivotOp:
+			if operation.Unpivot != nil {
+				return index, operation.Unpivot.OutputRowVariable
+			}
+		}
+	}
+	return -1, ""
 }

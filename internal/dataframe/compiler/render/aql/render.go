@@ -115,6 +115,16 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render expression LET %d: %w", expressionLetIndex, err)
 			}
 			expressionLetIndex++
+		case ir.PhysicalGroupedPivotOp, ir.PhysicalUnpivotOp:
+			line, err = renderer.renderTableReshape(item.operation)
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render table reshape: %w", err)
+			}
+		case ir.PhysicalSortOp, ir.PhysicalLimitOp:
+			line, err = renderer.renderRootWindowOperation(item.operation, "  ")
+			if err != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render reshaped execution window: %w", err)
+			}
 		default:
 			return RenderedPhysicalPlan{}, fmt.Errorf("render post-window operation %q: unsupported operation", item.operation.Kind)
 		}

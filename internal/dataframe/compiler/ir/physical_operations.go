@@ -373,6 +373,71 @@ type PhysicalReturn struct {
 	Projections []PhysicalProjection
 }
 
+// PhysicalGroupedPivot is a typed row operation over one materialized base
+// row projection. COLLECT forms groups; categories remain frozen values and
+// never become query fragments.
+type PhysicalGroupedPivot struct {
+	ConstructionID         string
+	InputRowVariable       string
+	GroupRowsVariable      string
+	OutputRowVariable      string
+	InputProjections       []PhysicalProjection
+	GroupKeys              []PhysicalGroupedPivotKey
+	CategoryColumn         string
+	CategoryType           string
+	ValueColumn            string
+	ValueType              string
+	Categories             []PhysicalGroupedPivotCategory
+	ConstructionIDBindKey  string
+	UnlistedEvidenceColumn string
+	DuplicatePolicy        string
+	MissingCellPolicy      string
+	UnlistedCategoryPolicy string
+}
+
+type PhysicalGroupedPivotKey struct {
+	Column   string
+	Variable string
+	Kind     string
+}
+
+type PhysicalGroupedPivotCategory struct {
+	Output     string
+	KeyBindKey string
+	KeyKind    string
+}
+
+// PhysicalUnpivot is a terminal cardinality-changing row operation. Input
+// order defines emitted key/value rows; identity columns are copied from the
+// input row before the selected value key is appended.
+type PhysicalUnpivot struct {
+	ConstructionID        string
+	InputRowVariable      string
+	SlotVariable          string
+	OutputRowVariable     string
+	InputProjections      []PhysicalProjection
+	Inputs                []PhysicalUnpivotInput
+	KeyOutput             string
+	KeyType               string
+	ValueOutput           string
+	ValueType             string
+	IdentityParts         []PhysicalUnpivotIdentityPart
+	ConstructionIDBindKey string
+	NullRowPolicy         string
+}
+
+type PhysicalUnpivotInput struct {
+	Column     string
+	KeyBindKey string
+	KeyKind    string
+	ValueKind  string
+}
+
+type PhysicalUnpivotIdentityPart struct {
+	Name  string
+	Value PhysicalValue
+}
+
 var (
 	physicalVariablePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	physicalBindKeyPattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)

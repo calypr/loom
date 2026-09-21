@@ -379,6 +379,17 @@ func physicalPlanVariables(operations []ir.PhysicalOperation) map[string]bool {
 			}
 		case ir.PhysicalCollectionScanOp:
 			add(operation.CollectionScan.Variable)
+		case ir.PhysicalGroupedPivotOp:
+			add(operation.GroupedPivot.InputRowVariable)
+			add(operation.GroupedPivot.GroupRowsVariable)
+			add(operation.GroupedPivot.OutputRowVariable)
+			for _, key := range operation.GroupedPivot.GroupKeys {
+				add(key.Variable)
+			}
+		case ir.PhysicalUnpivotOp:
+			add(operation.Unpivot.InputRowVariable)
+			add(operation.Unpivot.SlotVariable)
+			add(operation.Unpivot.OutputRowVariable)
 		case ir.PhysicalPathSeedOp:
 			add(operation.PathSeed.Variable)
 			add(operation.PathSeed.Node.Alias)

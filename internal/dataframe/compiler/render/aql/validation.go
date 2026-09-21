@@ -82,6 +82,14 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 				if err := collectOperations(operation.Set.Subplan.Operations, owner+" SET"); err != nil {
 					return err
 				}
+			case ir.PhysicalGroupedPivotOp:
+				if err := collectProjectionCollections(operation.GroupedPivot.InputProjections, collectOperations, owner+" GROUPED_PIVOT"); err != nil {
+					return err
+				}
+			case ir.PhysicalUnpivotOp:
+				if err := collectProjectionCollections(operation.Unpivot.InputProjections, collectOperations, owner+" UNPIVOT"); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -100,6 +108,18 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 		}
 	}
 	return keys, nil
+}
+
+func collectProjectionCollections(projections []ir.PhysicalProjection, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	for index, projection := range projections {
+		if projection.Expression == nil {
+			continue
+		}
+		if err := collectExpressionCollections(*projection.Expression, collectOperations, owner); err != nil {
+			return fmt.Errorf("projection %d (%s): %w", index, projection.Name, err)
+		}
+	}
+	return nil
 }
 
 func collectPredicateCollections(predicate ir.PhysicalPredicateExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
@@ -163,6 +183,16 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		return nil
 	case ir.PhysicalGroupRowsOp:
 		return nil
+	case ir.PhysicalGroupedPivotOp:
+		if operation.GroupedPivot == nil {
+			return fmt.Errorf("GROUPED_PIVOT requires a payload")
+		}
+		return validateRenderableProjections(operation.GroupedPivot.InputProjections, collectionKeys)
+	case ir.PhysicalUnpivotOp:
+		if operation.Unpivot == nil {
+			return fmt.Errorf("UNPIVOT requires a payload")
+		}
+		return validateRenderableProjections(operation.Unpivot.InputProjections, collectionKeys)
 	case ir.PhysicalTraversalOp:
 		traversal := operation.Traversal
 		if traversal.EdgeVariable == "" {
@@ -258,21 +288,25 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 		}
 		return nil
 	case ir.PhysicalReturnOp:
-		for _, projection := range operation.Return.Projections {
-			if projection.Expression != nil {
-				if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalOwnerRecordsExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalSubplanExpression && projection.Expression.Kind != ir.PhysicalCallExpression {
-					return fmt.Errorf("unsupported physical return expression kind %q", projection.Expression.Kind)
-				}
-				continue
-			}
-			if err := checkValue(projection.Value); err != nil {
-				return err
-			}
-		}
-		return nil
+		return validateRenderableProjections(operation.Return.Projections, collectionKeys)
 	default:
 		return fmt.Errorf("unsupported physical operation %q", operation.Kind)
 	}
+}
+
+func validateRenderableProjections(projections []ir.PhysicalProjection, collectionKeys map[string]struct{}) error {
+	for _, projection := range projections {
+		if projection.Expression != nil {
+			if projection.Expression.Kind != ir.PhysicalValueExpression && projection.Expression.Kind != ir.PhysicalExtractExpression && projection.Expression.Kind != ir.PhysicalAggregateExpression && projection.Expression.Kind != ir.PhysicalPivotExpression && projection.Expression.Kind != ir.PhysicalOwnerRecordsExpression && projection.Expression.Kind != ir.PhysicalSliceExpression && projection.Expression.Kind != ir.PhysicalObjectLookupExpression && projection.Expression.Kind != ir.PhysicalKeyedMapExpression && projection.Expression.Kind != ir.PhysicalObjectKeysExpression && projection.Expression.Kind != ir.PhysicalKeySetExpression && projection.Expression.Kind != ir.PhysicalObjectExpression && projection.Expression.Kind != ir.PhysicalSubplanExpression && projection.Expression.Kind != ir.PhysicalCallExpression {
+				return fmt.Errorf("unsupported physical return expression kind %q", projection.Expression.Kind)
+			}
+			continue
+		}
+		if _, collectionBinding := collectionKeys[projection.Value.BindKey]; collectionBinding {
+			return fmt.Errorf("bind key %q cannot be used as both a collection and scalar bind", projection.Value.BindKey)
+		}
+	}
+	return nil
 }
 
 func validateRenderablePredicateExpression(predicate ir.PhysicalPredicateExpression, collectionKeys map[string]struct{}) error {

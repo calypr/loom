@@ -19,9 +19,55 @@ func (p PhysicalPlan) Validate() error {
 	returns := 0
 	graphReturns := 0
 	groupRows := 0
+	tableReshapes := 0
+	reshapeOutputVariable := ""
+	reshapeWindowSortSeen := false
+	reshapeWindowLimitSeen := false
+	reshapeWindowClosed := false
+	reshapeIndex := -1
+	for index, operation := range p.Operations {
+		if operation.Kind == PhysicalGroupedPivotOp || operation.Kind == PhysicalUnpivotOp {
+			reshapeIndex = index
+			break
+		}
+	}
+	if reshapeIndex >= 0 {
+		for index := 0; index < reshapeIndex; index++ {
+			if p.Operations[index].Kind == PhysicalLimitOp {
+				return fmt.Errorf("operation %d: execution LIMIT cannot precede a terminal table reshape", index)
+			}
+		}
+	}
 	for i, operation := range p.Operations {
 		if returns+graphReturns > 0 {
 			return fmt.Errorf("operation %d appears after RETURN", i)
+		}
+		if tableReshapes > 0 {
+			if reshapeWindowSortSeen && !reshapeWindowLimitSeen && operation.Kind != PhysicalLimitOp {
+				reshapeWindowClosed = true
+			}
+			switch operation.Kind {
+			case PhysicalExpressionLetOp, PhysicalReturnOp:
+			case PhysicalSortOp:
+				if reshapeWindowSortSeen || reshapeWindowLimitSeen || reshapeWindowClosed {
+					return fmt.Errorf("operation %d: reshaped execution window can contain only one SORT", i)
+				}
+				if operation.Sort == nil || len(operation.Sort.Keys) != 1 {
+					return fmt.Errorf("operation %d: reshaped execution SORT must use the stable row identity", i)
+				}
+				key := operation.Sort.Keys[0]
+				if key.Variable != reshapeOutputVariable || key.BindKey != "" || len(key.Path) != 1 || key.Path[0] != "__loom_row_id" {
+					return fmt.Errorf("operation %d: reshaped execution SORT must use the stable row identity", i)
+				}
+				reshapeWindowSortSeen = true
+			case PhysicalLimitOp:
+				if !reshapeWindowSortSeen || reshapeWindowLimitSeen || reshapeWindowClosed {
+					return fmt.Errorf("operation %d: reshaped execution LIMIT requires an immediately preceding stable row SORT", i)
+				}
+				reshapeWindowLimitSeen = true
+			default:
+				return fmt.Errorf("operation %d (%s) appears after terminal table reshape", i, operation.Kind)
+			}
 		}
 		if err := operation.validatePayload(); err != nil {
 			return fmt.Errorf("operation %d (%s): %w", i, operation.Kind, err)
@@ -159,6 +205,43 @@ func (p PhysicalPlan) Validate() error {
 			}
 			groupRows++
 			returns++
+		case PhysicalGroupedPivotOp:
+			tableReshapes++
+			if tableReshapes > 1 {
+				return fmt.Errorf("operation %d: physical plan has multiple table reshapes", i)
+			}
+			if groupRows > 0 {
+				return fmt.Errorf("operation %d: grouped row sources cannot be combined with table reshapes", i)
+			}
+			if err := validatePhysicalGroupedPivot(*operation.GroupedPivot, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d grouped pivot: %w", i, err)
+			}
+			for _, variable := range append([]string{operation.GroupedPivot.InputRowVariable, operation.GroupedPivot.GroupRowsVariable}, groupedPivotVariables(operation.GroupedPivot.GroupKeys)...) {
+				if err := definePhysicalVariable(defined, variable); err != nil {
+					return fmt.Errorf("operation %d grouped pivot: %w", i, err)
+				}
+			}
+			if err := definePhysicalVariable(defined, operation.GroupedPivot.OutputRowVariable); err != nil {
+				return fmt.Errorf("operation %d grouped pivot output row: %w", i, err)
+			}
+			reshapeOutputVariable = operation.GroupedPivot.OutputRowVariable
+		case PhysicalUnpivotOp:
+			tableReshapes++
+			if tableReshapes > 1 {
+				return fmt.Errorf("operation %d: physical plan has multiple table reshapes", i)
+			}
+			if groupRows > 0 {
+				return fmt.Errorf("operation %d: grouped row sources cannot be combined with table reshapes", i)
+			}
+			if err := validatePhysicalUnpivot(*operation.Unpivot, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d unpivot: %w", i, err)
+			}
+			for _, variable := range []string{operation.Unpivot.InputRowVariable, operation.Unpivot.SlotVariable, operation.Unpivot.OutputRowVariable} {
+				if err := definePhysicalVariable(defined, variable); err != nil {
+					return fmt.Errorf("operation %d unpivot: %w", i, err)
+				}
+			}
+			reshapeOutputVariable = operation.Unpivot.OutputRowVariable
 		case PhysicalReturnOp:
 			returns++
 			seenNames := map[string]bool{}
@@ -179,6 +262,9 @@ func (p PhysicalPlan) Validate() error {
 		}
 	} else if rootScans != 1 {
 		return fmt.Errorf("physical plan requires exactly one root scan")
+	}
+	if groupRows > 0 && tableReshapes > 0 {
+		return fmt.Errorf("group rows cannot be combined with a table reshape")
 	}
 	if returns+graphReturns != 1 {
 		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN")
@@ -793,6 +879,12 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.GroupRows != nil {
 		payloads++
 	}
+	if operation.GroupedPivot != nil {
+		payloads++
+	}
+	if operation.Unpivot != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("operation must contain exactly one payload")
 	}
@@ -812,7 +904,9 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
 		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
 		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil) ||
-		(operation.Kind == PhysicalGroupRowsOp && operation.GroupRows != nil)
+		(operation.Kind == PhysicalGroupRowsOp && operation.GroupRows != nil) ||
+		(operation.Kind == PhysicalGroupedPivotOp && operation.GroupedPivot != nil) ||
+		(operation.Kind == PhysicalUnpivotOp && operation.Unpivot != nil)
 	if !valid {
 		return fmt.Errorf("payload does not match operation kind")
 	}

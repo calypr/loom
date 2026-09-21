@@ -94,6 +94,30 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 			index++
 			continue
 		}
+		if operation.Kind == ir.PhysicalGroupedPivotOp || operation.Kind == ir.PhysicalUnpivotOp {
+			layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: operation})
+			index++
+			continue
+		}
+		if operation.Kind == ir.PhysicalSortOp {
+			outputVariable, ok := reshapedOutputVariable(layout.postWindow)
+			if !ok || !validateReshapedRowSort(operation, outputVariable) {
+				return physicalNavigationRenderLayout{}, fmt.Errorf("execution window at operation %d must sort a reshaped row by its stable row identity", index)
+			}
+			layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: operation})
+			index++
+			if index < last && plan.Operations[index].Kind == ir.PhysicalLimitOp {
+				if err := validateGenericNavigationRootLimit(plan.Operations[index]); err != nil {
+					return physicalNavigationRenderLayout{}, fmt.Errorf("execution window at operation %d: %w", index, err)
+				}
+				layout.postWindow = append(layout.postWindow, physicalNavigationRenderItem{operation: plan.Operations[index]})
+				index++
+			}
+			continue
+		}
+		if operation.Kind == ir.PhysicalLimitOp {
+			return physicalNavigationRenderLayout{}, fmt.Errorf("execution window at operation %d: LIMIT requires deterministic reshaped row SORT", index)
+		}
 		if operation.Kind == ir.PhysicalUnnestOp {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("unnest at operation %d must appear before the root execution window and traversal/set operations", index)
 		}
@@ -136,11 +160,46 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		}
 	}
 	if layout.returnOp != nil {
+		for _, operation := range plan.Operations {
+			if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
+				reductionVariables[operation.GroupedPivot.OutputRowVariable] = struct{}{}
+			}
+			if operation.Kind == ir.PhysicalUnpivotOp && operation.Unpivot != nil {
+				reductionVariables[operation.Unpivot.OutputRowVariable] = struct{}{}
+			}
+		}
+	}
+	if layout.returnOp != nil {
 		if err := validateNavigationReturnScope(*layout.returnOp, layout.root.Variable, rootScopeVariable, unnestVariables, reductionVariables); err != nil {
 			return physicalNavigationRenderLayout{}, err
 		}
 	}
 	return layout, nil
+}
+
+func reshapedOutputVariable(items []physicalNavigationRenderItem) (string, bool) {
+	for index := len(items) - 1; index >= 0; index-- {
+		operation := items[index].operation
+		switch operation.Kind {
+		case ir.PhysicalGroupedPivotOp:
+			if operation.GroupedPivot != nil {
+				return operation.GroupedPivot.OutputRowVariable, true
+			}
+		case ir.PhysicalUnpivotOp:
+			if operation.Unpivot != nil {
+				return operation.Unpivot.OutputRowVariable, true
+			}
+		}
+	}
+	return "", false
+}
+
+func validateReshapedRowSort(operation ir.PhysicalOperation, outputVariable string) bool {
+	if operation.Sort == nil || len(operation.Sort.Keys) != 1 {
+		return false
+	}
+	key := operation.Sort.Keys[0]
+	return key.Variable == outputVariable && key.BindKey == "" && len(key.Path) == 1 && key.Path[0] == "__loom_row_id"
 }
 
 func validateGenericNavigationTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {

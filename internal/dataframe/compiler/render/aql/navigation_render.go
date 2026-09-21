@@ -470,6 +470,19 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 			if operation.Unnest.Ordinality != "" {
 				variables[operation.Unnest.Ordinality] = struct{}{}
 			}
+		case ir.PhysicalGroupedPivotOp:
+			pivot := operation.GroupedPivot
+			variables[pivot.InputRowVariable] = struct{}{}
+			variables[pivot.GroupRowsVariable] = struct{}{}
+			variables[pivot.OutputRowVariable] = struct{}{}
+			for _, key := range pivot.GroupKeys {
+				variables[key.Variable] = struct{}{}
+			}
+		case ir.PhysicalUnpivotOp:
+			unpivot := operation.Unpivot
+			variables[unpivot.InputRowVariable] = struct{}{}
+			variables[unpivot.SlotVariable] = struct{}{}
+			variables[unpivot.OutputRowVariable] = struct{}{}
 		case ir.PhysicalPathSeedOp:
 			variables[operation.PathSeed.Variable] = struct{}{}
 		case ir.PhysicalPathExtendOp:

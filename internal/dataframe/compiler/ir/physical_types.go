@@ -75,6 +75,12 @@ const (
 	PhysicalCellTraceReturnOp PhysicalOperationKind = "CELL_TRACE_RETURN"
 	// PhysicalGroupRowsOp emits one row per definition in a pinned immutable group revision.
 	PhysicalGroupRowsOp PhysicalOperationKind = "GROUP_ROWS"
+	// PhysicalGroupedPivotOp groups finalized output rows by authored scalar
+	// keys and projects the frozen category list into named columns.
+	PhysicalGroupedPivotOp PhysicalOperationKind = "GROUPED_PIVOT"
+	// PhysicalUnpivotOp replaces selected scalar columns with one typed key/value
+	// row per selected input column.
+	PhysicalUnpivotOp PhysicalOperationKind = "UNPIVOT"
 )
 
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
@@ -99,6 +105,8 @@ type PhysicalOperation struct {
 	PopulationMappingReturn *PhysicalPopulationMappingReturn
 	CellTraceReturn         *PhysicalCellTraceReturn
 	GroupRows               *PhysicalGroupRows
+	GroupedPivot            *PhysicalGroupedPivot
+	Unpivot                 *PhysicalUnpivot
 }
 
 // PhysicalGroupRows is a typed source and terminal for grouped dataframe rows.

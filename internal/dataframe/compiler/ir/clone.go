@@ -106,6 +106,16 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 				canonicalizePhysicalExpression(operation.Return.Projections[projection].Expression)
 			}
 		}
+		if operation.GroupedPivot != nil {
+			for projection := range operation.GroupedPivot.InputProjections {
+				canonicalizePhysicalExpression(operation.GroupedPivot.InputProjections[projection].Expression)
+			}
+		}
+		if operation.Unpivot != nil {
+			for projection := range operation.Unpivot.InputProjections {
+				canonicalizePhysicalExpression(operation.Unpivot.InputProjections[projection].Expression)
+			}
+		}
 		if operation.PopulationMappingReturn != nil {
 			canonicalizePhysicalExpression(&operation.PopulationMappingReturn.Members)
 			for part := range operation.PopulationMappingReturn.IdentityParts {
@@ -375,7 +385,40 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		groupRowsCopy := *operation.GroupRows
 		copy.GroupRows = &groupRowsCopy
 	}
+	if operation.GroupedPivot != nil {
+		pivotCopy := *operation.GroupedPivot
+		pivotCopy.InputProjections = clonePhysicalProjections(operation.GroupedPivot.InputProjections)
+		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
+		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
+		copy.GroupedPivot = &pivotCopy
+	}
+	if operation.Unpivot != nil {
+		unpivotCopy := *operation.Unpivot
+		unpivotCopy.InputProjections = clonePhysicalProjections(operation.Unpivot.InputProjections)
+		unpivotCopy.Inputs = append([]PhysicalUnpivotInput(nil), operation.Unpivot.Inputs...)
+		unpivotCopy.IdentityParts = append([]PhysicalUnpivotIdentityPart(nil), operation.Unpivot.IdentityParts...)
+		for index := range unpivotCopy.IdentityParts {
+			unpivotCopy.IdentityParts[index].Value = clonePhysicalValue(operation.Unpivot.IdentityParts[index].Value)
+		}
+		copy.Unpivot = &unpivotCopy
+	}
 	return copy
+}
+
+func clonePhysicalProjections(projections []PhysicalProjection) []PhysicalProjection {
+	if projections == nil {
+		return nil
+	}
+	out := make([]PhysicalProjection, len(projections))
+	for index, projection := range projections {
+		out[index] = projection
+		out[index].Value = clonePhysicalValue(projection.Value)
+		if projection.Expression != nil {
+			expression := clonePhysicalExpression(*projection.Expression)
+			out[index].Expression = &expression
+		}
+	}
+	return out
 }
 
 func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
