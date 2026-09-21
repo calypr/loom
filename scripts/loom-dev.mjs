@@ -4836,6 +4836,231 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
   }
 };
 
+const verifyJ03BrowserScenario = async (target, report, entryTarget = target) => {
+  const evidenceDirectory = join(target.artifacts, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+  const downloadDirectory = join(evidenceDirectory, 'downloads');
+  mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDirectory;
+  report.target.ports = { api: target.apiPort, ui: target.uiPort };
+  recordEvidence(report, evidenceDirectory);
+  const explorerId = report.target.bootstrapExplorerId;
+  if (!explorerId) throw new Error('J03 bootstrap Explorer identity is missing');
+  report.target.explorerId = explorerId;
+  const authoring = bootstrapAuthoringURL(target, explorerId);
+  const network = [];
+  const pendingBodies = new Set();
+  const browser = await launchBrowser(downloadDirectory);
+  const cdp = browser.cdp;
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (!event.request.url.includes('/authoring/v2/')) return;
+    network.push({ requestId: event.requestId, url: new URL(event.request.url).pathname, method: event.request.method, postData: event.request.postData });
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    const item = network.find((candidate) => candidate.requestId === event.requestId);
+    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  });
+  cdp.on('Network.loadingFinished', (event) => {
+    const item = network.find((candidate) => candidate.requestId === event.requestId);
+    if (!item || !item.response?.mimeType?.includes('json')) return;
+    const capture = (async () => {
+      try {
+        const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+        item.responseBody = JSON.parse(body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body);
+      } catch (error) {
+        item.responseBodyError = String(error);
+      }
+    })().finally(() => pendingBodies.delete(capture));
+    pendingBodies.add(capture);
+  });
+
+  const readState = () => fetchBuilderState(target, explorerId);
+  const captureDOM = async (name) => {
+    const path = join(evidenceDirectory, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+  };
+  const waitForBuilderDOM = () => waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Configure rows'))`, 60000);
+  const waitForResponse = async (path, afterIndex, timeout = 60000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      const match = network.find((item, index) => index > afterIndex && item.url.endsWith(path) && item.responseBody !== undefined);
+      if (match) return match;
+      await sleep(50);
+    }
+    throw new Error(`timed out waiting for J03 ${path}: ${JSON.stringify(network.filter((item) => item.url.endsWith(path)).map((item) => ({ status: item.response?.status, error: item.responseBodyError })))}`);
+  };
+  const selectExpandedPolicy = async (policy) => {
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="New row definition"] option')].some((option) => option.textContent.includes('EXPANDED') && option.textContent.includes(${JSON.stringify(policy)})))`, 30000);
+    return browserEval(cdp, `(() => {
+    const select = document.querySelector('select[aria-label="New row definition"]');
+    const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('EXPANDED') && candidate.textContent.includes(${JSON.stringify(policy)}));
+    if (!select || !option) throw new Error('server offered no EXPANDED row choice with policy ' + ${JSON.stringify(policy)});
+    select.value = option.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return option.textContent.trim();
+    })()`);
+  };
+  const readExpandedSelection = async (state, policy) => {
+    const query = new URLSearchParams({ outputId: report.target.outputId, snapshotToken: state.catalog.snapshotToken });
+    const { response, value } = await requestJSON(`${authoring}/row-definition-choices?${query}`, { timeout: 30000 });
+    if (!response.ok) throw new Error(`J03 row choices returned HTTP ${response.status}: ${JSON.stringify(value)}`);
+    const choice = value.choices?.find((candidate) => candidate.kind === 'EXPANDED' && candidate.policies?.some((item) => item.name === 'emptyCollectionPolicy' && item.options.includes(policy)));
+    if (!choice) throw new Error(`J03 server offered no EXPANDED row choice with ${policy}`);
+    return { kind: 'EXPANDED', expanded: { rowChoiceId: choice.choiceId, emptyCollectionPolicy: policy } };
+  };
+  const postProposal = async (state, selection) => requestJSON(`${authoring}/row-definition-proposals`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+    body: JSON.stringify({ snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion, expectedDraftDigest: state.draftDigest, outputId: report.target.outputId, selection }),
+  });
+  const applyProposal = async (state, proposalId) => requestJSON(`${authoring}/commands`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+    body: JSON.stringify({
+      commandId: `loom-dev-j03-${randomUUID()}`,
+      semanticsVersion: state.workspace.semanticsVersion,
+      snapshotToken: state.catalog.snapshotToken,
+      expectedDraftVersion: state.draftVersion,
+      expectedDraftDigest: state.draftDigest,
+      commands: [{ type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: report.target.outputId, proposalId }],
+    }),
+  });
+  const captureBrowserProposal = async (policy) => {
+    await browserEval(cdp, `clickButton('Configure rows')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]'))`);
+    const label = await selectExpandedPolicy(policy);
+    const afterIndex = network.length - 1;
+    await browserEval(cdp, `clickButton('Preview row change')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply row definition'))`, 60000);
+    const response = await waitForResponse('/row-definition-proposals', afterIndex);
+    return { proposal: response.responseBody, label };
+  };
+  const capturePreview = async () => {
+    const afterIndex = network.length - 1;
+    await browserEval(cdp, `clickButton('Preview')`);
+    const response = await waitForResponse('/preview', afterIndex);
+    if (response.response?.status !== 200 || !Array.isArray(response.responseBody?.rows)) {
+      throw new Error(`J03 Preview did not return rows: HTTP ${response.response?.status} ${JSON.stringify(response.responseBody).slice(0, 400)}`);
+    }
+    return response.responseBody;
+  };
+
+  try {
+    let state = await readState();
+    const initialDocument = state.workspace?.documents?.find((candidate) => candidate.rootResourceType === 'Patient');
+    if (!initialDocument?.output?.id || initialDocument.rows?.kind !== 'RECORDS') throw new Error('J03 fixture bootstrap has no Patient RECORDS table');
+    const outputId = initialDocument.output.id;
+    report.target.outputId = outputId;
+    const initialFingerprint = draftFingerprint(state);
+    recordAssertion(report, 'j03-opens-current-records-table', 'RECORDS', initialDocument.rows.kind);
+    const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+    await navigate(cdp, entryTarget.uiUrl);
+    await navigate(cdp, url);
+    await waitForBuilderDOM();
+    await captureDOM('j03-builder-row-settings-closed');
+
+    const first = await captureBrowserProposal('PRESERVE_PARENT');
+    const proposal = first.proposal;
+    if (proposal.outputId !== outputId || !proposal.proposalId || proposal.comparison?.status !== 'AVAILABLE') {
+      throw new Error(`J03 Builder did not return an applicable row proposal: ${JSON.stringify(proposal).slice(0, 1000)}`);
+    }
+    state = await readState();
+    recordAssertion(report, 'j03-preview-does-not-mutate-draft', initialFingerprint, draftFingerprint(state));
+    const examples = proposal.comparison.examples ?? [];
+    const membershipChanges = examples.filter((item) => item.basePresent !== item.candidatePresent);
+    if (membershipChanges.length === 0) throw new Error(`J03 proposal has no row membership changes: ${JSON.stringify(proposal.comparison)}`);
+    const dialogText = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')?.innerText || ''`));
+    recordAssertion(report, 'j03-preview-shows-base-and-candidate-counts', true,
+      Number.isInteger(proposal.comparison.base?.rowCount) && Number.isInteger(proposal.comparison.candidate?.rowCount) &&
+      dialogText.includes(`Base rows: ${proposal.comparison.base.rowCount}`) && dialogText.includes(`Candidate rows: ${proposal.comparison.candidate.rowCount}`));
+    const renderedChanges = await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('ul[aria-label="Membership changes"] li')].map((item) => item.innerText.trim()).filter((item) => !item.startsWith('Unchanged · ')))`);
+    const expectedChanges = membershipChanges.map((item) => `${item.candidatePresent ? 'Added' : 'Removed'} · ${item.rowIdentity}`);
+    recordAssertion(report, 'j03-preview-shows-literal-membership-changes', expectedChanges, JSON.parse(renderedChanges));
+    const explicitOptionCount = await evaluate(cdp, `document.querySelector('[role="dialog"] select[aria-label="New row definition"]') ? [...document.querySelector('[role="dialog"] select[aria-label="New row definition"]').options].filter((option) => option.textContent.includes('Explicit group')).length : -1`);
+    recordAssertion(report, 'j03-explicit-group-absence-is-server-reported', { serverReason: true, explicitGroupOptions: 0 }, {
+      serverReason: dialogText.includes('The server has no complete explicit group revisions for this table.'), explicitGroupOptions: explicitOptionCount,
+    });
+    report.target.rowDefinitionComparison = { base: proposal.comparison.base, candidate: proposal.comparison.candidate, examples, membershipChanges };
+    await captureDOM('j03-row-proposal-preview');
+    await browserEval(cdp, `(() => {
+      const dialog = document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]');
+      const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => norm(candidate.textContent) === 'Cancel');
+      if (!button) throw new Error('row-definition dialog has no Cancel button');
+      button.click();
+      return true;
+    })()`);
+    await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')`);
+    recordAssertion(report, 'j03-cancel-does-not-mutate-draft', initialFingerprint, draftFingerprint(await readState()));
+
+    const alternateState = await readState();
+    const alternate = await postProposal(alternateState, await readExpandedSelection(alternateState, 'EXCLUDE'));
+    if (!alternate.response.ok || !alternate.value.proposalId) throw new Error(`J03 could not create an intervening proposal: HTTP ${alternate.response.status} ${JSON.stringify(alternate.value)}`);
+    const appliedAlternate = await applyProposal(alternateState, alternate.value.proposalId);
+    if (!appliedAlternate.response.ok) throw new Error(`J03 intervening proposal apply returned HTTP ${appliedAlternate.response.status}: ${JSON.stringify(appliedAlternate.value)}`);
+    state = await readState();
+    const rejectedStale = await applyProposal(state, proposal.proposalId);
+    recordAssertion(report, 'j03-stale-server-proposal-is-rejected', 409, rejectedStale.response.status);
+    recordAssertion(report, 'j03-rejected-stale-proposal-does-not-mutate-draft', draftFingerprint(state), draftFingerprint(await readState()));
+
+    await cdp.send('Page.reload', { ignoreCache: true });
+    await waitForBuilderDOM();
+    const fresh = await captureBrowserProposal('PRESERVE_PARENT');
+    if (!fresh.proposal.proposalId || fresh.proposal.comparison?.status !== 'AVAILABLE') throw new Error(`J03 fresh proposal was unavailable: ${JSON.stringify(fresh.proposal).slice(0, 1000)}`);
+    const freshExamples = fresh.proposal.comparison.examples ?? [];
+    const freshMembershipChanges = freshExamples.filter((item) => item.basePresent !== item.candidatePresent);
+    report.target.selectedExpandedChoice = fresh.label;
+    await captureDOM('j03-row-proposal-fresh');
+    await browserEval(cdp, `clickButton('Apply row definition')`);
+    await waitForBrowser(cdp, `!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')`, 60000);
+    state = await readState();
+    const appliedDocument = state.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
+    if (!appliedDocument || appliedDocument.rows?.kind !== 'EXPANDED' || appliedDocument.rows.expanded?.emptyCollectionPolicy !== 'PRESERVE_PARENT') {
+      throw new Error(`J03 applied row definition differs from the fresh server proposal: ${JSON.stringify(appliedDocument?.rows)}`);
+    }
+    recordAssertion(report, 'j03-applies-expanded-row-definition', 'EXPANDED/PRESERVE_PARENT', `${appliedDocument.rows.kind}/${appliedDocument.rows.expanded.emptyCollectionPolicy}`);
+    const preview = await capturePreview();
+    const idColumn = appliedDocument.columns.find((column) => column.source?.kind === 'field' && column.source.field?.path?.replace(/^root\./, '') === 'id');
+    const previewIDColumn = idColumn && preview.columns?.find((column) => column.authoredColumns?.includes(idColumn.column) || column.column === idColumn.column);
+    if (!previewIDColumn) throw new Error('J03 Preview omitted the saved Patient id column');
+    const previewIDs = preview.rows.map((row) => row[previewIDColumn.column]).sort();
+    const fixturePatientIDs = readFileSync(join(target.fixtureDir, 'Patient.ndjson'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).id).sort();
+    recordAssertion(report, 'j03-preview-contains-exact-fixture-patient-membership', fixturePatientIDs, [...new Set(previewIDs)]);
+    recordAssertion(report, 'j03-preview-row-count-matches-server-candidate-count', fresh.proposal.comparison.candidate.rowCount, preview.rows.length);
+    report.target.preview = {
+      rowCount: preview.rows.length,
+      candidateRowCount: fresh.proposal.comparison.candidate.rowCount,
+      patientIDs: previewIDs,
+      rowIdentities: freshExamples.map((item) => item.rowIdentity),
+      membershipChanges: freshMembershipChanges,
+    };
+
+    const savedRows = structuredClone(appliedDocument.rows);
+    const savedVersion = state.draftVersion;
+    const savedDigest = state.draftDigest;
+    await cdp.send('Page.reload', { ignoreCache: true });
+    await waitForBuilderDOM();
+    const reloaded = await readState();
+    const reloadedDocument = reloaded.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
+    recordAssertion(report, 'j03-reload-persists-row-definition', savedRows, reloadedDocument?.rows);
+    recordAssertion(report, 'j03-reload-persists-draft-identity', { draftVersion: savedVersion, draftDigest: savedDigest }, { draftVersion: reloaded.draftVersion, draftDigest: reloaded.draftDigest });
+    recordAssertion(report, 'j03-reloaded-builder-inspects-expanded-current-rows', true, String(await evaluate(cdp, 'document.body.innerText')).includes('Current rows: EXPANDED ·'));
+    const reloadedPreview = await capturePreview();
+    const reloadedIDs = reloadedPreview.rows.map((row) => row[previewIDColumn.column]).sort();
+    recordAssertion(report, 'j03-reload-preview-persists-exact-row-membership', previewIDs, reloadedIDs);
+    await captureDOM('j03-reloaded-expanded-preview');
+    await Promise.allSettled([...pendingBodies]);
+    const networkPath = join(evidenceDirectory, 'network-identities.json');
+    writeJSON(networkPath, network);
+    recordEvidence(report, networkPath);
+    writeJSON(join(evidenceDirectory, 'report.json'), { status: 'passed', scenario: 'J03-row-definition-settings', target: report.target, assertions: report.assertions, evidencePaths: report.evidencePaths });
+    console.log(`DEV_J03_BROWSER_PASSED explorer=${explorerId} output=${outputId} evidence=${evidenceDirectory}`);
+  } catch (error) {
+    await captureDOM('failure');
+    throw error;
+  } finally {
+    await browser.close();
+    rmSync(downloadDirectory, { recursive: true, force: true });
+  }
+};
+
 const cleanup = async (target, purge = false) => {
   await inspectOwnedResources(target);
   const args = ['down', '--remove-orphans'];
@@ -4855,7 +5080,8 @@ const main = async (argv) => {
     command === 'verify-current' ? 'current-builder-hotreload'
       : command === 'verify-j01' ? j01Scenario
         : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
-          : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
+          : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
+            : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
           : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
@@ -4922,6 +5148,27 @@ const main = async (argv) => {
       writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
       writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
       console.log(`DEV_J02_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationTarget.artifacts}`);
+      return;
+    }
+    if (command === 'verify-j03') {
+      await ensureDev(target, report);
+      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+      const verificationReport = createVerificationReport(verificationTarget, 'S03-J03-row-definition-settings-preview-stale-apply-persistence');
+      activeReport = verificationReport;
+      verificationReport.timings.startup_ms = report.timings.startup_ms;
+      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
+      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J03 verification fixture was not freshly seeded: ${verificationTarget.fixtureProject}`);
+      verificationReport.target.fixtureSeed = 'seeded';
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      recordAssertion(verificationReport, 'j03-starts-with-fresh-isolated-fixture-and-bootstrap-table', true,
+        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && Boolean(seed.bootstrapWorkspace?.workspace?.documents?.length));
+      await verifyJ03BrowserScenario(verificationTarget, verificationReport, target);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+      console.log(`DEV_J03_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
       return;
     }
     if (command === 'verify-j05') {
@@ -5006,7 +5253,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j05, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j05, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);

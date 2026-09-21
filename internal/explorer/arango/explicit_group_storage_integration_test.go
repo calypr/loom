@@ -48,6 +48,10 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 	if err != nil || started.ID != header.ID || started.State != explorer.ExplicitGroupRevisionStaging {
 		t.Fatalf("begin = %#v err=%v", started, err)
 	}
+	stagingChoices, err := persistence.ListExplicitGroupRevisions(ctx, project, source.Generation, source.ScopeDigest, source.ResourceType, 10)
+	if err != nil || len(stagingChoices) != 0 {
+		t.Fatalf("staging row-root choices = %#v err=%v, want no choices", stagingChoices, err)
+	}
 	if _, err := persistence.BeginExplicitGroupRevision(ctx, header, source, writer); err != nil {
 		t.Fatalf("same-owner begin retry = %v", err)
 	}
@@ -125,6 +129,13 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 	completed, err := persistence.CompleteExplicitGroupRevision(ctx, header.ID, writer, definitionDigest, membershipDigest, groupCount, memberCount, time.Now().UTC())
 	if err != nil || completed.State != explorer.ExplicitGroupRevisionComplete || completed.GroupCount != 3 || completed.MemberCount != 3 {
 		t.Fatalf("complete = %#v err=%v", completed, err)
+	}
+	choices, err := persistence.ListExplicitGroupRevisions(ctx, project, source.Generation, source.ScopeDigest, source.ResourceType, 10)
+	if err != nil || len(choices) != 1 || choices[0].ID != header.ID || choices[0].GroupCount != 3 || choices[0].MemberCount != 3 {
+		t.Fatalf("complete row-root choices = %#v err=%v", choices, err)
+	}
+	if otherRoot, err := persistence.ListExplicitGroupRevisions(ctx, project, source.Generation, source.ScopeDigest, "Observation", 10); err != nil || len(otherRoot) != 0 {
+		t.Fatalf("other row-root choices = %#v err=%v, want no choices", otherRoot, err)
 	}
 	if _, err := persistence.CompleteExplicitGroupRevision(ctx, header.ID, uuid.NewString(), definitionDigest, membershipDigest, groupCount, memberCount, time.Now().UTC()); err != nil {
 		t.Fatalf("completed retry = %v", err)

@@ -21,6 +21,7 @@ type ExplicitGroupRepository interface {
 	CompleteExplicitGroupRevision(context.Context, ExplicitGroupRevisionID, string, string, string, int64, int64, time.Time) (*ExplicitGroupRevision, error)
 	AbortExplicitGroupRevision(context.Context, ExplicitGroupRevisionID, string) error
 	CleanupExplicitGroupStaging(context.Context, time.Time, int) error
+	ListExplicitGroupRevisions(context.Context, string, string, string, string, int) ([]ExplicitGroupRevision, error)
 	GetExplicitGroupRevision(context.Context, string, ExplicitGroupRevisionID) (*ExplicitGroupRevision, error)
 	ListExplicitGroupDefinitions(context.Context, string, ExplicitGroupRevisionID) ([]ExplicitGroupDefinition, error)
 	VisitExplicitGroupMemberships(context.Context, string, ExplicitGroupRevisionID, ExplicitGroupMembershipCursor, int, func(ExplicitGroupMembership) error) (ExplicitGroupMembershipCursor, error)

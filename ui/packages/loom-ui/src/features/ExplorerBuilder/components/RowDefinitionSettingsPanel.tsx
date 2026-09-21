@@ -1,0 +1,306 @@
+import React, { useEffect, useState } from 'react';
+import type { LoomClient } from '../../../api';
+import type {
+  ExplorerRowDefinition,
+  RowDefinitionChoicesResponse,
+  RowDefinitionProposal,
+  RowDefinitionSelection,
+} from '../../../types';
+import type { DraftTable } from '../authoring/model';
+
+type SelectionOption = {
+  readonly value: string;
+  readonly label: string;
+  readonly selection: RowDefinitionSelection;
+};
+
+type SettingsState =
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'loading' }
+  | {
+      readonly kind: 'editing';
+      readonly choices: RowDefinitionChoicesResponse;
+      readonly options: ReadonlyArray<SelectionOption>;
+      readonly selectionId: string;
+    }
+  | { readonly kind: 'error'; readonly message: string };
+
+type ProposalState =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'proposing'; readonly selection: RowDefinitionSelection }
+  | {
+      readonly kind: 'fresh';
+      readonly selection: RowDefinitionSelection;
+      readonly proposal: RowDefinitionProposal;
+    }
+  | { readonly kind: 'stale'; readonly selection: RowDefinitionSelection }
+  | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
+
+const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
+  const options: SelectionOption[] = [{
+    value: 'records',
+    label: 'RECORDS · one row per source record',
+    selection: { kind: 'RECORDS' },
+  }];
+  for (const choice of choices.choices) {
+    if (choice.kind !== 'EXPANDED') continue;
+    for (const policy of choice.policies) {
+      if (policy.name !== 'emptyCollectionPolicy') continue;
+      for (const emptyCollectionPolicy of policy.options) {
+        options.push({
+          value: `expanded:${choice.choiceId}:${emptyCollectionPolicy}`,
+          label: `EXPANDED · ${choice.label} · ${emptyCollectionPolicy}`,
+          selection: { kind: 'EXPANDED', expanded: { rowChoiceId: choice.choiceId, emptyCollectionPolicy } },
+        });
+      }
+    }
+  }
+  for (const group of choices.explicitGroups) {
+    for (const unassignedMemberPolicy of group.unassignedMemberPolicies) {
+      options.push({
+        value: `explicit:${group.revisionId}:${unassignedMemberPolicy}`,
+        label: `Explicit group · ${group.revisionId.slice(0, 12)} · ${group.groupCount} groups, ${group.memberCount} members · ${unassignedMemberPolicy}`,
+        selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: group.revisionId, unassignedMemberPolicy } },
+      });
+    }
+  }
+  return options;
+};
+
+const describeCurrentRows = (rows: ExplorerRowDefinition): string => {
+  switch (rows.kind) {
+    case 'RECORDS':
+      return 'RECORDS · one row per source record';
+    case 'GROUPS':
+      switch (rows.groups.source.kind) {
+        case 'FIELD':
+          return `FIELD_GROUP · ${rows.groups.source.field.occurrenceId} · ${rows.groups.source.field.fieldPath}`;
+        case 'EXPLICIT':
+          return `EXPLICIT_GROUP · ${rows.groups.source.explicit.revisionId} · ${rows.groups.source.explicit.unassignedMemberPolicy}`;
+        default: {
+          const _exhaustive: never = rows.groups.source;
+          return _exhaustive;
+        }
+      }
+    case 'EXPANDED':
+      return `EXPANDED · ${rows.expanded.occurrenceId} · ${rows.expanded.scopePath} · ${rows.expanded.emptyCollectionPolicy}`;
+    default: {
+      const _exhaustive: never = rows;
+      return _exhaustive;
+    }
+  }
+};
+
+const isCurrentProposal = (
+  proposal: RowDefinitionProposal,
+  table: DraftTable,
+  snapshotToken: string,
+  draftVersion: number,
+  draftDigest: string,
+) => proposal.outputId === table.outputId && proposal.snapshotToken === snapshotToken &&
+  proposal.draftVersion === draftVersion && proposal.draftDigest === draftDigest;
+
+const requestFailureMessage = (error: unknown, fallback: string): string => {
+  if (typeof error === 'object' && error !== null && 'status' in error && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  return fallback;
+};
+
+export const RowDefinitionSettingsPanel = ({
+  client,
+  project,
+  explorerId,
+  authResourcePath,
+  snapshotToken,
+  draftVersion,
+  draftDigest,
+  table,
+  disabled,
+  onApply,
+}: {
+  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition'>;
+  readonly project: string;
+  readonly explorerId: string;
+  readonly authResourcePath?: string;
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+  readonly table: DraftTable;
+  readonly disabled: boolean;
+  readonly onApply: (proposalId: string) => Promise<boolean>;
+}) => {
+  const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
+  const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
+
+  useEffect(() => {
+    setProposalState((current) => current.kind === 'fresh' && !isCurrentProposal(
+      current.proposal, table, snapshotToken, draftVersion, draftDigest,
+    ) ? { kind: 'stale', selection: current.selection } : current);
+  }, [table, snapshotToken, draftVersion, draftDigest]);
+
+  const openSettings = async () => {
+    setSettings({ kind: 'loading' });
+    setProposalState({ kind: 'none' });
+    try {
+      const choices = await client.listRowDefinitionChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
+      });
+      if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken) {
+        setSettings({ kind: 'error', message: 'The server returned row choices for a different table or catalog snapshot.' });
+        return;
+      }
+      const options = selectionOptions(choices);
+      setSettings({ kind: 'editing', choices, options, selectionId: options[0].value });
+    } catch (error) {
+      setSettings({
+        kind: 'error',
+        message: requestFailureMessage(error, 'Loom could not load row-definition choices. Reload the Builder and try again.'),
+      });
+    }
+  };
+
+  const propose = async () => {
+    if (settings.kind !== 'editing') return;
+    const selected = settings.options.find((option) => option.value === settings.selectionId);
+    if (!selected) return;
+    setProposalState({ kind: 'proposing', selection: selected.selection });
+    try {
+      const proposal = await client.proposeRowDefinition({
+        project, explorerId, authResourcePath, snapshotToken, expectedDraftVersion: draftVersion,
+        expectedDraftDigest: draftDigest, outputId: table.outputId, selection: selected.selection,
+      });
+      if (!isCurrentProposal(proposal, table, snapshotToken, draftVersion, draftDigest)) {
+        setProposalState({ kind: 'stale', selection: selected.selection });
+        return;
+      }
+      setProposalState({ kind: 'fresh', selection: selected.selection, proposal });
+    } catch (error) {
+      setProposalState({ kind: 'none' });
+      setSettings({
+        kind: 'error',
+        message: requestFailureMessage(error, 'Loom could not preview this row definition. The saved draft was not changed.'),
+      });
+    }
+  };
+
+  const apply = async () => {
+    if (proposalState.kind !== 'fresh') return;
+    if (!isCurrentProposal(proposalState.proposal, table, snapshotToken, draftVersion, draftDigest)) {
+      setProposalState({ kind: 'stale', selection: proposalState.selection });
+      return;
+    }
+    const proposalId = proposalState.proposal.proposalId;
+    if (!proposalId) return;
+    setProposalState({ kind: 'applying', selection: proposalState.selection });
+    if (await onApply(proposalId)) {
+      setSettings({ kind: 'closed' });
+      setProposalState({ kind: 'none' });
+    } else {
+      setProposalState({ kind: 'stale', selection: proposalState.selection });
+    }
+  };
+
+  const cancel = () => {
+    setSettings({ kind: 'closed' });
+    setProposalState({ kind: 'none' });
+  };
+
+  const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
+  const comparison = currentProposal?.comparison;
+
+  return (
+    <section aria-label="Row definition settings" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-slate-900">Row definition settings</h2>
+          <p className="mt-1 text-xs text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          disabled={disabled || settings.kind === 'loading'}
+          onClick={() => void openSettings()}
+        >
+          Configure rows
+        </button>
+      </div>
+      {settings.kind !== 'closed' ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="row-definition-dialog-title" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
+            <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Configure row definition</h3>
+            <p className="mt-1 text-sm text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
+            {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
+            {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
+            {settings.kind === 'error' ? (
+              <div className="mt-4 flex justify-end">
+                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Close</button>
+              </div>
+            ) : null}
+            {settings.kind === 'editing' ? (
+              <>
+                <label className="mt-4 block text-sm font-medium text-slate-800">
+                  <span>New row definition</span>
+                  <select
+                    aria-label="New row definition"
+                    className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
+                    value={settings.selectionId}
+                    disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
+                    onChange={(event) => {
+                      setSettings({ ...settings, selectionId: event.currentTarget.value });
+                      setProposalState({ kind: 'none' });
+                    }}
+                  >
+                    {settings.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                {settings.choices.explicitGroups.length === 0 ? (
+                  <p className="mt-2 text-xs text-slate-500">The server has no complete explicit group revisions for this table.</p>
+                ) : null}
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
+                  <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'} onClick={() => void propose()}>
+                    Preview row change
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {proposalState.kind === 'proposing' ? <p className="mt-4" role="status">Compiling and comparing row membership…</p> : null}
+            {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This proposal is stale. Preview the row change again before applying it.</p> : null}
+            {proposalState.kind === 'applying' ? <p className="mt-4" role="status">Applying row definition…</p> : null}
+            {comparison ? (
+              <section aria-label="Row definition preview" className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <h4 className="font-semibold text-slate-900">Preview</h4>
+                <p className="mt-1">Base rows: {comparison.base?.rowCount ?? 'Unavailable'}{comparison.base?.sampled ? ' (sampled)' : ''}</p>
+                <p>Candidate rows: {comparison.candidate?.rowCount ?? 'Unavailable'}{comparison.candidate?.sampled ? ' (sampled)' : ''}</p>
+                {comparison.status === 'UNAVAILABLE' ? <p role="status" className="mt-2 text-amber-900">{comparison.reason}</p> : null}
+                {comparison.affectedColumns.length > 0 ? <p className="mt-2">Affected columns: {comparison.affectedColumns.join(', ')}</p> : null}
+                {comparison.examples.length > 0 ? (
+                  <ul className="mt-2 space-y-1" aria-label="Membership changes">
+                    {comparison.examples.map((example) => (
+                      <li key={example.rowIdentity}>
+                        {example.basePresent === example.candidatePresent ? 'Unchanged' : example.candidatePresent ? 'Added' : 'Removed'} · {example.rowIdentity}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
+              </section>
+            ) : null}
+            {proposalState.kind === 'fresh' && !currentProposal?.proposalId ? (
+              <p role="status" className="mt-3 text-amber-900">{comparison?.status === 'UNAVAILABLE' ? comparison.reason : 'The server did not issue an applicable proposal.'}</p>
+            ) : null}
+            {proposalState.kind === 'fresh' && currentProposal?.proposalId ? (
+              <div className="mt-4 flex justify-end gap-2">
+                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
+                <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
+                  Apply row definition
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+};

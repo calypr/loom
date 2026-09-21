@@ -111,6 +111,9 @@ func TestAuthoringV2CatalogExposesCandidateFieldPath(t *testing.T) {
 	if err := json.Unmarshal(encoded, &generated); err != nil {
 		t.Fatalf("generated candidate boundary rejected choice: %v", err)
 	}
+	if len(generated.AggregateOperations) != 1 || generated.AggregateOperations[0].ReasonCode == nil || *generated.AggregateOperations[0].ReasonCode != "NUMERIC_INPUT_REQUIRED" || generated.Transformations.TemporalReduction.TimestampFields == nil || generated.Transformations.UnitNormalization.Presets == nil {
+		t.Fatalf("generated candidate boundary lost typed compiler capabilities: %#v", generated)
+	}
 	fieldSource, err := generated.ConstructionChoice.Source.AsFieldChoiceSource()
 	if err != nil || fieldSource.Kind != loomapi.FieldChoiceSourceKindFIELD || fieldSource.CandidateId != "c_patient_birth_date" || fieldSource.Path != "birthDate" {
 		t.Fatalf("generated field choice source=%#v err=%v", fieldSource, err)
@@ -287,6 +290,17 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 	}
 	if wire.Candidates[0].ProjectionModes[0] != "ALL" || wire.Candidates[0].ProjectionModes[1] != "DISTINCT" {
 		t.Fatalf("projection modes = %#v, want [ALL DISTINCT]", wire.Candidates[0].ProjectionModes)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected empty capabilities: %v", err)
+	}
+	if generated.AggregateOperations == nil || generated.Transformations.TemporalReduction.TimestampFields == nil || generated.Transformations.UnitNormalization.Presets == nil {
+		t.Fatalf("generated candidate boundary lost empty capability arrays: %#v", generated)
 	}
 	choice := wire.Candidates[0].ConstructionChoice
 	if choice == nil || len(choice.Options) != 2 || choice.Options[0].Form != capability.ConstructionChoiceAll || choice.Options[0].Decision != capability.ConstructionChoiceDefault {

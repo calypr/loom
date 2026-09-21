@@ -6,12 +6,23 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 type rowProposalChoiceResolver struct{}
+
+type rowProposalChoicePlanner struct{}
+
+func (rowProposalChoicePlanner) ListRowChoices(_ context.Context, _ capability.Snapshot, _ authoringv2.Document) ([]capability.RowChoice, error) {
+	return []capability.RowChoice{{
+		ChoiceID: "expanded-choice", Kind: capability.RowChoiceExpandedScope, Label: "Patient.name[]",
+		Description: "Patient name occurrences", ValueType: "ARRAY", OccurrenceID: authoringv2.RootOccurrenceID,
+	}}, nil
+}
 
 func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request RowChoiceResolveRequest) (ResolvedRowChoice, error) {
 	if request.Route.OccurrenceID != authoringv2.RootOccurrenceID {
@@ -29,8 +40,19 @@ func (rowProposalChoiceResolver) ResolveRowChoiceID(_ context.Context, request R
 
 type rowProposalExplicitGroupResolver struct {
 	proof       ExplicitGroupRevisionProof
+	listReqs    []ExplicitGroupRevisionListRequest
 	resolveReqs []ExplicitGroupRevisionResolveRequest
 	receipts    []*explorer.CompilationReceipt
+}
+
+func (r *rowProposalExplicitGroupResolver) ListExplicitGroupRevisions(_ context.Context, request ExplicitGroupRevisionListRequest) ([]ExplicitGroupRevisionChoice, error) {
+	r.listReqs = append(r.listReqs, request)
+	return []ExplicitGroupRevisionChoice{{
+		RevisionID: "group-revision-1",
+		GroupCount: 2, MemberCount: 4, UnassignedMemberPolicies: []authoringv2.UnassignedMemberPolicy{
+			authoringv2.UnassignedMemberError, authoringv2.UnassignedMemberExclude, authoringv2.UnassignedMemberGroupAsUnassigned,
+		},
+	}}, nil
 }
 
 func (r *rowProposalExplicitGroupResolver) ResolveExplicitGroupRevision(_ context.Context, request ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error) {
@@ -67,10 +89,33 @@ func (r *rowProposalExplicitGroupResolver) ValidateCompilationReceipt(_ context.
 	return nil
 }
 
-func TestProposeExplicitGroupRequiresInjectedRevisionAndReceiptProof(t *testing.T) {
+func TestProposeExplicitGroupCompilesPinnedRevisionAndReceiptProof(t *testing.T) {
 	service, store, snapshot, _ := rowProposalService(t)
 	resolver := &rowProposalExplicitGroupResolver{}
 	service.config.ExplicitGroupResolver = resolver
+	previews := 0
+	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previews++
+		if receipt == nil || !bindings.IncludeRowIdentity {
+			t.Fatal("explicit-group preview did not execute a receipt with stable row identities")
+		}
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		document := proposalDocument(workspace, "patients")
+		if document == nil {
+			return dataframeexecution.PreviewSummary{}, fmt.Errorf("preview receipt has no patients output")
+		}
+		rowID := "patient:1"
+		if document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil && document.Rows.Groups.Source.Explicit != nil {
+			rowID = string(document.Rows.Groups.Source.Explicit.RevisionID) + ":group-a"
+		}
+		if err := visit(map[string]any{"__loom_row_id": rowID, "patient_id": "patient-1"}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"patient_id"}, RowCount: 1, Complete: true}, nil
+	}
 	request := rowProposalRequest(store.created, snapshot)
 	request.Selection = RowDefinitionSelection{Kind: RowDefinitionSelectionExplicitGroup, ExplicitGroup: &ExplicitGroupSelection{
 		RevisionID: "group-revision-1", UnassignedMemberPolicy: authoringv2.UnassignedMemberError,
@@ -79,18 +124,56 @@ func TestProposeExplicitGroupRequiresInjectedRevisionAndReceiptProof(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 0 {
+	if len(resolver.resolveReqs) != 1 || len(resolver.receipts) != 1 {
 		t.Fatalf("resolver calls: resolve=%d receipt=%d", len(resolver.resolveReqs), len(resolver.receipts))
 	}
 	resolved := resolver.resolveReqs[0]
 	if resolved.Project != request.Project || resolved.ExplorerID != request.ExplorerID || resolved.OutputID != request.OutputID || resolved.Snapshot.Token != snapshot.Token || resolved.RevisionID != "group-revision-1" || resolved.RootResourceType != "Patient" {
 		t.Fatalf("explicit group resolver received unbound request: %#v", resolved)
 	}
-	if proposal.ProposalID != "" || proposal.Comparison.Status != RowDefinitionComparisonUnavailable || proposal.Comparison.ReasonCode != "GROUPED_ROW_COMPILER_UNAVAILABLE" {
-		t.Fatalf("grouped proposal incorrectly advertised execution: %#v", proposal)
+	if proposal.ProposalID == "" || proposal.Mode != RowDefinitionSelectionExplicitGroup || proposal.Comparison.Status != RowDefinitionComparisonAvailable || proposal.Comparison.Base == nil || proposal.Comparison.Candidate == nil || proposal.Comparison.Base.RowCount != 1 || proposal.Comparison.Candidate.RowCount != 1 || len(proposal.Comparison.Examples) != 2 || previews != 2 {
+		t.Fatalf("explicit group proposal did not compile its pinned revision: %#v", proposal)
+	}
+	if !containsRowDefinitionExample(proposal.Comparison.Examples, "patient:1", true, false) || !containsRowDefinitionExample(proposal.Comparison.Examples, "group-revision-1:group-a", false, true) {
+		t.Fatalf("explicit group preview did not compare the exact pinned revision's row identity: %#v", proposal.Comparison.Examples)
 	}
 	if store.saveDraftCalls != 0 {
 		t.Fatalf("proposal persisted a draft %d times", store.saveDraftCalls)
+	}
+}
+
+func containsRowDefinitionExample(examples []RowDefinitionComparisonExample, rowIdentity string, base, candidate bool) bool {
+	for _, example := range examples {
+		if example.RowIdentity == rowIdentity && example.BasePresent == base && example.CandidatePresent == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.T) {
+	service, store, snapshot, _ := rowProposalService(t)
+	resolver := &rowProposalExplicitGroupResolver{}
+	service.config.RowChoicePlanner = rowProposalChoicePlanner{}
+	service.config.ExplicitGroupResolver = resolver
+
+	response, err := service.ListRowDefinitionChoices(context.Background(), RowDefinitionChoicesRequest{
+		Project: store.created.Project, ExplorerID: store.created.ExplorerID,
+		SnapshotToken: snapshot.Token, OutputID: "patients",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Choices) != 1 || response.Choices[0].Kind != RowChoiceExpanded || len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
+		t.Fatalf("row-definition choices omitted server-authorized options: %#v", response)
+	}
+	listRequest := resolver.listReqs[0]
+	if listRequest.Project != store.created.Project || listRequest.Snapshot.Token != snapshot.Token || listRequest.RootResourceType != "Patient" {
+		t.Fatalf("explicit group listing was not server-filtered to the authorized table root: %#v", listRequest)
+	}
+	group := response.ExplicitGroups[0]
+	if group.RevisionID != "group-revision-1" || group.GroupCount != 2 || group.MemberCount != 4 || len(group.UnassignedMemberPolicies) != 3 {
+		t.Fatalf("explicit group choice was not returned as a typed server option: %#v", group)
 	}
 }
 
@@ -296,6 +379,7 @@ func rowProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot
 		return lifecycleInterpretationCatalog(snapshot, explorerID)
 	}
 	config.RowChoiceResolver = rowProposalChoiceResolver{}
+	config.RowChoicePlanner = rowProposalChoicePlanner{}
 	config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := nativeReceipt(snapshot)
 		receipt.IntentDigest, err = request.Workspace.Digest()

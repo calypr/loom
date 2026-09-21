@@ -23,6 +23,7 @@ describe('Loom project paths', () => {
         valueType: 'ARRAY',
         policies: [{ name: 'emptyCollectionPolicy', options: ['PRESERVE_PARENT'] }],
       }],
+      explicitGroups: [],
     } as const;
     const proposal = {
       proposalId: 'proposal-receipt',

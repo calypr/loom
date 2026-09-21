@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -236,6 +237,20 @@ type ExplicitGroupRevisionResolveRequest struct {
 	RootResourceType string
 }
 
+type ExplicitGroupRevisionListRequest struct {
+	Project          string
+	Snapshot         capability.Snapshot
+	RootResourceType string
+}
+
+type ExplicitGroupRevisionChoice struct {
+	RevisionID               string                               `json:"revisionId"`
+	GroupCount               int64                                `json:"groupCount"`
+	MemberCount              int64                                `json:"memberCount"`
+	CreatedAt                time.Time                            `json:"createdAt"`
+	UnassignedMemberPolicies []authoringv2.UnassignedMemberPolicy `json:"unassignedMemberPolicies"`
+}
+
 // ExplicitGroupRevisionProof contains the immutable identities a group
 // adapter validates before a proposal can use a revision.
 type ExplicitGroupRevisionProof struct {
@@ -252,6 +267,7 @@ type ExplicitGroupRevisionProof struct {
 }
 
 type ExplicitGroupRevisionResolver interface {
+	ListExplicitGroupRevisions(context.Context, ExplicitGroupRevisionListRequest) ([]ExplicitGroupRevisionChoice, error)
 	ResolveExplicitGroupRevision(context.Context, ExplicitGroupRevisionResolveRequest) (ExplicitGroupRevisionProof, error)
 	ValidateCompilationReceipt(context.Context, ExplicitGroupRevisionProof, *explorer.CompilationReceipt) error
 }
@@ -334,8 +350,8 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := s.validateExplicitGroupReceipt(ctx, baseGroupProof, baseReceipt); err != nil {
 		return RowDefinitionProposal{}, err
 	}
-	if request.Selection.Kind == RowDefinitionSelectionFieldGroup || request.Selection.Kind == RowDefinitionSelectionExplicitGroup {
-		comparison, err := s.previewUnavailableRowDefinitionComparison(ctx, request, snapshot, baseReceipt, "GROUPED_ROW_COMPILER_UNAVAILABLE", "Grouped row execution is unavailable until the grouped-row compiler operation is implemented.", limit)
+	if request.Selection.Kind == RowDefinitionSelectionFieldGroup {
+		comparison, err := s.previewUnavailableRowDefinitionComparison(ctx, request, snapshot, baseReceipt, "GROUPED_ROW_COMPILER_UNAVAILABLE", "FIELD_GROUP row-definition execution is unavailable in this workflow.", limit)
 		if err != nil {
 			return RowDefinitionProposal{}, err
 		}

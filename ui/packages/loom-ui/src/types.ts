@@ -355,11 +355,20 @@ export const rowDefinitionChoiceSchema = z.discriminatedUnion('kind', [
   }).strict(),
 ]);
 export type RowDefinitionChoice = z.infer<typeof rowDefinitionChoiceSchema>;
+export const explicitGroupRevisionChoiceSchema = z.object({
+  revisionId: opaqueIdSchema,
+  groupCount: z.number().int().positive().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+  createdAt: z.string().datetime(),
+  unassignedMemberPolicies: z.array(z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'])).min(1),
+}).strict();
+export type ExplicitGroupRevisionChoice = z.infer<typeof explicitGroupRevisionChoiceSchema>;
 export const rowDefinitionChoicesResponseSchema = z
   .object({
     snapshotToken: opaqueIdSchema,
     outputId: opaqueIdSchema,
     choices: z.array(rowDefinitionChoiceSchema),
+    explicitGroups: z.array(explicitGroupRevisionChoiceSchema),
   })
   .strict();
 export type RowDefinitionChoicesResponse = z.infer<typeof rowDefinitionChoicesResponseSchema>;

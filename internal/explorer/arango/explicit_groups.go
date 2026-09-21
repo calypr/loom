@@ -485,6 +485,37 @@ func (s *Store) GetExplicitGroupRevision(ctx context.Context, project string, re
 	return header, nil
 }
 
+func (s *Store) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	revisions := make([]explorer.ExplicitGroupRevision, 0)
+	err := s.client.QueryRows(ctx, `FOR d IN @@c
+FILTER d.project == @project
+AND d.generation == @generation
+AND d.scopeDigest == @scopeDigest
+AND d.resourceType == @resourceType
+AND d.state == @state
+SORT d.createdAt DESC, d._key ASC
+LIMIT @limit
+RETURN d`, limit, map[string]any{
+		"@c": ExplicitGroupRevisionsCollection, "project": project, "generation": generation,
+		"scopeDigest": scopeDigest, "resourceType": resourceType,
+		"state": explorer.ExplicitGroupRevisionComplete, "limit": limit,
+	}, func(row map[string]any) error {
+		revision, err := decode[explorer.ExplicitGroupRevision](row)
+		if err != nil {
+			return err
+		}
+		if err := revision.Validate(); err != nil {
+			return fmt.Errorf("%w: %v", explorer.ErrCorruptExplicitGroupRevision, err)
+		}
+		revisions = append(revisions, revision)
+		return nil
+	})
+	return revisions, err
+}
+
 func (s *Store) readExplicitGroupRevision(ctx context.Context, queryer store.RowQueryer, revisionID explorer.ExplicitGroupRevisionID, project string) (*explorer.ExplicitGroupRevision, map[string]any, error) {
 	if strings.TrimSpace(string(revisionID)) == "" {
 		return nil, nil, explorer.ErrExplicitGroupRevisionNotFound

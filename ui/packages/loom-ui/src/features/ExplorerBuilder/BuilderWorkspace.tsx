@@ -40,6 +40,7 @@ import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
+import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
   derivedOccurrences,
@@ -1418,12 +1419,28 @@ const BuilderWorkspaceContent = ({
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {table ? (
               <div className="grid gap-3 lg:grid-cols-2">
-                <RowDefinitionPanel
-                  catalog={state.catalog}
-                  table={table}
-                  disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
-                />
+                <div className="space-y-3">
+                  <RowDefinitionPanel
+                    catalog={state.catalog}
+                    table={table}
+                    disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                    onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                  />
+                  <RowDefinitionSettingsPanel
+                    client={loomClient}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    draftVersion={state.draftVersion}
+                    draftDigest={state.draftDigest}
+                    table={table}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                    onApply={(proposalId) => applyCommands([{
+                      type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
+                    }])}
+                  />
+                </div>
                 <PopulationPanel
                   table={table}
                   selection={activePopulationSelection}

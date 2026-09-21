@@ -2664,13 +2664,29 @@ components:
     RowDefinitionChoicesResponse:
       type: object
       additionalProperties: false
-      required: [snapshotToken, outputId, choices]
+      required: [snapshotToken, outputId, choices, explicitGroups]
       properties:
         snapshotToken: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         choices:
           type: array
           items: {$ref: '#/components/schemas/RowDefinitionChoice'}
+        explicitGroups:
+          type: array
+          items: {$ref: '#/components/schemas/ExplicitGroupRevisionChoice'}
+    ExplicitGroupRevisionChoice:
+      type: object
+      additionalProperties: false
+      required: [revisionId, groupCount, memberCount, createdAt, unassignedMemberPolicies]
+      properties:
+        revisionId: {type: string, minLength: 1}
+        groupCount: {type: integer, minimum: 1}
+        memberCount: {type: integer, minimum: 0}
+        createdAt: {type: string, format: date-time}
+        unassignedMemberPolicies:
+          type: array
+          minItems: 1
+          items: {type: string, enum: [ERROR, EXCLUDE, GROUP_AS_UNASSIGNED]}
     RowDefinitionChoice:
       type: object
       additionalProperties: false

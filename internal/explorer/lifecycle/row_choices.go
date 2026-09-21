@@ -20,9 +20,10 @@ type RowDefinitionChoicesRequest struct {
 }
 
 type RowDefinitionChoicesResponse struct {
-	SnapshotToken string                `json:"snapshotToken"`
-	OutputID      string                `json:"outputId"`
-	Choices       []RowDefinitionChoice `json:"choices"`
+	SnapshotToken  string                        `json:"snapshotToken"`
+	OutputID       string                        `json:"outputId"`
+	Choices        []RowDefinitionChoice         `json:"choices"`
+	ExplicitGroups []ExplicitGroupRevisionChoice `json:"explicitGroups"`
 }
 
 type RowDefinitionChoice struct {
@@ -161,7 +162,7 @@ func (r *SchemaRowChoiceResolver) resolveFacts(resourceType, path string) (capab
 }
 
 func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefinitionChoicesRequest) (RowDefinitionChoicesResponse, error) {
-	result := RowDefinitionChoicesResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []RowDefinitionChoice{}}
+	result := RowDefinitionChoicesResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []RowDefinitionChoice{}, ExplicitGroups: []ExplicitGroupRevisionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" {
 		return result, malformed("row-definition-choices", "project, explorerId, snapshotToken, and outputId are required", nil)
 	}
@@ -188,11 +189,20 @@ func (s *Service) ListRowDefinitionChoices(ctx context.Context, request RowDefin
 	if err != nil {
 		return result, conflict("row-definition-choices", "STALE_ROUTE", "the saved route no longer matches the pinned capability snapshot", nil, err)
 	}
-	return responseFromRowChoices(request.SnapshotToken, request.OutputID, choices), nil
+	result = responseFromRowChoices(request.SnapshotToken, request.OutputID, choices)
+	if s.config.ExplicitGroupResolver != nil {
+		result.ExplicitGroups, err = s.config.ExplicitGroupResolver.ListExplicitGroupRevisions(ctx, ExplicitGroupRevisionListRequest{
+			Project: request.Project, Snapshot: authorized.Snapshot.Clone(), RootResourceType: document.RootResourceType,
+		})
+		if err != nil {
+			return RowDefinitionChoicesResponse{}, unavailable("row-definition-choices", "EXPLICIT_GROUP_UNAVAILABLE", "explicit group revisions are unavailable for this table", err)
+		}
+	}
+	return result, nil
 }
 
 func responseFromRowChoices(snapshotToken, outputID string, choices []capability.RowChoice) RowDefinitionChoicesResponse {
-	response := RowDefinitionChoicesResponse{SnapshotToken: snapshotToken, OutputID: outputID, Choices: make([]RowDefinitionChoice, 0, len(choices))}
+	response := RowDefinitionChoicesResponse{SnapshotToken: snapshotToken, OutputID: outputID, Choices: make([]RowDefinitionChoice, 0, len(choices)), ExplicitGroups: []ExplicitGroupRevisionChoice{}}
 	for _, choice := range choices {
 		response.Choices = append(response.Choices, RowDefinitionChoice{
 			ChoiceID: choice.ChoiceID, Label: choice.Label, Description: choice.Description,

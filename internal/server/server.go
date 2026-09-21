@@ -386,6 +386,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure row-choice schema resolver: %w", err)
 	}
+	explicitGroupResolver, err := lifecycle.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
+	if err != nil {
+		return fmt.Errorf("configure explicit group revision resolver: %w", err)
+	}
 	lifecycleConfig := lifecycle.Config{
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
@@ -396,6 +400,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
+		ExplicitGroupResolver:              explicitGroupResolver,
 		CompileReceipt:                     compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {

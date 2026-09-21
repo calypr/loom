@@ -104,6 +104,13 @@ describe('row-definition contract schemas', () => {
         valueType: 'STRING',
         policies: [{ name: 'missingKeyPolicy', options: ['ERROR'] }],
       }],
+      explicitGroups: [{
+        revisionId: 'grouprev_1',
+        groupCount: 2,
+        memberCount: 4,
+        createdAt: '2026-09-20T00:00:00.000Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
     } as const;
     expect(rowDefinitionChoicesResponseSchema.parse(choices)).toEqual(choices);
 
@@ -144,6 +151,7 @@ describe('row-definition contract schemas', () => {
         policies: [{ name: 'missingKeyPolicy', options: ['ERROR'] }],
         fieldPath: 'not-in-the-public-contract',
       }],
+      explicitGroups: [],
     }).success).toBe(false);
   });
 });

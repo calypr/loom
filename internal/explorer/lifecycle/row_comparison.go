@@ -24,7 +24,7 @@ type rowDefinitionPreviewRows struct {
 
 func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
 	if receiptHasUnsupportedGroupedRows(base, request.OutputID) || receiptHasUnsupportedGroupedRows(candidate, request.OutputID) {
-		return unavailableRowDefinitionComparison("GROUPED_ROW_COMPILER_UNAVAILABLE", "Grouped row execution is unavailable until the grouped-row compiler operation is implemented."), nil
+		return unavailableRowDefinitionComparison("GROUPED_ROW_COMPILER_UNAVAILABLE", "FIELD_GROUP row-definition execution is unavailable in this workflow."), nil
 	}
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
 		return unavailableRowDefinitionComparison("PREVIEW_UNAVAILABLE", "Receipt preview execution is not configured."), nil
@@ -236,5 +236,6 @@ func receiptHasUnsupportedGroupedRows(receipt *explorer.CompilationReceipt, outp
 		return false
 	}
 	document := proposalDocument(workspace, outputID)
-	return document != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups
+	return document != nil && document.Rows.Kind == authoringv2.RowDefinitionGroups && document.Rows.Groups != nil &&
+		document.Rows.Groups.Source.Kind == authoringv2.GroupSourceField
 }
