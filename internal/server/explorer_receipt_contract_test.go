@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -319,6 +320,15 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 	if before != after {
 		t.Fatalf("transient compiler metadata changed canonical fingerprint: %q != %q", before, after)
 	}
+	resolved.Compiled.Outputs[0].OutputSchema[0].NormalizedUnit = &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}
+	unitArtifacts, _, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := unitArtifacts["patients"]; changed == before {
+		t.Fatal("normalized output unit did not change canonical fingerprint")
+	}
+	resolved.Compiled.Outputs[0].OutputSchema[0].NormalizedUnit = nil
 	for key := range resolved.Compiled.Outputs[0].Plan.BindVars {
 		resolved.Compiled.Outputs[0].Plan.BindVars[key] = "semantically-different"
 		break
