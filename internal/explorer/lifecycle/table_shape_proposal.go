@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -9,35 +10,84 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/projectid"
+	"github.com/calypr/loom/internal/explorer/tableshapecap"
 )
 
 type TableShapeProposalRequest struct {
-	Project              string
-	ExplorerID           string
-	SnapshotToken        string
-	ExpectedDraftVersion int64
-	ExpectedDraftDigest  string
-	OutputID             string
-	TableShape           *authoringv2.TableShape
-	Limit                int
+	Project              string                 `json:"project"`
+	ExplorerID           string                 `json:"explorerId"`
+	SnapshotToken        string                 `json:"snapshotToken"`
+	ExpectedDraftVersion int64                  `json:"expectedDraftVersion"`
+	ExpectedDraftDigest  string                 `json:"expectedDraftDigest"`
+	OutputID             string                 `json:"outputId"`
+	Mode                 TableShapeProposalMode `json:"mode"`
+	CatalogID            string                 `json:"catalogId"`
+	ReshapeResolutionID  string                 `json:"reshapeResolutionId,omitempty"`
+	DerivedResolutionIDs []string               `json:"derivedResolutionIds,omitempty"`
+	Limit                int                    `json:"limit,omitempty"`
 }
 
 func (r TableShapeProposalRequest) Validate() error {
-	for name, value := range map[string]string{
-		"project": r.Project, "explorerId": r.ExplorerID, "snapshotToken": r.SnapshotToken,
-		"expectedDraftDigest": r.ExpectedDraftDigest, "outputId": r.OutputID,
-	} {
-		if err := requireExactIdentity(value, name); err != nil {
+	if err := r.catalogRequest().Validate(); err != nil {
+		return err
+	}
+	if err := requireExactIdentity(r.CatalogID, "catalogId"); err != nil {
+		return err
+	}
+	switch r.Mode {
+	case TableShapeProposalAdd, TableShapeProposalReplace, TableShapeProposalRemove:
+	default:
+		return fmt.Errorf("mode must be ADD, REPLACE, or REMOVE")
+	}
+	if r.ReshapeResolutionID != "" {
+		if err := requireExactIdentity(r.ReshapeResolutionID, "reshapeResolutionId"); err != nil {
 			return err
 		}
 	}
-	if r.ExpectedDraftVersion < 1 {
-		return fmt.Errorf("expectedDraftVersion must be positive")
+	if len(r.DerivedResolutionIDs) > maxTableShapeResolutionReferences {
+		return fmt.Errorf("derivedResolutionIds exceeds the supported maximum")
+	}
+	seen := make(map[string]struct{}, len(r.DerivedResolutionIDs)+1)
+	if r.ReshapeResolutionID != "" {
+		seen[r.ReshapeResolutionID] = struct{}{}
+	}
+	for index, id := range r.DerivedResolutionIDs {
+		if err := requireExactIdentity(id, fmt.Sprintf("derivedResolutionIds[%d]", index)); err != nil {
+			return err
+		}
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("resolution IDs must be unique")
+		}
+		seen[id] = struct{}{}
+	}
+	if r.Mode == TableShapeProposalRemove && (r.ReshapeResolutionID != "" || len(r.DerivedResolutionIDs) != 0) {
+		return fmt.Errorf("REMOVE does not accept resolution IDs")
 	}
 	if r.Limit < 0 || r.Limit > dataframeexecution.MaxPreviewLimit {
 		return fmt.Errorf("limit is outside the supported range")
 	}
+	return nil
+}
+
+func (r TableShapeProposalRequest) catalogRequest() TableShapeCatalogRequest {
+	return TableShapeCatalogRequest{
+		Project: r.Project, ExplorerID: r.ExplorerID, SnapshotToken: r.SnapshotToken,
+		ExpectedDraftVersion: r.ExpectedDraftVersion, ExpectedDraftDigest: r.ExpectedDraftDigest,
+		OutputID: r.OutputID,
+	}
+}
+
+func (r *TableShapeProposalRequest) UnmarshalJSON(data []byte) error {
+	type wire TableShapeProposalRequest
+	value, err := tableshapecap.DecodeStrict[wire](data)
+	if err != nil {
+		return err
+	}
+	decoded := TableShapeProposalRequest(value)
+	if err := decoded.Validate(); err != nil {
+		return err
+	}
+	*r = decoded
 	return nil
 }
 
@@ -97,53 +147,47 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if err := request.Validate(); err != nil {
 		return TableShapeProposal{}, malformed("table-shape-proposal", err.Error(), err)
 	}
-	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
+	if s.config.TableShapeCapabilities == nil || s.config.Capability.Catalog == nil || s.config.CompileReceipt == nil {
 		return TableShapeProposal{}, unavailable("table-shape-proposal", "PROPOSAL_UNAVAILABLE", "table shape proposal compilation is not configured", nil)
 	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	snapshot := authorized.Snapshot
-	if err != nil || snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
-		return TableShapeProposal{}, conflict("table-shape-proposal", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
-	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return TableShapeProposal{}, conflict("table-shape-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
-	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	base, catalog, err := s.tableShapeCatalogForRequest(ctx, request.catalogRequest(), request.CatalogID)
 	if err != nil {
 		return TableShapeProposal{}, err
 	}
-	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return TableShapeProposal{}, conflict("table-shape-proposal", "DRAFT_CONFLICT", "the Explorer draft changed; reload before proposing a table shape", nil, explorer.ErrDraftConflict)
+	if base.finalReceipt == nil {
+		return TableShapeProposal{}, unavailable("table-shape-proposal", "PROPOSAL_UNAVAILABLE", "the current table compilation receipt is unavailable", nil)
 	}
-	workspace, err := previewWorkspace(ctx, s.store, owner)
+	if err := tableShapeProposalModeMatches(request.Mode, base.document.TableShape); err != nil {
+		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
+	}
+	shape, err := s.composeTableShapeProposal(ctx, request, catalog)
 	if err != nil {
-		return TableShapeProposal{}, conflict("table-shape-proposal", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be proposed", nil, err)
+		var lifecycleErr *Error
+		if errors.As(err, &lifecycleErr) {
+			return TableShapeProposal{}, err
+		}
+		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
-	baseDigest, err := workspace.Digest()
-	if err != nil || baseDigest != owner.DraftDigest {
-		return TableShapeProposal{}, conflict("table-shape-proposal", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
-	}
-	baseDocument := proposalDocument(workspace, request.OutputID)
-	if baseDocument == nil {
-		return TableShapeProposal{}, unprocessable("table-shape-proposal", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
-	}
-	mode, err := tableShapeProposalMode(baseDocument.TableShape, request.TableShape)
+	mode, err := tableShapeProposalMode(base.document.TableShape, shape)
 	if err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
-	baseDocumentDigest, err := documentDigest(*baseDocument)
+	if mode != request.Mode {
+		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", "the selected mode does not match the reconstructed table shape", nil)
+	}
+	baseDocumentDigest, err := documentDigest(base.document)
 	if err != nil {
 		return TableShapeProposal{}, err
 	}
 	command := authoringv2.Command{Type: authoringv2.CommandApplyTableShapeProposal, OutputID: request.OutputID, ProposalID: "proposal-preview"}
-	if err := command.ResolveTableShapeProposal(request.TableShape); err != nil {
+	if err := command.ResolveTableShapeProposal(shape); err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, s.config.Capability.Catalog(snapshot, request.ExplorerID), "table-shape-proposal-preview", []authoringv2.Command{command})
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(base.workspace, s.config.Capability.Catalog(base.snapshot, request.ExplorerID), "table-shape-proposal-preview", []authoringv2.Command{command})
 	if err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
-	if _, err := tableShapeWorkspaceChange(workspace, candidateWorkspace, request.OutputID); err != nil {
+	if _, err := tableShapeWorkspaceChange(base.workspace, candidateWorkspace, request.OutputID); err != nil {
 		return TableShapeProposal{}, unprocessable("table-shape-proposal", "INVALID_TABLE_SHAPE", err.Error(), err)
 	}
 	candidateDigest, err := candidateWorkspace.Digest()
@@ -154,15 +198,8 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if limit == 0 {
 		limit = dataframeexecution.DefaultPreviewLimit
 	}
-	baseReceipt, err := s.compile(ctx, compileRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken, RequestID: "table-shape-proposal-base"})
-	if err != nil {
-		return TableShapeProposal{}, err
-	}
-	if _, err := s.verifyProposalReceipt(ctx, "table-shape-proposal", baseReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &workspace); err != nil {
-		return TableShapeProposal{}, err
-	}
 	binding := &explorer.TableShapeProposalBinding{
-		DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, OutputID: request.OutputID,
+		DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest, OutputID: request.OutputID,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken,
 	}
@@ -174,23 +211,39 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if err != nil {
 		return TableShapeProposal{}, err
 	}
-	if _, err := s.verifyProposalReceipt(ctx, "table-shape-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, snapshot, &candidateWorkspace); err != nil {
+	if _, err := s.verifyProposalReceipt(ctx, "table-shape-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.snapshot, &candidateWorkspace); err != nil {
 		return TableShapeProposal{}, err
 	}
-	comparison, err := s.compareTableShapeReceipts(ctx, request, snapshot, baseReceipt, candidateReceipt, limit)
+	comparison, err := s.compareTableShapeReceipts(ctx, request, base.snapshot, base.finalReceipt, candidateReceipt, limit)
 	if err != nil {
 		return TableShapeProposal{}, err
 	}
 	return TableShapeProposal{
-		ProposalID: candidateReceipt.ID, BaseReceiptID: baseReceipt.ID, OutputID: request.OutputID,
-		SnapshotToken: request.SnapshotToken, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest,
+		ProposalID: candidateReceipt.ID, BaseReceiptID: base.finalReceipt.ID, OutputID: request.OutputID,
+		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
 		Mode: mode, Comparison: comparison,
 	}, nil
 }
 
+func tableShapeProposalModeMatches(mode TableShapeProposalMode, saved *authoringv2.TableShape) error {
+	switch mode {
+	case TableShapeProposalAdd:
+		if saved != nil {
+			return fmt.Errorf("ADD requires a table without a saved shape")
+		}
+	case TableShapeProposalReplace, TableShapeProposalRemove:
+		if saved == nil {
+			return fmt.Errorf("%s requires a saved table shape", mode)
+		}
+	default:
+		return fmt.Errorf("mode must be ADD, REPLACE, or REMOVE")
+	}
+	return nil
+}
+
 func tableShapeProposalMode(base, candidate *authoringv2.TableShape) (TableShapeProposalMode, error) {
-	if reflect.DeepEqual(base, candidate) {
+	if sameTableShapeDefinition(base, candidate) {
 		return "", fmt.Errorf("candidate table shape does not change the saved table")
 	}
 	if candidate == nil {
@@ -200,6 +253,40 @@ func tableShapeProposalMode(base, candidate *authoringv2.TableShape) (TableShape
 		return TableShapeProposalAdd, nil
 	}
 	return TableShapeProposalReplace, nil
+}
+
+func sameTableShapeDefinition(left, right *authoringv2.TableShape) bool {
+	return reflect.DeepEqual(tableShapeWithoutConstructionIDs(left), tableShapeWithoutConstructionIDs(right))
+}
+
+func tableShapeWithoutConstructionIDs(shape *authoringv2.TableShape) *authoringv2.TableShape {
+	if shape == nil {
+		return nil
+	}
+	copy := *shape
+	copy.Derived = append([]authoringv2.DerivedConstruction(nil), shape.Derived...)
+	for index := range copy.Derived {
+		copy.Derived[index].ConstructionID = ""
+	}
+	if shape.Reshape == nil {
+		return &copy
+	}
+	reshape := *shape.Reshape
+	copy.Reshape = &reshape
+	if shape.Reshape.Pivot != nil {
+		pivot := *shape.Reshape.Pivot
+		pivot.ConstructionID = ""
+		pivot.GroupKeys = append([]string(nil), pivot.GroupKeys...)
+		pivot.Categories = append([]authoringv2.PivotCategory(nil), pivot.Categories...)
+		reshape.Pivot = &pivot
+	}
+	if shape.Reshape.Unpivot != nil {
+		unpivot := *shape.Reshape.Unpivot
+		unpivot.ConstructionID = ""
+		unpivot.Inputs = append([]authoringv2.UnpivotInput(nil), unpivot.Inputs...)
+		reshape.Unpivot = &unpivot
+	}
+	return &copy
 }
 
 func (s *Service) prepareTableShapeProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
