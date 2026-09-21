@@ -63,17 +63,18 @@ type PresentationConfig struct {
 }
 
 type PresentationColumn struct {
-	EmissionID   string `json:"emissionId"`
-	PublicColumn string `json:"publicColumn"`
-	Label        string `json:"label"`
-	Visible      bool   `json:"visible"`
-	Order        int    `json:"order"`
-	Pinned       bool   `json:"pinned"`
-	FilterLabel  string `json:"filterLabel,omitempty"`
-	FilterOrder  int    `json:"filterOrder,omitempty"`
-	ChartType    string `json:"chartType,omitempty"`
-	ChartTitle   string `json:"chartTitle,omitempty"`
-	ChartOrder   int    `json:"chartOrder,omitempty"`
+	EmissionID    string `json:"emissionId"`
+	PublicColumn  string `json:"publicColumn"`
+	Label         string `json:"label"`
+	Visible       bool   `json:"visible"`
+	Order         int    `json:"order"`
+	PhysicalOrder int    `json:"-"`
+	Pinned        bool   `json:"pinned"`
+	FilterLabel   string `json:"filterLabel,omitempty"`
+	FilterOrder   int    `json:"filterOrder,omitempty"`
+	ChartType     string `json:"chartType,omitempty"`
+	ChartTitle    string `json:"chartTitle,omitempty"`
+	ChartOrder    int    `json:"chartOrder,omitempty"`
 }
 
 // Result is one deterministic semantic document compilation.

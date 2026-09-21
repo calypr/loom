@@ -479,6 +479,11 @@ func TestCompileIndexedProjectionEmitsLosslessScalarContract(t *testing.T) {
 	if len(result.IdentityMappings) != 1 || len(result.IdentityMappings[0].EmissionIDs) != 9 {
 		t.Fatalf("identity mappings = %#v", result.IdentityMappings)
 	}
+	for index, column := range result.Presentation.Columns {
+		if column.Order != 0 || column.PhysicalOrder != index {
+			t.Fatalf("presentation column %d = %#v, want authored order 0 and physical order %d", index, column, index)
+		}
+	}
 }
 
 func TestCompileRootRepeatedFirstClaimsLoss(t *testing.T) {

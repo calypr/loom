@@ -404,7 +404,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		emitted = append(emitted, emission)
 		mergeContractQuality(&contract, emission)
 		mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: []string{emissionID}})
-		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, Pinned: pinned}
+		presented := PresentationColumn{EmissionID: emissionID, PublicColumn: column.Column, Label: column.Label, Visible: visible, Order: orderValue, PhysicalOrder: presentationOrder, Pinned: pinned}
 		if column.Filter != nil {
 			presented.FilterLabel = firstNonEmpty(column.Filter.Label, column.Label)
 			presented.FilterOrder = index
@@ -532,7 +532,11 @@ func presentationColumn(source authoringv2.Column, sourceOrder, order int, emiss
 	} else {
 		visible = false
 	}
-	result := PresentationColumn{EmissionID: emission.EmissionID, PublicColumn: emission.PublicColumn, Label: emission.Label, Visible: visible, Order: order, Pinned: pinned}
+	authoredOrder := sourceOrder
+	if source.Table != nil && source.Table.Order != nil {
+		authoredOrder = *source.Table.Order
+	}
+	result := PresentationColumn{EmissionID: emission.EmissionID, PublicColumn: emission.PublicColumn, Label: emission.Label, Visible: visible, Order: authoredOrder, PhysicalOrder: order, Pinned: pinned}
 	if source.Filter != nil && emission.Filterable {
 		result.FilterLabel = firstNonEmpty(source.Filter.Label, emission.Label)
 		result.FilterOrder = sourceOrder

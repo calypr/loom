@@ -350,10 +350,15 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 	if !ok {
 		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("output %q is absent from its contract", outputID)
 	}
+	contractColumns := make(map[string]struct{}, len(contract.Columns))
+	for _, column := range contract.Columns {
+		contractColumns[strings.TrimSpace(column.Column)] = struct{}{}
+	}
 	physical := make(map[string]dataframepublished.Column, len(materialization.Columns))
 	for _, column := range materialization.Columns {
 		name := strings.TrimSpace(column.Name)
-		if name != "" && name != "auth_resource_path" && !strings.HasPrefix(name, "__loom_") {
+		_, selected := contractColumns[name]
+		if name != "" && name != "auth_resource_path" && !strings.HasPrefix(name, "__loom_") && (!column.LoomOwned || selected) {
 			physical[name] = column
 		}
 	}

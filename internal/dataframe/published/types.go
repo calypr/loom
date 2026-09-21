@@ -21,6 +21,7 @@ type Column struct {
 	LogicalType  string `json:"logicalType,omitempty"`
 	Nullable     bool   `json:"nullable,omitempty"`
 	Repeated     bool   `json:"repeated,omitempty"`
+	LoomOwned    bool   `json:"loomOwned,omitempty"`
 }
 
 type DataframeSelector = dataset.DataframeSelector
@@ -84,7 +85,7 @@ func cloneSourceRow(value *publication.SourceRowMetadata) *publication.SourceRow
 func publishedColumns(columns []publication.PhysicalColumn) []Column {
 	result := make([]Column, len(columns))
 	for index, column := range columns {
-		result[index] = Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated}
+		result[index] = Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated, LoomOwned: column.LoomOwned}
 	}
 	return result
 }

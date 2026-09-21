@@ -187,7 +187,10 @@ func compiledExplorerWorkspaceConfigV2(project, explorerID string, compiled expl
 		}
 		columns := append([]explorercompilation.PresentationColumn(nil), presentation.Columns...)
 		sort.SliceStable(columns, func(i, j int) bool {
-			return columns[i].Order < columns[j].Order
+			if columns[i].Order != columns[j].Order {
+				return columns[i].Order < columns[j].Order
+			}
+			return columns[i].PhysicalOrder < columns[j].PhysicalOrder
 		})
 		document, found := semanticWorkspaceDocument(compiled.Workspace, tab.OutputID)
 		view := explorer.ConfigView{ID: tab.ID, Title: tab.Title, Output: tab.OutputID, Table: explorer.ConfigTable{Columns: []explorer.ConfigColumn{}}}

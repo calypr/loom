@@ -289,8 +289,8 @@ func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTie
 			{EmissionID: "column_a", OutputID: "out", PublicColumn: "column_a"},
 		},
 		Presentations: []explorercompilation.PresentationConfig{{OutputID: "out", Columns: []explorercompilation.PresentationColumn{
-			{EmissionID: "column_b", PublicColumn: "column_b", Label: "B", Visible: false, Order: 0, FilterLabel: "B", FilterOrder: 0, ChartType: "bar", ChartOrder: 0},
-			{EmissionID: "column_a", PublicColumn: "column_a", Label: "A", Visible: true, Order: 0, FilterLabel: "A", FilterOrder: 0, ChartType: "line", ChartOrder: 1},
+			{EmissionID: "column_b", PublicColumn: "column_b", Label: "B", Visible: false, Order: 0, PhysicalOrder: 1, FilterLabel: "B", FilterOrder: 0, ChartType: "bar", ChartOrder: 0},
+			{EmissionID: "column_a", PublicColumn: "column_a", Label: "A", Visible: true, Order: 0, PhysicalOrder: 0, FilterLabel: "A", FilterOrder: 0, ChartType: "line", ChartOrder: 1},
 		}}},
 	}
 	raw, err := compiledExplorerWorkspaceConfigV2("project-a", "explorer-a", compiled)
@@ -302,13 +302,13 @@ func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTie
 		t.Fatal(err)
 	}
 	view := config.Views[0]
-	if view.Table.Columns[0].Column != "column_b" || view.Table.Columns[1].Column != "column_a" {
+	if view.Table.Columns[0].Column != "column_a" || view.Table.Columns[1].Column != "column_b" {
 		t.Fatalf("table order=%#v", view.Table.Columns)
 	}
 	if view.Filters[0].Column != "column_b" || view.Filters[1].Column != "column_a" {
 		t.Fatalf("filter order=%#v", view.Filters)
 	}
-	if view.Table.Columns[0].Visible || view.Filters[0].Column != view.Table.Columns[0].Column {
+	if view.Table.Columns[1].Visible || view.Filters[0].Column != view.Table.Columns[1].Column {
 		t.Fatalf("hidden filter-only column was not preserved: table=%#v filters=%#v", view.Table.Columns, view.Filters)
 	}
 	if view.Charts[0].Column != "column_b" || view.Charts[1].Column != "column_a" {
