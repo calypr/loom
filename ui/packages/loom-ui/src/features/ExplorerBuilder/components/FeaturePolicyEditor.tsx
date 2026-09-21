@@ -5,10 +5,163 @@ import type {
   TemporalReductionCapability,
   UnitNormalizationCapability,
   UnitNormalizationPresetCapability,
+  ColumnTransformationChange,
   ExplorerBuilderCandidate,
   ExplorerBuilderColumn,
   ExplorerColumnSource,
 } from '../../../types';
+
+type ExactCategoryRecode = Extract<
+  NonNullable<ExplorerBuilderColumn['valueTransformation']>,
+  { readonly kind: 'EXACT_CATEGORY_RECODE' }
+>['exactCategoryRecode'];
+
+const ExactCategoryRecodeEditor = ({
+  column,
+  candidate,
+  disabled,
+  onChange,
+}: {
+  readonly column: ExplorerBuilderColumn;
+  readonly candidate?: ExplorerBuilderCandidate;
+  readonly disabled: boolean;
+  readonly onChange: (change: ColumnTransformationChange) => void;
+}) => {
+  const current = column.valueTransformation?.kind === 'EXACT_CATEGORY_RECODE'
+    ? column.valueTransformation.exactCategoryRecode
+    : undefined;
+  const capability = column.source.kind === 'codedValue'
+    ? candidate?.valueTransformations?.codedValueRecoding
+    : candidate?.valueTransformations?.exactCategoryRecode;
+  const [mappings, setMappings] = useState<ReadonlyArray<{ from: string; to: string }>>(
+    () => current?.mappings.map((mapping) => ({ ...mapping })) ?? [],
+  );
+  const [unknownPolicy, setUnknownPolicy] = useState<ExactCategoryRecode['unknownPolicy']>(
+    () => current?.unknownPolicy ?? 'ERROR',
+  );
+
+  useEffect(() => {
+    setMappings(current?.mappings.map((mapping) => ({ ...mapping })) ?? []);
+    setUnknownPolicy(current?.unknownPolicy ?? 'ERROR');
+  }, [column.column, current]);
+
+  if (!capability?.available) {
+    return (
+      <div role="status" className="basis-full text-[11px] text-amber-800">
+        <span>{capability?.reason ?? 'Category recoding is unavailable until the server resolves this column capability.'}</span>
+        {current ? (
+          <button
+            type="button"
+            className="ml-2 underline disabled:opacity-40"
+            disabled={disabled}
+            onClick={() => onChange({ kind: 'REMOVE' })}
+          >
+            Remove saved recoding
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <details className="basis-full text-[11px] text-slate-700">
+      <summary className="cursor-pointer font-medium">
+        {current ? 'Edit exact category recoding' : 'Recode exact category values'}
+      </summary>
+      <div className="mt-1 space-y-1 rounded border border-slate-200 bg-white p-2">
+        <div className="max-h-24 space-y-1 overflow-y-auto">
+          {mappings.map((mapping, index) => (
+            <div key={`${index}-${mapping.from}`} className="flex items-center gap-1">
+              <input
+                aria-label={`Recorded category ${index + 1} for ${column.label}`}
+                className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1"
+                value={mapping.from}
+                disabled={disabled}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setMappings((previous) => previous.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, from: value } : item,
+                  ));
+                }}
+              />
+              <span aria-hidden="true">→</span>
+              <input
+                aria-label={`Replacement value ${index + 1} for ${column.label}`}
+                className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1"
+                value={mapping.to}
+                disabled={disabled}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setMappings((previous) => previous.map((item, itemIndex) =>
+                    itemIndex === index ? { ...item, to: value } : item,
+                  ));
+                }}
+              />
+              <button
+                type="button"
+                aria-label={`Remove category mapping ${index + 1} for ${column.label}`}
+                className="rounded px-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+                disabled={disabled || mappings.length < 2}
+                onClick={() => setMappings((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded border border-slate-300 px-2 py-1 font-medium hover:bg-slate-50 disabled:opacity-40"
+            disabled={disabled}
+            onClick={() => setMappings((previous) => [...previous, { from: '', to: '' }])}
+          >
+            Add mapping
+          </button>
+          <label className="flex items-center gap-1">
+            <span>Unmapped values</span>
+            <select
+              aria-label={`Unmapped value policy for ${column.label}`}
+              className="rounded border border-slate-300 bg-white px-1 py-1"
+              value={unknownPolicy}
+              disabled={disabled}
+              onChange={(event) => setUnknownPolicy(
+                event.currentTarget.value === 'KEEP_ORIGINAL' ? 'KEEP_ORIGINAL' : 'ERROR',
+              )}
+            >
+              <option value="ERROR">Report an error</option>
+              <option value="KEEP_ORIGINAL">Keep original value</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="rounded bg-blue-700 px-2 py-1 font-semibold text-white hover:bg-blue-800 disabled:opacity-40"
+            disabled={disabled || mappings.length === 0}
+            onClick={() => onChange({
+              kind: 'SET',
+              transformation: {
+                kind: 'EXACT_CATEGORY_RECODE',
+                exactCategoryRecode: { mappings: mappings.map((mapping) => ({ ...mapping })), unknownPolicy },
+              },
+            })}
+          >
+            Save recoding
+          </button>
+          {current ? (
+            <button
+              type="button"
+              className="rounded border border-red-300 px-2 py-1 font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+              disabled={disabled}
+              onClick={() => onChange({ kind: 'REMOVE' })}
+            >
+              Remove recoding
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </details>
+  );
+};
 
 export const RelatedFeatureCreator = ({
   resourceLabel,
@@ -643,6 +796,7 @@ export const FeaturePolicyEditor = ({
   resourceLabel,
   disabled,
   onSourceChange,
+  onTransformationChange,
   onContributorChange,
 }: {
   readonly column: ExplorerBuilderColumn;
@@ -653,6 +807,7 @@ export const FeaturePolicyEditor = ({
   readonly resourceLabel: string;
   readonly disabled: boolean;
   readonly onSourceChange: (source: ExplorerColumnSource) => void;
+  readonly onTransformationChange: (change: ColumnTransformationChange) => void;
   readonly onContributorChange: (
     contributor: ExplorerBuilderColumn['contributor'],
   ) => void;
@@ -775,6 +930,12 @@ export const FeaturePolicyEditor = ({
             Temporal choices are unavailable until the server resolves this candidate.
           </p>
         ) : null}
+        <ExactCategoryRecodeEditor
+          column={column}
+          candidate={candidate}
+          disabled={disabled}
+          onChange={onTransformationChange}
+        />
       </div>
     );
   }
@@ -901,9 +1062,24 @@ export const FeaturePolicyEditor = ({
           disabled={disabled}
           onApply={onContributorChange}
         />
+        <ExactCategoryRecodeEditor
+          column={column}
+          candidate={candidate}
+          disabled={disabled}
+          onChange={onTransformationChange}
+        />
       </div>
     );
   }
 
-  return null;
+  return (
+    <div className="col-span-full">
+      <ExactCategoryRecodeEditor
+        column={column}
+        candidate={candidate}
+        disabled={disabled}
+        onChange={onTransformationChange}
+      />
+    </div>
+  );
 };

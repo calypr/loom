@@ -578,6 +578,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 	}
 	for index := range result.Candidates {
 		result.Candidates[index].Transformations = authoringv2.AggregateTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
+		result.Candidates[index].ValueTransformations = authoringv2.ColumnValueTransformationCapabilitiesForCatalog(result, result.Candidates[index].ID)
 	}
 	for _, diagnostic := range snapshot.Diagnostics {
 		severity := diagnostic.Severity

@@ -71,6 +71,20 @@ func (b Bundle) Validate() error {
 		if err := validateNodeShape(output.Fields, output.Filters, output.Pivots, output.OwnerRecords, output.Aggregates, output.Slices, path, &budget); err != nil {
 			return err
 		}
+		transformedColumns := make(map[string]struct{}, len(output.ColumnTransformations))
+		for index, transformation := range output.ColumnTransformations {
+			transformationPath := fmt.Sprintf("%s.columnTransformations[%d]", path, index)
+			if err := validateRecipeName(transformation.Column, transformationPath+".column"); err != nil {
+				return err
+			}
+			if _, exists := transformedColumns[transformation.Column]; exists {
+				return validationError("duplicate_column_transformation", transformationPath+".column", "each output column can have only one value transformation")
+			}
+			transformedColumns[transformation.Column] = struct{}{}
+			if err := transformation.Transformation.Validate(); err != nil {
+				return validationError("invalid_column_transformation", transformationPath+".transformation", err.Error())
+			}
+		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
 			return err
 		}

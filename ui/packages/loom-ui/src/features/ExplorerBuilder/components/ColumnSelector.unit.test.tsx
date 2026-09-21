@@ -215,6 +215,87 @@ describe('configured V2 columns', () => {
     expect(screen.getByRole('textbox', { name: 'Display name for configured Research Subject ID' })).toBeInTheDocument();
   });
 
+  it('saves exact category mappings through FeaturePolicyEditor without changing column identity or source', () => {
+    const column: ExplorerBuilderColumn = {
+      column: 'status',
+      label: 'Status',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'status', projectionMode: 'FIRST' } },
+      table: { visible: true, order: 0 },
+    };
+    const transformTable: DraftTable = {
+      ...table,
+      document: { ...table.document, columns: [column] },
+    };
+    const candidate: ExplorerBuilderCandidate = {
+      candidateId: 'c_status',
+      nodeId: 'research-subject',
+      fieldPath: 'status',
+      label: 'Status',
+      logicalType: 'string',
+      cardinality: 'optional_one',
+      filterable: true,
+      chartable: false,
+      projectionModes: ['FIRST'],
+      defaultProjectionMode: 'FIRST',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: {
+        exactCategoryRecode: { available: true },
+        codedValueRecoding: {
+          available: false,
+          reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+          reason: 'Both Coding.system and Coding.code must be preserved.',
+        },
+      },
+    };
+    const onTransformationChange = vi.fn();
+    const onSourceChange = vi.fn();
+
+    render(<ColumnSelector
+      catalog={{ ...catalog, candidates: [candidate] }}
+      interpretationContext={contextFor(transformTable.outputId, column.column, [candidate.candidateId])}
+      table={transformTable}
+      occurrenceId="base"
+      disabled={false}
+      onAdd={vi.fn()}
+      onAddAll={vi.fn()}
+      onChange={vi.fn()}
+      onSourceChange={onSourceChange}
+      onTransformationChange={onTransformationChange}
+      onRemove={vi.fn()}
+    />);
+
+    fireEvent.click(screen.getByText('Recode exact category values'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Status' }), {
+      target: { value: 'recorded-A' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement value 1 for Status' }), {
+      target: { value: 'group-1' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), {
+      target: { value: 'KEEP_ORIGINAL' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
+
+    expect(onTransformationChange).toHaveBeenCalledWith('status', {
+      kind: 'SET',
+      transformation: {
+        kind: 'EXACT_CATEGORY_RECODE',
+        exactCategoryRecode: {
+          mappings: [{ from: 'recorded-A', to: 'group-1' }],
+          unknownPolicy: 'KEEP_ORIGINAL',
+        },
+      },
+    });
+    expect(onSourceChange).not.toHaveBeenCalled();
+    expect(transformTable.document.columns[0]).toMatchObject({
+      column: 'status',
+      source: { kind: 'field', field: { path: 'status', projectionMode: 'FIRST' } },
+    });
+  });
+
   it('edits repeated values independently from related-record selection', () => {
     const onSourceChange = vi.fn();
     const repeatedCatalog: ExplorerBuilderCatalog = {

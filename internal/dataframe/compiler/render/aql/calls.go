@@ -153,6 +153,11 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 			return "", err
 		}
 		return "(" + args[0] + " ? " + args[1] + " : " + args[2] + ")", nil
+	case "assert":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		return "ASSERT(" + args[0] + ", " + args[1] + ")", nil
 	case "case":
 		if len(args) < 2 {
 			return "", fmt.Errorf("case requires at least one condition/result pair")

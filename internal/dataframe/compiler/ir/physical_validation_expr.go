@@ -233,7 +233,7 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		"sanitize_name": true, "sanitize_graphql_name": true, "uuid3": true, "uuid5": true,
 		"if": true, "case": true, "not": true, "and": true, "or": true,
 		"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true,
-		"contains": true,
+		"contains": true, "assert": true,
 	}
 	if !known[name] {
 		return fmt.Errorf("unsupported call %q", call.Name)
@@ -247,6 +247,8 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		default:
 			return fmt.Errorf("cast target kind %q is unsupported", call.TargetKind)
 		}
+	} else if name == "assert" && len(call.Args) != 2 {
+		return fmt.Errorf("assert requires a condition and message")
 	} else if call.TargetKind != "" {
 		return fmt.Errorf("target kind is only valid for cast")
 	}

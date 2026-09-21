@@ -1729,6 +1729,15 @@ const BuilderWorkspaceContent = ({
                         },
                   ])
                 }
+                onTransformationChange={(column, transformationChange) =>
+                  table &&
+                  void applyCommands([{
+                    type: 'UPDATE_COLUMN_TRANSFORMATION',
+                    outputId: table.outputId,
+                    column,
+                    transformationChange,
+                  }])
+                }
                 />
                 {featureMode === 'graph' && table && occurrence ? (
                   selectedRouteContext ? (

@@ -432,6 +432,39 @@ export const rowDefinitionProposalSchema = z.object({
 }).strict();
 export type RowDefinitionProposal = z.infer<typeof rowDefinitionProposalSchema>;
 
+const exactCategoryMappingSchema = z
+  .object({ from: z.string(), to: z.string() })
+  .strict();
+export const columnValueTransformationSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('EXACT_CATEGORY_RECODE'),
+      exactCategoryRecode: z
+        .object({
+          mappings: z.array(exactCategoryMappingSchema).min(1),
+          unknownPolicy: z.enum(['ERROR', 'KEEP_ORIGINAL']),
+        })
+        .strict(),
+    })
+    .strict(),
+]);
+export type ColumnValueTransformation = z.infer<
+  typeof columnValueTransformationSchema
+>;
+
+export const columnTransformationChangeSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('SET'),
+      transformation: columnValueTransformationSchema,
+    })
+    .strict(),
+  z.object({ kind: z.literal('REMOVE') }).strict(),
+]);
+export type ColumnTransformationChange = z.infer<
+  typeof columnTransformationChangeSchema
+>;
+
 export const explorerBuilderColumnSchema = z
   .object({
     column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
@@ -439,6 +472,7 @@ export const explorerBuilderColumnSchema = z
     logicalType: z.string().optional(),
     occurrenceId: opaqueIdSchema,
     source: explorerColumnSourceSchema,
+    valueTransformation: columnValueTransformationSchema.optional(),
     contributor: contributorPredicateSchema.optional(),
     interpretation: featureInterpretationSchema.optional(),
     table: explorerTablePresentationSchema.optional(),
@@ -946,6 +980,23 @@ export type AggregateTransformationCapability = z.infer<
   typeof aggregateTransformationCapabilitySchema
 >;
 
+export const valueTransformationCapabilitySchema = z
+  .object({
+    available: z.boolean(),
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+  })
+  .strict();
+export const columnValueTransformationCapabilitiesSchema = z
+  .object({
+    exactCategoryRecode: valueTransformationCapabilitySchema,
+    codedValueRecoding: valueTransformationCapabilitySchema,
+  })
+  .strict();
+export type ColumnValueTransformationCapabilities = z.infer<
+  typeof columnValueTransformationCapabilitiesSchema
+>;
+
 export const explorerBuilderCandidateSchema = z
   .object({
     candidateId: opaqueIdSchema,
@@ -962,6 +1013,7 @@ export const explorerBuilderCandidateSchema = z
     constructionChoice: constructionChoiceSchema.optional(),
     aggregateOperations: z.array(aggregateOperationCapabilitySchema),
     transformations: aggregateTransformationCapabilitySchema,
+    valueTransformations: columnValueTransformationCapabilitiesSchema.optional(),
     conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(
@@ -1112,6 +1164,7 @@ export const explorerBuilderCommandSchema = z
       'ADD_COLUMN_SOURCE',
       'UPDATE_COLUMN_SOURCE',
       'UPDATE_COLUMN',
+      'UPDATE_COLUMN_TRANSFORMATION',
       'SET_COLUMN_CONTRIBUTOR',
       'CLEAR_COLUMN_CONTRIBUTOR',
       'APPLY_INTERPRETATION_CANDIDATE',
@@ -1136,6 +1189,7 @@ export const explorerBuilderCommandSchema = z
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
     column: opaqueIdSchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
+    transformationChange: columnTransformationChangeSchema.optional(),
     contributor: contributorPredicateSchema.optional(),
     source: explorerColumnSourceSchema.optional(),
     rowChange: rowChangeProposalSchema.optional(),

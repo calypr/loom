@@ -37,13 +37,14 @@ type OutputPlan struct {
 	TraversalColumnNaming recipe.TraversalColumnNaming
 	Identity              *SemanticExpression
 	// RowExpansion is the sole semantic row-producing operation for an output.
-	RowExpansion       *SemanticRowExpansion
-	GroupRows          *SemanticGroupRows
-	ExpansionIdentity  bool
-	DynamicMaps        []SemanticDynamicMap
-	CatalogProjections []string
-	Collision          string
-	Population         *SemanticPopulation
+	RowExpansion          *SemanticRowExpansion
+	GroupRows             *SemanticGroupRows
+	ExpansionIdentity     bool
+	DynamicMaps           []SemanticDynamicMap
+	CatalogProjections    []string
+	ColumnTransformations []recipe.ColumnTransformation
+	Collision             string
+	Population            *SemanticPopulation
 }
 
 // SemanticGroupRows pins the output row set to one immutable explicit-group revision.

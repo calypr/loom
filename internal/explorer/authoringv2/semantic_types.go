@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -372,12 +373,13 @@ const (
 )
 
 type Column struct {
-	Column       string                `json:"column"`
-	Label        string                `json:"label"`
-	LogicalType  string                `json:"logicalType,omitempty"`
-	OccurrenceID string                `json:"occurrenceId"`
-	Source       ColumnSource          `json:"source"`
-	Contributor  *ContributorPredicate `json:"contributor,omitempty"`
+	Column              string                               `json:"column"`
+	Label               string                               `json:"label"`
+	LogicalType         string                               `json:"logicalType,omitempty"`
+	OccurrenceID        string                               `json:"occurrenceId"`
+	Source              ColumnSource                         `json:"source"`
+	ValueTransformation *columntransform.ValueTransformation `json:"valueTransformation,omitempty"`
+	Contributor         *ContributorPredicate                `json:"contributor,omitempty"`
 	// Interpretation is nil for the existing inline meaning. A non-nil value
 	// is a closed authoring reference: PINNED names one immutable revision and
 	// never follows a mutable library head.
@@ -798,6 +800,11 @@ func (d Document) validateSemantic() error {
 		}
 		if err := column.Source.validate(path + ".source"); err != nil {
 			return err
+		}
+		if column.ValueTransformation != nil {
+			if err := column.ValueTransformation.Validate(); err != nil {
+				return fmt.Errorf("%s.valueTransformation: %w", path, err)
+			}
 		}
 		if column.Contributor != nil {
 			if column.Source.Kind != SourceAggregate {

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
+  columnTransformationChangeSchema,
+  columnValueTransformationCapabilitiesSchema,
+  columnValueTransformationSchema,
   explorerBuilderCandidateSchema,
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
@@ -351,6 +354,61 @@ describe('aggregateTransformationCapabilitySchema', () => {
       ...candidate,
       transformations: undefined,
     }).success).toBe(false);
+  });
+});
+
+describe('column value transformation boundary schemas', () => {
+  const recoding = {
+    kind: 'EXACT_CATEGORY_RECODE',
+    exactCategoryRecode: {
+      mappings: [
+        { from: 'recorded-A', to: 'group-1' },
+        { from: 'recorded-B', to: 'group-2' },
+      ],
+      unknownPolicy: 'KEEP_ORIGINAL',
+    },
+  } as const;
+
+  it('parses persisted exact mappings and server-owned capability reasons', () => {
+    expect(columnValueTransformationSchema.parse(recoding)).toEqual(recoding);
+    expect(columnValueTransformationSchema.safeParse({
+      ...recoding,
+      exactCategoryRecode: { ...recoding.exactCategoryRecode, unknownPolicy: 'SET_NULL' },
+    }).success).toBe(false);
+    expect(columnValueTransformationSchema.safeParse({
+      ...recoding,
+      extra: true,
+    }).success).toBe(false);
+    const capabilities = {
+      exactCategoryRecode: { available: true },
+      codedValueRecoding: {
+        available: false,
+        reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+        reason: 'Both Coding.system and Coding.code must be preserved.',
+      },
+    } as const;
+    expect(columnValueTransformationCapabilitiesSchema.parse(capabilities)).toEqual(capabilities);
+  });
+
+  it('parses generic replace and remove authoring commands', () => {
+    expect(columnTransformationChangeSchema.parse({
+      kind: 'SET',
+      transformation: recoding,
+    })).toEqual({ kind: 'SET', transformation: recoding });
+    expect(columnTransformationChangeSchema.parse({ kind: 'REMOVE' })).toEqual({ kind: 'REMOVE' });
+    expect(columnTransformationChangeSchema.safeParse({
+      kind: 'REMOVE',
+      transformation: recoding,
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'UPDATE_COLUMN_TRANSFORMATION',
+      outputId: 'patients',
+      column: 'status',
+      transformationChange: { kind: 'SET', transformation: recoding },
+    })).toMatchObject({
+      type: 'UPDATE_COLUMN_TRANSFORMATION',
+      transformationChange: { kind: 'SET', transformation: recoding },
+    });
   });
 });
 

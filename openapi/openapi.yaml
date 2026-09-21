@@ -1858,6 +1858,58 @@ components:
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}
         ownerRecords: {$ref: '#/components/schemas/OwnerRecordsSource'}
+    ColumnValueTransformation:
+      oneOf:
+        - {$ref: '#/components/schemas/ExactCategoryRecodeTransformation'}
+      discriminator:
+        propertyName: kind
+        mapping:
+          EXACT_CATEGORY_RECODE: '#/components/schemas/ExactCategoryRecodeTransformation'
+    ExactCategoryRecodeTransformation:
+      type: object
+      additionalProperties: false
+      required: [kind, exactCategoryRecode]
+      properties:
+        kind: {type: string, enum: [EXACT_CATEGORY_RECODE]}
+        exactCategoryRecode:
+          type: object
+          additionalProperties: false
+          required: [mappings, unknownPolicy]
+          properties:
+            mappings:
+              type: array
+              minItems: 1
+              items: {$ref: '#/components/schemas/ExactCategoryMapping'}
+            unknownPolicy: {type: string, enum: [ERROR, KEEP_ORIGINAL]}
+    ExactCategoryMapping:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from: {type: string}
+        to: {type: string}
+    ColumnTransformationChange:
+      oneOf:
+        - {$ref: '#/components/schemas/SetColumnTransformation'}
+        - {$ref: '#/components/schemas/RemoveColumnTransformation'}
+      discriminator:
+        propertyName: kind
+        mapping:
+          SET: '#/components/schemas/SetColumnTransformation'
+          REMOVE: '#/components/schemas/RemoveColumnTransformation'
+    SetColumnTransformation:
+      type: object
+      additionalProperties: false
+      required: [kind, transformation]
+      properties:
+        kind: {type: string, enum: [SET]}
+        transformation: {$ref: '#/components/schemas/ColumnValueTransformation'}
+    RemoveColumnTransformation:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [REMOVE]}
     FieldSource:
       type: object
       additionalProperties: false
@@ -2045,6 +2097,7 @@ components:
         logicalType: {type: string}
         occurrenceId: {type: string, minLength: 1}
         source: {$ref: '#/components/schemas/ColumnSource'}
+        valueTransformation: {$ref: '#/components/schemas/ColumnValueTransformation'}
         contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         table: {$ref: '#/components/schemas/TablePresentation'}
         filter: {$ref: '#/components/schemas/FilterPresentation'}
@@ -2140,7 +2193,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE]
         outputId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
@@ -2156,6 +2209,7 @@ components:
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
         columnValue: {$ref: '#/components/schemas/Column'}
+        transformationChange: {$ref: '#/components/schemas/ColumnTransformationChange'}
         contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         source: {$ref: '#/components/schemas/ColumnSource'}
         rowChange: {$ref: '#/components/schemas/RowChangeProposal'}
@@ -2366,7 +2420,7 @@ components:
     CatalogCandidate:
       type: object
       additionalProperties: false
-      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode, aggregateOperations, transformations]
+      required: [candidateId, nodeId, fieldPath, label, logicalType, cardinality, repeated, filterable, chartable, projectionModes, defaultProjectionMode, aggregateOperations, transformations, valueTransformations]
       properties:
         candidateId: {type: string, minLength: 1}
         nodeId: {type: string, minLength: 1}
@@ -2381,14 +2435,15 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ProjectionMode'}
         defaultProjectionMode: {$ref: '#/components/schemas/ProjectionMode'}
-        repeatedBoundaries:
-          type: array
-          items: {$ref: '#/components/schemas/RepeatedBoundary'}
-        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
         aggregateOperations:
           type: array
           items: {$ref: '#/components/schemas/AggregateOperationCapability'}
         transformations: {$ref: '#/components/schemas/AggregateTransformationCapabilities'}
+        repeatedBoundaries:
+          type: array
+          items: {$ref: '#/components/schemas/RepeatedBoundary'}
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+        valueTransformations: {$ref: '#/components/schemas/ColumnValueTransformationCapabilities'}
         conceptCandidates:
           type: array
           items: {$ref: '#/components/schemas/ConceptCandidate'}
@@ -2416,6 +2471,16 @@ components:
       properties:
         temporalReduction: {$ref: '#/components/schemas/TemporalReductionCapabilities'}
         unitNormalization: {$ref: '#/components/schemas/UnitNormalizationCapabilities'}
+    TemporalFieldChoice:
+      type: object
+      additionalProperties: false
+      required: [candidateId, nodeId, resourceType, fieldPath, label]
+      properties:
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
     TemporalReductionCapabilities:
       type: object
       additionalProperties: false
@@ -2430,16 +2495,6 @@ components:
         anchorFields:
           type: array
           items: {$ref: '#/components/schemas/TemporalFieldChoice'}
-    TemporalFieldChoice:
-      type: object
-      additionalProperties: false
-      required: [candidateId, nodeId, resourceType, fieldPath, label]
-      properties:
-        candidateId: {type: string, minLength: 1}
-        nodeId: {type: string, minLength: 1}
-        resourceType: {type: string, minLength: 1}
-        fieldPath: {type: string, minLength: 1}
-        label: {type: string}
     UnitNormalizationCapabilities:
       type: object
       additionalProperties: false
@@ -2462,6 +2517,21 @@ components:
         available: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
+    ValueTransformationCapability:
+      type: object
+      additionalProperties: false
+      required: [available]
+      properties:
+        available: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
+    ColumnValueTransformationCapabilities:
+      type: object
+      additionalProperties: false
+      required: [exactCategoryRecode, codedValueRecoding]
+      properties:
+        exactCategoryRecode: {$ref: '#/components/schemas/ValueTransformationCapability'}
+        codedValueRecoding: {$ref: '#/components/schemas/ValueTransformationCapability'}
     ConstructionChoice:
       type: object
       additionalProperties: false

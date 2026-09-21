@@ -167,6 +167,7 @@ type CatalogCandidate struct {
 	ChartOperations       []string                                  `json:"-"`
 	AggregateOperations   []capability.AggregateOperationCapability `json:"aggregateOperations"`
 	Transformations       AggregateTransformationCapabilities       `json:"transformations"`
+	ValueTransformations  ColumnValueTransformationCapabilities     `json:"valueTransformations"`
 	Populated             bool                                      `json:"-"`
 	Count                 *int64                                    `json:"-"`
 	SuggestionsAvailable  bool                                      `json:"-"`

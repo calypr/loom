@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -53,8 +54,16 @@ type Output struct {
 	DynamicColumns        []DynamicColumn         `json:"dynamicColumns,omitempty"`
 	ExtensionColumns      []ExtensionColumn       `json:"extensionColumns,omitempty"`
 	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
+	ColumnTransformations []ColumnTransformation  `json:"columnTransformations,omitempty"`
 	Population            *PopulationConstraint   `json:"population,omitempty"`
 	CollisionPolicy       string                  `json:"collisionPolicy,omitempty"`
+}
+
+// ColumnTransformation binds one closed value transformation to its stable
+// public output column name. It is applied only after normal source lowering.
+type ColumnTransformation struct {
+	Column         string                              `json:"column"`
+	Transformation columntransform.ValueTransformation `json:"transformation"`
 }
 
 // GroupRows pins an output to an immutable explicit-group revision.

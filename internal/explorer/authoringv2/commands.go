@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/explorer/capability"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -30,6 +31,7 @@ const (
 	CommandAddColumn                     = "ADD_COLUMN"
 	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
 	CommandUpdateColumn                  = "UPDATE_COLUMN"
+	CommandUpdateColumnTransformation    = "UPDATE_COLUMN_TRANSFORMATION"
 	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
 	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
 	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
@@ -91,6 +93,7 @@ type Command struct {
 	InitialPresentation     string                        `json:"initialPresentation,omitempty"`
 	Column                  string                        `json:"column,omitempty"`
 	ColumnValue             *Column                       `json:"columnValue,omitempty"`
+	TransformationChange    *ColumnTransformationChange   `json:"transformationChange,omitempty"`
 	Contributor             *ContributorPredicate         `json:"contributor,omitempty"`
 	Source                  *ColumnSource                 `json:"source,omitempty"`
 	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
@@ -103,6 +106,30 @@ type Command struct {
 	ResolvedPopulationRoute []PopulationRouteStep         `json:"-"`
 	OutputIDs               []string                      `json:"outputIds,omitempty"`
 	resolvedRowDefinition   *RowDefinition
+}
+
+// ColumnTransformationChange replaces or removes the one typed value
+// transformation attached to an authored column.
+type ColumnTransformationChange struct {
+	Kind           string                               `json:"kind"`
+	Transformation *columntransform.ValueTransformation `json:"transformation,omitempty"`
+}
+
+func (c ColumnTransformationChange) Validate() error {
+	switch c.Kind {
+	case "SET":
+		if c.Transformation == nil {
+			return fmt.Errorf("SET transformationChange requires transformation")
+		}
+		return c.Transformation.Validate()
+	case "REMOVE":
+		if c.Transformation != nil {
+			return fmt.Errorf("REMOVE transformationChange must omit transformation")
+		}
+		return nil
+	default:
+		return fmt.Errorf("transformationChange.kind must be SET or REMOVE")
+	}
 }
 
 // ConstructionChoiceSelection carries only the server-issued source identity
@@ -408,6 +435,13 @@ func (c Command) validate() error {
 		if !required(c.OutputID, c.Column) || c.ColumnValue == nil {
 			return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
 		}
+	case CommandUpdateColumnTransformation:
+		if !required(c.OutputID, c.Column) || c.TransformationChange == nil {
+			return fmt.Errorf("UPDATE_COLUMN_TRANSFORMATION requires outputId, column, and transformationChange")
+		}
+		if err := c.TransformationChange.Validate(); err != nil {
+			return fmt.Errorf("transformationChange: %w", err)
+		}
 	case CommandSetColumnContributor:
 		if !required(c.OutputID, c.Column) || c.Contributor == nil {
 			return fmt.Errorf("SET_COLUMN_CONTRIBUTOR requires outputId, column, and contributor")
@@ -434,7 +468,7 @@ func (c Command) validate() error {
 		}
 		if c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
 			len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.Contributor != nil ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
 			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
 			c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
 			return fmt.Errorf("APPLY_ROW_DEFINITION_PROPOSAL accepts only outputId and proposalId")
@@ -480,7 +514,7 @@ func (c Command) validate() error {
 		}
 		if c.ResolvedChoice != nil || c.SourceOutputID != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
 			len(c.EdgeIDs) != 0 || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
-			c.CandidateID != "" || c.ProjectionMode != "" || c.Column != "" || c.ColumnValue != nil || c.Contributor != nil ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
 			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" ||
 			len(c.SemanticSelections) != 0 || len(c.OutputIDs) != 0 {
 			return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE accepts only its choice identity and authored-column presentation fields")
@@ -874,6 +908,30 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandUpdateColumnTransformation:
+		document := documentIndex(workspace, command.OutputID)
+		if document < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		for i := range workspace.Documents[document].Columns {
+			current := &workspace.Documents[document].Columns[i]
+			if current.Column != command.Column {
+				continue
+			}
+			if command.TransformationChange.Kind == "REMOVE" {
+				current.ValueTransformation = nil
+			} else {
+				if err := validateColumnValueTransformationForCatalog(
+					workspace.Documents[document], catalog, *current, current.Source, *command.TransformationChange.Transformation,
+				); err != nil {
+					return result, err
+				}
+				transformation := command.TransformationChange.Transformation.Clone()
+				current.ValueTransformation = &transformation
+			}
+			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
+		}
+		return result, fmt.Errorf("column %q was not found", command.Column)
 	case CommandSetColumnContributor:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {
@@ -962,6 +1020,11 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			source := editableSource(current.OccurrenceID, *command.Source)
 			if err := validateEditableSource(workspace.Documents[document], catalog, current.OccurrenceID, source); err != nil {
 				return result, err
+			}
+			if current.ValueTransformation != nil {
+				if err := validateColumnValueTransformationForCatalog(workspace.Documents[document], catalog, *current, source, *current.ValueTransformation); err != nil {
+					return result, err
+				}
 			}
 			current.Source = source
 			current.LogicalType = inferredSourceLogicalType(workspace.Documents[document], catalog, current.OccurrenceID, source, current.LogicalType)

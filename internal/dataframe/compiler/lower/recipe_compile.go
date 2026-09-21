@@ -189,6 +189,9 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	if err := appendRecipeColumnTransformations(&physical, output.ColumnTransformations); err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	if err := validatePublicProjectionNames(physical, output.Name); err != nil {
 		return CompiledRecipeOutput{}, err
 	}

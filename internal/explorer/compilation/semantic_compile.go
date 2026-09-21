@@ -65,6 +65,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	for id := range occurrences {
 		nodes[id] = &semanticRecipeNode{}
 	}
+	columnTransformations := make([]recipe.ColumnTransformation, 0, len(document.Columns))
 	emitted := make([]explorer.EmittedColumn, 0, len(document.Columns))
 	mappings := make([]explorer.IdentityMapping, 0, len(document.Columns))
 	presentation := PresentationConfig{OutputID: document.Output.ID, Title: document.Output.Title, Columns: make([]PresentationColumn, 0, len(document.Columns))}
@@ -84,10 +85,16 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		if column.Source.Lookup != nil && column.Source.Lookup.Identifier != nil {
 			logicalType = firstNonEmpty(column.Source.Lookup.Identifier.LogicalType, logicalType)
 		}
+		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
+			logicalType = firstNonEmpty(column.Source.Lookup.Extension.LogicalType, logicalType)
+		}
 		filterable, chartable := column.Filter != nil, column.Chart != nil
 		sourceJSON, _ := json.Marshal(column.Source.Normalized())
 		candidateID := "source_" + shortHash(column.OccurrenceID+"\x00"+string(sourceJSON)+"\x00"+column.Column)
 		projectionMode := firstNonEmpty(strings.ToUpper(column.Source.ProjectionMode()), "FIRST")
+		if column.ValueTransformation != nil && projectionMode == "INDEXED" {
+			return Result{}, fail("capability", "UNSUPPORTED_VALUE_TRANSFORMATION_SHAPE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "exact category recoding requires one scalar public projection, not an indexed expansion", map[string]any{"shape": "indexed_columns"}, nil)
+		}
 		if column.Source.Kind == authoringv2.SourceOwnerRecords {
 			projectionMode = string(capability.ConstructionChoiceOwnerRecords)
 		}
@@ -184,6 +191,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			}
 			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
 		case authoringv2.SourceProjectID:
+			logicalType = "string"
 			literal, _ := json.Marshal(project)
 			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
 		case authoringv2.SourceCodedValue:
@@ -346,9 +354,31 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			lossless = true
 			lossReasons = nil
 		}
-		if column.Source.Kind == authoringv2.SourceField && (projectionMode == "ALL" || projectionMode == "DISTINCT") {
+		if projectionMode == "ALL" || projectionMode == "DISTINCT" {
 			shape = "array"
 			structuralSuitability = "array"
+		}
+		if column.Source.Kind == authoringv2.SourceAggregate && column.Source.Aggregate != nil {
+			switch strings.ToUpper(strings.TrimSpace(column.Source.Aggregate.Operation)) {
+			case "COLLECT", "DISTINCT_VALUES":
+				shape = "array"
+				structuralSuitability = "array"
+			}
+		}
+		if column.ValueTransformation != nil {
+			if column.Source.Kind == authoringv2.SourceCodedValue {
+				return Result{}, fail("capability", "CODED_VALUE_RECODE_UNAVAILABLE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "coded value recoding is unavailable because the scalar transformation cannot preserve both Coding.system and Coding.code", map[string]any{"sourceKind": column.Source.Kind}, nil)
+			}
+			if !strings.EqualFold(strings.TrimSpace(logicalType), "string") {
+				return Result{}, fail("capability", "UNSUPPORTED_VALUE_TRANSFORMATION_TYPE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "exact category recoding requires a scalar string value", map[string]any{"logicalType": logicalType}, nil)
+			}
+			if shape != "scalar" {
+				return Result{}, fail("capability", "UNSUPPORTED_VALUE_TRANSFORMATION_SHAPE", fmt.Sprintf("$.columns[%d].valueTransformation", index), "exact category recoding requires a scalar column", map[string]any{"shape": shape}, nil)
+			}
+			transformation := column.ValueTransformation.Clone()
+			columnTransformations = append(columnTransformations, recipe.ColumnTransformation{
+				Column: column.Column, Transformation: transformation,
+			})
 		}
 		if column.Source.Kind == authoringv2.SourceField {
 			if column.OccurrenceID != authoringv2.RootOccurrenceID && column.Source.Field != nil && (projectionMode == "VALUE" || projectionMode == "FIRST" || projectionMode == "INDEXED") {
@@ -424,7 +454,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AggregateOperationCapability,
+  ColumnTransformationChange,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
@@ -93,6 +94,7 @@ const ConfiguredColumnRow = ({
   onChange,
   onSourceChange,
   onContributorChange,
+  onTransformationChange,
   onMoveToEnd,
   moveToEndDisabled,
   onRemove,
@@ -114,6 +116,10 @@ const ConfiguredColumnRow = ({
   readonly onContributorChange: (
     column: string,
     contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
+  readonly onTransformationChange: (
+    column: string,
+    change: ColumnTransformationChange,
   ) => void;
   readonly onMoveToEnd: () => void;
   readonly moveToEndDisabled: boolean;
@@ -263,6 +269,9 @@ const ConfiguredColumnRow = ({
         onContributorChange={(contributor) =>
           onContributorChange(column.column, contributor)
         }
+        onTransformationChange={(change) =>
+          onTransformationChange(column.column, change)
+        }
       />
     </div>
   );
@@ -374,6 +383,7 @@ export const ColumnSelector = ({
   onColumnsChange,
   onSourceChange,
   onContributorChange = () => undefined,
+  onTransformationChange = () => undefined,
   onRemove,
   onInspectSource,
   onEditInGraph,
@@ -403,6 +413,10 @@ export const ColumnSelector = ({
   readonly onContributorChange?: (
     column: string,
     contributor: ExplorerBuilderColumn['contributor'],
+  ) => void;
+  readonly onTransformationChange?: (
+    column: string,
+    change: ColumnTransformationChange,
   ) => void;
   readonly onRemove: (column: string) => void;
   readonly onInspectSource?: (
@@ -784,6 +798,7 @@ export const ColumnSelector = ({
                           onChange={onChange}
                           onSourceChange={onSourceChange}
                           onContributorChange={onContributorChange}
+                          onTransformationChange={onTransformationChange}
                           moveToEndDisabled={
                             !(row.column.table?.visible ?? Boolean(row.column.table)) ||
                             row.column.column === lastVisibleColumn

@@ -294,6 +294,59 @@ func TestAuthoringV2CatalogPreservesDistinctArrayProjectionMode(t *testing.T) {
 	}
 }
 
+func TestAuthoringV2CatalogAdvertisesScalarRecodingAndCodedIdentityRefusal(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_patient", ResourceType: "Patient", RowRootEligible: true}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_patient_status", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "status", Label: "Patient status", LogicalType: "string", Cardinality: "optional_one",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		}},
+		nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || !wire.Candidates[0].ValueTransformations.ExactCategoryRecode.Available {
+		t.Fatalf("scalar recoding capability = %#v", wire.Candidates)
+	}
+	coded := wire.Candidates[0].ValueTransformations.CodedValueRecoding
+	if coded.Available || coded.ReasonCode != "CODED_VALUE_RECODE_UNAVAILABLE" || !strings.Contains(coded.Reason, "Coding.system and Coding.code") {
+		t.Fatalf("coded recoding capability = %#v", coded)
+	}
+	encoded, err := json.Marshal(wire.Candidates[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated loomapi.CatalogCandidate
+	if err := json.Unmarshal(encoded, &generated); err != nil {
+		t.Fatalf("generated candidate boundary rejected value transformation capabilities: %v", err)
+	}
+	if !generated.ValueTransformations.ExactCategoryRecode.Available || generated.ValueTransformations.CodedValueRecoding.ReasonCode == nil || *generated.ValueTransformations.CodedValueRecoding.ReasonCode != "CODED_VALUE_RECODE_UNAVAILABLE" {
+		t.Fatalf("generated candidate capability = %#v", generated.ValueTransformations)
+	}
+}
+
+func TestGeneratedAuthoringCommandPreservesColumnTransformationUnion(t *testing.T) {
+	const requestJSON = `{"commandId":"recode-status","semanticsVersion":7,"snapshotToken":"snapshot","expectedDraftVersion":3,"commands":[{"type":"UPDATE_COLUMN_TRANSFORMATION","outputId":"patients","column":"status","transformationChange":{"kind":"SET","transformation":{"kind":"EXACT_CATEGORY_RECODE","exactCategoryRecode":{"mappings":[{"from":"recorded-A","to":"group-1"}],"unknownPolicy":"ERROR"}}}}]}`
+	var generated loomapi.ApplyCommandsRequest
+	if err := json.Unmarshal([]byte(requestJSON), &generated); err != nil {
+		t.Fatalf("generated OpenAPI command decoder rejected transformation union: %v", err)
+	}
+	request, err := directAuthoringJSON[authoringv2.ApplyCommandsRequest](generated)
+	if err != nil {
+		t.Fatalf("generated command conversion failed: %v", err)
+	}
+	if len(request.Commands) != 1 || request.Commands[0].Type != authoringv2.CommandUpdateColumnTransformation || request.Commands[0].TransformationChange == nil || request.Commands[0].TransformationChange.Transformation == nil {
+		t.Fatalf("converted command = %#v", request.Commands)
+	}
+	transformation := request.Commands[0].TransformationChange.Transformation
+	if transformation.Kind != "EXACT_CATEGORY_RECODE" || transformation.ExactCategoryRecode == nil || transformation.ExactCategoryRecode.UnknownPolicy != "ERROR" || len(transformation.ExactCategoryRecode.Mappings) != 1 || transformation.ExactCategoryRecode.Mappings[0].From != "recorded-A" || transformation.ExactCategoryRecode.Mappings[0].To != "group-1" {
+		t.Fatalf("converted transformation = %#v", transformation)
+	}
+}
+
 func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *testing.T) {
 	snapshot := capability.NewSnapshot(
 		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
