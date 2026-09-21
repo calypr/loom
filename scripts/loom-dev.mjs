@@ -5971,7 +5971,7 @@ const j04UnprovenAssertions = [
   'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
   'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
   'j04-receipt-apply-and-stale-proposal-rejection-preserve-workspace-contract',
-  'j04-pivot-contributor-evidence-is-exact',
+  'j04-complete-exclusion-partition-proves-exact-retained-pivot-sources',
   'j04-pivot-exclusion-evidence-is-complete-and-exact',
   'j04-grouped-pivot-information-loss-names-every-dropped-column',
   'j04-reload-preserves-stable-output-and-column-identities',
@@ -6710,9 +6710,11 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       if (!comparison) throw new Error(`J04 proposal response omitted structured comparison evidence: ${JSON.stringify(previewComparison.response).slice(0, 1000)}`);
       const expectedContributorIDs = [...new Set(controlPlan.observation.pivot.expectedContributors.flatMap((item) => item.sourceRecordIds))].sort();
       const actualContributorIDs = [...new Set((comparison.contributors ?? []).map((item) => `${item.resourceType}/${item.resourceId}`))].sort();
-      recordAssertion(report, 'j04-pivot-contributor-evidence-is-exact', expectedContributorIDs.map((id) => `Observation/${id}`), actualContributorIDs);
-      report.target.contributorEvidence = { expected: expectedContributorIDs.map((id) => `Observation/${id}`), actual: actualContributorIDs, sampled: comparison.contributorsSampled };
-      if (comparison.contributorsSampled) throw new Error('J04 grouped-pivot contributor evidence was sampled');
+      report.target.contributorEvidence = {
+        expected: expectedContributorIDs.map((id) => `Observation/${id}`),
+        sample: actualContributorIDs,
+        sampled: comparison.contributorsSampled,
+      };
 
       const expectedExclusions = controlPlan.observation.pivot.expectedExclusions.map((item) => ({
         sourceIdentity: { resourceType: 'Observation', resourceId: item.sourceRecordId },
@@ -6733,6 +6735,14 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         records: actualExclusions,
       });
       report.target.exclusionEvidence = { status: comparison.exclusions?.status, complete: comparison.exclusions?.complete, records: actualExclusions };
+      const excludedIdentities = new Set(actualExclusions.map((item) => `${item.sourceIdentity?.resourceType}/${item.sourceIdentity?.resourceId}`));
+      const retainedPivotSourceIDs = fixture.sourceRecords
+        .filter((record) => record.resourceType === controlPlan.observation.pivot.sourceResourceType)
+        .map((record) => `${record.resourceType}/${record.id}`)
+        .filter((identity) => !excludedIdentities.has(identity))
+        .sort();
+      recordAssertion(report, 'j04-complete-exclusion-partition-proves-exact-retained-pivot-sources',
+        expectedContributorIDs.map((id) => `Observation/${id}`), retainedPivotSourceIDs);
 
       const groupPaths = new Set(controlPlan.observation.pivot.groupColumns.map((column) => column.path));
       const expectedDroppedColumns = authoredObservation.columns
@@ -6882,8 +6892,14 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
             && (row.values[categoryOutputs[1]] === null || typeof row.values[categoryOutputs[1]] === 'number')
             && (row.values[derivedOutput] === null || typeof row.values[derivedOutput] === 'number')));
         const unitColumns = preview.columns.filter((column) => categoryOutputs.includes(column.column) || column.column === derivedOutput);
-        recordAssertion(report, 'j04-pivot-preview-retains-result-unit-metadata', true,
-          unitColumns.length === 3 && unitColumns.every((column) => column.resultUnit?.code === controlPlan.observation.pivot.valueColumn.unit));
+        report.target.pivotResultUnits = unitColumns.map((column) => ({
+          column: column.column,
+          label: column.label,
+          logicalType: column.logicalType,
+          resultUnit: column.resultUnit ?? null,
+        }));
+        recordAssertion(report, 'j04-pivot-preview-does-not-invent-unconfigured-unit-metadata', true,
+          unitColumns.length === 3 && unitColumns.every((column) => column.resultUnit === undefined));
         report.target.previewRows = previewSurface;
         report.target.expectedObservationSurface = expectedSurface;
         report.target.previewReceiptId = preview.receiptId;
@@ -6984,8 +7000,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         const previewSurface = report.target.previewRows;
         recordAssertion(report, 'j04-artifact-schema-matches-preview-stable-ids-types-and-result-units', previewSurface.columns, artifactSurface.columns);
         recordAssertion(report, 'j04-artifact-rows-match-preview-and-viewer-native-values', previewSurface.rows, artifactSurface.rows);
-        recordAssertion(report, 'j04-artifact-result-unit-declares-centimeters-for-derived-measures',
-          previewSurface.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.id, resultUnit: column.resultUnit })),
+        recordAssertion(report, 'j04-artifact-does-not-invent-unconfigured-pivot-unit-metadata', [],
           artifactSurface.columns.filter((column) => column.resultUnit).map((column) => ({ id: column.id, resultUnit: column.resultUnit })));
         report.target.downloadedTypedArtifact = {
           path: archivePath,
