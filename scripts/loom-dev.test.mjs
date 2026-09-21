@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ05ArtifactPackage, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, sourceMountMatches } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
 
 const j05Identity = {
   project: 'loom_dev_j05',
@@ -126,6 +126,127 @@ test('development session accepts a read-only external FHIR fixture directory', 
   }
 });
 
+test('external J01 manifest selects exact deterministic records and preserves source stats', async () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-j01-manifest-'));
+  try {
+    const patientRecords = Array.from({ length: 35 }, (_, index) => JSON.stringify({
+      resourceType: 'Patient', id: `patient-${index + 1}`, gender: index % 2 ? 'female' : 'male',
+    }));
+    const observationRecords = Array.from({ length: 40 }, (_, index) => JSON.stringify({
+      resourceType: 'Observation', id: `observation-${index + 1}`, status: 'final',
+      ...(index === 39 ? { component: [
+        { code: { coding: [{ system: 'https://cda.test', code: 'specimen_type', display: 'specimen type' }] }, valueString: 'blood' },
+        { code: { coding: [{ system: 'https://cda.test', code: 'collection_method', display: 'collection method' }] }, valueString: 'venipuncture' },
+      ] } : {}),
+    }));
+    writeFileSync(join(fixture, 'Patient.ndjson'), `${patientRecords.join('\n')}\n`);
+    writeFileSync(join(fixture, 'Observation.ndjson'), `${observationRecords.join('\n')}\n`);
+
+    const manifest = await selectExternalJ01Manifest(fixture);
+    assert.equal(manifest.summary.version, 'cda-fhir-meta-j01-v1');
+    assert.equal(manifest.summary.selection.firstPatientRecords, 32);
+    assert.equal(manifest.summary.selection.firstObservationRecords, 32);
+    assert.equal(manifest.files[0].records.length, 32);
+    assert.deepEqual(manifest.files[0].records.map((record) => record.id), Array.from({ length: 32 }, (_, index) => `patient-${index + 1}`));
+    assert.equal(manifest.files[1].records.length, 33);
+    assert.equal(manifest.files[1].records.at(-1).id, 'observation-40');
+    assert.deepEqual(manifest.files[1].repeatedComponentRecord, { recordNumber: 40, sourceLine: 40, id: 'observation-40', componentCount: 2 });
+    assert.match(manifest.summary.sourceSHA256, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(assertExternalJ01SourcesUnchanged(manifest), true);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('external J01 source guard rejects a changed fixture file', async () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-j01-mutated-'));
+  try {
+    const patientPath = join(fixture, 'Patient.ndjson');
+    const observationPath = join(fixture, 'Observation.ndjson');
+    writeFileSync(patientPath, `${Array.from({ length: 32 }, (_, index) => JSON.stringify({ resourceType: 'Patient', id: `patient-${index + 1}` })).join('\n')}\n`);
+    writeFileSync(observationPath, `${Array.from({ length: 32 }, (_, index) => JSON.stringify({
+      resourceType: 'Observation', id: `observation-${index + 1}`,
+      ...(index === 31 ? { component: [
+        { code: { coding: [{ system: 'https://cda.test', code: 'one' }] } },
+        { code: { coding: [{ system: 'https://cda.test', code: 'two' }] } },
+      ] } : {}),
+    })).join('\n')}\n`);
+    const manifest = await selectExternalJ01Manifest(fixture);
+    assert.equal(assertExternalJ01SourcesUnchanged(manifest), true);
+    writeFileSync(observationPath, `${readFileSync(observationPath, 'utf8')}\n`);
+    assert.throws(() => assertExternalJ01SourcesUnchanged(manifest), /source changed during verification/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test('external J01 Patient scalar comes from the selected live catalog', () => {
+  const patientNode = { nodeId: 'patient-node', resourceType: 'Patient' };
+  const state = {
+    catalog: {
+      nodes: [patientNode, { nodeId: 'observation-node', resourceType: 'Observation' }],
+      candidates: [
+        { nodeId: 'patient-node', fieldPath: 'gender', logicalType: 'string', cardinality: 'optional_one' },
+        {
+          nodeId: 'patient-node', fieldPath: 'resourceType', label: 'resourceType',
+          logicalType: 'string', cardinality: 'optional_one',
+          constructionChoice: { options: [{ form: 'VALUE', support: 'SUPPORTED' }] },
+        },
+        {
+          nodeId: 'observation-node', fieldPath: 'resourceType', label: 'resourceType',
+          logicalType: 'string', cardinality: 'optional_one',
+          constructionChoice: { options: [{ form: 'VALUE', support: 'SUPPORTED' }] },
+        },
+      ],
+    },
+  };
+  assert.deepEqual(externalJ01PatientScalar(state), {
+    fieldPath: 'resourceType', label: 'resourceType', checkboxLabel: 'Select Patient.resourceType',
+  });
+  assert.throws(() => externalJ01PatientScalar({ catalog: { nodes: [patientNode], candidates: [] } }), /does not expose a supported scalar Patient\.resourceType/);
+});
+
+test('timing summaries use actual samples and reject invalid durations', () => {
+  assert.deepEqual(summarizeTimingSamples(Array.from({ length: 30 }, (_, index) => index)), {
+    count: 30, p50Ms: 14.5, p95Ms: 28, minMs: 0, maxMs: 29,
+  });
+  assert.throws(() => summarizeTimingSamples([]), /non-empty array/);
+  assert.throws(() => summarizeTimingSamples([1, Number.NaN]), /finite, non-negative/);
+  assert.throws(() => summarizeTimingSamples([1, -1]), /finite, non-negative/);
+});
+
+test('J01 artifact controls support both the integration modal and direct-download Viewer', () => {
+  assert.deepEqual(j01ArtifactDownloadPlan(['Download dataset']), {
+    triggerLabel: 'Download dataset', confirmationLabel: 'Download ZIP',
+  });
+  assert.deepEqual(j01ArtifactDownloadPlan(['Download training artifact']), {
+    triggerLabel: 'Download training artifact', confirmationLabel: undefined,
+  });
+  assert.throws(() => j01ArtifactDownloadPlan(['Export CSV']), /no supported artifact download control/);
+  assert.throws(() => j01ArtifactDownloadPlan(undefined), /array of button labels/);
+});
+
+test('J01 owner literal snapshots compare source identity semantically', () => {
+  assert.deepEqual(j01OwnerLiteralSnapshot({
+    status: 'VALUE', value: 111, unit: 'cm', choiceArm: 'valueQuantity',
+    codings: [{ system: 'urn:study:A', code: 'shared' }],
+    source: { ownerOrdinal: 0, ownerPath: 'component[]', resourceId: 'dev-pair-001', resourceType: 'Observation' },
+  }), {
+    status: 'VALUE', value: 111, unit: 'cm', choiceArm: 'valueQuantity',
+    system: 'urn:study:A', code: 'shared',
+    source: { resourceType: 'Observation', resourceId: 'dev-pair-001', ownerPath: 'component[]', ownerOrdinal: 0 },
+  });
+});
+
+test('J01 typed artifact values treat omitted nullable fields as null', () => {
+  assert.equal(j01JSONValuesEquivalent(
+    [{ status: 'ABSENT', values: [] }],
+    [{ status: 'ABSENT', unit: null, value: null, values: [] }],
+  ), true);
+  assert.equal(j01JSONValuesEquivalent({ value: 0 }, { value: null }), false);
+  assert.equal(j01JSONValuesEquivalent([1, 2], [2, 1]), false);
+});
+
 test('generation load polling distinguishes durable completion from failure', () => {
   assert.equal(generationLoadDisposition({ state: 'LOADING' }), 'loading');
   assert.equal(generationLoadDisposition({ state: 'STAGED' }), 'ready');
@@ -196,6 +317,47 @@ test('default development sessions separate worktree identities and ports', () =
     assert.notEqual(first.artifacts, second.artifacts);
   } finally {
     for (const root of roots) rmSync(root, { recursive: true, force: true });
+    rmSync(registryRoot, { recursive: true, force: true });
+  }
+});
+
+test('named Compose projects in one worktree receive stable, distinct ports', () => {
+  const registryRoot = mkdtempSync(join(tmpdir(), 'loom-dev-compose-registry-'));
+  const root = mkdtempSync(join(tmpdir(), 'loom-dev-compose-source-'));
+  const registry = join(registryRoot, 'ports.json');
+  try {
+    mkdirSync(join(root, 'testdata/devloop-fixture'), { recursive: true });
+    writeFileSync(join(root, 'go.mod'), 'module example.test\n');
+    for (const file of ['Patient.ndjson', 'Observation.ndjson', 'recipe.json']) {
+      writeFileSync(join(root, 'testdata/devloop-fixture', file), '{}\n');
+    }
+
+    const first = createDevSession({
+      LOOM_DEV_PORT_REGISTRY: registry,
+      LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-compose-first',
+    }, root);
+    const second = createDevSession({
+      LOOM_DEV_PORT_REGISTRY: registry,
+      LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-compose-second',
+    }, root);
+    const firstAgain = createDevSession({
+      LOOM_DEV_PORT_REGISTRY: registry,
+      LOOM_DEV_COMPOSE_PROJECT: 'loom-dev-compose-first',
+    }, root);
+    const defaultProject = createDevSession({ LOOM_DEV_PORT_REGISTRY: registry }, root);
+    const defaultProjectAgain = createDevSession({
+      LOOM_DEV_PORT_REGISTRY: registry,
+      LOOM_DEV_COMPOSE_PROJECT: defaultProject.composeProject,
+    }, root);
+
+    assert.notEqual(first.apiPort, second.apiPort);
+    assert.notEqual(first.uiPort, second.uiPort);
+    assert.equal(firstAgain.apiPort, first.apiPort);
+    assert.equal(firstAgain.uiPort, first.uiPort);
+    assert.equal(defaultProjectAgain.apiPort, defaultProject.apiPort);
+    assert.equal(defaultProjectAgain.uiPort, defaultProject.uiPort);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
     rmSync(registryRoot, { recursive: true, force: true });
   }
 });
@@ -633,6 +795,42 @@ test('J05 JSONL artifact inspection selects data.jsonl and preserves structured 
     values: { patient_id: 'patient-a', family: ['Example', 'Example-Smith'] },
   });
   assert.equal(artifact.rows.some((row) => row.values.family === 'Example; Example-Smith'), false);
+});
+
+test('J01 artifact row reader maps CSV scalar columns by schema name to stable source IDs', () => {
+  const columns = [
+    { name: 'observation-id', outputKey: 'observationIdentifier', logicalType: 'string', shape: 'scalar', sourcePath: 'id' },
+    { name: 'observation-status', outputKey: 'statusValue', logicalType: 'string', shape: 'scalar', sourcePath: 'status' },
+  ];
+  const artifact = inspectJ01ArtifactRows(j05ArtifactPackage({
+    format: 'CSV', columns, rowCount: 1,
+    rowIdentity: { key: '__loom_row_id', sourceResourceType: 'Observation', sourceIdColumn: 'observation-id' },
+    data: 'observation-id,observation-status\nobs-stable-001,final\n',
+  }), 'observation-id');
+  assert.equal(artifact.dataName, 'data.csv');
+  assert.deepEqual(artifact.rowsByID.get('obs-stable-001'), {
+    'observation-id': 'obs-stable-001', 'observation-status': 'final',
+  });
+});
+
+test('J01 artifact row reader maps JSONL output keys and preserves repeated owner objects', () => {
+  const ownerRecords = [{
+    status: 'VALUE', value: 0, unit: 'mmol/L', choiceArm: 'valueQuantity',
+    codings: [{ system: 'urn:cda:meta', code: 'observation-component' }],
+    source: { resourceType: 'Observation', resourceId: 'obs-stable-001', ownerPath: 'component[]', ownerOrdinal: 0 },
+  }];
+  const columns = [
+    { name: 'observation-id', outputKey: 'fhirId', logicalType: 'string', shape: 'scalar', sourcePath: 'id' },
+    { name: 'owner-records', outputKey: 'owners', logicalType: 'array', shape: 'array', repeated: true, sourcePath: 'component[]' },
+  ];
+  const artifact = inspectJ01ArtifactRows(j05ArtifactPackage({
+    format: 'JSONL', columns, rowCount: 1,
+    rowIdentity: { key: '__loom_row_id', sourceResourceType: 'Observation', sourceIdColumn: 'observation-id' },
+    data: `${JSON.stringify({ rowId: { resourceId: 'obs-stable-001' }, values: { fhirId: 'obs-stable-001', owners: ownerRecords } })}\n`,
+  }), 'observation-id');
+  assert.equal(artifact.dataName, 'data.jsonl');
+  assert.equal(artifact.rowsByID.get('obs-stable-001')['observation-id'], 'obs-stable-001');
+  assert.deepEqual(artifact.rowsByID.get('obs-stable-001')['owner-records'], ownerRecords);
 });
 
 test('J05 prepared modal identity is rejected after publication generation or schema changes', () => {

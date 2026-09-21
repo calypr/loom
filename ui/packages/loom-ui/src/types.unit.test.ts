@@ -69,6 +69,7 @@ describe('explorerBuilderDocumentSchema', () => {
         }).rows,
       ).toEqual(rowDefinition);
     }
+    expect(explorerBuilderDocumentSchema.safeParse(document).success).toBe(false);
   });
 
   it('rejects a row kind whose payload belongs to another variant', () => {

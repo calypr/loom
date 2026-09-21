@@ -2,10 +2,11 @@
 
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createInterface } from 'node:readline';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -105,7 +106,11 @@ const defaultSessionValues = (sourceRoot, env) => {
   const explicitUIPort = envValue(env, 'LOOM_DEV_UI_PORT', '');
   if (explicitAPIPort && explicitUIPort) return { ...names, apiPort: explicitAPIPort, uiPort: explicitUIPort };
   const registryPath = envValue(env, 'LOOM_DEV_PORT_REGISTRY', DEFAULT_PORT_REGISTRY);
-  const portSlot = allocatePortSlot(registryPath, sourceRoot, identity);
+  const requestedComposeProject = envValue(env, 'LOOM_DEV_COMPOSE_PROJECT', names.composeProject);
+  const portIdentity = requestedComposeProject === names.composeProject
+    ? identity
+    : `${identity}:${requestedComposeProject}`;
+  const portSlot = allocatePortSlot(registryPath, sourceRoot, portIdentity);
   return {
     ...names,
     apiPort: String(API_PORT_BASE + portSlot * 2),
@@ -332,6 +337,171 @@ export const generatedJ01ConceptNDJSON = (fixtureDir) => {
   }).join('\n') + '\n';
 };
 
+export const selectExternalJ01Manifest = async (fixtureDir) => {
+  const specifications = [
+    { resourceType: 'Patient', initialRecords: 32 },
+    { resourceType: 'Observation', initialRecords: 32, requireRepeatedComponent: true, maximumScannedRecords: 100_000 },
+  ];
+  const files = [];
+  for (const specification of specifications) {
+    const sourcePath = join(fixtureDir, `${specification.resourceType}.ndjson`);
+    const sourceStat = statSync(sourcePath);
+    const selected = new Map();
+    let recordNumber = 0;
+    let sourceLine = 0;
+    let repeatedComponentRecord;
+    for await (const line of createInterface({ input: createReadStream(sourcePath), crlfDelay: Infinity })) {
+      sourceLine += 1;
+      if (!line.trim()) continue;
+      recordNumber += 1;
+      const resource = JSON.parse(line);
+      if (resource.resourceType !== specification.resourceType || typeof resource.id !== 'string' || !resource.id) {
+        throw new Error(`invalid ${specification.resourceType} source record at ${sourcePath}:${sourceLine}`);
+      }
+      const repeatedComponent = Array.isArray(resource.component)
+        && resource.component.length > 1
+        && resource.component.some((component) => component.code?.coding?.some((coding) => typeof coding.system === 'string' && coding.system && typeof coding.code === 'string' && coding.code));
+      if (recordNumber <= specification.initialRecords || (repeatedComponent && !repeatedComponentRecord)) {
+        selected.set(recordNumber, { recordNumber, sourceLine, id: resource.id, line, repeatedComponentCount: repeatedComponent ? resource.component.length : 0 });
+      }
+      if (repeatedComponent && !repeatedComponentRecord) {
+        repeatedComponentRecord = { recordNumber, sourceLine, id: resource.id, componentCount: resource.component.length };
+      }
+      if (recordNumber >= specification.initialRecords && (!specification.requireRepeatedComponent || repeatedComponentRecord)) break;
+      if (recordNumber >= (specification.maximumScannedRecords ?? specification.initialRecords)) break;
+    }
+    if (selected.size < specification.initialRecords) {
+      throw new Error(`${specification.resourceType} source has only ${selected.size} records; J01 requires ${specification.initialRecords}`);
+    }
+    if (specification.requireRepeatedComponent && !repeatedComponentRecord) {
+      throw new Error(`${specification.resourceType} source has no repeated component in the first ${specification.maximumScannedRecords} records`);
+    }
+    const records = [...selected.values()].sort((left, right) => left.recordNumber - right.recordNumber);
+    const contents = Buffer.from(`${records.map((record) => record.line).join('\n')}\n`);
+    const contentSHA256 = createHash('sha256').update(contents).digest('hex');
+    files.push({
+      name: `${specification.resourceType}.ndjson`,
+      sourcePath,
+      contents,
+      contentSHA256,
+      sourceStat: { sizeBytes: sourceStat.size, modifiedMs: sourceStat.mtimeMs, inode: sourceStat.ino },
+      records: records.map(({ sourceLine: originalLine, id, repeatedComponentCount }) => ({ sourceLine: originalLine, id, ...(repeatedComponentCount ? { repeatedComponentCount } : {}) })),
+      scannedRecords: recordNumber,
+      repeatedComponentRecord,
+    });
+  }
+  const manifestHash = createHash('sha256');
+  for (const file of files) manifestHash.update(file.name).update('\0').update(file.contents).update('\0');
+  const sourceSHA256 = `sha256:${manifestHash.digest('hex')}`;
+  return {
+    files,
+    summary: {
+      version: 'cda-fhir-meta-j01-v1',
+      sourceDirectory: resolve(fixtureDir),
+      sourceSHA256,
+      selectedPayloadSHA256: sourceSHA256,
+      sourceFiles: files.map(({ name, sourcePath, contentSHA256, sourceStat: selectedSourceStat, records, scannedRecords, repeatedComponentRecord: repeatedRecord }) => ({
+        name,
+        sourcePath,
+        sourceFileSizeBytes: selectedSourceStat.sizeBytes,
+        sourceFileModifiedMs: selectedSourceStat.modifiedMs,
+        sourceFileInode: selectedSourceStat.inode,
+        selectedContentSHA256: `sha256:${contentSHA256}`,
+        scannedRecords,
+        records,
+        repeatedComponentRecord: repeatedRecord,
+      })),
+      selection: { firstPatientRecords: 32, firstObservationRecords: 32, firstRepeatedObservationComponentWithin: 100_000 },
+    },
+  };
+};
+
+export const assertExternalJ01SourcesUnchanged = (manifest) => {
+  for (const file of manifest.files) {
+    const sourceStat = statSync(file.sourcePath);
+    if (sourceStat.size !== file.sourceStat.sizeBytes || sourceStat.mtimeMs !== file.sourceStat.modifiedMs || sourceStat.ino !== file.sourceStat.inode) {
+      throw new Error(`external J01 source changed during verification: ${file.sourcePath}`);
+    }
+  }
+  return true;
+};
+
+export const externalJ01PatientScalar = (builderState) => {
+  const patientNode = builderState.catalog?.nodes?.find((node) => node.resourceType === 'Patient');
+  const candidate = patientNode && builderState.catalog?.candidates?.find((entry) =>
+    entry.nodeId === patientNode.nodeId
+    && entry.fieldPath === 'resourceType'
+    && entry.logicalType === 'string'
+    && entry.cardinality === 'optional_one'
+    && entry.constructionChoice?.options?.some((option) => option.form === 'VALUE' && option.support === 'SUPPORTED'));
+  if (!candidate) {
+    throw new Error('CDA J01 selected Patient manifest does not expose a supported scalar Patient.resourceType field');
+  }
+  return {
+    fieldPath: candidate.fieldPath,
+    label: candidate.label,
+    checkboxLabel: `Select Patient.${candidate.fieldPath}`,
+  };
+};
+
+export const summarizeTimingSamples = (samples) => {
+  if (!Array.isArray(samples) || samples.length === 0) throw new Error('timing samples must be a non-empty array');
+  if (samples.some((sample) => !Number.isFinite(sample) || sample < 0)) {
+    throw new Error('timing samples must contain finite, non-negative durations');
+  }
+  const ordered = [...samples].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  const p50Ms = ordered.length % 2 === 0
+    ? (ordered[middle - 1] + ordered[middle]) / 2
+    : ordered[middle];
+  const p95Ms = ordered[Math.ceil(ordered.length * 0.95) - 1];
+  return { count: ordered.length, p50Ms, p95Ms, minMs: ordered[0], maxMs: ordered.at(-1) };
+};
+
+export const j01ArtifactDownloadPlan = (buttonLabels) => {
+  if (!Array.isArray(buttonLabels) || buttonLabels.some((label) => typeof label !== 'string')) {
+    throw new Error('J01 artifact controls must be an array of button labels');
+  }
+  const labels = new Set(buttonLabels.map((label) => label.trim()));
+  if (labels.has('Download training artifact')) {
+    return { triggerLabel: 'Download training artifact', confirmationLabel: undefined };
+  }
+  if (labels.has('Download dataset')) {
+    return { triggerLabel: 'Download dataset', confirmationLabel: 'Download ZIP' };
+  }
+  throw new Error('J01 Viewer exposes no supported artifact download control');
+};
+
+export const j01OwnerLiteralSnapshot = (entry) => ({
+  status: entry.status,
+  value: entry.value ?? null,
+  unit: entry.unit ?? null,
+  choiceArm: entry.choiceArm,
+  system: entry.codings?.[0]?.system,
+  code: entry.codings?.[0]?.code,
+  source: {
+    resourceType: entry.source?.resourceType,
+    resourceId: entry.source?.resourceId,
+    ownerPath: entry.source?.ownerPath,
+    ownerOrdinal: entry.source?.ownerOrdinal,
+  },
+});
+
+export const j01JSONValuesEquivalent = (left, right) => {
+  if (left === null || left === undefined || right === null || right === undefined) {
+    return left === null || left === undefined ? right === null || right === undefined : false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => j01JSONValuesEquivalent(value, right[index]));
+  }
+  if (typeof left === 'object' || typeof right === 'object') {
+    if (typeof left !== 'object' || typeof right !== 'object') return false;
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every((key) => j01JSONValuesEquivalent(left[key] ?? null, right[key] ?? null));
+  }
+  return Object.is(left, right);
+};
 export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
   if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 inventory request requires a catalog snapshot');
   if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 inventory request requires a row root');
@@ -775,7 +945,7 @@ const seedBootstrapWorkspace = async (target, explorerId) => {
   return { seeded: true, draftVersion: state.draftVersion, workspace };
 };
 
-const seedFixture = async (target, { requireFresh = false, populateBootstrap = true } = {}) => {
+const seedFixture = async (target, { requireFresh = false, populateBootstrap = true, fixtureManifest } = {}) => {
   if (requireFresh) await assertFreshProject(target);
   const statusURL = `${target.apiUrl}/api/v1/datasets/${encodeURIComponent(target.fixtureProject)}/generations/${encodeURIComponent(target.fixtureGeneration)}`;
   const status = await request(statusURL, { timeout: 5000 });
@@ -784,13 +954,17 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
   if (!reused) {
     if (status.status !== 404) throw new Error(`fixture generation preflight returned HTTP ${status.status}`);
     const form = new FormData();
-    const generatedConcepts = generatedJ01ConceptNDJSON(target.fixtureDir);
-    for (const name of readdirSync(target.fixtureDir).filter((name) => name.endsWith('.ndjson')).sort()) {
-      const path = join(target.fixtureDir, name);
-      const source = readFileSync(path);
-      const contents = name === 'Observation.ndjson' && generatedConcepts
-        ? Buffer.concat([source, Buffer.from(generatedConcepts)])
-        : source;
+    const generatedConcepts = fixtureManifest ? undefined : generatedJ01ConceptNDJSON(target.fixtureDir);
+    const fixtureFiles = fixtureManifest
+      ? fixtureManifest.files.map(({ name, contents }) => ({ name, contents }))
+      : readdirSync(target.fixtureDir).filter((name) => name.endsWith('.ndjson')).sort().map((name) => {
+        const source = readFileSync(join(target.fixtureDir, name));
+        const contents = name === 'Observation.ndjson' && generatedConcepts
+          ? Buffer.concat([source, Buffer.from(generatedConcepts)])
+          : source;
+        return { name, contents };
+      });
+    for (const { name, contents } of fixtureFiles) {
       form.append('file', new Blob([contents]), name);
     }
     form.append('defer_activation', 'false');
@@ -824,10 +998,10 @@ const seedFixture = async (target, { requireFresh = false, populateBootstrap = t
   }
   if (!bootstrap?.explorerId) throw new Error('fixture bootstrap Explorer has no stable identity');
   const bootstrapWorkspace = populateBootstrap ? await seedBootstrapWorkspace(target, bootstrap.explorerId) : undefined;
-  return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId, bootstrapWorkspace };
+  return { reused, fresh: requireFresh, bootstrapExplorerId: bootstrap.explorerId, bootstrapWorkspace, fixtureManifest: reused ? undefined : fixtureManifest?.summary };
 };
 
-const ensureDev = async (target, report, rebuild = false) => {
+const ensureDev = async (target, report, rebuild = false, fixtureManifest) => {
   const started = Date.now();
   report.status = 'building';
   await inspectOwnedResources(target);
@@ -845,14 +1019,14 @@ const ensureDev = async (target, report, rebuild = false) => {
   await inspectOwnedResources(target, { requirePorts: true });
   await waitForHTTP(`${target.apiUrl}/readyz`);
   report.timings.api_build_barrier_ms = await waitForFreshBuild(target);
-  const seed = await seedFixture(target);
+  const seed = await seedFixture(target, { fixtureManifest });
   await waitForHTTP(target.uiUrl);
   report.status = 'ready';
   report.timings.startup_ms = Date.now() - started;
   report.target.fixtureSeed = seed.reused ? 'reused' : 'seeded';
   report.target.bootstrapExplorerId = seed.bootstrapExplorerId;
   report.target.bootstrapWorkspace = seed.bootstrapWorkspace?.seeded ? 'seeded' : 'reused';
-  writeJSON(join(target.artifacts, 'dev-session.json'), { ...target, fixtureSeed: report.target.fixtureSeed, bootstrapExplorerId: seed.bootstrapExplorerId, bootstrapWorkspace: report.target.bootstrapWorkspace });
+  writeJSON(join(target.artifacts, 'dev-session.json'), { ...target, fixtureSeed: report.target.fixtureSeed, bootstrapExplorerId: seed.bootstrapExplorerId, bootstrapWorkspace: report.target.bootstrapWorkspace, fixtureManifest: seed.fixtureManifest });
   return seed;
 };
 
@@ -1293,6 +1467,38 @@ export const inspectJ05ArtifactPackage = (members) => {
     throw new Error('J05 artifact rows are missing distinct stable row identities');
   }
   return { manifest, schema, provenance, rows, dataName };
+};
+
+export const inspectJ01ArtifactRows = (members, idColumnName) => {
+  if (typeof idColumnName !== 'string' || idColumnName.length === 0) throw new Error('J01 artifact inspection requires the selected stable id column');
+  const artifact = inspectJ05ArtifactPackage(members);
+  if (!artifact.schema.columns.some((column) => column.name === idColumnName)) {
+    throw new Error(`J01 artifact schema omits the selected id column ${idColumnName}`);
+  }
+  const rowsByID = new Map();
+  const rows = artifact.rows.map((row, rowIndex) => {
+    const values = { ...row.values };
+    if (artifact.manifest.format === 'CSV') {
+      for (const column of artifact.schema.columns) {
+        const isStructured = column.repeated
+          || ['array', 'object', 'record', 'repeated'].includes(String(column.shape ?? '').toLowerCase())
+          || ['array', 'object'].includes(String(column.logicalType ?? '').toLowerCase());
+        if (!isStructured || typeof values[column.name] !== 'string') continue;
+        try { values[column.name] = JSON.parse(values[column.name]); } catch (error) {
+          throw new Error(`J01 artifact CSV row ${rowIndex + 1} column ${column.name} has invalid structured JSON: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+    return { ...row, values };
+  });
+  for (const row of rows) {
+    const id = row.values[idColumnName];
+    if (typeof id !== 'string' || id.length === 0 || rowsByID.has(id)) {
+      throw new Error(`J01 artifact rows must contain distinct non-empty values for ${idColumnName}`);
+    }
+    rowsByID.set(id, row.values);
+  }
+  return { ...artifact, rows, rowsByID };
 };
 
 export const j05ArtifactIdentityIsCurrent = (prepared, current) => {
@@ -2298,7 +2504,495 @@ const outputColumnForPath = (builder, output, path) => {
   return runtime;
 };
 
-const verifyJ01BrowserScenario = async (target, report, entryTarget = target) => {
+const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, externalManifest) => {
+  const runID = `j01-cda-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const evidenceDir = join(target.artifacts, runID);
+  const downloadDir = join(evidenceDir, 'downloads');
+  mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDir;
+  report.target.ports = { api: target.apiPort, ui: target.uiPort };
+  report.target.externalManifest = externalManifest.summary;
+  report.target.fixtureSourceDigest = externalManifest.summary.sourceSHA256;
+  report.actions = [];
+  report.requests = [];
+  report.target.externalTasks = [];
+  recordEvidence(report, evidenceDir);
+  const manifestPath = join(evidenceDir, 'external-manifest.json');
+
+  const repeatedSource = externalManifest.files.find((file) => file.name === 'Observation.ndjson');
+  const repeatedRecord = repeatedSource?.repeatedComponentRecord;
+  const repeatedResource = repeatedSource?.records.find((record) => record.id === repeatedRecord?.id);
+  if (!repeatedSource || !repeatedRecord || !repeatedResource) throw new Error('CDA J01 manifest has no selected repeated Observation record');
+  const repeatedJSON = repeatedSource.contents.toString('utf8').split(/\r?\n/).filter(Boolean)
+    .map((line) => JSON.parse(line)).find((resource) => resource.id === repeatedRecord.id);
+  const repeatedFeature = (repeatedJSON?.component ?? []).flatMap((component) => component.code?.coding ?? [])
+    .find((coding) => typeof coding.system === 'string' && coding.system && typeof coding.code === 'string' && coding.code);
+  if (!repeatedFeature) throw new Error(`CDA repeated Observation ${repeatedRecord.id} has no coded repeated feature`);
+  report.target.cdaSelection = {
+    sourceSHA256: externalManifest.summary.sourceSHA256,
+    selectedFiles: externalManifest.summary.sourceFiles.map((file) => ({
+      name: file.name,
+      selectedCount: file.records.length,
+      firstSourceLine: file.records[0]?.sourceLine,
+      lastSourceLine: file.records.at(-1)?.sourceLine,
+      selectedContentSHA256: file.selectedContentSHA256,
+      recordIDs: file.records.map((record) => record.id),
+    })),
+    repeatedObservation: {
+      id: repeatedRecord.id,
+      sourceLine: repeatedRecord.sourceLine,
+      componentCount: repeatedRecord.componentCount,
+      feature: { system: repeatedFeature.system, code: repeatedFeature.code, display: repeatedFeature.display ?? '' },
+    },
+  };
+  writeJSON(manifestPath, { ...externalManifest.summary, selectedRepeatedFeature: report.target.cdaSelection.repeatedObservation.feature });
+  recordEvidence(report, manifestPath);
+
+  const browser = await launchBrowser(downloadDir);
+  const cdp = browser.cdp;
+  const network = [];
+  cdp.on('Network.requestWillBeSent', (event) => {
+    if (!event.request.url.includes('/authoring/v2/')) return;
+    network.push({
+      requestId: event.requestId,
+      path: new URL(event.request.url).pathname,
+      method: event.request.method,
+      postData: event.request.postData,
+      startedAt: event.timestamp,
+      response: undefined,
+    });
+  });
+  cdp.on('Network.responseReceived', (event) => {
+    const item = network.find((candidate) => candidate.requestId === event.requestId);
+    if (item) item.response = { status: event.response.status, mimeType: event.response.mimeType };
+  });
+
+  const action = async (name, operation) => {
+    const started = Date.now();
+    await operation();
+    report.actions.push({ name, elapsedMs: Date.now() - started });
+  };
+  const saveDOM = async (name) => {
+    const path = join(evidenceDir, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+  };
+  const saveScreenshot = async (name) => {
+    const screenshot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const path = join(evidenceDir, `${name}.png`);
+    writeFileSync(path, Buffer.from(screenshot.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, path);
+  };
+  const readState = (explorerId) => fetchBuilderState(target, explorerId);
+  const bootstrapExplorerId = report.target.bootstrapExplorerId;
+  const entryURL = `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapExplorerId ?? '')}&mode=builder`;
+  const openBuilderEntry = async () => {
+    if (!bootstrapExplorerId) throw new Error('CDA J01 bootstrap Explorer identity is missing');
+    await navigate(cdp, entryURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+  };
+  const waitForState = async (explorerId, predicate, label, timeout = 30000) => {
+    const started = Date.now();
+    let state;
+    while (Date.now() - started < timeout) {
+      state = await readState(explorerId);
+      if (predicate(state)) return state;
+      await sleep(200);
+    }
+    throw new Error(`timed out waiting for CDA J01 Builder state: ${label}; draft=${state?.draftVersion}`);
+  };
+  const createBlankExplorer = async (title) => {
+    await openBuilderEntry();
+    await browserEval(cdp, `clickText('summary', 'New explorer')`);
+    await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
+    await browserEval(cdp, `clickButton('Create blank')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`);
+    const explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+    if (!explorerId) throw new Error(`CDA J01 blank Explorer has no identity: ${title}`);
+    return explorerId;
+  };
+  const createTableRoot = async (explorerId, resourceType, title) => {
+    const before = await readState(explorerId);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-starts-with-empty-new-explorer`, {
+      lifecycleState: 'NEW', draftVersion: 0, workspace: null,
+    }, { lifecycleState: before.lifecycleState, draftVersion: before.draftVersion, workspace: before.workspace });
+    await browserEval(cdp, `setInput('first-table-name', ${JSON.stringify(title)})`);
+    await browserEval(cdp, `clickButton('Create table')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && Boolean(document.querySelector('button[aria-label="Choose ${resourceType} rows"]'))`);
+    await browserEval(cdp, `clickButton('Choose ${resourceType} rows')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`, 60000);
+    const state = await waitForState(explorerId, (value) => value.workspace?.documents?.length === 1 && value.workspace.documents[0].rootResourceType === resourceType, `${resourceType} root selection`);
+    const table = state.workspace.documents[0];
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-persists-records-row-definition`,
+      { kind: 'RECORDS', records: {} }, table.rows);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-starts-with-zero-columns`, 0, table.columns.length);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-does-not-open-advanced-graph`, false, await evaluate(cdp, `Boolean(document.querySelector('.react-flow__node'))`));
+    return { state, table };
+  };
+  const chooseFeature = async ({ explorerId, outputId, query, checkboxLabel, columnCount, label, ownerRecords = false, articleMatch }) => {
+    await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(query)})`);
+    await browserEval(cdp, `clickButton('Search')`);
+    await waitForBrowser(cdp, articleMatch
+      ? `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes(${JSON.stringify(articleMatch)}) && article.querySelector('input[type="checkbox"]:not(:disabled)')))`
+      : `Boolean(document.querySelector('input[aria-label="${checkboxLabel}"]:not(:disabled)'))`, 60000);
+    if (articleMatch) {
+      await browserEval(cdp, `(() => { const article = [...document.querySelectorAll('article')].find((candidate) => candidate.textContent.includes(${JSON.stringify(articleMatch)})); const input = article?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('CDA J01 exact semantic feature is unavailable'); input.click(); })()`);
+    } else {
+      await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(checkboxLabel)}); if (!input || input.disabled) throw new Error('CDA J01 field choice is unavailable: ' + ${JSON.stringify(checkboxLabel)}); input.click();`);
+    }
+    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    if (ownerRecords) {
+      const formLabel = `${label}: Keep each matching record`;
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.querySelector('input[aria-label="${formLabel}"]'))`);
+      await browserEval(cdp, `const form = inputByLabel(${JSON.stringify(formLabel)}); if (!form) throw new Error('CDA J01 OWNER_RECORDS form is unavailable'); form.click();`);
+      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    }
+    return waitForState(explorerId, (value) => value.workspace?.documents?.find((document) => document.output?.id === outputId)?.columns.length === columnCount, `${label} selection`);
+  };
+  const columnSnapshot = (state, outputId) => {
+    const document = state.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
+    if (!document) throw new Error(`CDA J01 output is missing from Builder: ${outputId}`);
+    return document.columns.map((column) => ({
+      id: column.column,
+      label: column.label,
+      order: column.table?.order,
+      kind: column.source?.kind,
+      fieldPath: column.source?.field?.path,
+      system: column.source?.ownerRecords?.key?.system,
+      code: column.source?.ownerRecords?.key?.code,
+      ownerPath: column.source?.ownerRecords?.binding?.ownerPath,
+      valuePath: column.source?.ownerRecords?.binding?.valuePath,
+      logicalType: column.logicalType,
+    }));
+  };
+  const waitForNewArchive = async (before) => {
+    const started = Date.now();
+    while (Date.now() - started < 60000) {
+      for (const name of readdirSync(downloadDir).filter((file) => file.endsWith('.zip')).sort()) {
+        const path = join(downloadDir, name);
+        const modifiedMs = statSync(path).mtimeMs;
+        if (before.get(path) === modifiedMs || existsSync(`${path}.crdownload`)) continue;
+        return path;
+      }
+      await sleep(200);
+    }
+    throw new Error('CDA J01 Viewer did not download a new training artifact');
+  };
+  const waitForAuthoringResponse = async (pathSuffix, afterIndex) => {
+    const started = Date.now();
+    while (Date.now() - started < 90000) {
+      const item = network.find((candidate, index) => index >= afterIndex && candidate.path.endsWith(pathSuffix) && candidate.response);
+      if (item) return item;
+      await sleep(50);
+    }
+    throw new Error(`CDA J01 authoring response did not complete for ${pathSuffix}`);
+  };
+  const publishAndExport = async ({ resourceType, title, explorerId, outputId, columns, preview }) => {
+    const startIndex = network.length;
+    await browserEval(cdp, `clickButton('Publish')`);
+    const publishRequest = await waitForAuthoringResponse('/publish', startIndex);
+    await waitForBrowser(cdp, `!document.querySelector('button[aria-busy="true"]')`, 90000);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-publish-returns-200`, 200, publishRequest.response.status);
+    let explorerState;
+    let runtime;
+    const publishStarted = Date.now();
+    while (Date.now() - publishStarted < 90000) {
+      try {
+        explorerState = await fetchExplorerState(target, explorerId);
+        runtime = explorerState.runtime ?? explorerState;
+        if (runtime.outputs?.some((output) => output.outputId === outputId)) break;
+      } catch {}
+      await sleep(300);
+    }
+    const output = runtime?.outputs?.find((candidate) => candidate.outputId === outputId);
+    if (!output) throw new Error(`CDA J01 ${resourceType} publication omitted output ${outputId}`);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-publishes-exact-column-identities`, columns.map((column) => column.id), output.columns.map((column) => column.column));
+    const revisionId = explorerState.active?.revisionId ?? explorerState.publication?.revisionId;
+    if (!revisionId) throw new Error(`CDA J01 ${resourceType} publication omitted its revision identity`);
+    const builderAfterPublish = await readState(explorerId);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-publish-preserves-draft-identities`, columns, columnSnapshot(builderAfterPublish, outputId));
+
+    await browserEval(cdp, `clickButton('Viewer')`);
+    const viewerURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=viewer`;
+    await navigate(cdp, viewerURL);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('table[aria-label="${title} results"]')) && [...document.querySelectorAll('button')].some((button) => ['Download training artifact', 'Download dataset'].includes(button.textContent.trim()))`, 90000);
+    const artifactDownloadPlan = j01ArtifactDownloadPlan(await evaluate(cdp, `[...document.querySelectorAll('button')].map((button) => button.textContent.trim())`));
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-viewer-exposes-artifact-download`,
+      true, ['Download training artifact', 'Download dataset'].includes(artifactDownloadPlan.triggerLabel));
+    const viewerRows = await evaluate(cdp, `(() => {
+      const table = document.querySelector('table[aria-label="${title} results"]');
+      const rows = [...(table?.querySelectorAll('tbody tr') || [])];
+      return {
+        headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()),
+        rows: rows.map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+      };
+    })()`);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-viewer-renders-published-column-labels`, columns.map((column) => column.label), viewerRows.headers);
+    if (viewerRows.rows.length === 0) throw new Error(`CDA J01 ${resourceType} Viewer rendered no published rows`);
+    await saveDOM(`j01-cda-${resourceType.toLowerCase()}-viewer`);
+
+    const before = new Map(readdirSync(downloadDir).filter((name) => name.endsWith('.zip')).map((name) => {
+      const path = join(downloadDir, name);
+      return [path, statSync(path).mtimeMs];
+    }));
+    let modalSchemaDigest;
+    if (artifactDownloadPlan.confirmationLabel) {
+      await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
+      const modal = await evaluate(cdp, `(() => {
+        const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Download dataset') && candidate.querySelector('[aria-label="Declared output types"]'));
+        const value = (label) => [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
+        return {
+          text: dialog?.innerText ?? '',
+          sourceGeneration: value('Source generation'),
+          schemaDigest: value('Schema digest'),
+          types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '',
+        };
+      })()`);
+      const modalMatchesPublication = modal.sourceGeneration === target.fixtureGeneration
+        && modal.text.includes(`${columns.length} declared output columns`)
+        && columns.every((column) => modal.types.includes(column.label));
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-modal-matches-published-output`, true, modalMatchesPublication);
+      if (!/^[a-f0-9]{64}$/.test(modal.schemaDigest)) throw new Error(`CDA J01 ${resourceType} artifact modal has an invalid schema digest`);
+      modalSchemaDigest = modal.schemaDigest;
+      report.target[`${resourceType.toLowerCase()}ArtifactModal`] = {
+        sourceGeneration: modal.sourceGeneration,
+        schemaDigest: modal.schemaDigest,
+        declaredColumns: columns.map((column) => ({ label: column.label, logicalType: column.logicalType })),
+      };
+      await saveDOM(`j01-cda-${resourceType.toLowerCase()}-artifact-modal`);
+      await browserEval(cdp, `(() => {
+        const link = [...document.querySelectorAll('a[download]')].find((candidate) => candidate.textContent.trim() === ${JSON.stringify(artifactDownloadPlan.confirmationLabel)});
+        if (!link) throw new Error('CDA J01 artifact modal has no Download ZIP link');
+        link.click();
+      })()`);
+    } else {
+      await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
+    }
+    const archivePath = await waitForNewArchive(before);
+    recordEvidence(report, archivePath);
+    const archive = readStoredZip(archivePath);
+    const idColumn = columns.find((column) => column.fieldPath?.replace(/^root\./, '') === 'id');
+    if (!idColumn) throw new Error(`CDA J01 ${resourceType} output has no stable id column`);
+    const artifact = inspectJ01ArtifactRows(archive, idColumn.id);
+    const { schema, manifest: artifactManifest, dataName, rowsByID: exportedByID } = artifact;
+    const schemaColumnNames = schema.columns.map((column) => column.name);
+    const exportedFeatureColumns = schema.columns.filter((column) => column.name !== 'project_id');
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-has-exact-typed-selected-columns`,
+      columns.map((column) => column.id).sort(), exportedFeatureColumns.map((column) => column.name).sort());
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-data-member-matches-format`,
+      artifactManifest.format === 'CSV' ? 'data.csv' : 'data.jsonl', dataName);
+    if (artifactManifest.format === 'CSV') {
+      const csvHeader = parseArtifactCSV(archive.get(dataName).toString('utf8'))[0]?.map((cell) => cell.value) ?? [];
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-header-matches-schema`, schemaColumnNames, csvHeader);
+    } else {
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-jsonl-normalizes-schema-output-keys`, true,
+        artifact.rows.every((row) => Object.keys(row.values).every((name) => schemaColumnNames.includes(name))));
+    }
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-exposes-logical-types`, true, schema.columns.every((column) => typeof column.logicalType === 'string' && column.logicalType.length > 0));
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-binds-publication-identities`, {
+      project: canonicalProjectID(target.fixtureProject), generation: target.fixtureGeneration, outputId, revisionId,
+    }, {
+      project: artifactManifest.identity.project, generation: artifactManifest.identity.datasetGeneration,
+      outputId: artifactManifest.identity.outputId, revisionId: artifactManifest.identity.revisionId,
+    });
+    if (modalSchemaDigest) {
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-schema-digest-matches-modal`,
+        modalSchemaDigest, artifactManifest.identity.schemaDigest);
+    }
+    const expectedIDs = preview.rows.map((row) => row[idColumn.id]).sort();
+    const exportedIDs = [...exportedByID.keys()].sort();
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-preserves-preview-row-membership`, expectedIDs, exportedIDs);
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-artifact-row-count-matches-preview`, preview.rows.length, artifactManifest.rows);
+    const previewByID = new Map(preview.rows.map((row) => [row[idColumn.id], row]));
+    const columnsMatch = [...previewByID].every(([id, previewRow]) => {
+      const artifactRow = exportedByID.get(id);
+      return Boolean(artifactRow && columns.every((column) => j01JSONValuesEquivalent(
+        artifactRow[column.id], previewRow[column.id] ?? null,
+      )));
+    });
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-typed-artifact-values-match-preview`, true, columnsMatch);
+    const viewerMatchesArtifacts = viewerRows.rows.every((values) => {
+      const id = values[columns.findIndex((column) => column.fieldPath?.replace(/^root\./, '') === 'id')];
+      const artifactRow = exportedByID.get(id);
+      const previewRow = previewByID.get(id);
+      if (!artifactRow || !previewRow) return false;
+      return columns.every((column, index) => {
+        if (column.kind === 'ownerRecords') return true;
+        const expected = previewRow[column.id] == null ? '—' : String(previewRow[column.id]);
+        return values[index] === expected && j01JSONValuesEquivalent(artifactRow[column.id], previewRow[column.id] ?? null);
+      });
+    });
+    recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-viewer-rows-agree-with-preview-and-artifact`, true, viewerRows.rows.length > 0 && viewerMatchesArtifacts);
+    report.target.externalTasks.push({
+      explorerId, outputId, revisionId, rowRoot: resourceType, draftVersion: builderAfterPublish.draftVersion,
+      columns, previewRows: preview.rows.length, previewRowCount: preview.rowCount,
+      viewerRows: viewerRows.rows.length, artifact: { path: archivePath, bytes: statSync(archivePath).size, rows: artifactManifest.rows, columns: schema.columns },
+      repeatedFeature: resourceType === 'Observation' ? report.target.cdaSelection.repeatedObservation : undefined,
+    });
+    await saveScreenshot(`j01-cda-${resourceType.toLowerCase()}-viewer`);
+    return { revisionId, output, builderAfterPublish };
+  };
+
+  try {
+    assertExternalJ01SourcesUnchanged(externalManifest);
+    await openBuilderEntry();
+    await saveDOM('j01-cda-entry');
+
+    await action('cda_patient_task', async () => {
+      const explorerId = await createBlankExplorer(`J01 CDA Patient ${target.fixtureProject.slice(-8)}`);
+      const { table } = await createTableRoot(explorerId, 'Patient', 'CDA Patient task');
+      const outputId = table.output.id;
+      const patientScalar = externalJ01PatientScalar(await readState(explorerId));
+      let state = await chooseFeature({ explorerId, outputId, query: 'id', checkboxLabel: 'Select Patient.id', columnCount: 1, label: 'id' });
+      state = await chooseFeature({
+        explorerId, outputId, query: patientScalar.fieldPath, checkboxLabel: patientScalar.checkboxLabel,
+        columnCount: 2, label: patientScalar.label,
+      });
+      const identities = columnSnapshot(state, outputId);
+      const patientURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+      await navigate(cdp, patientURL);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Display name for configured id"]'))`, 60000);
+      const reloaded = await waitForState(explorerId, (value) => value.workspace?.documents?.some((document) => document.output?.id === outputId && document.columns.length === 2), 'reloaded Patient task');
+      recordAssertion(report, 'j01-cda-patient-reload-preserves-column-identities', identities, columnSnapshot(reloaded, outputId));
+      recordAssertion(report, 'j01-cda-patient-reload-preserves-records-row-definition',
+        { kind: 'RECORDS', records: {} }, reloaded.workspace.documents.find((document) => document.output?.id === outputId)?.rows);
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('[role="table"]'))`, 90000);
+      await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value === '1000'`, 90000);
+      const preview = await fetchJ01Preview(target, explorerId, outputId, await readState(explorerId), 1000);
+      const expectedIDs = externalManifest.files.find((file) => file.name === 'Patient.ndjson').records.map((record) => record.id).sort();
+      const idColumn = identities.find((column) => column.fieldPath?.replace(/^root\./, '') === 'id');
+      recordAssertion(report, 'j01-cda-patient-preview-has-exact-selected-source-membership', expectedIDs, preview.rows.map((row) => row[idColumn.id]).sort());
+      recordAssertion(report, 'j01-cda-patient-preview-has-exactly-two-selected-columns', 2, preview.columns.length);
+      report.target.cdaPatientLiteralValues = preview.rows.slice(0, 5).map((row) => ({
+        id: row[idColumn.id], [patientScalar.fieldPath]: row[identities[1].id] ?? null,
+      }));
+      const published = await publishAndExport({ resourceType: 'Patient', title: 'CDA Patient task', explorerId, outputId, columns: identities, preview });
+      report.target.externalTasks.at(-1).draftVersion = published.builderAfterPublish.draftVersion;
+    });
+
+    await action('cda_observation_repeated_feature_task', async () => {
+      const explorerId = await createBlankExplorer(`J01 CDA Observation ${target.fixtureProject.slice(-8)}`);
+      const { table } = await createTableRoot(explorerId, 'Observation', 'CDA Observation task');
+      const outputId = table.output.id;
+      let state = await chooseFeature({ explorerId, outputId, query: 'id', checkboxLabel: 'Select Observation.id', columnCount: 1, label: 'id' });
+      state = await chooseFeature({ explorerId, outputId, query: 'status', checkboxLabel: 'Select Observation.status', columnCount: 2, label: 'status' });
+      const repeatedLabel = String(repeatedFeature.display || repeatedFeature.code);
+      state = await chooseFeature({
+        explorerId, outputId, query: repeatedFeature.code, checkboxLabel: `Select ${repeatedLabel}`,
+        articleMatch: `${repeatedFeature.system} · ${repeatedFeature.code}`, columnCount: 3,
+        label: repeatedLabel, ownerRecords: true,
+      });
+      const identities = columnSnapshot(state, outputId);
+      const repeatedColumn = identities.find((column) => column.kind === 'ownerRecords' && column.system === repeatedFeature.system && column.code === repeatedFeature.code);
+      if (!repeatedColumn || repeatedColumn.ownerPath !== 'component[]') throw new Error('CDA J01 selected feature is not a preserving repeated-component output');
+      await measureJ01CatalogRequests(target, report, {
+        explorerId, snapshotToken: state.catalog.snapshotToken, rowRoot: 'Observation', resourceType: 'Observation', query: repeatedFeature.code,
+      });
+      const observationURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+      await navigate(cdp, observationURL);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Display name for configured id"]'))`, 60000);
+      const reloaded = await waitForState(explorerId, (value) => value.workspace?.documents?.some((document) => document.output?.id === outputId && document.columns.length === 3), 'reloaded Observation task');
+      recordAssertion(report, 'j01-cda-observation-reload-preserves-column-identities', identities, columnSnapshot(reloaded, outputId));
+      recordAssertion(report, 'j01-cda-observation-reload-preserves-records-row-definition',
+        { kind: 'RECORDS', records: {} }, reloaded.workspace.documents.find((document) => document.output?.id === outputId)?.rows);
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('[role="table"]'))`, 90000);
+      await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+      await waitForBrowser(cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value === '1000'`, 90000);
+      const preview = await fetchJ01Preview(target, explorerId, outputId, await readState(explorerId), 1000);
+      const expectedIDs = externalManifest.files.find((file) => file.name === 'Observation.ndjson').records.map((record) => record.id).sort();
+      const idColumn = identities.find((column) => column.fieldPath?.replace(/^root\./, '') === 'id');
+      recordAssertion(report, 'j01-cda-observation-preview-has-exact-selected-source-membership', expectedIDs, preview.rows.map((row) => row[idColumn.id]).sort());
+      recordAssertion(report, 'j01-cda-observation-preview-has-exactly-three-selected-columns', 3, preview.columns.length);
+      const repeatedRowIndex = preview.rows.findIndex((row) => Array.isArray(row[repeatedColumn.id]) && row[repeatedColumn.id].some((record) => record.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code)));
+      if (repeatedRowIndex < 0) throw new Error(`CDA J01 Preview has no literal ${repeatedFeature.system} · ${repeatedFeature.code} owner record`);
+      const matchingOwner = preview.rows[repeatedRowIndex][repeatedColumn.id].find((record) => record.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code));
+      recordAssertion(report, 'j01-cda-repeated-preview-keeps-exact-source-owner-and-status', {
+        resourceId: repeatedRecord.id, ownerPath: 'component[]', system: repeatedFeature.system, code: repeatedFeature.code,
+      }, {
+        resourceId: matchingOwner.source?.resourceId, ownerPath: matchingOwner.source?.ownerPath,
+        system: matchingOwner.codings?.find((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code)?.system,
+        code: matchingOwner.codings?.find((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code)?.code,
+      });
+      report.target.cdaObservationLiteralValues = {
+        id: preview.rows[repeatedRowIndex][idColumn.id],
+        status: preview.rows[repeatedRowIndex][identities[1].id] ?? null,
+        ownerRecord: matchingOwner,
+      };
+      const inspectorLabel = repeatedColumn.label;
+      await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${repeatedRowIndex})`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect ${inspectorLabel} for row ${repeatedRowIndex + 1}"]'))`, 60000);
+      await browserEval(cdp, `clickButton('Inspect ${inspectorLabel} for row ${repeatedRowIndex + 1}')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="${inspectorLabel} record evidence"]'))`, 30000);
+      const dialogText = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="${inspectorLabel} record evidence"]')?.innerText || ''`));
+      const dialogFragments = [
+        repeatedFeature.system, repeatedFeature.code, String(matchingOwner.status), repeatedRecord.id,
+        'ownerPath: component[]',
+        ...(matchingOwner.value === null || matchingOwner.value === undefined ? [] : [String(matchingOwner.value)]),
+        ...(matchingOwner.unit ? [String(matchingOwner.unit)] : []),
+      ];
+      recordAssertion(report, 'j01-cda-repeated-inspector-exposes-selected-feature-source', true,
+        dialogFragments.every((fragment) => dialogText.includes(fragment)));
+      await browserEval(cdp, `clickButton('Close')`);
+      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(cdp, inspectorLabel, repeatedRowIndex);
+      report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
+      report.target.uiAcknowledgementSamples = acknowledgementSamples;
+      recordAssertion(report, 'j01-cda-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
+      const published = await publishAndExport({ resourceType: 'Observation', title: 'CDA Observation task', explorerId, outputId, columns: identities, preview });
+      report.target.externalTasks.at(-1).draftVersion = published.builderAfterPublish.draftVersion;
+    });
+
+    recordAssertion(report, 'j01-cda-runs-two-different-row-roots', ['Patient', 'Observation'], report.target.externalTasks.map((task) => task.rowRoot));
+    recordAssertion(report, 'j01-cda-includes-a-preserving-repeated-feature', true,
+      report.target.externalTasks.some((task) => task.columns.some((column) => column.kind === 'ownerRecords' && column.ownerPath === 'component[]')));
+    recordAssertion(report, 'j01-cda-source-files-remain-read-only', true, assertExternalJ01SourcesUnchanged(externalManifest));
+    const finalManifest = await selectExternalJ01Manifest(externalManifest.summary.sourceDirectory);
+    const sourceDigestStable = externalManifest.summary.sourceSHA256 === finalManifest.summary.sourceSHA256;
+    recordAssertion(report, 'j01-cda-selected-source-digest-remains-unchanged', externalManifest.summary.sourceSHA256, finalManifest.summary.sourceSHA256);
+    report.target.sourceInvariance = externalManifest.files.map((file, index) => {
+      const after = statSync(file.sourcePath);
+      const finalFile = finalManifest.files[index];
+      return {
+        path: file.sourcePath,
+        before: file.sourceStat,
+        after: { sizeBytes: after.size, modifiedMs: after.mtimeMs, inode: after.ino },
+        selectedContentSHA256Before: file.contentSHA256,
+        selectedContentSHA256After: finalFile.contentSHA256,
+        unchanged: file.contentSHA256 === finalFile.contentSHA256
+          && after.size === file.sourceStat.sizeBytes
+          && after.mtimeMs === file.sourceStat.modifiedMs
+          && after.ino === file.sourceStat.inode,
+      };
+    });
+    recordAssertion(report, 'j01-cda-source-stats-and-selected-content-remain-unchanged', true,
+      sourceDigestStable && report.target.sourceInvariance.every((file) => file.unchanged));
+    const sourceInvariancePath = join(evidenceDir, 'source-invariance.json');
+    writeJSON(sourceInvariancePath, {
+      sourceDirectory: externalManifest.summary.sourceDirectory,
+      sourceSHA256Before: externalManifest.summary.sourceSHA256,
+      sourceSHA256After: finalManifest.summary.sourceSHA256,
+      files: report.target.sourceInvariance,
+    });
+    recordEvidence(report, sourceInvariancePath);
+    const timingPath = join(evidenceDir, 'request-ui-timings.json');
+    writeJSON(timingPath, {
+      authoringRequests: report.requests.filter((request) => request.kind === 'warm-semantic-inventory'),
+      authoringSummary: report.timings.authoringRequests,
+      uiAcknowledgements: report.target.uiAcknowledgementSamples,
+      uiSummary: report.timings.uiAcknowledgements,
+    });
+    recordEvidence(report, timingPath);
+    await saveDOM('j01-cda-final');
+    report.timings.browser_scenario_ms = report.actions.reduce((total, item) => total + item.elapsedMs, 0);
+  } finally {
+    try { await browser.close(); } catch {}
+  }
+};
+const verifyJ01BrowserScenario = async (target, report, entryTarget = target, externalManifest) => {
+  if (externalManifest) return verifyJ01ExternalBrowserScenario(target, report, entryTarget, externalManifest);
   const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const evidenceDir = join(target.artifacts, runID);
   const downloadDir = join(evidenceDir, 'downloads');
@@ -2308,6 +3002,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
   recordEvidence(report, evidenceDir);
   report.requests = [];
   report.actions = [];
+  let previewRowsForArtifact = [];
 
   const browser = await launchBrowser(downloadDir);
   const cdp = browser.cdp;
@@ -2422,6 +3117,8 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
     if (!document?.output?.id) throw new Error('J01 selected Observation row root did not create one saved table');
     const outputId = document.output.id;
     report.target.outputId = outputId;
+    recordAssertion(report, 'j01-persisted-observation-table-has-records-row-definition',
+      { kind: 'RECORDS', records: {} }, document.rows);
     const rootNode = state.catalog.nodes.find((node) => node.resourceType === 'Observation' && node.rowRootEligible);
     if (!rootNode) throw new Error('J01 Observation root is missing from the authorized Builder catalog');
     recordAssertion(report, 'j01-starts-with-empty-observation-table', [], document.columns.map((column) => column.column));
@@ -2492,6 +3189,13 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       firstCode: `${fixture.codePrefix}0000`,
       lastCode: `${fixture.codePrefix}${String(fixture.count - 1).padStart(4, '0')}`,
     }, report.target.inventory);
+    await measureJ01CatalogRequests(target, report, {
+      explorerId: report.target.explorerId,
+      snapshotToken: state.catalog.snapshotToken,
+      rowRoot: rootNode.resourceType,
+      resourceType: rootNode.resourceType,
+      query: fixture.displayPrefix,
+    });
     state = await readState();
     recordAssertion(report, 'j01-opening-and-paging-catalog-does-not-create-columns', [],
       state.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.columns.map((column) => column.column));
@@ -2624,6 +3328,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
         throw new Error(`J01 preview API did not return a live row preview: HTTP ${previewResponse.response?.status} ${JSON.stringify(previewResponse.responseBody).slice(0, 300)}`);
       }
       const previewRows = previewResponse.responseBody.rows;
+      previewRowsForArtifact = previewRows;
       const zeroRow = previewRows.find((row) => Object.values(row ?? {}).some((value) => String(value) === 'dev-j01-concept-0000'));
       const previewValueColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(valueColumn.column) || column.column === valueColumn.column);
       const previewIdColumn = previewResponse.responseBody.columns?.find((column) => column.authoredColumns?.includes(idColumn.column) || column.column === idColumn.column);
@@ -2658,20 +3363,49 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
       if (!ownerButton) throw new Error('J01 Preview has no inspectable Study A owner-record cell for dev-pair-001');
       await browserEval(cdp, `inputByLabel(${JSON.stringify(ownerButtonLabel)}).click()`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`, 30000);
+      await browserEval(cdp, `(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-label="shared record evidence"]');
+        const owners = [...(dialog?.querySelectorAll('summary') || [])].filter((summary) => summary.textContent.trim() === 'Raw FHIR owner');
+        if (owners.length !== 2) throw new Error('J01 repeated-cell inspector did not expose two matching owner records');
+        owners.forEach((summary) => summary.click());
+      })()`);
       const ownerEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
       recordAssertion(report, 'j01-preview-preserves-owner-value-unit-absence-choice-arm-and-source', true,
         ownerEvidence.includes('111') && ownerEvidence.includes('cm') && ownerEvidence.includes('VALUE') && ownerEvidence.includes('ABSENT') && ownerEvidence.includes('urn:study:A') && ownerEvidence.includes('shared') && ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('ownerOrdinal: 0') && ownerEvidence.includes('ownerPath: component[]'));
+      const ownerEntries = Array.isArray(previewRows[ownerRowIndex][ownerColumn.column]) ? previewRows[ownerRowIndex][ownerColumn.column] : [];
+      const ownerLiterals = ownerEntries.map(j01OwnerLiteralSnapshot);
+      recordAssertion(report, 'j01-same-owner-output-has-exact-value-and-absence-literals', [
+        { status: 'VALUE', value: 111, unit: 'cm', choiceArm: 'valueQuantity', system: 'urn:study:A', code: 'shared', source: { resourceType: 'Observation', resourceId: 'dev-pair-001', ownerPath: 'component[]', ownerOrdinal: 0 } },
+        { status: 'ABSENT', value: null, unit: null, choiceArm: 'valueQuantity', system: 'urn:study:A', code: 'shared', source: { resourceType: 'Observation', resourceId: 'dev-pair-001', ownerPath: 'component[]', ownerOrdinal: 2 } },
+      ], ownerLiterals);
+      recordAssertion(report, 'j01-repeated-cell-details-include-hostile-owner-fields', true,
+        ownerEvidence.includes('unmodeledSignal') && ownerEvidence.includes('_valueString') && ownerEvidence.includes('urn:j01:missing-primitive'));
       report.target.ownerEvidence = {
         inspectedCell: ownerButton,
+        sameOwnerLiterals: ownerLiterals,
         includesValue: ownerEvidence.includes('111'),
         includesUnit: ownerEvidence.includes('cm'),
         includesAbsent: ownerEvidence.includes('ABSENT'),
         includesContributorSource: ownerEvidence.includes('dev-pair-001') && ownerEvidence.includes('ownerOrdinal: 0') && ownerEvidence.includes('ownerPath: component[]'),
         includesUnknownOwnerField: ownerEvidence.includes('unmodeledSignal'),
+        includesAbsentPrimitiveMetadata: ownerEvidence.includes('_valueString') && ownerEvidence.includes('urn:j01:missing-primitive'),
       };
       await captureDOM('j01-owner-record-evidence');
       await browserEval(cdp, `clickButton('Close')`);
+      const acknowledgementSamples = await measureJ01InspectorAcknowledgements(cdp, 'shared', ownerRowIndex);
+      report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
+      report.target.uiAcknowledgementSamples = acknowledgementSamples;
+      recordAssertion(report, 'j01-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
     });
+
+    const timingPath = join(evidenceDir, 'request-ui-timings.json');
+    writeJSON(timingPath, {
+      authoringRequests: report.requests.filter((request) => request.kind === 'warm-semantic-inventory'),
+      authoringSummary: report.timings.authoringRequests,
+      uiAcknowledgements: report.target.uiAcknowledgementSamples,
+      uiSummary: report.timings.uiAcknowledgements,
+    });
+    recordEvidence(report, timingPath);
 
     await action('publish_exact_selected_output', async () => {
       await browserEval(cdp, `clickButton('Publish')`);
@@ -2715,36 +3449,107 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target) =>
 
     await action('download_and_verify_published_artifact', async () => {
       await browserEval(cdp, `clickButton('Viewer')`);
-      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Download training artifact'))`, 60000);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Published') && [...document.querySelectorAll('button')].some((button) => ['Download training artifact', 'Download dataset'].includes(button.textContent.trim()))`, 60000);
+      const artifactDownloadPlan = j01ArtifactDownloadPlan(await evaluate(cdp, `[...document.querySelectorAll('button')].map((button) => button.textContent.trim())`));
+      recordAssertion(report, 'j01-viewer-exposes-artifact-download', true,
+        ['Download training artifact', 'Download dataset'].includes(artifactDownloadPlan.triggerLabel));
+      await waitForBrowser(cdp, `Boolean(document.querySelector('table[aria-label$=" results"]')) && Boolean(document.querySelector('table[aria-label$=" results"] tbody tr'))`, 60000);
+      const viewerTable = await evaluate(cdp, `(() => {
+        const table = document.querySelector('table[aria-label$=" results"]');
+        return {
+          headers: [...(table?.querySelectorAll('thead th') || [])].map((cell) => cell.textContent.trim()),
+          rows: [...(table?.querySelectorAll('tbody tr') || [])].map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim())),
+        };
+      })()`);
+      recordAssertion(report, 'j01-viewer-renders-the-selected-published-columns', report.target.publication.outputs[0].columns.map((column) => column.label), viewerTable.headers);
       const exportStarted = Date.now();
-      await browserEval(cdp, `clickButton('Download training artifact')`);
+      let modalSchemaDigest;
+      if (artifactDownloadPlan.confirmationLabel) {
+        await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
+        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('[aria-label="Declared output types"]')))`, 60000);
+        const modal = await evaluate(cdp, `(() => {
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Download dataset') && candidate.querySelector('[aria-label="Declared output types"]'));
+          const value = (label) => [...(dialog?.querySelectorAll('dt') || [])].find((term) => term.textContent.trim() === label)?.nextElementSibling?.textContent.trim() ?? '';
+          return { text: dialog?.innerText ?? '', sourceGeneration: value('Source generation'), schemaDigest: value('Schema digest'), types: dialog?.querySelector('[aria-label="Declared output types"]')?.innerText ?? '' };
+        })()`);
+        const columns = report.target.publication.outputs[0].columns;
+        const modalMatchesPublication = modal.sourceGeneration === target.fixtureGeneration
+          && modal.text.includes(`${columns.length} declared output columns`)
+          && columns.every((column) => modal.types.includes(column.label));
+        recordAssertion(report, 'j01-artifact-modal-matches-published-output', true, modalMatchesPublication);
+        if (!/^[a-f0-9]{64}$/.test(modal.schemaDigest)) throw new Error('J01 artifact modal has an invalid schema digest');
+        modalSchemaDigest = modal.schemaDigest;
+        report.target.artifactModal = { sourceGeneration: modal.sourceGeneration, schemaDigest: modal.schemaDigest, columns };
+        await captureDOM('j01-artifact-download-modal');
+        await browserEval(cdp, `(() => {
+          const link = [...document.querySelectorAll('a[download]')].find((candidate) => candidate.textContent.trim() === ${JSON.stringify(artifactDownloadPlan.confirmationLabel)});
+          if (!link) throw new Error('J01 artifact modal has no Download ZIP link');
+          link.click();
+        })()`);
+      } else {
+        await browserEval(cdp, `clickButton(${JSON.stringify(artifactDownloadPlan.triggerLabel)})`);
+      }
       const archivePath = await findDownloadedArchive(downloadDir, 60000);
       report.timings.j01_export_download_ms = Date.now() - exportStarted;
       recordEvidence(report, archivePath);
       const archive = readStoredZip(archivePath);
-      const requiredMembers = ['data.csv', 'schema.json', 'provenance.json', 'quality.json', 'manifest.json'];
+      const artifact = inspectJ01ArtifactRows(archive, report.target.columnIds.id);
+      const { manifest, schema, dataName, rowsByID: exportedByID } = artifact;
+      const requiredMembers = [dataName, 'schema.json', 'provenance.json', 'quality.json', 'manifest.json'];
       recordAssertion(report, 'j01-export-has-data-schema-provenance-quality-and-manifest', true, requiredMembers.every((name) => archive.has(name)));
-      const manifest = JSON.parse(archive.get('manifest.json').toString('utf8'));
-      const schema = JSON.parse(archive.get('schema.json').toString('utf8'));
-      const csvRows = parseCSV(archive.get('data.csv').toString('utf8'));
       const runtime = report.target.publication.outputs[0];
       const expectedColumnIDs = runtime.columns.map((column) => column.column);
-      recordAssertion(report, 'j01-export-schema-contains-exactly-the-selected-columns', expectedColumnIDs, schema.columns.map((column) => column.name));
-      recordAssertion(report, 'j01-export-header-matches-its-selected-schema', expectedColumnIDs, csvRows[0]);
-      const idIndex = csvRows[0].indexOf(report.target.columnIds.id);
-      const valueIndex = csvRows[0].indexOf(report.target.columnIds.valueInteger);
-      const ownerIndex = csvRows[0].indexOf(report.target.columnIds.ownerRecords);
-      if (idIndex < 0 || valueIndex < 0 || ownerIndex < 0) throw new Error(`J01 export omitted a selected column: ${JSON.stringify(csvRows[0])}`);
+      const exportedFeatureColumns = schema.columns.filter((column) => column.name !== 'project_id');
+      recordAssertion(report, 'j01-export-schema-contains-exactly-the-selected-columns', [...expectedColumnIDs].sort(), exportedFeatureColumns.map((column) => column.name).sort());
+      recordAssertion(report, 'j01-export-schema-preserves-selected-logical-types', true,
+        schema.columns.every((column) => typeof column.logicalType === 'string' && column.logicalType.length > 0));
+      recordAssertion(report, 'j01-export-data-member-matches-format', manifest.format === 'CSV' ? 'data.csv' : 'data.jsonl', dataName);
+      if (manifest.format === 'CSV') {
+        const csvHeader = parseArtifactCSV(archive.get(dataName).toString('utf8'))[0]?.map((cell) => cell.value) ?? [];
+        recordAssertion(report, 'j01-export-header-matches-its-selected-schema', schema.columns.map((column) => column.name), csvHeader);
+      } else {
+        const schemaColumnNames = new Set(schema.columns.map((column) => column.name));
+        recordAssertion(report, 'j01-export-jsonl-normalizes-schema-output-keys', true,
+          artifact.rows.every((row) => Object.keys(row.values).every((name) => schemaColumnNames.has(name))));
+      }
+      if (modalSchemaDigest) recordAssertion(report, 'j01-export-schema-digest-matches-download-modal', modalSchemaDigest, manifest.identity.schemaDigest);
+      recordAssertion(report, 'j01-artifact-binds-stable-publication-identities', {
+        project: canonicalProjectID(target.fixtureProject), generation: target.fixtureGeneration,
+        outputId: report.target.outputId, revisionId: report.target.publication.revisionId,
+      }, {
+        project: manifest.identity.project, generation: manifest.identity.datasetGeneration,
+        outputId: manifest.identity.outputId, revisionId: manifest.identity.revisionId,
+      });
       const fixtureRecords = readFileSync(join(target.fixtureDir, 'Observation.ndjson'), 'utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
       const expectedIDs = [...fixtureRecords.map((record) => record.id), ...Array.from({ length: fixture.count }, (_, index) => `dev-j01-concept-${String(index).padStart(4, '0')}`)].sort();
-      const exportedRows = csvRows.slice(1);
-      const exportedIDs = exportedRows.map((row) => row[idIndex]).sort();
+      const exportedIDs = [...exportedByID.keys()].sort();
       recordAssertion(report, 'j01-export-preserves-exact-observation-row-membership', expectedIDs, exportedIDs);
-      const zeroExportRow = exportedRows.find((row) => row[idIndex] === 'dev-j01-concept-0000');
-      recordAssertion(report, 'j01-export-preserves-integer-zero-as-zero', '0', zeroExportRow?.[valueIndex]);
-      const ownerExportRow = exportedRows.find((row) => row[idIndex] === 'dev-pair-001');
-      recordAssertion(report, 'j01-export-includes-repeated-owner-contributor-evidence', true,
-        Boolean(ownerExportRow?.[ownerIndex]?.includes('111') && ownerExportRow[ownerIndex].includes('ABSENT') && ownerExportRow[ownerIndex].includes('dev-pair-001')));
+      const previewByID = new Map(previewRowsForArtifact.map((row) => [row[report.target.columnIds.id], row]));
+      const previewMatchesArtifact = [...previewByID].every(([id, previewRow]) => {
+        const artifactRow = exportedByID.get(id);
+        return Boolean(artifactRow && expectedColumnIDs.every((column) =>
+          j01JSONValuesEquivalent(artifactRow[column], previewRow[column] ?? null)));
+      });
+      recordAssertion(report, 'j01-typed-artifact-values-match-live-preview', true, previewMatchesArtifact);
+      const viewerIDIndex = viewerTable.headers.indexOf('Observation identifier');
+      const viewerMatchesPublishedArtifact = viewerTable.rows.length > 0 && viewerTable.rows.every((row) => {
+        const id = row[viewerIDIndex];
+        const previewRow = previewByID.get(id);
+        const artifactRow = exportedByID.get(id);
+        if (!previewRow || !artifactRow) return false;
+        return viewerTable.headers.every((label, index) => {
+          const column = runtime.columns.find((candidate) => candidate.label === label);
+          if (!column || column.column === report.target.columnIds.ownerRecords) return Boolean(column);
+          const expected = previewRow[column.column] == null ? '—' : String(previewRow[column.column]);
+          return row[index] === expected && j01JSONValuesEquivalent(artifactRow[column.column], previewRow[column.column] ?? null);
+        });
+      });
+      recordAssertion(report, 'j01-viewer-values-agree-with-preview-and-typed-artifact', true, viewerMatchesPublishedArtifact);
+      const zeroExportRow = exportedByID.get('dev-j01-concept-0000');
+      recordAssertion(report, 'j01-export-preserves-integer-zero-as-zero', 0, zeroExportRow?.[report.target.columnIds.valueInteger]);
+      const ownerExportLiterals = exportedByID.get('dev-pair-001')?.[report.target.columnIds.ownerRecords];
+      recordAssertion(report, 'j01-export-preserves-exact-repeated-owner-literals', report.target.ownerEvidence.sameOwnerLiterals,
+        Array.isArray(ownerExportLiterals) ? ownerExportLiterals.map(j01OwnerLiteralSnapshot) : []);
       recordAssertion(report, 'j01-artifact-is-bound-to-selected-publication-output', report.target.outputId, manifest.identity.outputId);
       recordAssertion(report, 'j01-artifact-row-count-matches-exact-fixture-membership', expectedIDs.length, manifest.rows);
       report.target.export = { path: archivePath, bytes: statSync(archivePath).size, rows: manifest.rows, features: manifest.features, countBasis: 'exact-exported-fixture-membership' };
@@ -2826,6 +3631,80 @@ const fetchBuilderState = async (target, explorerId) => {
   return value;
 };
 
+const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000) => {
+  let receiptId = state.receipt?.receiptId ?? state.receiptId;
+  if (!receiptId) {
+    const reconciled = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/reconcile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ snapshotToken: state.catalog.snapshotToken, draftVersion: state.draftVersion, draftDigest: state.draftDigest }),
+      timeout: 60000,
+    });
+    if (!reconciled.response.ok || !reconciled.value?.receiptId) {
+      throw new Error(`J01 compile receipt was unavailable: HTTP ${reconciled.response.status} ${JSON.stringify(reconciled.value).slice(0, 500)}`);
+    }
+    receiptId = reconciled.value.receiptId;
+  }
+  const preview = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ receiptId, outputId, limit }),
+    timeout: 90000,
+  });
+  if (!preview.response.ok || preview.value?.receiptId !== receiptId || preview.value?.outputId !== outputId) {
+    throw new Error(`J01 literal preview read failed: HTTP ${preview.response.status} ${JSON.stringify(preview.value).slice(0, 500)}`);
+  }
+  return preview.value;
+};
+
+const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotToken, rowRoot, resourceType, query }, sampleCount = 30) => {
+  const samples = [];
+  const requests = [];
+  const url = `${bootstrapAuthoringURL(target, explorerId)}/semantic-inventory`;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const requestId = `j01-authoring-timing-${index + 1}-${randomUUID()}`;
+    const body = j01SemanticInventoryRequest({ snapshotToken, rowRoot, resourceType, query });
+    const started = performance.now();
+    const { response, value } = await requestJSON(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestId },
+      body: JSON.stringify(body),
+      timeout: 30000,
+    });
+    const elapsedMs = performance.now() - started;
+    if (!response.ok) throw new Error(`J01 authoring timing request ${index + 1} returned HTTP ${response.status}`);
+    if (typeof value?.contextToken !== 'string' || !value.contextToken) throw new Error('J01 timed catalog response omitted its context identity');
+    samples.push(elapsedMs);
+    requests.push({ requestId, method: 'POST', path: '/semantic-inventory', status: response.status, elapsedMs, entryCount: value.entries?.length ?? 0 });
+  }
+  const summary = summarizeTimingSamples(samples);
+  report.requests ??= [];
+  report.requests.push(...requests.map((request) => ({ ...request, kind: 'warm-semantic-inventory' })));
+  report.timings.authoringRequests = summary;
+  report.target.authoringRequestSamples = samples;
+  if (summary.count < 30) throw new Error(`J01 captured only ${summary.count} authoring request timings`);
+  return { summary, requests };
+};
+
+const measureJ01InspectorAcknowledgements = async (cdp, label, rowIndex) => evaluate(cdp, `(async () => {
+  const selector = ${JSON.stringify(`button[aria-label="Inspect ${label} for row ${rowIndex + 1}"]`)};
+  const dialogSelector = ${JSON.stringify(`[role="dialog"][aria-label="${label} record evidence"]`)};
+  const samples = [];
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+  for (let index = 0; index < 30; index += 1) {
+    const button = document.querySelector(selector);
+    if (!button) throw new Error('J01 repeated-cell inspector button is not rendered: ' + selector);
+    const started = performance.now();
+    button.click();
+    while (!document.querySelector(dialogSelector)) await nextFrame();
+    samples.push(performance.now() - started);
+    const close = [...document.querySelectorAll(dialogSelector + ' button')].find((candidate) => candidate.textContent.trim() === 'Close');
+    if (!close) throw new Error('J01 repeated-cell dialog has no Close acknowledgement');
+    close.click();
+    while (document.querySelector(dialogSelector)) await nextFrame();
+  }
+  return samples;
+})()`);
 const interpretationLibrariesURL = (target, project) =>
   `${target.apiUrl}/api/v1/projects/${encodeURIComponent(project)}/interpretation-libraries`;
 
@@ -3954,9 +4833,12 @@ const main = async (argv) => {
   const commandStarted = Date.now();
   const command = argv[0] ?? 'dev-doctor';
   const target = createDevSession();
+  const j01Scenario = target.fixtureDir === FIXTURE_DIR
+    ? 'S01-J01-three-column-choice-preview-persistence-export'
+    : 'S01-J01-CDA-patient-and-observation-publish-export';
   const report = createVerificationReport(target,
     command === 'verify-current' ? 'current-builder-hotreload'
-      : command === 'verify-j01' ? 'S01-J01-three-column-choice-preview-persistence-export'
+      : command === 'verify-j01' ? j01Scenario
         : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
           : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
           : undefined);
@@ -4049,19 +4931,32 @@ const main = async (argv) => {
       return;
     }
     if (command === 'verify-j01') {
-      await ensureDev(target, report);
+      const externalManifest = j01Scenario === 'S01-J01-CDA-patient-and-observation-publish-export'
+        ? await selectExternalJ01Manifest(target.fixtureDir)
+        : undefined;
+      if (externalManifest) {
+        assertExternalJ01SourcesUnchanged(externalManifest);
+        report.target.externalManifest = externalManifest.summary;
+      }
+      await ensureDev(target, report, false, externalManifest);
+      if (externalManifest) assertExternalJ01SourcesUnchanged(externalManifest);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-      const verificationReport = createVerificationReport(verificationTarget, 'S01-J01-three-column-choice-preview-persistence-export');
+      const verificationReport = createVerificationReport(verificationTarget, report.scenario);
       activeReport = verificationReport;
       verificationReport.timings.startup_ms = report.timings.startup_ms;
       verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false });
+      if (externalManifest) verificationReport.target.externalManifest = externalManifest.summary;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false, fixtureManifest: externalManifest });
       if (seed.reused || !seed.fresh) throw new Error(`J01 verification fixture was unexpectedly reused: ${verificationTarget.fixtureProject}`);
       verificationReport.target.fixtureSeed = 'seeded';
       verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
       recordAssertion(verificationReport, 'j01-starts-with-fresh-isolated-fixture-and-editor-identity', true,
         seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId));
-      await verifyJ01BrowserScenario(verificationTarget, verificationReport, target);
+      if (externalManifest) {
+        recordAssertion(verificationReport, 'j01-external-manifest-digest-is-bound-to-ingested-fixture', externalManifest.summary.sourceSHA256, seed.fixtureManifest?.sourceSHA256);
+        assertExternalJ01SourcesUnchanged(externalManifest);
+      }
+      await verifyJ01BrowserScenario(verificationTarget, verificationReport, target, externalManifest);
       verificationReport.status = 'passed';
       verificationReport.timings.total_ms = Date.now() - commandStarted;
       writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
