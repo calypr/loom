@@ -556,7 +556,11 @@ func writeArtifactJSONLRow(writer io.Writer, row map[string]any, columns []Artif
 			if isNilArtifactValue(value) && !column.Nullable {
 				return fmt.Errorf("column %q is null but declared non-nullable", column.Name)
 			}
-			values[column.OutputKey] = value
+			normalized, err := normalizeArtifactJSONLValue(value, column)
+			if err != nil {
+				return fmt.Errorf("column %q: %w", column.Name, err)
+			}
+			values[column.OutputKey] = normalized
 		}
 	}
 	encoded, err := json.Marshal(struct {
@@ -568,6 +572,66 @@ func writeArtifactJSONLRow(writer io.Writer, row map[string]any, columns []Artif
 	}
 	_, err = writer.Write(append(encoded, '\n'))
 	return err
+}
+
+func normalizeArtifactJSONLValue(value any, column ArtifactColumn) (any, error) {
+	if isNilArtifactValue(value) || column.Repeated {
+		return value, nil
+	}
+	shape := strings.ToLower(strings.TrimSpace(column.Shape))
+	if shape != "" && shape != "scalar" && shape != "indexed_scalar" && shape != "repeated_count" {
+		return value, nil
+	}
+	text, ok := value.(string)
+	if !ok {
+		return value, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(column.LogicalType)) {
+	case "boolean", "bool":
+		switch text {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		default:
+			return nil, fmt.Errorf("declared boolean contains %q", text)
+		}
+	case "integer", "int", "int32", "int64":
+		if strings.ContainsAny(text, ".eE") {
+			return nil, fmt.Errorf("declared integer contains %q", text)
+		}
+		return parseArtifactJSONNumber(text, "integer")
+	case "uint32", "uint64":
+		if strings.HasPrefix(text, "-") || strings.ContainsAny(text, ".eE") {
+			return nil, fmt.Errorf("declared unsigned integer contains %q", text)
+		}
+		return parseArtifactJSONNumber(text, "unsigned integer")
+	case "decimal", "number", "float", "float32", "float64":
+		return parseArtifactJSONNumber(text, "number")
+	default:
+		return value, nil
+	}
+}
+
+func parseArtifactJSONNumber(text, logicalType string) (json.Number, error) {
+	if text == "" || text != strings.TrimSpace(text) {
+		return "", fmt.Errorf("declared %s contains %q", logicalType, text)
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return "", fmt.Errorf("declared %s contains %q", logicalType, text)
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return "", fmt.Errorf("declared %s contains %q", logicalType, text)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return "", fmt.Errorf("declared %s contains %q", logicalType, text)
+	}
+	return number, nil
 }
 
 func stringArtifactValues(values []string) []artifactCSVValue {

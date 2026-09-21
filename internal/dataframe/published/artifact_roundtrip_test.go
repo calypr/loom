@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -154,5 +155,78 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 	items, ok := first["items"].([]any)
 	if !ok || !reflect.DeepEqual(items, []any{"x", json.Number("2"), false}) {
 		t.Fatalf("list type/values = %#v", first["items"])
+	}
+}
+
+func TestArtifactJSONLNormalizesDriverScalarsToDeclaredTypes(t *testing.T) {
+	request := artifactTestRequest()
+	request.Format = ArtifactFormatJSONL
+	request.Columns = []ArtifactColumn{
+		{Name: "id", OutputKey: "id", LogicalType: "string", Shape: "scalar"},
+		{Name: "count", OutputKey: "count", LogicalType: "integer", Shape: "scalar"},
+		{Name: "ratio", OutputKey: "ratio", LogicalType: "decimal", Shape: "scalar"},
+		{Name: "active", OutputKey: "active", LogicalType: "boolean", Shape: "scalar"},
+		{Name: "label", OutputKey: "label", LogicalType: "string", Shape: "scalar"},
+		{Name: "optional", OutputKey: "optional", LogicalType: "integer", Shape: "scalar", Nullable: true},
+	}
+	var archive bytes.Buffer
+	_, err := WriteArtifact(context.Background(), &archive, request, func(visit ArtifactRowVisitor) error {
+		return visit(map[string]any{
+			artifactRowIdentityKey: "row-1",
+			"id":                   "record-1",
+			"count":                "0",
+			"ratio":                "-1.25",
+			"active":               "false",
+			"label":                "0",
+			"optional":             nil,
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := readArtifactMembers(t, archive.Bytes())["data.jsonl"]
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var row struct {
+		Values map[string]any `json:"values"`
+	}
+	if err := decoder.Decode(&row); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"id": "record-1", "count": json.Number("0"), "ratio": json.Number("-1.25"),
+		"active": false, "label": "0", "optional": nil,
+	}
+	if !reflect.DeepEqual(row.Values, want) {
+		t.Fatalf("typed JSONL values = %#v, want %#v", row.Values, want)
+	}
+}
+
+func TestArtifactJSONLRejectsDriverScalarsThatContradictDeclaredTypes(t *testing.T) {
+	tests := []struct {
+		name        string
+		logicalType string
+		value       string
+	}{
+		{name: "integer fraction", logicalType: "integer", value: "1.5"},
+		{name: "negative unsigned integer", logicalType: "uint64", value: "-1"},
+		{name: "non-finite decimal", logicalType: "decimal", value: "NaN"},
+		{name: "non-boolean", logicalType: "boolean", value: "yes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := artifactTestRequest()
+			request.Format = ArtifactFormatJSONL
+			request.Columns = []ArtifactColumn{
+				{Name: "id", OutputKey: "id", LogicalType: "string", Shape: "scalar"},
+				{Name: "value", OutputKey: "value", LogicalType: test.logicalType, Shape: "scalar"},
+			}
+			_, err := WriteArtifact(context.Background(), io.Discard, request, func(visit ArtifactRowVisitor) error {
+				return visit(map[string]any{artifactRowIdentityKey: "row-1", "id": "record-1", "value": test.value})
+			})
+			if err == nil || !strings.Contains(err.Error(), "declared ") {
+				t.Fatalf("contradictory %s value error = %v", test.logicalType, err)
+			}
+		})
 	}
 }
