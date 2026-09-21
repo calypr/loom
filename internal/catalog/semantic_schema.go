@@ -98,6 +98,13 @@ func (p *Profiler) observeSchemaSemantics(
 			extensionURLs[scope.ownerPath] = semanticStringFromRaw(key.RawJSON)
 		}
 	}
+	choiceKeys := make(map[string]struct{})
+	for _, scope := range scopes {
+		concept, _, ok := codedChoiceParts(p.resourceType, scope, registry)
+		if ok {
+			choiceKeys[concept.CanonicalPath] = struct{}{}
+		}
+	}
 
 	for _, scope := range scopes {
 		descriptor, ok := registry.Lookup(scope.definition)
@@ -108,7 +115,8 @@ func (p *Profiler) observeSchemaSemantics(
 		case fhirsemantic.DispositionValueAssociation:
 			p.emitValueAssociationScope(scope, descriptor, extensionURLs, registry, profile, emit)
 		case fhirsemantic.DispositionCategorical:
-			if !categoricalSourceOwnedByParent(scope, registry) {
+			_, pairedChoiceKey := choiceKeys[scope.canonicalPath]
+			if !pairedChoiceKey && !categoricalSourceOwnedByParent(scope, registry) {
 				p.emitCategoricalScope(scope, descriptor, profile, emit)
 			}
 		}
@@ -453,6 +461,31 @@ func (p *Profiler) emitCodedChoiceScope(
 	profile string,
 	emit func(SemanticObservation, []any),
 ) {
+	concept, values, ok := codedChoiceParts(p.resourceType, scope, registry)
+	if !ok {
+		return
+	}
+	conceptValue, ok := decodeSemanticObject(concept.RawJSON)
+	if !ok {
+		return
+	}
+	descriptor, ok := registry.Lookup(concept.ReferencedType)
+	if !ok {
+		return
+	}
+	conceptPath := relativeSemanticPath(scope.canonicalPath, concept.CanonicalPath)
+	for _, candidate := range semanticCategoricalCandidates(p.resourceType, descriptor, conceptPath, conceptValue) {
+		for _, value := range values {
+			p.emitSchemaCodedValue(scope, candidate, value, profile, emit)
+		}
+	}
+}
+
+func codedChoiceParts(
+	resourceType string,
+	scope *semanticScope,
+	registry *fhirsemantic.DatatypeRegistry,
+) (fhirsemantic.MemberFact, []semanticChoiceValue, bool) {
 	concepts := make([]fhirsemantic.MemberFact, 0, 1)
 	valuesByGroup := make(map[string][]semanticChoiceValue)
 	for _, fact := range scope.facts {
@@ -463,7 +496,7 @@ func (p *Profiler) emitCodedChoiceScope(
 			continue
 		}
 		if fact.Element.ChoiceGroup != "" {
-			if value, ok := semanticChoiceValueFromFact(p.resourceType, fact, registry); ok {
+			if value, ok := semanticChoiceValueFromFact(resourceType, fact, registry); ok {
 				valuesByGroup[fact.Element.ChoiceGroup] = append(valuesByGroup[fact.Element.ChoiceGroup], value)
 			}
 			continue
@@ -477,7 +510,7 @@ func (p *Profiler) emitCodedChoiceScope(
 	// eligible; otherwise no relationship is inferred. Multiple present arms
 	// in the selected group remain an explicitly mixed choice.
 	if len(concepts) != 1 || len(valuesByGroup) == 0 {
-		return
+		return fhirsemantic.MemberFact{}, nil, false
 	}
 	selectedGroup := ""
 	if len(valuesByGroup) == 1 {
@@ -489,27 +522,14 @@ func (p *Profiler) emitCodedChoiceScope(
 	}
 	values := valuesByGroup[selectedGroup]
 	if selectedGroup == "" || len(values) == 0 {
-		return
+		return fhirsemantic.MemberFact{}, nil, false
 	}
 	if len(values) > 1 {
 		for index := range values {
 			values[index].Status = "MIXED_CHOICE"
 		}
 	}
-	conceptValue, ok := decodeSemanticObject(concepts[0].RawJSON)
-	if !ok {
-		return
-	}
-	descriptor, ok := registry.Lookup(concepts[0].ReferencedType)
-	if !ok {
-		return
-	}
-	conceptPath := relativeSemanticPath(scope.canonicalPath, concepts[0].CanonicalPath)
-	for _, candidate := range semanticCategoricalCandidates(p.resourceType, descriptor, conceptPath, conceptValue) {
-		for _, value := range values {
-			p.emitSchemaCodedValue(scope, candidate, value, profile, emit)
-		}
-	}
+	return concepts[0], values, true
 }
 
 func (p *Profiler) emitSchemaCodedValue(

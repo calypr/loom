@@ -128,6 +128,10 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		if decodeErr != nil {
 			return authoringv2.BuilderState{}, conflict("builder", "DRAFT_STATE_INVALID", "the saved Explorer draft is not a valid V2 workspace", map[string]any{"draftVersion": owner.DraftVersion}, decodeErr)
 		}
+		// Builder presents mutable drafts under the current authoring semantics.
+		// The read remains side-effect free: the next authorized command persists
+		// the same deterministic migration through the existing draft CAS.
+		workspace = authoringv2.MigrateLosslessDefaults(workspace, catalog)
 		state.Workspace, state.LifecycleState = &workspace, authoringv2.LifecycleReady
 	} else if activeWorkspace != nil {
 		state.Workspace, state.LifecycleState = activeWorkspace, authoringv2.LifecycleReady

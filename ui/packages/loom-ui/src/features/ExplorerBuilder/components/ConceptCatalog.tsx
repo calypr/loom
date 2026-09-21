@@ -1,19 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LoomRequestError } from '../../../api';
 import { useLoomClient } from '../../../react';
 import type {
-  ConstructionChoiceSearchSource,
-  ExplorerBuilderCatalog,
-  SemanticInventoryBrowseResponse,
-  SemanticInventoryItem,
+  ConstructionChoice,
+  FeatureCatalogBrowseResponse,
+  FeatureCatalogItem,
+  FeatureCatalogSection,
 } from '../../../types';
 import {
   catalogItemAvailability,
-  catalogItemKey,
-  catalogItemLabel,
   catalogItemConstructionChoice,
   catalogItemDefaultForm,
-  fieldCatalogItems,
-  semanticCatalogItems,
+  catalogItemKey,
+  catalogItemLabel,
+  catalogItemSearchSource,
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
   type CatalogItem,
@@ -22,6 +22,7 @@ import { CatalogSelectionDialog } from './CatalogSelectionDialog';
 
 const PAGE_SIZE = 50;
 const MAX_SELECTIONS = 100;
+const CATALOG_SECTIONS = ['FIELDS', 'CONCEPTS', 'NEEDS_REVIEW'] as const;
 
 export interface CatalogRouteContext {
   readonly occurrenceId: string;
@@ -30,7 +31,7 @@ export interface CatalogRouteContext {
 
 type CatalogPage = {
   readonly cursor?: string;
-  readonly response: SemanticInventoryBrowseResponse;
+  readonly response: FeatureCatalogBrowseResponse;
 };
 
 type CatalogLoadState =
@@ -39,14 +40,37 @@ type CatalogLoadState =
   | { readonly status: 'ready' }
   | { readonly status: 'error'; readonly message: string };
 
-const semanticLabel = (item: SemanticInventoryItem): string =>
-  item.display.trim() || item.code.trim() || item.sourcePath || item.resourceType;
+type CatalogSectionState = {
+  readonly status: CatalogLoadState;
+  readonly pages: ReadonlyArray<CatalogPage>;
+  readonly pageIndex: number;
+};
 
-const semanticCodeLabel = (item: SemanticInventoryItem): string =>
-  [item.system, item.code, item.codingVersion].filter(Boolean).join(' · ') ||
-  'Structural binding';
+type CatalogSections = Record<FeatureCatalogSection, CatalogSectionState>;
 
-const readinessPresentation = (readiness: SemanticInventoryItem['readiness']) => {
+type CatalogContextIdentity = {
+  readonly contextToken: string;
+  readonly buildId: string;
+};
+
+type SelectedCatalogItem = CatalogContextIdentity & {
+  readonly item: CatalogItem;
+  readonly section: FeatureCatalogSection;
+};
+
+const emptySection = (): CatalogSectionState => ({
+  status: { status: 'idle' },
+  pages: [],
+  pageIndex: 0,
+});
+
+const emptySections = (): CatalogSections => ({
+  FIELDS: emptySection(),
+  CONCEPTS: emptySection(),
+  NEEDS_REVIEW: emptySection(),
+});
+
+const readinessPresentation = (readiness: FeatureCatalogItem['readiness']) => {
   switch (readiness.status) {
     case 'READY':
       return { label: 'Ready to add', badge: 'bg-emerald-50 text-emerald-800' };
@@ -63,59 +87,52 @@ const readinessPresentation = (readiness: SemanticInventoryItem['readiness']) =>
   }
 };
 
-const availabilityMessage = (
-  response: SemanticInventoryBrowseResponse,
+const catalogWarning = (
+  response: FeatureCatalogBrowseResponse | undefined,
 ): string | undefined => {
+  if (!response) return undefined;
   if (response.state !== 'complete') {
-    return response.state === 'unknown' || response.state === 'not_started'
-      ? 'Loom has not built the concept inventory for this dataset yet.'
-      : `The concept inventory is ${response.state}. Semantic results cannot be added until it is complete.`;
+    if (response.state === 'unknown' || response.state === 'not_started') {
+      return 'Loom has not built the feature catalog for this dataset yet.';
+    }
+    return `The feature catalog is ${response.state}. Results may be unavailable until it is complete.`;
   }
   if (response.sourceAvailability === 'unproven') {
-    return 'Loom found concepts, but some declared resource collections could not be verified. Semantic search results may be incomplete.';
+    return 'Loom could not verify every retained source collection. Results may be incomplete.';
   }
   if (response.sourceAvailability === 'unknown') {
-    return 'Loom cannot verify whether this inventory covers every retained source resource.';
+    return 'Loom cannot verify whether this catalog covers every retained source resource.';
   }
   return undefined;
 };
 
-const selectedAsArray = (selected: ReadonlyMap<string, CatalogItem>) =>
-  [...selected.values()];
-
-const sourceDetails = (item: CatalogItem): ReadonlyArray<readonly [string, string]> => {
-  const choice = catalogItemConstructionChoice(item);
-  if (choice) {
-    return choice.presentation.facts.map((fact) => [fact.label, fact.value]);
-  }
-  return item.kind === 'SEMANTIC'
-    ? [['Availability', item.item.readiness.message]]
-    : [];
-};
-
 const CatalogItemRow = ({
   item,
+  section,
+  catalogState,
   checked,
   disabled,
   onToggle,
 }: {
   readonly item: CatalogItem;
+  readonly section: FeatureCatalogSection;
+  readonly catalogState: FeatureCatalogBrowseResponse['state'];
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly onToggle: () => void;
 }) => {
   const label = catalogItemLabel(item);
-  const selectionLabel = item.kind === 'FIELD'
-    ? `Select ${item.constructionChoice.source.resourceType}.${item.candidate.fieldPath.replace(/^root\./, '')}`
-    : `Select ${label}`;
-  const availability = catalogItemAvailability(item);
-  const details = sourceDetails(item);
+  const availability = catalogItemAvailability(item, section, catalogState);
+  const readiness = readinessPresentation(item.readiness);
+  const kindLabel = item.kind === 'DIRECT_FIELD' ? 'Field' : 'Concept';
+  const optionCount = item.constructionChoice?.options.length;
   return (
     <article className="py-3 first:pt-0">
       <div className="flex items-start gap-3">
         <input
           type="checkbox"
-          aria-label={selectionLabel}
+          aria-label={`Select ${label}`}
+          aria-describedby={!availability.selectable ? `${item.featureId}-availability` : undefined}
           checked={checked}
           disabled={disabled || !availability.selectable}
           onChange={onToggle}
@@ -124,58 +141,51 @@ const CatalogItemRow = ({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
-              <h3 className="font-semibold text-slate-900">{label}</h3>
-              {item.kind === 'FIELD' ? (
-                <p className="break-all font-mono text-xs text-slate-600">
-                  {item.candidate.fieldPath} · {item.candidate.logicalType}
-                </p>
-              ) : (
-                <p className="break-all font-mono text-xs text-slate-600">{semanticCodeLabel(item.item)}</p>
-              )}
+              <h4 className="font-semibold text-slate-900">{label}</h4>
+              <p className="mt-1 text-sm text-slate-600">{item.description}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {item.resourceType} · {item.valueType} · {item.cardinality}
+              </p>
             </div>
             <div className="flex flex-wrap justify-end gap-1">
-              {item.kind === 'FIELD' ? (
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {item.constructionChoice.source.resourceType}
-                </span>
-              ) : null}
               <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">
-                {item.kind === 'FIELD' ? 'Field' : 'Concept'}
+                {kindLabel}
               </span>
-              {item.kind === 'FIELD' ? (
+              <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${readiness.badge}`}>
+                {readiness.label}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                {item.occurrences.toLocaleString()} {item.occurrences === 1 ? 'record' : 'records'}
+              </span>
+              {optionCount === undefined ? null : (
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {item.constructionChoice.options.length} compiler-proved {item.constructionChoice.options.length === 1 ? 'form' : 'forms'}
+                  {optionCount} compiler-proved {optionCount === 1 ? 'form' : 'forms'}
                 </span>
-              ) : (
-                <>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${readinessPresentation(item.item.readiness).badge}`}>
-                    {readinessPresentation(item.item.readiness).label}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                    {item.item.occurrences.toLocaleString()} source {item.item.occurrences === 1 ? 'match' : 'matches'}
-                  </span>
-                </>
               )}
             </div>
           </div>
-          {item.kind === 'SEMANTIC' && !availability.selectable ? (
-            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
+          {!availability.selectable ? (
+            <p
+              id={`${item.featureId}-availability`}
+              className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950"
+              role="status"
+            >
               {availability.reason}
             </p>
           ) : null}
           <details className="mt-2 text-xs text-slate-600">
             <summary className="cursor-pointer font-medium text-blue-700">Source details</summary>
             <dl className="mt-2 grid gap-1 rounded-md bg-slate-50 p-2 font-mono">
-              {details.map(([name, value]) => (
-                <div key={name}>
-                  <dt className="inline text-slate-500">{name} </dt>
-                  <dd className="inline break-all">{value}</dd>
+              {item.sourceDetails.map((fact, index) => (
+                <div key={`${fact.label}-${index}`}>
+                  <dt className="inline text-slate-500">{fact.label} </dt>
+                  <dd className="inline break-all">{fact.value}</dd>
                 </div>
               ))}
-              {item.kind === 'SEMANTIC' && item.item.readiness.status !== 'READY' ? (
+              {item.readiness.status !== 'READY' ? (
                 <div>
-                  <dt className="inline text-slate-500">Readiness </dt>
-                  <dd className="inline break-all">{item.item.readiness.message}</dd>
+                  <dt className="inline text-slate-500">Availability </dt>
+                  <dd className="inline break-all">{item.readiness.message}</dd>
                 </div>
               ) : null}
             </dl>
@@ -196,7 +206,6 @@ export const ConceptCatalog = ({
   resourceType,
   routeContext,
   layout = 'workspace',
-  catalog,
   disabled = false,
   onAddSelected,
 }: {
@@ -209,7 +218,6 @@ export const ConceptCatalog = ({
   readonly resourceType?: string;
   readonly routeContext?: CatalogRouteContext;
   readonly layout?: 'workspace' | 'panel';
-  readonly catalog: ExplorerBuilderCatalog;
   readonly disabled?: boolean;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
@@ -218,112 +226,186 @@ export const ConceptCatalog = ({
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
   const [query, setQuery] = useState('');
-  const [pages, setPages] = useState<ReadonlyArray<CatalogPage>>([]);
-  const [pageIndex, setPageIndex] = useState(0);
-  const [loadState, setLoadState] = useState<CatalogLoadState>({ status: 'idle' });
-  const [selected, setSelected] = useState<ReadonlyMap<string, CatalogItem>>(
+  const [sections, setSections] = useState<CatalogSections>(emptySections);
+  const [selected, setSelected] = useState<ReadonlyMap<string, SelectedCatalogItem>>(
     () => new Map(),
   );
   const [adding, setAdding] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>();
   const [pendingSelection, setPendingSelection] = useState<ReadonlyArray<CatalogChoiceGroup>>();
-  const activeRequest = useRef<AbortController | undefined>(undefined);
-  const selectionContext = useRef<string | undefined>(undefined);
-  const contextKey = JSON.stringify([
+  const activeRequests = useRef<Partial<Record<FeatureCatalogSection, AbortController>>>({});
+  const sectionContexts = useRef<Partial<Record<FeatureCatalogSection, CatalogContextIdentity>>>({});
+  const appliedQuery = useRef('');
+  const routeNodeId = routeContext?.nodeId;
+  const catalogContextKey = JSON.stringify([
     project,
     explorerId,
+    authResourcePath ?? '',
     snapshotToken,
-    outputId,
     rowRoot,
-    resourceType ?? '*',
-    routeContext?.occurrenceId ?? '',
-    routeContext?.nodeId ?? '',
+  ]);
+  const filterKey = JSON.stringify([resourceType ?? '', routeContext?.nodeId ?? '']);
+
+  const loadSectionPage = useCallback((
+    section: FeatureCatalogSection,
+    searchQuery: string,
+    cursor?: string,
+    replace = false,
+  ) => {
+    activeRequests.current[section]?.abort();
+    const controller = new AbortController();
+    activeRequests.current[section] = controller;
+    setSections((current) => {
+      const previous = current[section];
+      return {
+        ...current,
+        [section]: {
+          status: { status: 'loading' },
+          pages: replace ? [] : previous.pages,
+          pageIndex: replace ? 0 : previous.pageIndex,
+        },
+      };
+    });
+
+    void client.browseFeatureCatalog({
+      project,
+      explorerId,
+      authResourcePath,
+      snapshotToken,
+      rowRoot,
+      section,
+      ...(resourceType ? { resourceType } : {}),
+      ...(section === 'FIELDS' && routeNodeId ? { nodeId: routeNodeId } : {}),
+      query: searchQuery,
+      ...(cursor ? { cursor } : {}),
+      limit: PAGE_SIZE,
+      requestId: `feature-catalog-${window.crypto.randomUUID()}`,
+    }, controller.signal)
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        if (response.section !== section) {
+          throw new Error(`Loom returned ${response.section} results for the ${section} section.`);
+        }
+        const nextContext = {
+          contextToken: response.contextToken,
+          buildId: response.buildId,
+        };
+        const previousContext = sectionContexts.current[section];
+        if (
+          previousContext &&
+          (previousContext.contextToken !== nextContext.contextToken ||
+            previousContext.buildId !== nextContext.buildId)
+        ) {
+          setSelected(new Map());
+          setPendingSelection(undefined);
+          setActionMessage('The feature catalog changed. Review and select the features again.');
+        }
+        sectionContexts.current[section] = nextContext;
+        setSections((current) => {
+          const previous = current[section];
+          const page = { cursor, response };
+          const pages = replace ? [page] : [...previous.pages, page];
+          return {
+            ...current,
+            [section]: {
+              status: { status: 'ready' },
+              pages,
+              pageIndex: replace ? 0 : pages.length - 1,
+            },
+          };
+        });
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (
+          cursor &&
+          error instanceof LoomRequestError &&
+          error.status === 409 &&
+          error.code === 'STALE_CATALOG_CURSOR'
+        ) {
+          loadSectionPage(section, searchQuery, undefined, true);
+          return;
+        }
+        setSections((current) => ({
+          ...current,
+          [section]: {
+            ...current[section],
+            status: {
+              status: 'error',
+              message: error instanceof Error
+                ? error.message
+                : 'Loom could not load this feature catalog section.',
+            },
+          },
+        }));
+      });
+  }, [
+    authResourcePath,
+    client,
+    explorerId,
+    project,
+    resourceType,
+    routeNodeId,
+    rowRoot,
+    snapshotToken,
   ]);
 
-  const loadPage = useCallback(
-    (searchQuery: string, cursor?: string, replace = false) => {
-      activeRequest.current?.abort();
-      const controller = new AbortController();
-      activeRequest.current = controller;
-      setLoadState({ status: 'loading' });
-      setActionMessage(undefined);
-      void client
-        .browseSemanticInventory(
-          {
-            project,
-            explorerId,
-            authResourcePath,
-            snapshotToken,
-            rowRoot,
-            resourceType,
-            query: searchQuery,
-            cursor,
-            limit: PAGE_SIZE,
-            requestId: `feature-catalog-${window.crypto.randomUUID()}`,
-          },
-          controller.signal,
-        )
-        .then((response) => {
-          if (controller.signal.aborted) return;
-          if (selectionContext.current && selectionContext.current !== response.contextToken) {
-            setSelected(new Map());
-            setPendingSelection(undefined);
-            setActionMessage('The dataset catalog changed. Review and select the features again.');
-          }
-          selectionContext.current = response.contextToken;
-          setPages((current) =>
-            replace ? [{ cursor, response }] : [...current, { cursor, response }],
-          );
-          setPageIndex((current) => (replace ? 0 : current + 1));
-          setLoadState({ status: 'ready' });
-        })
-        .catch((error: unknown) => {
-          if (controller.signal.aborted) return;
-          setLoadState({
-            status: 'error',
-            message: error instanceof Error
-              ? error.message
-              : 'Loom could not load the feature catalog.',
-          });
-        });
-    },
-    [authResourcePath, client, explorerId, project, resourceType, rowRoot, snapshotToken],
-  );
+  const loadSections = useCallback((searchQuery: string) => {
+    for (const section of CATALOG_SECTIONS) {
+      loadSectionPage(section, searchQuery, undefined, true);
+    }
+  }, [loadSectionPage]);
 
   useEffect(() => {
-    setPages([]);
-    setPageIndex(0);
     setSelected(new Map());
     setPendingSelection(undefined);
-    selectionContext.current = undefined;
-    if (snapshotToken && rowRoot) loadPage('', undefined, true);
-    return () => activeRequest.current?.abort();
-  }, [contextKey, loadPage, rowRoot, snapshotToken]);
+    setActionMessage(undefined);
+    sectionContexts.current = {};
+  }, [catalogContextKey]);
 
-  const page = pages[pageIndex];
-  const response = page?.response;
-  const warning = response ? availabilityMessage(response) : undefined;
-  const canBrowseConcepts = response?.state === 'complete';
-  const fieldItems = useMemo(
-    () => fieldCatalogItems(catalog, rowRoot, resourceType, query).filter(
-      (item) =>
-        item.kind === 'FIELD' &&
-        (!routeContext || item.candidate.nodeId === routeContext.nodeId),
-    ),
-    [catalog, query, resourceType, routeContext, rowRoot],
+  useEffect(() => {
+    setSections(emptySections());
+    loadSections(appliedQuery.current);
+    return () => {
+      for (const controller of Object.values(activeRequests.current)) {
+        controller?.abort();
+      }
+    };
+  }, [catalogContextKey, filterKey, loadSections]);
+
+  const selectedItems = useMemo(() => [...selected.values()], [selected]);
+  const anySectionLoading = CATALOG_SECTIONS.some(
+    (section) => sections[section].status.status === 'loading',
   );
-  const semanticItems = useMemo(
-    () => semanticCatalogItems(response?.entries ?? [], resourceType),
-    [resourceType, response?.entries],
-  );
-  const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
-  const toggleSelection = (item: CatalogItem) => {
-    if (!catalogItemAvailability(item).selectable) return;
+
+  const toggleSelection = (
+    item: CatalogItem,
+    section: FeatureCatalogSection,
+    response: FeatureCatalogBrowseResponse,
+  ) => {
+    if (!catalogItemAvailability(item, section, response.state).selectable) return;
     const key = catalogItemKey(item);
     setSelected((current) => {
       const next = new Map(current);
-      if (next.has(key)) next.delete(key);
-      else if (next.size < MAX_SELECTIONS) next.set(key, item);
+      if (next.has(key)) {
+        next.delete(key);
+      } else if (next.size < MAX_SELECTIONS) {
+        next.set(key, {
+          item,
+          section,
+          contextToken: response.contextToken,
+          buildId: response.buildId,
+        });
+      }
+      return next;
+    });
+    setActionMessage(undefined);
+  };
+
+  const removeSelection = (key: string) => {
+    setSelected((current) => {
+      const next = new Map(current);
+      next.delete(key);
       return next;
     });
     setActionMessage(undefined);
@@ -348,31 +430,21 @@ export const ConceptCatalog = ({
   };
 
   const openSelection = async () => {
-    if (!selectedItems.length || !onAddSelected || !response) return;
+    if (!selectedItems.length || !onAddSelected) return;
     setAdding(true);
     setActionMessage(undefined);
     try {
-      const groups = await Promise.all(selectedItems.map(async (item): Promise<CatalogChoiceGroup> => {
+      const groups = await Promise.all(selectedItems.map(async (selection): Promise<CatalogChoiceGroup> => {
+        const { item } = selection;
         const existingChoice = catalogItemConstructionChoice(item);
-        if (!existingChoice) {
-          return { item, choices: [], complete: true, truncated: false };
-        }
         if (
           !routeContext &&
+          existingChoice &&
           existingChoice.source.resourceType === rowRoot &&
           existingChoice.route.length === 0
         ) {
           return { item, choices: [existingChoice], complete: true, truncated: false };
         }
-        const source: ConstructionChoiceSearchSource = item.kind === 'FIELD'
-          ? { kind: 'FIELD', candidateId: item.candidate.candidateId }
-          : {
-              kind: 'SEMANTIC',
-              contextToken: response.contextToken,
-              buildId: response.buildId,
-              conceptId: item.item.conceptId,
-              bindingId: item.item.bindingId,
-            };
         const resolved = await client.searchConstructionChoices({
           project,
           explorerId,
@@ -380,7 +452,7 @@ export const ConceptCatalog = ({
           snapshotToken,
           outputId,
           ...(routeContext ? { occurrenceId: routeContext.occurrenceId } : {}),
-          source,
+          source: catalogItemSearchSource(item, selection),
           limit: PAGE_SIZE,
           requestId: `construction-choices-${window.crypto.randomUUID()}`,
         });
@@ -399,7 +471,8 @@ export const ConceptCatalog = ({
       }));
       const direct = groups.flatMap((group) => {
         if (!group.complete || group.truncated || group.choices.length !== 1) return [];
-        const choice = group.choices[0]!;
+        const [choice] = group.choices;
+        if (!choice) return [];
         const form = catalogItemDefaultForm(choice);
         return form && choice.options.length === 1
           ? [{
@@ -431,9 +504,130 @@ export const ConceptCatalog = ({
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextQuery = queryInput.trim();
+    appliedQuery.current = nextQuery;
     setQuery(nextQuery);
-    loadPage(nextQuery, undefined, true);
+    setActionMessage(undefined);
+    loadSections(nextQuery);
   };
+
+  const renderCatalogSection = (
+    section: FeatureCatalogSection,
+    title: string,
+    description: string,
+    warningOverride?: string,
+  ) => {
+    const sectionState = sections[section];
+    const page = sectionState.pages[sectionState.pageIndex];
+    const response = page?.response;
+    const items = response?.entries ?? [];
+    const warning = warningOverride ?? catalogWarning(response);
+    const sectionError = sectionState.status.status === 'error'
+      ? sectionState.status.message
+      : undefined;
+    return (
+      <section
+        key={section}
+        className="border-t border-slate-200 pt-5 first:border-t-0 first:pt-0"
+        aria-labelledby={`feature-catalog-${section.toLowerCase()}-title`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3
+              id={`feature-catalog-${section.toLowerCase()}-title`}
+              className="text-sm font-semibold text-slate-800"
+            >
+              {title}
+            </h3>
+            <p className="mt-1 text-xs text-slate-600">{description}</p>
+          </div>
+          <span className="shrink-0 text-xs text-slate-500">
+            {response ? `${items.length} on this page` : 'Loading'}
+          </span>
+        </div>
+        {warning ? (
+          <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status">
+            {warning}
+          </p>
+        ) : null}
+        {sectionError ? (
+          <p className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
+            {sectionError}
+          </p>
+        ) : null}
+        <div className="mt-3 divide-y divide-slate-200">
+          {!response && sectionState.status.status === 'loading' ? (
+            <p className="py-6 text-center text-sm text-slate-500">Loading {title.toLowerCase()}…</p>
+          ) : null}
+          {response && items.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-600">
+              No {title.toLowerCase()} match this search.
+            </p>
+          ) : null}
+          {response ? items.map((item) => {
+            const key = catalogItemKey(item);
+            return (
+              <CatalogItemRow
+                key={key}
+                item={item}
+                section={section}
+                catalogState={response.state}
+                checked={selected.has(key)}
+                disabled={
+                  disabled ||
+                  (selected.size >= MAX_SELECTIONS && !selected.has(key))
+                }
+                onToggle={() => toggleSelection(item, section, response)}
+              />
+            );
+          }) : null}
+        </div>
+        <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
+          <button
+            type="button"
+            disabled={sectionState.pageIndex === 0 || sectionState.status.status === 'loading'}
+            onClick={() => setSections((current) => ({
+              ...current,
+              [section]: {
+                ...current[section],
+                pageIndex: Math.max(0, current[section].pageIndex - 1),
+              },
+            }))}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <span className="text-xs text-slate-500">
+            Page {sectionState.pageIndex + 1}
+          </span>
+          <button
+            type="button"
+            disabled={!response?.nextCursor || sectionState.status.status === 'loading'}
+            onClick={() => {
+              if (sectionState.pages[sectionState.pageIndex + 1]) {
+                setSections((current) => ({
+                  ...current,
+                  [section]: {
+                    ...current[section],
+                    pageIndex: current[section].pageIndex + 1,
+                  },
+                }));
+              } else if (response?.nextCursor) {
+                loadSectionPage(section, query, response.nextCursor);
+              }
+            }}
+            className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      </section>
+    );
+  };
+
+  const reviewPage = sections.NEEDS_REVIEW.pages[sections.NEEDS_REVIEW.pageIndex];
+  const conceptPage = sections.CONCEPTS.pages[sections.CONCEPTS.pageIndex];
+  const reviewWarning = catalogWarning(reviewPage?.response) ??
+    catalogWarning(conceptPage?.response);
 
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -451,7 +645,7 @@ export const ConceptCatalog = ({
         <p className="mt-1 text-sm text-slate-600">
           {resourceType
             ? `Search fields and concepts on the selected ${resourceType} graph node.`
-            : `Search ${rowRoot} fields first, or search concepts and fields across the authorized dataset.`}
+            : `Search ${rowRoot} fields, concepts, or items that need review.`}
         </p>
         <form className="mt-4 flex gap-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">Search features</label>
@@ -466,7 +660,7 @@ export const ConceptCatalog = ({
           />
           <button
             type="submit"
-            disabled={disabled || loadState.status === 'loading'}
+            disabled={disabled || anySectionLoading}
             className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Search
@@ -474,94 +668,30 @@ export const ConceptCatalog = ({
         </form>
       </div>
 
-      {warning ? (
-        <div className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
-          {warning}
-        </div>
-      ) : null}
-      {loadState.status === 'error' ? (
-        <div className="mx-4 mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 sm:mx-5" role="alert">
-          {loadState.message}
-        </div>
-      ) : null}
-
       <div className={layout === 'panel'
         ? 'grid min-h-[32rem]'
         : 'grid min-h-[38rem] lg:grid-cols-[minmax(0,1.25fr)_minmax(19rem,0.75fr)]'}>
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 lg:border-b-0 lg:border-r sm:p-5'}>
-          <section aria-labelledby="feature-catalog-fields-title">
-          <div className="flex items-center justify-between gap-3">
-              <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>
-              <span className="text-xs text-slate-500">{fieldItems.length} available</span>
-            </div>
-            <div className="mt-3 divide-y divide-slate-200">
-              {fieldItems.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                  No fields match this search.
-            </p>
-              ) : fieldItems.map((item) => (
-                <CatalogItemRow
-                  key={catalogItemKey(item)}
-                  item={item}
-                  checked={selected.has(catalogItemKey(item))}
-                  disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  onToggle={() => toggleSelection(item)}
-                />
-              ))}
+          <div className="space-y-6">
+            {renderCatalogSection(
+              'FIELDS',
+              resourceType ? `Fields on ${resourceType}` : `Fields on ${rowRoot}`,
+              'Primitive values that Loom marks as direct features for this table.',
+            )}
+            {renderCatalogSection(
+              'CONCEPTS',
+              query ? `Concepts matching “${query}”` : 'Concepts across the dataset',
+              'Server-labeled concepts with an available output form.',
+            )}
+            {renderCatalogSection(
+              'NEEDS_REVIEW',
+              'Needs review',
+              'These items need mapping or source verification before they can be added.',
+              reviewWarning,
+            )}
           </div>
-          </section>
-
-          <section className="mt-6 border-t border-slate-200 pt-5" aria-labelledby="feature-catalog-concepts-title">
-            <div className="flex items-center justify-between gap-3">
-              <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
-                {query ? `Concepts for “${query}”` : resourceType ? `Concepts on ${resourceType}` : 'Concepts across the dataset'}
-              </h3>
-              <span className="text-xs text-slate-500">{semanticItems.length} on this page</span>
-            </div>
-          <div className="mt-3 divide-y divide-slate-200">
-            {loadState.status === 'loading' && !response ? (
-                <p className="py-8 text-center text-sm text-slate-500">Loading concepts…</p>
-            ) : null}
-              {response && semanticItems.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                No concepts match this search.
-              </p>
-            ) : null}
-              {semanticItems.map((item) => (
-                <CatalogItemRow
-                  key={catalogItemKey(item)}
-                  item={item}
-                  checked={selected.has(catalogItemKey(item))}
-                  disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  onToggle={() => toggleSelection(item)}
-                    />
-              ))}
-                        </div>
-          <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
-            <button
-              type="button"
-              disabled={pageIndex === 0 || loadState.status === 'loading'}
-              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <span className="text-xs text-slate-500">Page {pageIndex + 1}</span>
-            <button
-              type="button"
-              disabled={!response?.nextCursor || loadState.status === 'loading'}
-              onClick={() => {
-                if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
-                else if (response?.nextCursor) loadPage(query, response.nextCursor);
-              }}
-              className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-          </section>
         </div>
 
         <aside className="bg-slate-50/70 p-4 sm:p-5">
@@ -575,34 +705,39 @@ export const ConceptCatalog = ({
               <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-8 text-center text-sm text-slate-500">
                 Select fields or concepts to build your feature list.
               </div>
-            ) : selectedItems.map((item) => (
-              <div key={catalogItemKey(item)} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-900">{catalogItemLabel(item)}</p>
-                  <p className="truncate text-[11px] text-slate-500">{item.kind === 'FIELD' ? 'Field' : semanticCodeLabel(item.item)}</p>
+            ) : selectedItems.map(({ item }) => {
+              const key = catalogItemKey(item);
+              return (
+                <div key={key} className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-900">{catalogItemLabel(item)}</p>
+                    <p className="truncate text-[11px] text-slate-500">
+                      {item.kind === 'DIRECT_FIELD' ? 'Field' : 'Concept'} · {item.resourceType}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${catalogItemLabel(item)}`}
+                    onClick={() => removeSelection(key)}
+                    className="rounded px-1.5 text-lg leading-5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  >
+                    ×
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${catalogItemLabel(item)}`}
-                  onClick={() => toggleSelection(item)}
-                  className="rounded px-1.5 text-lg leading-5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {!pendingSelection ? (
-          <button
-            type="button"
+            <button
+              type="button"
               disabled={disabled || adding || selected.size === 0 || !onAddSelected}
               onClick={() => void openSelection()}
-            className="mt-4 w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+              className="mt-4 w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
               {selected.size === 0
                 ? 'Add selected features'
                 : `Add ${selected.size} selected ${selected.size === 1 ? 'feature' : 'features'}`}
-          </button>
+            </button>
           ) : null}
           {actionMessage ? (
             <p className="mt-3 text-sm text-slate-700" role="status">{actionMessage}</p>

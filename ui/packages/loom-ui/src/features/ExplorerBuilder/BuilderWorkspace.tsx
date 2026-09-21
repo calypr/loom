@@ -1517,7 +1517,6 @@ const BuilderWorkspaceContent = ({
                   snapshotToken={state.catalog.snapshotToken}
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
-                  catalog={state.catalog}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                   onAddSelected={addSelectedFeatures}
                   />
@@ -1778,7 +1777,6 @@ const BuilderWorkspaceContent = ({
                       resourceType={occurrence.resourceType}
                       routeContext={selectedRouteContext}
                       layout="panel"
-                      catalog={state.catalog}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
                     />

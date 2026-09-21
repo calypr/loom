@@ -310,11 +310,15 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	valueSource, err := correlationValueSource(owner, coding, correlation)
 	if err != nil {
 		return "", err
 	}
-	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}

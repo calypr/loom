@@ -432,8 +432,8 @@ func decodePersistedSource(raw json.RawMessage, semanticsVersion int) (ColumnSou
 	if nestedErr := strictDecode(raw, &nested); nestedErr != nil {
 		return ColumnSource{}, nestedErr
 	}
-	if nested.Aggregate != nil && nested.Aggregate.Temporal != nil && semanticsVersion != CurrentSemanticsVersion-1 {
-		return ColumnSource{}, fmt.Errorf("persisted aggregate temporal policy is only supported at semantics version %d", CurrentSemanticsVersion-1)
+	if nested.Aggregate != nil && nested.Aggregate.Temporal != nil && semanticsVersion != aggregateTemporalPolicySemanticsVersion-1 {
+		return ColumnSource{}, fmt.Errorf("persisted aggregate temporal policy is only supported at semantics version %d", aggregateTemporalPolicySemanticsVersion-1)
 	}
 	if nested.Aggregate == nil || (nested.Aggregate.Where == nil && nested.Aggregate.Temporal == nil) {
 		return ColumnSource{}, fmt.Errorf("source is not a supported legacy wire")

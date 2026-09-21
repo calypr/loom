@@ -40,6 +40,7 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 	return s.client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
 		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "concept_id", "concept_slot_id", "observation.rule_hint"},
 			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
 		{Name: catalog.SemanticInventoryEntryCollection, Indexes: [][]string{
@@ -294,13 +295,25 @@ func (s *Store) EnsureSemanticInventoryEntries(ctx context.Context, build catalo
 	if sourceKind == "" {
 		sourceKind = catalog.SemanticInventorySourceFile
 	}
-	if err := s.client.ExecuteAQL(ctx, materializeSemanticInventoryEntriesAQL, map[string]interface{}{
+	vars := map[string]interface{}{
 		"project":            build.Project,
 		"dataset_generation": build.DatasetGeneration,
 		"build_id":           build.BuildID,
 		"source_kind":        sourceKind,
 		"observation_schema": build.ObservationSchema,
-	}); err != nil {
+		"categorical_rule":   catalog.SemanticRuleHintCategoricalCodeV1,
+		"coded_value_rule":   catalog.SemanticRuleHintCodedValueV1,
+	}
+	clearVars := map[string]interface{}{
+		"project":            build.Project,
+		"dataset_generation": build.DatasetGeneration,
+		"build_id":           build.BuildID,
+		"source_kind":        sourceKind,
+	}
+	if err := s.client.ExecuteAQL(ctx, clearSemanticInventoryEntriesAQL, clearVars); err != nil {
+		return catalog.SemanticInventoryBuild{}, fmt.Errorf("clear semantic inventory entries: %w", err)
+	}
+	if err := s.client.ExecuteAQL(ctx, materializeSemanticInventoryEntriesAQL, vars); err != nil {
 		return catalog.SemanticInventoryBuild{}, fmt.Errorf("materialize semantic inventory entries: %w", err)
 	}
 	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
@@ -588,7 +601,7 @@ func decodeInventoryRow(row map[string]any, out any) error {
 }
 
 func validateSemanticInventoryContribution(contribution catalog.SemanticInventoryContribution) error {
-	if contribution.Key == "" || contribution.Project == "" || contribution.DatasetGeneration == "" || contribution.BuildID == "" || contribution.SourceID == "" || contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Ordinal < 0 {
+	if contribution.Key == "" || contribution.Project == "" || contribution.DatasetGeneration == "" || contribution.BuildID == "" || contribution.SourceID == "" || contribution.ConceptID == "" || contribution.ConceptSlotID == "" || contribution.BindingID == "" || contribution.Ordinal < 0 {
 		return fmt.Errorf("semantic inventory contribution is missing stable identity")
 	}
 	if contribution.BuildID != catalog.SemanticInventoryBuildID(contribution.Project, contribution.DatasetGeneration) {
@@ -665,12 +678,35 @@ FOR d IN fhir_semantic_inventory_builds
   SORT d.inventory_schema DESC, d.observation_schema DESC, d.rule_version DESC, d.build_id DESC
   RETURN d`
 
+const clearSemanticInventoryEntriesAQL = `
+FOR d IN fhir_semantic_inventory_entries
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER NOT_NULL(d.source_kind, "file") == @source_kind
+  REMOVE d IN fhir_semantic_inventory_entries`
+
 const materializeSemanticInventoryEntriesAQL = `
 FOR d IN fhir_semantic_inventory
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
   FILTER d.build_id == @build_id
   FILTER NOT_NULL(d.source_kind, "file") == @source_kind
+  LET paired_value_exists = d.observation.rule_hint == @categorical_rule && LENGTH(
+    FOR paired IN fhir_semantic_inventory
+      FILTER paired.project == @project
+      FILTER paired.dataset_generation == @dataset_generation
+      FILTER paired.build_id == @build_id
+      FILTER NOT_NULL(paired.source_kind, "file") == @source_kind
+      FILTER NOT_NULL(paired.auth_resource_path, "") == NOT_NULL(d.auth_resource_path, "")
+      FILTER paired.resource_type == d.resource_type
+      FILTER paired.concept_id == d.concept_id
+      FILTER paired.concept_slot_id == d.concept_slot_id
+      FILTER paired.observation.rule_hint == @coded_value_rule
+      LIMIT 1
+      RETURN 1
+  ) > 0
+  FILTER !paired_value_exists
   COLLECT auth_resource_path = NOT_NULL(d.auth_resource_path, ""),
     resource_type = d.resource_type,
     binding_id = d.binding_id,

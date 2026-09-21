@@ -31,7 +31,7 @@ const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
-export const AUTHORING_SEMANTICS_VERSION = 9;
+export const AUTHORING_SEMANTICS_VERSION = 10;
 
 export const explicitGroupPreviewRows = (rows) => rows.map((row) => {
   const identity = row.__loom_row_id;
@@ -545,12 +545,13 @@ export const j01ViewerValuesAgree = ({ viewerTable, columns, previewByID, artifa
   }
   return previewOverlap > 0;
 };
-export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
-  if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 inventory request requires a catalog snapshot');
-  if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 inventory request requires a row root');
+export const j01FeatureCatalogRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
+  if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 feature catalog request requires a catalog snapshot');
+  if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 feature catalog request requires a row root');
   return {
     snapshotToken,
     rowRoot,
+    section: 'CONCEPTS',
     ...(resourceType ? { resourceType } : {}),
     ...(query ? { query } : {}),
     ...(cursor ? { cursor } : {}),
@@ -558,7 +559,9 @@ export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceTy
   };
 };
 
-export const collectJ01SemanticConceptPages = async (readPage, request, fixture) => {
+const featureCatalogFact = (entry, label) => entry?.sourceDetails?.find((fact) => fact?.label === label)?.value;
+
+export const collectJ01FeatureConceptPages = async (readPage, request, fixture) => {
   const seenCursors = new Set();
   const seenCodes = new Set();
   const allowedSourceAvailability = new Set(['unknown', 'verified', 'unproven']);
@@ -570,58 +573,63 @@ export const collectJ01SemanticConceptPages = async (readPage, request, fixture)
   let sourceAvailability;
   let entries = [];
   do {
-    const body = j01SemanticInventoryRequest({ ...request, cursor });
+    const body = j01FeatureCatalogRequest({ ...request, cursor });
     const { response, value } = await readPage(body);
-    if (!response?.ok) throw new Error(`J01 semantic inventory returned HTTP ${response?.status ?? 'unknown'}`);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 semantic inventory response is not an object');
+    if (!response?.ok) throw new Error(`J01 feature catalog returned HTTP ${response?.status ?? 'unknown'}`);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 feature catalog response is not an object');
     if (value.state !== 'complete' || !allowedSourceAvailability.has(value.sourceAvailability)) {
-      throw new Error(`J01 semantic inventory is not complete or has invalid source availability: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
+      throw new Error(`J01 feature catalog is not complete or has invalid source availability: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
     }
+    if (value.section !== 'CONCEPTS') throw new Error(`J01 feature catalog returned section ${value.section ?? 'missing'}`);
     if (Object.keys(value).some((key) => /example|total.?count/i.test(key))) {
-      throw new Error('J01 semantic inventory exposed an example or global count field');
+      throw new Error('J01 feature catalog exposed an example or global count field');
     }
     if (typeof value.contextToken !== 'string' || value.contextToken.length === 0 || typeof value.buildId !== 'string' || value.buildId.length === 0) {
-      throw new Error('J01 semantic inventory response is missing its context identity');
+      throw new Error('J01 feature catalog response is missing its context identity');
     }
     if (contextToken === undefined) {
       contextToken = value.contextToken;
       buildId = value.buildId;
       sourceAvailability = value.sourceAvailability;
     } else if (value.contextToken !== contextToken || value.buildId !== buildId || value.sourceAvailability !== sourceAvailability) {
-      throw new Error('J01 semantic inventory page changed its context, build identity, or source availability');
+      throw new Error('J01 feature catalog page changed its context, build identity, or source availability');
     }
-    if (!Array.isArray(value.entries) || value.entries.length > 50) throw new Error('J01 semantic inventory page exceeds its 50-entry contract');
+    if (!Array.isArray(value.entries) || value.entries.length > 50) throw new Error('J01 feature catalog page exceeds its 50-entry contract');
     for (const item of value.entries) {
+      const code = featureCatalogFact(item, 'Code');
+      const system = featureCatalogFact(item, 'Code system');
       if (
-        typeof item?.code !== 'string' ||
-        !expectedCodes.has(item.code) ||
+        item?.kind !== 'SEMANTIC_FEATURE' ||
+        typeof code !== 'string' ||
+        !expectedCodes.has(code) ||
         item.resourceType !== 'Observation' ||
-        item.system !== fixture.system ||
-        !String(item.display ?? '').startsWith(`${fixture.displayPrefix} `) ||
-        typeof item.conceptId !== 'string' ||
-        !item.conceptId ||
-        typeof item.bindingId !== 'string' ||
-        !item.bindingId
+        system !== fixture.system ||
+        !String(item.title ?? '').startsWith(`${fixture.displayPrefix} `) ||
+        item.source?.kind !== 'SEMANTIC' ||
+        typeof item.source.conceptId !== 'string' ||
+        !item.source.conceptId ||
+        typeof item.source.bindingId !== 'string' ||
+        !item.source.bindingId
       ) {
-        throw new Error('J01 semantic inventory returned a result outside the generated Observation concept set');
+        throw new Error('J01 feature catalog returned a result outside the generated Observation concept set');
       }
-      if (Object.hasOwn(item, 'examples')) throw new Error('J01 semantic inventory exposed example values outside the page identity contract');
-      if (seenCodes.has(item.code)) throw new Error(`J01 semantic inventory repeated concept identity ${item.code}`);
-      seenCodes.add(item.code);
-      entries.push(item);
+      if (Object.hasOwn(item, 'examples')) throw new Error('J01 feature catalog exposed example values outside the page identity contract');
+      if (seenCodes.has(code)) throw new Error(`J01 feature catalog repeated concept identity ${code}`);
+      seenCodes.add(code);
+      entries.push({ ...item, code, system });
     }
     pages.push({ cursor, nextCursor: value.nextCursor, count: value.entries.length });
     cursor = value.nextCursor;
     if (cursor) {
-      if (typeof cursor !== 'string' || seenCursors.has(cursor)) throw new Error('J01 semantic inventory repeated a pagination cursor');
+      if (typeof cursor !== 'string' || seenCursors.has(cursor)) throw new Error('J01 feature catalog repeated a pagination cursor');
       seenCursors.add(cursor);
-      if (pages.length > fixture.count) throw new Error('J01 semantic inventory exceeded its pagination safety bound');
+      if (pages.length > fixture.count) throw new Error('J01 feature catalog exceeded its pagination safety bound');
     }
   } while (cursor);
 
   const actualCodes = [...seenCodes].sort();
   if (JSON.stringify(actualCodes) !== JSON.stringify([...expectedCodes].sort())) {
-    throw new Error(`J01 semantic inventory returned ${actualCodes.length} of ${fixture.count} expected concepts`);
+    throw new Error(`J01 feature catalog returned ${actualCodes.length} of ${fixture.count} expected concepts`);
   }
   return { contextToken, buildId, sourceAvailability, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
 };
@@ -3750,7 +3758,7 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
     recordEvidence(report, sourceInvariancePath);
     const timingPath = join(evidenceDir, 'request-ui-timings.json');
     writeJSON(timingPath, {
-      authoringRequests: report.requests.filter((request) => request.kind === 'warm-semantic-inventory'),
+      authoringRequests: report.requests.filter((request) => request.kind === 'warm-feature-catalog'),
       authoringSummary: report.timings.authoringRequests,
       uiAcknowledgements: report.target.uiAcknowledgementSamples,
       uiSummary: report.timings.uiAcknowledgements,
@@ -3905,32 +3913,36 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     const expectedPageCount = Math.ceil(fixture.count / 50);
     let semanticPageCursor = -1;
     for (let pageNumber = 1; pageNumber <= expectedPageCount; pageNumber += 1) {
-      const pageResponse = await waitForNetworkResponse('/semantic-inventory', semanticPageCursor, 60000,
-        (item) => parseJSON(item.postData)?.query === fixture.displayPrefix);
+      const pageResponse = await waitForNetworkResponse('/feature-catalog', semanticPageCursor, 60000,
+        (item) => parseJSON(item.postData)?.query === fixture.displayPrefix && parseJSON(item.postData)?.section === 'CONCEPTS');
       semanticPageCursor = network.indexOf(pageResponse);
       const requestBody = parseJSON(pageResponse.postData);
       if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.resourceType || requestBody?.limit !== 50) {
         throw new Error(`J01 catalog page ${pageNumber} was not loaded through the expected visible search request: ${JSON.stringify(requestBody)}`);
       }
       if (Object.keys(pageResponse.responseBody ?? {}).some((key) => /example|total.?count/i.test(key))) {
-        throw new Error(`J01 semantic inventory page ${pageNumber} returned an example or global count field`);
+        throw new Error(`J01 feature catalog page ${pageNumber} returned an example or global count field`);
       }
       await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber}') && (document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) > 0`, 60000);
-      const visibleCodes = await evaluate(cdp, `(() => {
+      const visibleEntries = await evaluate(cdp, `(() => {
         const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]');
-        return [...(section?.querySelectorAll('article') || [])].map((article) => article.innerText.match(/\\bconcept-\\d{4}\\b/)?.[0]).filter(Boolean);
+        return [...(section?.querySelectorAll('article') || [])].map((article) => article.querySelector('h4')?.textContent?.trim()).filter(Boolean);
       })()`);
-      recordAssertion(report, `j01-catalog-page-${pageNumber}-has-exactly-fifty-identities`, 50, visibleCodes.length);
-      pageCodes.push(...visibleCodes);
+      recordAssertion(report, `j01-catalog-page-${pageNumber}-renders-exactly-fifty-features`, 50, visibleEntries.length);
+      const responseCodes = (pageResponse.responseBody?.entries ?? [])
+        .map((entry) => featureCatalogFact(entry, 'Code'))
+        .filter(Boolean);
+      recordAssertion(report, `j01-catalog-page-${pageNumber}-has-exactly-fifty-identities`, 50, responseCodes.length);
+      pageCodes.push(...responseCodes);
       if (pageNumber < expectedPageCount) {
-        await browserEval(cdp, `clickButton('Next')`);
-        await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber + 1}')`, 60000);
+        await browserEval(cdp, `const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]'); const next = [...(section?.querySelectorAll('button') || [])].find((button) => button.textContent.trim() === 'Next'); if (!next || next.disabled) throw new Error('Concept catalog Next is unavailable'); next.click();`);
+        await waitForBrowser(cdp, `document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.innerText.includes('Page ${pageNumber + 1}')`, 60000);
       }
     }
     const expectedCodes = Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`);
     recordAssertion(report, 'j01-browser-discovers-every-generated-code-once-across-pages', expectedCodes, [...pageCodes].sort());
-    const generatedInventoryRequests = network.filter((item) => item.url.endsWith('/semantic-inventory') && parseJSON(item.postData)?.query === fixture.displayPrefix);
-    const collectedInventory = await collectJ01SemanticConceptPages(async (requestBody) => {
+    const generatedInventoryRequests = network.filter((item) => item.url.endsWith('/feature-catalog') && parseJSON(item.postData)?.query === fixture.displayPrefix && parseJSON(item.postData)?.section === 'CONCEPTS');
+    const collectedInventory = await collectJ01FeatureConceptPages(async (requestBody) => {
       const item = generatedInventoryRequests[requestBody.cursor ? generatedInventoryRequests.findIndex((candidate) => parseJSON(candidate.postData)?.cursor === requestBody.cursor) : 0];
       if (!item) throw new Error(`J01 browser did not issue inventory page for cursor ${requestBody.cursor ?? '(first)'}`);
       const actualRequest = parseJSON(item.postData);
@@ -3989,30 +4001,31 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
         const path = field.candidate.fieldPath.replace(/^root\./, '');
         await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(path)})`);
         await browserEval(cdp, `clickButton('Search')`);
-        await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.${path}"]:not(:disabled)'))`);
-        await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(`Select Observation.${path}`)}); if (!input || input.disabled) throw new Error('compiler-proved Observation.${path} choice is unavailable'); input.click();`);
+        await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('section[aria-labelledby="feature-catalog-fields-title"] article')].find((article) => article.querySelector('h4')?.textContent.trim() === ${JSON.stringify(path)} && article.textContent.includes('Observation') && article.querySelector('input[type="checkbox"]:not(:disabled)'))) `);
+        await browserEval(cdp, `const article = [...document.querySelectorAll('section[aria-labelledby="feature-catalog-fields-title"] article')].find((candidate) => candidate.querySelector('h4')?.textContent.trim() === ${JSON.stringify(path)} && candidate.textContent.includes('Observation')); const input = article?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('compiler-proved Observation.${path} choice is unavailable'); input.click();`);
         await browserEval(cdp, `clickButton('Add 1 selected feature')`);
         state = await waitForState((value) => value.workspace?.documents?.find((candidate) => candidate.output?.id === outputId)?.columns.length === (path === 'id' ? 1 : 2), `Observation.${path} compiler choice application`);
       }
     });
 
     await action('add_preserving_semantic_owner_records', async () => {
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 60000);
       await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
       await browserEval(cdp, `clickButton('Search')`);
-      const sharedRequest = await waitForNetworkResponse('/semantic-inventory', semanticPageCursor, 60000,
-        (item) => parseJSON(item.postData)?.query === 'shared');
+      const sharedRequest = await waitForNetworkResponse('/feature-catalog', semanticPageCursor, 60000,
+        (item) => parseJSON(item.postData)?.query === 'shared' && parseJSON(item.postData)?.section === 'CONCEPTS');
       semanticPageCursor = network.indexOf(sharedRequest);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A') && article.textContent.includes('shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`, 60000);
       const sharedBody = parseJSON(sharedRequest.postData);
       if (sharedBody?.query !== 'shared') throw new Error(`J01 semantic owner search used an unexpected query: ${JSON.stringify(sharedBody)}`);
       const sharedEntry = (sharedRequest.responseBody?.entries ?? []).find((entry) =>
         entry.resourceType === 'Observation' &&
-        entry.system === 'urn:study:A' &&
-        entry.code === 'shared' &&
+        featureCatalogFact(entry, 'Code system') === 'urn:study:A' &&
+        featureCatalogFact(entry, 'Code') === 'shared' &&
         entry.constructionChoice?.source?.fieldPath === 'component[].valueQuantity.value');
       const semanticChoice = sharedEntry?.constructionChoice;
       if (semanticChoice?.source?.kind !== 'SEMANTIC' || semanticChoice.source.system !== 'urn:study:A' || semanticChoice.source.code !== 'shared') {
-        throw new Error(`J01 semantic inventory did not issue the selected owner-bound compiler choice: ${JSON.stringify(semanticChoice?.source)}`);
+        throw new Error(`J01 feature catalog did not issue the selected owner-bound compiler choice: ${JSON.stringify(semanticChoice?.source)}`);
       }
       if (!semanticChoice.options.some((option) => option.form === 'OWNER_RECORDS')) {
         throw new Error('J01 selected semantic choice does not advertise the preserving OWNER_RECORDS form');
@@ -4026,7 +4039,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
         ownerPath: semanticChoice.source.owningScope,
         valuePath: semanticChoice.source.fieldPath,
       };
-      await browserEval(cdp, `const item = [...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value')); const input = item?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('Observation semantic owner choice is unavailable'); input.click();`);
+      await browserEval(cdp, `const item = [...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A') && article.textContent.includes('shared') && article.textContent.includes('valueQuantity.value')); const input = item?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('Observation semantic owner choice is unavailable'); input.click();`);
       await browserEval(cdp, `clickButton('Add 1 selected feature')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.body.innerText.includes('Choose output forms'))`);
       await captureDOM('j01-owner-record-choice');
@@ -4171,7 +4184,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
 
     const timingPath = join(evidenceDir, 'request-ui-timings.json');
     writeJSON(timingPath, {
-      authoringRequests: report.requests.filter((request) => request.kind === 'warm-semantic-inventory'),
+      authoringRequests: report.requests.filter((request) => request.kind === 'warm-feature-catalog'),
       authoringSummary: report.timings.authoringRequests,
       uiAcknowledgements: report.target.uiAcknowledgementSamples,
       uiSummary: report.timings.uiAcknowledgements,
@@ -4422,10 +4435,10 @@ const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000
 const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotToken, rowRoot, resourceType, query }, sampleCount = 30) => {
   const samples = [];
   const requests = [];
-  const url = `${bootstrapAuthoringURL(target, explorerId)}/semantic-inventory`;
+  const url = `${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`;
   for (let index = 0; index < sampleCount; index += 1) {
     const requestId = `j01-authoring-timing-${index + 1}-${randomUUID()}`;
-    const body = j01SemanticInventoryRequest({ snapshotToken, rowRoot, resourceType, query });
+    const body = j01FeatureCatalogRequest({ snapshotToken, rowRoot, resourceType, query });
     const started = performance.now();
     const { response, value } = await requestJSON(url, {
       method: 'POST',
@@ -4437,11 +4450,11 @@ const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotT
     if (!response.ok) throw new Error(`J01 authoring timing request ${index + 1} returned HTTP ${response.status}`);
     if (typeof value?.contextToken !== 'string' || !value.contextToken) throw new Error('J01 timed catalog response omitted its context identity');
     samples.push(elapsedMs);
-    requests.push({ requestId, method: 'POST', path: '/semantic-inventory', status: response.status, elapsedMs, entryCount: value.entries?.length ?? 0 });
+    requests.push({ requestId, method: 'POST', path: '/feature-catalog', status: response.status, elapsedMs, entryCount: value.entries?.length ?? 0 });
   }
   const summary = summarizeTimingSamples(samples);
   report.requests ??= [];
-  report.requests.push(...requests.map((request) => ({ ...request, kind: 'warm-semantic-inventory' })));
+  report.requests.push(...requests.map((request) => ({ ...request, kind: 'warm-feature-catalog' })));
   report.timings.authoringRequests = summary;
   report.target.authoringRequestSamples = samples;
   if (summary.count < 30) throw new Error(`J01 captured only ${summary.count} authoring request timings`);
@@ -4869,10 +4882,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
     await browserEval(cdp, `clickButton('Search')`);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A') && article.textContent.includes('shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
     await browserEval(cdp, `
       const item = [...document.querySelectorAll('article')].find((article) =>
-        article.textContent.includes('urn:study:A · shared') &&
+        article.textContent.includes('urn:study:A') &&
+        article.textContent.includes('shared') &&
         article.textContent.includes('valueQuantity.value')
       );
       const input = item?.querySelector('input[type="checkbox"]');

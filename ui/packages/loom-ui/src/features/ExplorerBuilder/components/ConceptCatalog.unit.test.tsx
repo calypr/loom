@@ -2,24 +2,24 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { createLoomClient } from '../../../api';
 import { LoomProvider } from '../../../react';
 import type {
-  AggregateTransformationCapability,
-  ColumnValueTransformationCapabilities,
   ConstructionChoice,
-  ExplorerBuilderCatalog,
-  ExplorerBuilderCandidate,
-  SemanticInventoryBrowseResponse,
-  SemanticInventoryItem,
+  FeatureCatalogBrowseResponse,
+  FeatureCatalogItem,
+  FeatureCatalogSection,
 } from '../../../types';
 import {
-  ConceptCatalog,
-  type CatalogRouteContext,
-} from './ConceptCatalog';
+  featureCatalogBrowseResponseSchema,
+  featureCatalogItemSchema,
+  featureCatalogSectionSchema,
+} from '../../../types';
+import { ConceptCatalog, type CatalogRouteContext } from './ConceptCatalog';
 
 const choiceOption = (
-  form: 'VALUE' | 'ALL' | 'OWNER_RECORDS',
+  form: 'VALUE' | 'ALL',
   decision: 'DEFAULT' | 'REQUIRES_DECISION',
 ): ConstructionChoice['options'][number] => ({
   form,
@@ -32,22 +32,20 @@ const choiceOption = (
 });
 
 const fieldChoice = (
-  choiceId: string,
   candidateId: string,
-  nodeId: string,
-  resourceType: string,
-  path: string,
+  resourceType = 'Patient',
+  path = 'id',
 ): ConstructionChoice => ({
-  choiceId,
+  choiceId: `choice-${candidateId}`,
   route: [],
   presentation: {
-    summary: `${resourceType}.${path}`,
-    facts: [{ label: 'Field', value: path }],
+    summary: `${resourceType} field`,
+    facts: [{ label: 'FHIR path', value: `${resourceType}.${path}` }],
   },
   source: {
     kind: 'FIELD',
     candidateId,
-    nodeId,
+    nodeId: resourceType === 'Patient' ? 'patient-node' : 'observation-node',
     resourceType,
     path,
     cardinality: 'optional_one',
@@ -55,171 +53,175 @@ const fieldChoice = (
   options: [choiceOption('VALUE', 'DEFAULT')],
 });
 
-const unavailableTransformations: AggregateTransformationCapability = {
-  temporalReduction: {
-    available: false,
-    reason: 'No advertised temporal choices are available for this candidate.',
-    timestampFields: [],
-    anchorFields: [],
-  },
-  unitNormalization: {
-    available: false,
-    reason: 'No approved unit preset is available for this candidate.',
-    presets: [],
-  },
-};
-
-const availableStringValueTransformations: ColumnValueTransformationCapabilities = {
-  exactCategoryRecode: { available: true },
-  codedValueRecoding: {
-    available: false,
-    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
-    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
-  },
-};
-
 const semanticChoice = (
-  choiceId: string,
-  item: Pick<SemanticInventoryItem, 'conceptId' | 'bindingId' | 'resourceType' | 'sourcePath' | 'valueSelector' | 'system' | 'code'>,
+  conceptId: string,
+  bindingId: string,
+  resourceType: string,
   options: ConstructionChoice['options'] = [choiceOption('VALUE', 'DEFAULT')],
 ): ConstructionChoice => ({
-  choiceId,
+  choiceId: `choice-${conceptId}`,
   route: [],
   presentation: {
-    summary: `${item.system} · ${item.code}`,
-    facts: [
-      { label: 'Source path', value: item.sourcePath },
-      { label: 'Value member', value: item.valueSelector },
-    ],
+    summary: `${resourceType} concept`,
+    facts: [{ label: 'Code path', value: `${resourceType}.code.coding[]` }],
   },
   source: {
     kind: 'SEMANTIC',
-    conceptId: item.conceptId,
-    bindingId: item.bindingId,
-    candidateId: `candidate-${choiceId}`,
-    nodeId: `${item.resourceType.toLowerCase()}-node`,
-    resourceType: item.resourceType,
-    sourcePath: item.sourcePath,
-    fieldPath: `root.${item.sourcePath}`,
-    valueSelector: item.valueSelector,
+    conceptId,
+    bindingId,
+    candidateId: `candidate-${conceptId}`,
+    nodeId: resourceType === 'Patient' ? 'patient-node' : 'observation-node',
+    resourceType,
+    sourcePath: 'code.coding[]',
+    fieldPath: `root.code.coding[]`,
+    valueSelector: 'valueQuantity.value',
+    valueScope: 'KEY_ITEM',
     logicalType: 'decimal',
-    system: item.system,
-    code: item.code,
     ruleVersion: '1',
     schemaVersion: 1,
     cardinality: 'optional_one',
   },
-  options: [...options],
+  options,
 });
 
-const item = (
-  code: string,
-  display: string,
-  occurrences: number,
-  resourceType = 'Patient',
-): SemanticInventoryItem => {
-  const value = {
-  conceptId: `concept-${code}`,
-  bindingId: `binding-${code}`,
-    resourceType,
-    sourcePath: 'extension.valueQuantity',
-  system: 'http://loinc.org',
-  code,
-  codingVersion: '2.77',
-  display,
-  valueSelector: 'valueQuantity.value',
-  valueType: 'decimal',
-    owningScope: 'extension[]',
-  occurrences,
-    readiness: { status: 'READY' as const, code: 'READY', message: 'This semantic field is ready to add.' },
-  };
-  return { ...value, constructionChoice: semanticChoice(`choice-${code}`, value) };
-};
-
-const page = (
-  entries: ReadonlyArray<SemanticInventoryItem>,
-  nextCursor?: string,
-): SemanticInventoryBrowseResponse => ({
-  contextToken: 'context-1',
-  buildId: 'build-1',
-  state: 'complete',
-  sourceAvailability: 'verified',
-  entries: [...entries],
-  nextCursor,
+const readiness = (
+  status: FeatureCatalogItem['readiness']['status'],
+): FeatureCatalogItem['readiness'] => ({
+  status,
+  code: status,
+  message: status === 'READY'
+    ? 'This feature is ready to add.'
+    : status === 'READY_WITH_WARNING'
+      ? 'This feature is ready to add with a warning.'
+      : status === 'NEEDS_MAPPING'
+        ? 'This feature needs a terminology mapping.'
+        : 'This feature is unsupported for the selected output.',
 });
 
-const rootId: ExplorerBuilderCandidate = {
-  candidateId: 'candidate-id',
-  nodeId: 'patient-node',
-  fieldPath: 'id',
-  label: 'id',
-  logicalType: 'string',
+const fieldItem = (
+  featureId: string,
+  title: string,
+  candidateId: string,
+  options: {
+    readonly resourceType?: string;
+    readonly readiness?: FeatureCatalogItem['readiness'];
+    readonly constructionChoice?: ConstructionChoice;
+    readonly sourceEvidence?: string;
+  } = {},
+): FeatureCatalogItem => featureCatalogItemSchema.parse({
+  kind: 'DIRECT_FIELD',
+  featureId,
+  title,
+  description: 'A direct primitive value available for this table.',
+  resourceType: options.resourceType ?? 'Patient',
+  valueType: 'string',
   cardinality: 'optional_one',
-  repeated: false,
-  filterable: true,
-  chartable: false,
-  projectionModes: ['VALUE'],
-  defaultProjectionMode: 'VALUE',
-  aggregateOperations: [],
-  transformations: unavailableTransformations,
-  valueTransformations: availableStringValueTransformations,
-  constructionChoice: fieldChoice('field-choice-id', 'candidate-id', 'patient-node', 'Patient', 'id'),
-};
+  occurrences: 81,
+  readiness: options.readiness ?? readiness('READY'),
+  source: { kind: 'FIELD', candidateId },
+  sourceDetails: [{
+    label: 'FHIR path',
+    value: options.sourceEvidence ?? `${options.resourceType ?? 'Patient'}.id`,
+  }],
+  ...(options.constructionChoice
+    ? { constructionChoice: options.constructionChoice }
+    : {}),
+});
 
-const catalog: ExplorerBuilderCatalog = {
-  snapshotToken: 'snapshot-a',
-  generation: 'generation-a',
-  routePolicy: {},
-  nodes: [
-    { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 1 },
-    { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: true, populated: true, documentCount: 1 },
-    { nodeId: 'document-reference-node', resourceType: 'DocumentReference', rowRootEligible: true, populated: true, documentCount: 1 },
-  ],
-  edges: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'observations' }],
-  candidates: [
-    {
-      ...rootId,
-      candidateId: 'candidate-document-reference-id',
-      nodeId: 'document-reference-node',
-      constructionChoice: fieldChoice('field-choice-document-reference-id', 'candidate-document-reference-id', 'document-reference-node', 'DocumentReference', 'id'),
-    },
-    rootId,
-    {
-      ...rootId,
-      candidateId: 'candidate-observation-id',
-      nodeId: 'observation-node',
-      fieldPath: 'identifier',
-      label: 'Observation id',
-      constructionChoice: fieldChoice('field-choice-observation-id', 'candidate-observation-id', 'observation-node', 'Observation', 'identifier'),
-    },
-  ],
-};
+const semanticItem = (
+  featureId: string,
+  title: string,
+  conceptId: string,
+  bindingId: string,
+  options: {
+    readonly resourceType?: string;
+    readonly readiness?: FeatureCatalogItem['readiness'];
+    readonly constructionChoice?: ConstructionChoice;
+    readonly sourceEvidence?: string;
+  } = {},
+): FeatureCatalogItem => featureCatalogItemSchema.parse({
+  kind: 'SEMANTIC_FEATURE',
+  featureId,
+  title,
+  description: 'A concept with a schema-defined value for this table.',
+  resourceType: options.resourceType ?? 'Observation',
+  valueType: 'decimal',
+  cardinality: 'semantic_value',
+  occurrences: 91,
+  readiness: options.readiness ?? readiness('READY'),
+  source: { kind: 'SEMANTIC', conceptId, bindingId },
+  sourceDetails: [{
+    label: 'FHIR path',
+    value: options.sourceEvidence ?? 'Observation.code.coding[]',
+  }],
+  ...(options.constructionChoice
+    ? { constructionChoice: options.constructionChoice }
+    : {}),
+});
+
+const browseResponse = (
+  section: FeatureCatalogSection,
+  entries: ReadonlyArray<FeatureCatalogItem>,
+  contextToken: string,
+  options: {
+    readonly buildId?: string;
+    readonly sourceAvailability?: 'unknown' | 'verified' | 'unproven';
+    readonly nextCursor?: string;
+  } = {},
+): FeatureCatalogBrowseResponse => featureCatalogBrowseResponseSchema.parse({
+  contextToken,
+  buildId: options.buildId ?? `${section.toLowerCase()}-build`,
+  state: 'complete',
+  sourceAvailability: options.sourceAvailability ?? 'verified',
+  section,
+  entries,
+  ...(options.nextCursor ? { nextCursor: options.nextCursor } : {}),
+});
+
+const jsonBodySchema = z.object({}).passthrough();
+const browseRequestSchema = z.object({
+  section: featureCatalogSectionSchema,
+  query: z.string().optional(),
+  cursor: z.string().optional(),
+  nodeId: z.string().optional(),
+  limit: z.number().optional(),
+}).passthrough();
+
+const readBody = (init: RequestInit | undefined) =>
+  jsonBodySchema.parse(JSON.parse(String(init?.body ?? '{}')));
+
+const readBrowseRequest = (init: RequestInit | undefined) =>
+  browseRequestSchema.parse(readBody(init));
+
+const jsonResponse = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
+  status,
+  headers: { 'content-type': 'application/json' },
+});
+
+const createFetch = (
+  resolveBrowse: (request: ReturnType<typeof readBrowseRequest>) => FeatureCatalogBrowseResponse,
+) => vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+  if (String(input).endsWith('/construction-choices')) {
+    return jsonResponse({
+      snapshotToken: 'snapshot-a',
+      outputId: 'patients',
+      complete: true,
+      truncated: false,
+      choices: [],
+    });
+  }
+  return jsonResponse(resolveBrowse(readBrowseRequest(init)));
+});
 
 const renderCatalog = (
   fetch: typeof globalThis.fetch,
-  onAddSelected = vi.fn().mockResolvedValue(undefined),
+  options: {
+    readonly onAddSelected?: (selections: ReadonlyArray<{ constructionChoice: { choiceId: string; form: string }; title?: string }>) => Promise<void>;
+    readonly routeContext?: CatalogRouteContext;
+    readonly resourceType?: string;
+  } = {},
 ) => {
-    render(
-      <LoomProvider client={createLoomClient({ fetch })}>
-        <ConceptCatalog
-          project="project-a"
-          explorerId="explorer-a"
-          snapshotToken="snapshot-a"
-          outputId="patients"
-          rowRoot="Patient"
-          catalog={catalog}
-          onAddSelected={onAddSelected}
-        />
-      </LoomProvider>,
-    );
-  return onAddSelected;
-};
-
-const renderCatalogAtRoute = (
-  fetch: typeof globalThis.fetch,
-  routeContext: CatalogRouteContext,
-  onAddSelected = vi.fn().mockResolvedValue(undefined),
-) => {
+  const onAddSelected = options.onAddSelected ?? vi.fn().mockResolvedValue(undefined);
   render(
     <LoomProvider client={createLoomClient({ fetch })}>
       <ConceptCatalog
@@ -228,10 +230,8 @@ const renderCatalogAtRoute = (
         snapshotToken="snapshot-a"
         outputId="patients"
         rowRoot="Patient"
-        resourceType="Observation"
-        routeContext={routeContext}
-        layout="panel"
-        catalog={catalog}
+        resourceType={options.resourceType}
+        routeContext={options.routeContext}
         onAddSelected={onAddSelected}
       />
     </LoomProvider>,
@@ -239,367 +239,332 @@ const renderCatalogAtRoute = (
   return onAddSelected;
 };
 
+const featureCatalogCalls = (fetch: ReturnType<typeof createFetch>) =>
+  fetch.mock.calls.filter(([input]) => String(input).endsWith('/feature-catalog'));
+
+const browseBody = (call: ReturnType<typeof featureCatalogCalls>[number]) =>
+  readBrowseRequest(call[1]);
+
 describe('ConceptCatalog', () => {
-  it('searches root fields and concepts, shows compiler forms, and submits only choice IDs and forms', async () => {
-    const hemoglobin = item('4548-4', 'Hemoglobin A1c', 91);
-    const offRoot = item('718-7', 'Off-root concept', 64, 'Observation');
-    const multiOptionChoice = semanticChoice(
-      'choice-4548-4',
-      hemoglobin,
-      [
-        choiceOption('VALUE', 'DEFAULT'),
-        choiceOption('ALL', 'REQUIRES_DECISION'),
-        choiceOption('OWNER_RECORDS', 'REQUIRES_DECISION'),
-      ],
+  it('loads each section from the feature catalog, ignores Builder candidates, and keeps selections across search', async () => {
+    const serverField = fieldItem('field:patient-id', 'Server-owned patient id', 'candidate-from-server', {
+      sourceEvidence: 'Patient.id',
+    });
+    const serverConcept = semanticItem(
+      'semantic:glucose:binding-1',
+      'Server-owned glucose concept',
+      'glucose-concept',
+      'glucose-binding',
     );
-    const semantic = { ...hemoglobin, constructionChoice: multiOptionChoice };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(JSON.stringify(page([semantic, offRoot])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    const onAddSelected = renderCatalog(fetch);
-
-    expect(await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' })).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
-    expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
-    expect(screen.queryByRole('checkbox', { name: 'Select Observation id' })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Select Off-root concept' })).toBeEnabled();
-
-    const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { resourceType?: string; rowRoot?: string };
-    expect(request).toMatchObject({ rowRoot: 'Patient' });
-    expect(request).not.toHaveProperty('resourceType');
-
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Patient.id' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
-
-    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
-    fireEvent.click(within(dialog).getAllByText('Source details')[1]!);
-    expect(within(dialog).getByText('valueQuantity.value')).toBeInTheDocument();
-    const defaultForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: SCALAR · PRESERVING · VALUE' });
-    const listForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: LIST · PRESERVING · ALL' });
-    expect(screen.getByRole('radio', { name: 'Hemoglobin A1c: Keep each matching record' })).toBeEnabled();
-    expect(defaultForm).toHaveProperty('checked', true);
-    expect(listForm).toHaveProperty('checked', false);
-    fireEvent.click(listForm);
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
-
-    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
-      {
-        constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
-        title: 'id',
-      },
-      {
-        constructionChoice: { choiceId: 'choice-4548-4', form: 'ALL' },
-        title: 'Hemoglobin A1c',
-      },
-    ]));
-    expect(onAddSelected).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows unsupported semantic entries with their reason and keeps them non-selectable', async () => {
-    const unsupported = {
-      ...item('case-id', 'Case identifier', 12),
-      constructionChoice: undefined,
-      readiness: {
-        status: 'UNSUPPORTED' as const,
-        code: 'VALUE_PROJECTION_UNSUPPORTED',
-        message: 'The observed value does not contain the scalar selected by the current projection.',
-      },
-    };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(JSON.stringify(page([unsupported])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
+    const fetch = createFetch((request) => {
+      if (request.section === 'FIELDS') {
+        return browseResponse('FIELDS', [serverField], 'fields-context');
+      }
+      if (request.section === 'CONCEPTS') {
+        return browseResponse('CONCEPTS', [serverConcept], 'concepts-context');
+      }
+      return browseResponse('NEEDS_REVIEW', [], 'review-context');
+    });
     renderCatalog(fetch);
 
-    expect(await screen.findByRole('checkbox', { name: 'Select Case identifier' })).toBeDisabled();
-    expect(screen.getByText('Unsupported')).toBeInTheDocument();
-    expect(screen.getAllByText(/does not contain the scalar selected by the current projection/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Availability')).toBeInTheDocument();
-  });
+    expect(await screen.findByRole('checkbox', { name: 'Select Server-owned patient id' })).toBeEnabled();
+    expect(await screen.findByRole('checkbox', { name: 'Select Server-owned glucose concept' })).toBeEnabled();
+    expect(screen.queryByText('Raw coding candidate')).not.toBeInTheDocument();
+    expect(screen.queryByText('Patient.code.coding[]')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Needs review' })).toBeInTheDocument();
 
-  it('applies one compiler DEFAULT field form after one Add click', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify(page([])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    const onAddSelected = renderCatalog(fetch);
+    await waitFor(() => expect(featureCatalogCalls(fetch)).toHaveLength(3));
+    expect(featureCatalogCalls(fetch).map(([input]) => String(input))).toEqual([
+      expect.stringContaining('/feature-catalog'),
+      expect.stringContaining('/feature-catalog'),
+      expect.stringContaining('/feature-catalog'),
+    ]);
+    expect(featureCatalogCalls(fetch).map(browseBody).map((body) => body.section).sort()).toEqual([
+      'CONCEPTS',
+      'FIELDS',
+      'NEEDS_REVIEW',
+    ]);
+    expect(featureCatalogCalls(fetch).every((call) => browseBody(call).limit === 50)).toBe(true);
+    expect(fetch.mock.calls.every(([input]) => !String(input).endsWith('/semantic-inventory'))).toBe(true);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-
-    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
-      constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
-      title: 'id',
-    }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
-  });
-
-  it('searches ordinary fields from the active row-root candidates', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify(page([])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    renderCatalog(fetch);
-
-    const search = await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
-    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeInTheDocument();
-    fireEvent.change(search, { target: { value: 'missing' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
-
-    fireEvent.change(search, { target: { value: 'id' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeInTheDocument();
-  });
-
-  it('puts row-root fields first and identifies each searched field by resource', async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
-      new Response(JSON.stringify(page([])), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    renderCatalog(fetch);
-
-    const search = await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' });
-    fireEvent.change(search, { target: { value: 'id' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-    await waitFor(() => {
-      const names = screen.getAllByRole('checkbox').map((checkbox) => checkbox.getAttribute('aria-label'));
-      expect(names[0]).toBe('Select Patient.id');
-      expect(names).toEqual(expect.arrayContaining([
-        'Select DocumentReference.id',
-        'Select Observation.identifier',
-      ]));
-      expect(new Set(names).size).toBe(names.length);
-    });
-    for (const resourceType of ['Patient', 'DocumentReference', 'Observation']) {
-      expect(screen.getByText(resourceType, { exact: true })).toBeInTheDocument();
-    }
-  });
-
-  it('keeps selections across semantic pages and searches without limiting simple search to the row-root resource', async () => {
-    const first = item('4548-4', 'Hemoglobin A1c', 91);
-    const second = item('718-7', 'Hemoglobin', 64);
-    const third = item('2345-7', 'Glucose', 37);
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { query?: string; cursor?: string; resourceType?: string };
-      expect(body.resourceType).toBeUndefined();
-      const response = body.query === 'glucose'
-        ? page([third])
-        : body.cursor === 'cursor-2'
-          ? page([second])
-          : page([first], 'cursor-2');
-      return new Response(JSON.stringify(response), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-    });
-    });
-    const onAddSelected = renderCatalog(fetch);
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Server-owned patient id' }));
+    const selected = within(screen.getByRole('complementary')).getByText('Server-owned patient id');
+    expect(selected).toBeInTheDocument();
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
-      target: { value: 'glucose' },
-  });
+      target: { value: 'serum' },
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Search' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Glucose' }));
-    expect(screen.getByText('3')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add 3 selected features' }));
-    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
-      { constructionChoice: { choiceId: 'choice-4548-4', form: 'VALUE' }, title: 'Hemoglobin A1c' },
-      { constructionChoice: { choiceId: 'choice-718-7', form: 'VALUE' }, title: 'Hemoglobin' },
-      { constructionChoice: { choiceId: 'choice-2345-7', form: 'VALUE' }, title: 'Glucose' },
+    await waitFor(() => expect(featureCatalogCalls(fetch)).toHaveLength(6));
+    expect(featureCatalogCalls(fetch).slice(3).map(browseBody).every((body) => body.query === 'serum')).toBe(true);
+    expect(within(screen.getByRole('complementary')).getByText('Server-owned patient id')).toBeInTheDocument();
+  });
+
+  it('passes returned field and semantic identities into route resolution', async () => {
+    const field = fieldItem('field:observation-id', 'Observation identifier', 'returned-candidate-id', {
+      resourceType: 'Observation',
+    });
+    const concept = semanticItem(
+      'semantic:glucose:returned-binding',
+      'Blood glucose',
+      'returned-concept-id',
+      'returned-binding-id',
+    );
+    const fetch = createFetch((request) => {
+      if (request.section === 'FIELDS') {
+        return browseResponse('FIELDS', [field], 'field-route-context');
+      }
+      if (request.section === 'CONCEPTS') {
+        return browseResponse('CONCEPTS', [concept], 'semantic-route-context', {
+          buildId: 'semantic-route-build',
+        });
+      }
+      return browseResponse('NEEDS_REVIEW', [], 'review-route-context');
+    });
+    renderCatalog(fetch, {
+      resourceType: 'Observation',
+      routeContext: { occurrenceId: 'occurrence-observations', nodeId: 'observation-node' },
+    });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation identifier' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Blood glucose' }));
+    expect(browseBody(featureCatalogCalls(fetch).find((call) => browseBody(call).section === 'FIELDS')!).nodeId)
+      .toBe('observation-node');
+    expect(browseBody(featureCatalogCalls(fetch).find((call) => browseBody(call).section === 'CONCEPTS')!))
+      .not.toHaveProperty('nodeId');
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+
+    await waitFor(() => expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/construction-choices'))).toHaveLength(2));
+    const routeCalls = fetch.mock.calls.filter(([input]) => String(input).endsWith('/construction-choices'));
+    const bodies = routeCalls.map((call) => readBody(call[1]));
+    expect(bodies.map((body) => body.occurrenceId)).toEqual([
+      'occurrence-observations',
+      'occurrence-observations',
+    ]);
+    expect(bodies.map((body) => body.source)).toEqual(expect.arrayContaining([
+      { kind: 'FIELD', candidateId: 'returned-candidate-id' },
+      {
+        kind: 'SEMANTIC',
+        contextToken: 'semantic-route-context',
+        buildId: 'semantic-route-build',
+        conceptId: 'returned-concept-id',
+        bindingId: 'returned-binding-id',
+      },
+    ]));
+    expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
+  });
+
+  it('keeps unavailable concepts and every Needs review item non-selectable', async () => {
+    const unmapped = semanticItem(
+      'semantic:unmapped:binding',
+      'Unmapped diagnosis',
+      'unmapped-concept',
+      'unmapped-binding',
+      { readiness: readiness('NEEDS_MAPPING') },
+    );
+    const reviewOnly = semanticItem(
+      'semantic:review:binding',
+      'Source requiring review',
+      'review-concept',
+      'review-binding',
+      { readiness: readiness('READY') },
+    );
+    const fetch = createFetch((request) => {
+      if (request.section === 'CONCEPTS') {
+        return browseResponse('CONCEPTS', [unmapped], 'concept-context');
+      }
+      if (request.section === 'NEEDS_REVIEW') {
+        return browseResponse('NEEDS_REVIEW', [reviewOnly], 'review-context', {
+          sourceAvailability: 'unproven',
+        });
+      }
+      return browseResponse('FIELDS', [], 'field-context');
+    });
+    renderCatalog(fetch);
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Unmapped diagnosis' })).toBeDisabled();
+    expect(await screen.findByRole('checkbox', { name: 'Select Source requiring review' })).toBeDisabled();
+    expect(screen.getByRole('region', { name: 'Needs review' })).toHaveTextContent('could not verify every retained source collection');
+    expect(screen.getAllByText('This feature needs a terminology mapping.')).toHaveLength(2);
+    expect(within(screen.getByRole('complementary')).getByText('0')).toBeInTheDocument();
+  });
+
+  it('pages fields and concepts independently without dropping selections', async () => {
+    const fieldOne = fieldItem('field:one', 'Field page one', 'candidate-one');
+    const fieldTwo = fieldItem('field:two', 'Field page two', 'candidate-two');
+    const conceptOne = semanticItem('semantic:one', 'Concept page one', 'concept-one', 'binding-one');
+    const conceptTwo = semanticItem('semantic:two', 'Concept page two', 'concept-two', 'binding-two');
+    const fetch = createFetch((request) => {
+      if (request.section === 'FIELDS') {
+        return request.cursor
+          ? browseResponse('FIELDS', [fieldTwo], 'fields-context')
+          : browseResponse('FIELDS', [fieldOne], 'fields-context', { nextCursor: 'field-cursor-two' });
+      }
+      if (request.section === 'CONCEPTS') {
+        return request.cursor
+          ? browseResponse('CONCEPTS', [conceptTwo], 'concepts-context')
+          : browseResponse('CONCEPTS', [conceptOne], 'concepts-context', { nextCursor: 'concept-cursor-two' });
+      }
+      return browseResponse('NEEDS_REVIEW', [], 'review-context');
+    });
+    renderCatalog(fetch);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Field page one' }));
+    const fields = screen.getByRole('region', { name: 'Fields on Patient' });
+    const concepts = screen.getByRole('region', { name: 'Concepts across the dataset' });
+    fireEvent.click(within(fields).getByRole('button', { name: 'Next' }));
+    expect(await within(fields).findByText('Field page two')).toBeInTheDocument();
+    expect(within(concepts).getByText('Concept page one')).toBeInTheDocument();
+
+    fireEvent.click(within(concepts).getByRole('button', { name: 'Next' }));
+    expect(await within(concepts).findByText('Concept page two')).toBeInTheDocument();
+    expect(within(fields).getByText('Field page two')).toBeInTheDocument();
+    expect(within(screen.getByRole('complementary')).getByText('Field page one')).toBeInTheDocument();
+
+    const requests = featureCatalogCalls(fetch).map(browseBody);
+    expect(requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ section: 'FIELDS', cursor: 'field-cursor-two' }),
+      expect.objectContaining({ section: 'CONCEPTS', cursor: 'concept-cursor-two' }),
     ]));
   });
 
-  it('uses server-issued route choices for a related concept without sending browser-selected edges', async () => {
-    const related = item('718-7', 'Hemoglobin', 64, 'Observation');
-    const firstRoute = {
-      ...semanticChoice('route-choice-a', related),
-      route: [{
-        edgeId: 'patient-observation-subject',
-        fromNodeId: 'patient-node',
-        toNodeId: 'observation-node',
-        fromResourceType: 'Patient',
-        toResourceType: 'Observation',
-        relationship: 'subject',
-        storageDirection: 'INBOUND' as const,
-        matchMode: 'OPTIONAL' as const,
-      }],
-      presentation: {
-        summary: 'Observation through subject',
-        facts: [{ label: 'Concept', value: 'http://loinc.org · 718-7' }],
-      },
-    };
-    const secondRoute = {
-      ...semanticChoice('route-choice-b', related),
-      route: [{
-        edgeId: 'patient-diagnostic-report-result',
-        fromNodeId: 'patient-node',
-        toNodeId: 'diagnostic-report-node',
-        fromResourceType: 'Patient',
-        toResourceType: 'DiagnosticReport',
-        relationship: 'subject',
-        storageDirection: 'INBOUND' as const,
-        matchMode: 'OPTIONAL' as const,
-      }, {
-        edgeId: 'diagnostic-report-observation-result',
-        fromNodeId: 'diagnostic-report-node',
-        toNodeId: 'observation-node',
-        fromResourceType: 'DiagnosticReport',
-        toResourceType: 'Observation',
-        relationship: 'result',
-        storageDirection: 'OUTBOUND' as const,
-        matchMode: 'OPTIONAL' as const,
-      }],
-      presentation: {
-        summary: 'Observation through DiagnosticReport result',
-        facts: [{ label: 'Concept', value: 'http://loinc.org · 718-7' }],
-      },
-    };
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url.endsWith('/semantic-inventory')) {
-        return new Response(JSON.stringify(page([related])), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+  it('restarts a section from page one when its catalog cursor becomes stale', async () => {
+    const originalField = fieldItem('field:original', 'Original field page one', 'candidate-original');
+    const refreshedField = fieldItem('field:refreshed', 'Refreshed field page one', 'candidate-refreshed');
+    let fieldFirstPageRequests = 0;
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      const request = readBrowseRequest(init);
+      if (request.section !== 'FIELDS') {
+        return jsonResponse(browseResponse(request.section, [], `${request.section.toLowerCase()}-context`));
       }
-      if (url.endsWith('/construction-choices')) {
-        return new Response(JSON.stringify({
-          snapshotToken: 'snapshot-a',
-          outputId: 'patients',
-          complete: false,
-          truncated: true,
-          nextCursor: 'route-cursor-2',
-          choices: [firstRoute, secondRoute],
-        }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+      if (request.cursor) {
+        return jsonResponse({
+          error: {
+            code: 'STALE_CATALOG_CURSOR',
+            message: 'restart catalog search with an empty cursor',
+          },
+        }, 409);
       }
-      throw new Error(`Unexpected request: ${url} ${String(init?.body)}`);
+      fieldFirstPageRequests += 1;
+      return jsonResponse(fieldFirstPageRequests === 1
+        ? browseResponse('FIELDS', [originalField], 'fields-context-a', {
+            buildId: 'fields-build-a',
+            nextCursor: 'stale-field-cursor',
+          })
+        : browseResponse('FIELDS', [refreshedField], 'fields-context-b', {
+            buildId: 'fields-build-b',
+          }));
     });
-    const onAddSelected = renderCatalog(fetch);
+    renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Original field page one' }));
+    const fields = screen.getByRole('region', { name: 'Fields on Patient' });
+    fireEvent.click(within(fields).getByRole('button', { name: 'Next' }));
 
-    expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
-    expect(screen.getByText(/automatic route-search limit/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('radio', {
-      name: 'Hemoglobin route 2: Observation through DiagnosticReport result',
-    }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
-
-    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
-      constructionChoice: { choiceId: 'route-choice-b', form: 'VALUE' },
-      title: 'Hemoglobin',
-    }]));
-    const routeRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
-    expect(routeRequest).toEqual({
-      snapshotToken: 'snapshot-a',
-      outputId: 'patients',
-      source: {
-        kind: 'SEMANTIC',
-        contextToken: 'context-1',
-        buildId: 'build-1',
-        conceptId: 'concept-718-7',
-        bindingId: 'binding-718-7',
-      },
-      limit: 50,
-    });
-    expect(JSON.stringify(routeRequest)).not.toContain('edgeId');
+    expect(await within(fields).findByText('Refreshed field page one')).toBeInTheDocument();
+    expect(within(fields).queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('complementary')).queryByText('Original field page one')).not.toBeInTheDocument();
+    expect(screen.getByText('The feature catalog changed. Review and select the features again.')).toBeInTheDocument();
+    const fieldRequests = featureCatalogCalls(fetch)
+      .map(browseBody)
+      .filter((request) => request.section === 'FIELDS');
+    expect(fieldRequests).toEqual([
+      expect.not.objectContaining({ cursor: expect.anything() }),
+      expect.objectContaining({ cursor: 'stale-field-cursor' }),
+      expect.not.objectContaining({ cursor: expect.anything() }),
+    ]);
   });
 
-  it('pins node-local code selection to the selected authored occurrence route', async () => {
-    const related = item('718-7', 'Hemoglobin', 64, 'Observation');
-    const routeChoice = (
-      choiceId: string,
-      edgeId: string,
-      summary: string,
-    ): ConstructionChoice => ({
-      ...semanticChoice(choiceId, related),
-      route: [{
-        edgeId,
-        fromNodeId: 'patient-node',
-        toNodeId: 'observation-node',
-        fromResourceType: 'Patient',
-        toResourceType: 'Observation',
-        relationship: edgeId === 'patient-observation-subject' ? 'subject' : 'encounter',
-        storageDirection: 'INBOUND',
-        matchMode: 'OPTIONAL',
-      }],
-      presentation: {
-        summary,
-        facts: [{ label: 'Concept', value: 'http://loinc.org · 718-7' }],
-      },
+  it('does not clear selections when independent sections return different context tokens', async () => {
+    let releaseConcepts: (response: Response) => void = () => undefined;
+    let releaseReview: (response: Response) => void = () => undefined;
+    const conceptsPending = new Promise<Response>((resolve) => {
+      releaseConcepts = resolve;
     });
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
-      const url = String(input);
-      if (url.endsWith('/semantic-inventory')) {
-        return new Response(JSON.stringify(page([related])), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+    const reviewPending = new Promise<Response>((resolve) => {
+      releaseReview = resolve;
+    });
+    const field = fieldItem('field:patient-id', 'Patient identifier', 'candidate-patient-id');
+    const concept = semanticItem('semantic:glucose', 'Blood glucose', 'glucose', 'binding-glucose');
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+      const request = readBrowseRequest(init);
+      if (request.section === 'FIELDS') {
+        return jsonResponse(browseResponse('FIELDS', [field], 'fields-token'));
       }
-      if (url.endsWith('/construction-choices')) {
-        return new Response(JSON.stringify({
-          snapshotToken: 'snapshot-a',
-          outputId: 'patients',
-          complete: true,
-          truncated: false,
-          choices: [routeChoice(
-            'route-choice-subject',
-            'patient-observation-subject',
-            'Observation through subject',
-          )],
-        }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
-      }
-      throw new Error(`Unexpected request: ${url}`);
+      if (request.section === 'CONCEPTS') return conceptsPending;
+      if (request.section === 'NEEDS_REVIEW') return reviewPending;
+      throw new Error(`Unexpected section ${request.section}`);
     });
-    const onAddSelected = renderCatalogAtRoute(fetch, {
-      occurrenceId: 'observation-through-subject',
-      nodeId: 'observation-node',
-    });
+    renderCatalog(fetch);
 
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient identifier' }));
+    releaseConcepts(jsonResponse(browseResponse('CONCEPTS', [concept], 'concepts-token')));
+    releaseReview(jsonResponse(browseResponse('NEEDS_REVIEW', [], 'review-token')));
+    expect(await screen.findByRole('checkbox', { name: 'Select Blood glucose' })).toBeEnabled();
+    await waitFor(() => expect(within(screen.getByRole('complementary')).getByText('Patient identifier')).toBeInTheDocument());
+  });
+
+  it('keeps the direct-add path and the output-form selection dialog', async () => {
+    const direct = fieldItem('field:patient-id', 'Patient identifier', 'candidate-patient-id', {
+      constructionChoice: fieldChoice('candidate-patient-id'),
+    });
+    const directFetch = createFetch((request) => request.section === 'FIELDS'
+      ? browseResponse('FIELDS', [direct], 'fields-context')
+      : request.section === 'CONCEPTS'
+        ? browseResponse('CONCEPTS', [], 'concepts-context')
+        : browseResponse('NEEDS_REVIEW', [], 'review-context'));
+    const directAdd = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(directFetch, { onAddSelected: directAdd });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient identifier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    await waitFor(() => expect(directAdd).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: 'choice-candidate-patient-id', form: 'VALUE' },
+      title: 'Patient identifier',
+    }]));
+    expect(directFetch.mock.calls.every(([input]) => !String(input).endsWith('/construction-choices'))).toBe(true);
+  });
+
+  it('shows backend source evidence only inside Source details and confirms a selected form', async () => {
+    const concept = semanticItem(
+      'semantic:hemoglobin:binding',
+      'Hemoglobin A1c',
+      'hemoglobin-concept',
+      'hemoglobin-binding',
+      {
+        resourceType: 'Patient',
+        constructionChoice: semanticChoice(
+          'hemoglobin-concept',
+          'hemoglobin-binding',
+          'Patient',
+          [choiceOption('VALUE', 'DEFAULT'), choiceOption('ALL', 'REQUIRES_DECISION')],
+        ),
+        sourceEvidence: 'Observation.code.coding[]',
+      },
+    );
+    const fetch = createFetch((request) => request.section === 'CONCEPTS'
+      ? browseResponse('CONCEPTS', [concept], 'concepts-context')
+      : request.section === 'FIELDS'
+        ? browseResponse('FIELDS', [], 'fields-context')
+        : browseResponse('NEEDS_REVIEW', [], 'review-context'));
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(fetch, { onAddSelected });
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
+    const sourceEvidence = screen.getByText('Observation.code.coding[]');
+    expect(sourceEvidence.closest('details')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
+    fireEvent.click(within(dialog).getByText('Source details'));
+    expect(within(dialog).getByText('Patient.code.coding[]')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Hemoglobin A1c: LIST · PRESERVING · ALL' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
-      constructionChoice: { choiceId: 'route-choice-subject', form: 'VALUE' },
-      title: 'Hemoglobin',
+      constructionChoice: { choiceId: 'choice-hemoglobin-concept', form: 'ALL' },
+      title: 'Hemoglobin A1c',
     }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
-    const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
-    expect(inventoryRequest).toMatchObject({ resourceType: 'Observation', rowRoot: 'Patient' });
-    const constructionRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
-    expect(constructionRequest).toMatchObject({
-      occurrenceId: 'observation-through-subject',
-      source: {
-        kind: 'SEMANTIC',
-        conceptId: 'concept-718-7',
-        bindingId: 'binding-718-7',
-      },
-    });
-    expect(JSON.stringify(constructionRequest)).not.toContain('edgeId');
   });
 });

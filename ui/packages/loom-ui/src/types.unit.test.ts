@@ -6,10 +6,14 @@ import {
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
   columnTransformationChangeSchema,
+  correlatedBindingSchema,
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
   explorerBuilderCandidateSchema,
   constructionChoiceSchema,
+  featureCatalogBrowseResponseSchema,
+  featureCatalogItemSchema,
+  semanticBindingChoiceSourceSchema,
   explorerBuilderCommandSchema,
   explorerBuilderDocumentSchema,
   explorerColumnSourceSchema,
@@ -20,11 +24,126 @@ import {
   tableShapeComparisonSchema,
   tableShapeProposalRequestSchema,
   tableShapeTaggedScalarSchema,
+  type FeatureCatalogItem,
 } from './types';
 
 describe('Explorer authoring contract version', () => {
   it('bumps for the contributor-window aggregate wire contract', () => {
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(9);
+    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(10);
+  });
+});
+
+describe('feature catalog contract', () => {
+  it('keeps catalog and construction-choice source kinds aligned in TypeScript', () => {
+    type DirectField = Extract<FeatureCatalogItem, { kind: 'DIRECT_FIELD' }>;
+    type DirectFieldChoice = NonNullable<DirectField['constructionChoice']>;
+    const semanticSource = semanticBindingChoiceSourceSchema.parse({
+      kind: 'SEMANTIC',
+      conceptId: 'concept-1',
+      bindingId: 'binding-1',
+      candidateId: 'candidate-1',
+      nodeId: 'observation-node',
+      resourceType: 'Observation',
+      sourcePath: 'code.coding[]',
+      fieldPath: 'root.code.coding[]',
+      valueSelector: 'valueQuantity.value',
+      valueScope: 'KEY_ITEM',
+      logicalType: 'decimal',
+      ruleVersion: 'rule-1',
+      schemaVersion: 1,
+      cardinality: 'optional_one',
+    });
+
+    const mismatchedChoice: DirectFieldChoice = {
+      choiceId: 'choice-1',
+      // @ts-expect-error Direct feature choices must carry FIELD source identity.
+      source: semanticSource,
+      route: [],
+      presentation: { summary: 'Observation concept', facts: [] },
+      options: [{
+        form: 'VALUE',
+        shape: 'SCALAR',
+        decision: 'DEFAULT',
+        preservation: 'PRESERVING',
+        rowEffect: 'PRESERVES_ROW_GRAIN',
+        support: 'SUPPORTED',
+        reason: 'This output form preserves the row grain.',
+      }],
+    };
+    expect(mismatchedChoice.source.kind).toBe('SEMANTIC');
+    expect(semanticSource.valueScope).toBe('KEY_ITEM');
+  });
+
+  it('rejects mismatched source identifiers and entries in the wrong section', () => {
+    const directField = {
+      kind: 'DIRECT_FIELD',
+      featureId: 'field:patient-id',
+      title: 'Patient identifier',
+      description: 'A direct field on Patient.',
+      resourceType: 'Patient',
+      valueType: 'string',
+      cardinality: 'optional_one',
+      occurrences: 4,
+      readiness: { status: 'READY', code: 'READY', message: 'This field is ready.' },
+      source: { kind: 'FIELD', candidateId: 'candidate-1' },
+      sourceDetails: [],
+      constructionChoice: {
+        choiceId: 'choice-1',
+        source: {
+          kind: 'FIELD',
+          candidateId: 'candidate-2',
+          nodeId: 'patient-node',
+          resourceType: 'Patient',
+          path: 'id',
+          cardinality: 'optional_one',
+        },
+        route: [],
+        presentation: { summary: 'Patient id', facts: [] },
+        options: [{
+          form: 'VALUE',
+          shape: 'SCALAR',
+          decision: 'DEFAULT',
+          preservation: 'PRESERVING',
+          rowEffect: 'PRESERVES_ROW_GRAIN',
+          support: 'SUPPORTED',
+          reason: 'This output form preserves the row grain.',
+        }],
+      },
+    };
+    expect(featureCatalogItemSchema.safeParse(directField).success).toBe(false);
+    const validDirectField = { ...directField, constructionChoice: undefined };
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      contextToken: 'context-1',
+      buildId: '',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      section: 'FIELDS',
+      entries: [validDirectField],
+    }).success).toBe(true);
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      section: 'CONCEPTS',
+      entries: [validDirectField],
+    }).success).toBe(false);
+  });
+});
+
+describe('correlated binding value scope', () => {
+  it('accepts both server value-scope values and preserves the omitted default', () => {
+    const binding = {
+      keyPath: 'component[].code.coding[]',
+      systemPath: 'system',
+      codePath: 'code',
+      valuePath: 'valueQuantity.value',
+      logicalType: 'decimal',
+    };
+
+    expect(correlatedBindingSchema.parse({ ...binding, valueScope: 'OWNER' }).valueScope).toBe('OWNER');
+    expect(correlatedBindingSchema.parse({ ...binding, valueScope: 'KEY_ITEM' }).valueScope).toBe('KEY_ITEM');
+    expect(correlatedBindingSchema.parse(binding).valueScope).toBeUndefined();
   });
 });
 

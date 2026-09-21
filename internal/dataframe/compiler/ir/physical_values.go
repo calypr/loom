@@ -240,6 +240,13 @@ type PhysicalOwnerRecords struct {
 	LogicalTypeBindKey string
 }
 
+type PhysicalCorrelationValueScope string
+
+const (
+	PhysicalCorrelationValueOwner   PhysicalCorrelationValueScope = "OWNER"
+	PhysicalCorrelationValueKeyItem PhysicalCorrelationValueScope = "KEY_ITEM"
+)
+
 // PhysicalCorrelation is the shared typed representation for correlated
 // terminology predicates and projections. Selectors are relative to Source's
 // owner payload, except SystemSelector and CodeSelector which are relative to
@@ -253,6 +260,7 @@ type PhysicalCorrelation struct {
 	KeySelector     spec.Selector
 	SystemSelector  spec.Selector
 	CodeSelector    spec.Selector
+	ValueScope      PhysicalCorrelationValueScope
 	ValueSelector   spec.Selector
 	ValueFallbacks  []spec.Selector
 	ChoiceArms      []string

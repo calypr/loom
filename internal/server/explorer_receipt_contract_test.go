@@ -112,33 +112,36 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	}
 }
 
-func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.T) {
+func TestReconcileFinalOutputMetadataUsesAuthoredPresentationOrderAndCompilerTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
+	translated.Presentations[0].Columns[0].Order = 2
+	translated.Presentations[0].Columns[1].Order = 0
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantColumns := []string{"patient_id", "score", "scaled_score"}
+	wantColumns := []string{"score", "patient_id", "scaled_score"}
 	if got := emittedPublicColumnNames(reconciled.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("emitted public columns = %#v, want %#v", got, wantColumns)
 	}
 	if got := []string{reconciled.Presentations[0].Columns[0].PublicColumn, reconciled.Presentations[0].Columns[1].PublicColumn, reconciled.Presentations[0].Columns[2].PublicColumn}; !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("presentation columns = %#v, want %#v", got, wantColumns)
 	}
-	for index, column := range reconciled.Presentations[0].Columns {
-		if column.PhysicalOrder != index {
-			t.Fatalf("presentation column %q physical order = %d, want %d", column.PublicColumn, column.PhysicalOrder, index)
+	wantPhysicalOrder := map[string]int{"patient_id": 0, "score": 1, "scaled_score": 2}
+	for _, column := range reconciled.Presentations[0].Columns {
+		if column.PhysicalOrder != wantPhysicalOrder[column.PublicColumn] {
+			t.Fatalf("presentation column %q physical order = %d, want %d", column.PublicColumn, column.PhysicalOrder, wantPhysicalOrder[column.PublicColumn])
 		}
 	}
 	if !reflect.DeepEqual(reconciled.IdentityMappings, []explorer.IdentityMapping{{OutputID: "patients", CandidateID: "candidate", EmissionIDs: []string{"emit_patient_id", "emit_score"}}}) {
 		t.Fatalf("identity mappings retained non-final emission: %#v", reconciled.IdentityMappings)
 	}
 
-	id := reconciled.EmittedColumns[0]
+	id := reconciled.EmittedColumns[1]
 	if id.NodeID != "node-patient" || id.CandidateID != "candidate-id" || id.SourcePath != "id" || !id.Lossless || !id.MLReady {
 		t.Fatalf("source metadata was not preserved: %#v", id)
 	}
-	score := reconciled.EmittedColumns[1]
+	score := reconciled.EmittedColumns[0]
 	wantUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
 	if score.LogicalType != "decimal" || score.Cardinality != "required_one" || score.Nullable || !reflect.DeepEqual(score.ResultUnit, wantUnit) {
 		t.Fatalf("compiler metadata for base column = %#v", score)

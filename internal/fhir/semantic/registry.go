@@ -385,9 +385,9 @@ func memberPathsForRole(descriptor DatatypeDescriptor, role MemberRole) []string
 	return paths
 }
 
-func descriptorOwnsSemanticPairing(descriptor DatatypeDescriptor) bool {
+func descriptorBlocksDirectField(descriptor DatatypeDescriptor) bool {
 	switch descriptor.Disposition {
-	case DispositionValueAssociation, DispositionCategorical, DispositionCompositeValue:
+	case DispositionValueAssociation, DispositionCategorical, DispositionCompositeValue, DispositionNavigationOnly:
 		return true
 	default:
 		return false
@@ -434,7 +434,7 @@ func ClassifyDirectField(index *schema.Index, resourceType schema.DefinitionName
 	var semanticOwner schema.DefinitionName
 	var semanticDisposition Disposition
 	for partIndex, segment := range segments {
-		if descriptor, ok := registry.Lookup(currentType); ok && descriptorOwnsSemanticPairing(descriptor) && semanticOwner == "" {
+		if descriptor, ok := registry.Lookup(currentType); ok && descriptorBlocksDirectField(descriptor) && semanticOwner == "" {
 			semanticOwner = currentType
 			semanticDisposition = descriptor.Disposition
 		}

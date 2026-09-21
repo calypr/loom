@@ -8,7 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 9;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 10;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -25,6 +25,7 @@ export const correlatedBindingSchema = z.object({
   keyPath: opaqueIdSchema,
   systemPath: opaqueIdSchema,
   codePath: opaqueIdSchema,
+  valueScope: z.enum(['OWNER', 'KEY_ITEM']).optional(),
   valuePath: opaqueIdSchema,
   valueFallback: z.array(opaqueIdSchema).optional(),
   choiceArms: z.array(opaqueIdSchema).optional(),
@@ -1260,6 +1261,7 @@ export const semanticBindingChoiceSourceSchema = z
     version: z.string().optional(),
     code: z.string().optional(),
     valueSelector: opaqueIdSchema,
+    valueScope: z.enum(['OWNER', 'KEY_ITEM']).optional(),
     choiceArm: z.string().optional(),
     logicalType: opaqueIdSchema,
     ruleHint: z.string().optional(),
@@ -1974,6 +1976,131 @@ export const semanticInventoryBrowseResponseSchema = z
   .strict();
 export type SemanticInventoryBrowseResponse = z.infer<
   typeof semanticInventoryBrowseResponseSchema
+>;
+
+const featureCatalogItemBase = {
+  featureId: opaqueIdSchema,
+  title: z.string().min(1),
+  description: z.string(),
+  resourceType: opaqueIdSchema,
+  valueType: z.string().min(1),
+  cardinality: z.string().min(1),
+  occurrences: z.number().int().nonnegative(),
+  readiness: semanticSelectionReadinessSchema,
+  sourceDetails: z.array(sourcePresentationFactSchema),
+} as const;
+
+const featureCatalogFieldSourceSchema = z
+  .object({ kind: z.literal('FIELD'), candidateId: opaqueIdSchema })
+  .strict();
+const featureCatalogSemanticSourceSchema = z
+  .object({
+    kind: z.literal('SEMANTIC'),
+    conceptId: opaqueIdSchema,
+    bindingId: opaqueIdSchema,
+  })
+  .strict();
+const featureCatalogFieldChoiceSchema = constructionChoiceSchema
+  .extend({ source: fieldChoiceSourceSchema })
+  .strict();
+const featureCatalogSemanticChoiceSchema = constructionChoiceSchema
+  .extend({ source: semanticBindingChoiceSourceSchema })
+  .strict();
+
+const featureCatalogFieldItemSchema = z
+  .object({
+    ...featureCatalogItemBase,
+    kind: z.literal('DIRECT_FIELD'),
+    source: featureCatalogFieldSourceSchema,
+    constructionChoice: featureCatalogFieldChoiceSchema.optional(),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (
+      item.constructionChoice &&
+      item.constructionChoice.source.candidateId !== item.source.candidateId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['constructionChoice', 'source', 'candidateId'],
+        message: 'Direct feature choice does not match its catalog source.',
+      });
+    }
+  });
+
+const featureCatalogSemanticItemSchema = z
+  .object({
+    ...featureCatalogItemBase,
+    kind: z.literal('SEMANTIC_FEATURE'),
+    source: featureCatalogSemanticSourceSchema,
+    constructionChoice: featureCatalogSemanticChoiceSchema.optional(),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    const choiceSource = item.constructionChoice?.source;
+    if (
+      choiceSource &&
+      (choiceSource.conceptId !== item.source.conceptId ||
+        choiceSource.bindingId !== item.source.bindingId)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['constructionChoice', 'source'],
+        message: 'Semantic feature choice does not match its catalog source.',
+      });
+    }
+  });
+
+export const featureCatalogItemSchema = z.union([
+  featureCatalogFieldItemSchema,
+  featureCatalogSemanticItemSchema,
+]);
+export type FeatureCatalogItem = z.infer<typeof featureCatalogItemSchema>;
+
+export const featureCatalogSectionSchema = z.enum([
+  'CONCEPTS',
+  'FIELDS',
+  'NEEDS_REVIEW',
+]);
+export type FeatureCatalogSection = z.infer<typeof featureCatalogSectionSchema>;
+
+const featureCatalogBrowseResponseBase = {
+  contextToken: opaqueIdSchema,
+  buildId: z.string(),
+  state: z.enum([
+    'unknown',
+    'not_started',
+    'running',
+    'complete',
+    'failed',
+    'invalidated',
+  ]),
+  sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
+  nextCursor: opaqueIdSchema.optional(),
+} as const;
+
+export const featureCatalogBrowseResponseSchema = z.discriminatedUnion(
+  'section',
+  [
+    z.object({
+      ...featureCatalogBrowseResponseBase,
+      section: z.literal('FIELDS'),
+      entries: z.array(featureCatalogFieldItemSchema).max(50),
+    }).strict(),
+    z.object({
+      ...featureCatalogBrowseResponseBase,
+      section: z.literal('CONCEPTS'),
+      entries: z.array(featureCatalogSemanticItemSchema).max(50),
+    }).strict(),
+    z.object({
+      ...featureCatalogBrowseResponseBase,
+      section: z.literal('NEEDS_REVIEW'),
+      entries: z.array(featureCatalogSemanticItemSchema).max(50),
+    }).strict(),
+  ],
+);
+export type FeatureCatalogBrowseResponse = z.infer<
+  typeof featureCatalogBrowseResponseSchema
 >;
 
 export const explorerAuthoringCapabilitiesSchema = z

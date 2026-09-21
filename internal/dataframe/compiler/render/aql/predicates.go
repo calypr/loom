@@ -63,11 +63,15 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
 		return "", fmt.Errorf("correlation match binds are required")
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	valueSource, err := correlationValueSource(owner, coding, correlation)
 	if err != nil {
 		return "", err
 	}
-	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupportedValues, err := r.renderCorrelationUnsupportedChoiceValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -87,6 +91,17 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	      LIMIT 1
 	      RETURN 1
 ) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, values, unsupportedValues), nil
+}
+
+func correlationValueSource(owner, keyItem string, correlation ir.PhysicalCorrelation) (string, error) {
+	switch correlation.ValueScope {
+	case "", ir.PhysicalCorrelationValueOwner:
+		return owner, nil
+	case ir.PhysicalCorrelationValueKeyItem:
+		return keyItem, nil
+	default:
+		return "", fmt.Errorf("unsupported physical correlation value scope %q", correlation.ValueScope)
+	}
 }
 
 func (r *physicalPlanRenderer) renderCorrelationOwners(source ir.PhysicalValue, ownerSelector spec.Selector) (string, error) {

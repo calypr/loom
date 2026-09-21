@@ -23,6 +23,33 @@ func TestValidateCorrelatedBindingKeepsCodingWithinComponent(t *testing.T) {
 	}
 }
 
+func TestValidateCorrelatedBindingCanProjectTheMatchedCodingItem(t *testing.T) {
+	binding := CorrelatedBinding{
+		KeyPath: "category[].coding[]", SystemPath: "system", CodePath: "code",
+		ValueScope: CorrelatedValueKeyItem, ValuePath: "code", LogicalType: "code",
+	}
+	checked, err := ValidateCorrelatedBinding("Observation", binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked.ValueScope != CorrelatedValueKeyItem || checked.KeyResource != "Coding" || checked.ValueSelector.CanonicalPath() != "code" || checked.ValuePrimitive != PrimitiveString {
+		t.Fatalf("checked key-item binding = %#v", checked)
+	}
+	if binding.CanonicalValuePath() != "category[].coding[].code" {
+		t.Fatalf("canonical value path = %q", binding.CanonicalValuePath())
+	}
+
+	binding.ValuePath = "value"
+	if _, err := ValidateCorrelatedBinding("Observation", binding); err == nil || !strings.Contains(err.Error(), "Coding") {
+		t.Fatalf("invalid key-item value error = %v", err)
+	}
+	binding.ValuePath = "code"
+	binding.ValueScope = "SIBLING"
+	if _, err := ValidateCorrelatedBinding("Observation", binding); err == nil || !strings.Contains(err.Error(), "valueScope") {
+		t.Fatalf("invalid value scope error = %v", err)
+	}
+}
+
 func TestValidateCorrelatedBindingUsesGeneratedChoiceMetadataForAnyOwner(t *testing.T) {
 	binding := CorrelatedBinding{
 		OwnerPath:  "dosageInstruction[].doseAndRate[]",

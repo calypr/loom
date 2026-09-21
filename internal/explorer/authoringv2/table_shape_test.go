@@ -40,7 +40,7 @@ func TestTableShapeRoundTripsCanonicalWorkspace(t *testing.T) {
 	}
 }
 
-func TestTableShapeV8WorkspaceMigratesToCurrentSemantics(t *testing.T) {
+func TestTableShapeV8WorkspaceMigratesToTableShapeSemantics(t *testing.T) {
 	raw := tableShapeWorkspaceJSON(validPivotTableShapeJSON())
 	legacy := strings.Replace(string(raw), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion), fmt.Sprintf(`"semanticsVersion":%d`, CurrentSemanticsVersion-1), 1)
 	before, err := DecodeWorkspace(raw)
@@ -51,8 +51,8 @@ func TestTableShapeV8WorkspaceMigratesToCurrentSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.SemanticsVersion != CurrentSemanticsVersion {
-		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, CurrentSemanticsVersion)
+	if after.SemanticsVersion != tableShapeSemanticsVersion {
+		t.Fatalf("semanticsVersion = %d, want %d", after.SemanticsVersion, tableShapeSemanticsVersion)
 	}
 	if !reflect.DeepEqual(after.Documents[0].TableShape, before.Documents[0].TableShape) || !reflect.DeepEqual(after.Documents[0].Rows, before.Documents[0].Rows) || !reflect.DeepEqual(after.Documents[0].Columns, before.Documents[0].Columns) {
 		t.Fatalf("v8 migration changed tableShape, rows, or columns:\nbefore=%#v\nafter=%#v", before.Documents[0], after.Documents[0])

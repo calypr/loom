@@ -38,17 +38,21 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	valueSource, err := correlationValueSource(owner, coding, correlation)
 	if err != nil {
 		return "", err
 	}
-	unsupported, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupported, err := r.renderCorrelationUnsupportedChoiceValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
 	unit := "null"
 	if correlation.UnitSelector != nil {
-		units, unitErr := r.renderSelectorArrayFromSource(owner, *correlation.UnitSelector, false, false)
+		units, unitErr := r.renderSelectorArrayFromSource(valueSource, *correlation.UnitSelector, false, false)
 		if unitErr != nil {
 			return "", fmt.Errorf("owner records unit selector: %w", unitErr)
 		}

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01FeatureConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01FeatureCatalogRequest, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -863,33 +863,37 @@ test('J01 fixture generation rejects invalid counts and incomplete identity meta
   }
 });
 
-test('J01 semantic inventory requests use the saved snapshot and omit an absent cursor', () => {
-  assert.deepEqual(j01SemanticInventoryRequest({
+test('J01 feature catalog requests use the saved snapshot and omit an absent cursor', () => {
+  assert.deepEqual(j01FeatureCatalogRequest({
     snapshotToken: 'snapshot-1',
     rowRoot: 'observation-node',
+    section: 'CONCEPTS',
     resourceType: 'Observation',
     query: 'J01 concept',
   }), {
     snapshotToken: 'snapshot-1',
     rowRoot: 'observation-node',
+    section: 'CONCEPTS',
     resourceType: 'Observation',
     query: 'J01 concept',
     limit: 50,
   });
-  assert.deepEqual(j01SemanticInventoryRequest({
+  assert.deepEqual(j01FeatureCatalogRequest({
     snapshotToken: 'snapshot-1',
     rowRoot: 'observation-node',
+    section: 'CONCEPTS',
     cursor: 'cursor-2',
   }), {
     snapshotToken: 'snapshot-1',
     rowRoot: 'observation-node',
+    section: 'CONCEPTS',
     cursor: 'cursor-2',
     limit: 50,
   });
-  assert.throws(() => j01SemanticInventoryRequest({ rowRoot: 'observation-node' }), /requires a catalog snapshot/);
+  assert.throws(() => j01FeatureCatalogRequest({ rowRoot: 'observation-node' }), /requires a catalog snapshot/);
 });
 
-test('J01 semantic pagination retains one context identity and finds each expected code exactly once', async () => {
+test('J01 feature catalog pagination retains one context identity and finds each expected code exactly once', async () => {
   const fixture = {
     count: 5,
     system: 'urn:loom:j01:catalog',
@@ -902,7 +906,7 @@ test('J01 semantic pagination retains one context identity and finds each expect
     ['0004'],
   ];
   const requests = [];
-  const inventory = await collectJ01SemanticConceptPages(async (body) => {
+  const inventory = await collectJ01FeatureConceptPages(async (body) => {
     requests.push(body);
     const pageIndex = requests.length - 1;
     return {
@@ -912,13 +916,17 @@ test('J01 semantic pagination retains one context identity and finds each expect
         buildId: 'build-1',
         state: 'complete',
         sourceAvailability: 'unknown',
+        section: 'CONCEPTS',
         entries: pages[pageIndex].map((suffix) => ({
-          conceptId: `concept-id-${suffix}`,
-          bindingId: `binding-id-${suffix}`,
+          kind: 'SEMANTIC_FEATURE',
+          featureId: `feature-${suffix}`,
+          title: `${fixture.displayPrefix} ${suffix}`,
           resourceType: 'Observation',
-          system: fixture.system,
-          code: `${fixture.codePrefix}${suffix}`,
-          display: `${fixture.displayPrefix} ${suffix}`,
+          source: { kind: 'SEMANTIC', conceptId: `concept-id-${suffix}`, bindingId: `binding-id-${suffix}` },
+          sourceDetails: [
+            { label: 'Code system', value: fixture.system },
+            { label: 'Code', value: `${fixture.codePrefix}${suffix}` },
+          ],
         })),
         ...(pageIndex < pages.length - 1 ? { nextCursor: `cursor-${pageIndex + 1}` } : {}),
       },
@@ -942,16 +950,19 @@ test('J01 semantic pagination retains one context identity and finds each expect
   ]);
 });
 
-test('J01 semantic pagination rejects failure, identity drift, duplicate pages, and examples', async (t) => {
+test('J01 feature catalog pagination rejects failure, identity drift, duplicate pages, and examples', async (t) => {
   const fixture = { count: 2, system: 'urn:loom:j01:catalog', codePrefix: 'concept-', displayPrefix: 'J01 concept' };
   const request = { snapshotToken: 'snapshot-1', rowRoot: 'observation-node', query: fixture.displayPrefix };
   const entry = (suffix, extra = {}) => ({
-    conceptId: `concept-id-${suffix}`,
-    bindingId: `binding-id-${suffix}`,
+    kind: 'SEMANTIC_FEATURE',
+    featureId: `feature-${suffix}`,
+    title: `J01 concept ${suffix}`,
     resourceType: 'Observation',
-    system: fixture.system,
-    code: `concept-${suffix}`,
-    display: `J01 concept ${suffix}`,
+    source: { kind: 'SEMANTIC', conceptId: `concept-id-${suffix}`, bindingId: `binding-id-${suffix}` },
+    sourceDetails: [
+      { label: 'Code system', value: fixture.system },
+      { label: 'Code', value: `concept-${suffix}` },
+    ],
     ...extra,
   });
   const response = (entries, nextCursor, overrides = {}) => ({
@@ -961,6 +972,7 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
       buildId: 'build-1',
       state: 'complete',
       sourceAvailability: 'verified',
+      section: 'CONCEPTS',
       entries,
       ...(nextCursor ? { nextCursor } : {}),
       ...overrides,
@@ -968,11 +980,11 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
   });
 
   await t.test('HTTP failure', async () => {
-    await assert.rejects(collectJ01SemanticConceptPages(async () => ({ response: { ok: false, status: 503 }, value: {} }), request, fixture), /HTTP 503/);
+    await assert.rejects(collectJ01FeatureConceptPages(async () => ({ response: { ok: false, status: 503 }, value: {} }), request, fixture), /HTTP 503/);
   });
   await t.test('catalog context changes between pages', async () => {
     let page = 0;
-    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+    await assert.rejects(collectJ01FeatureConceptPages(async () => {
       page += 1;
       return page === 1
         ? response([entry('0000')], 'cursor-1')
@@ -981,7 +993,7 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
   });
   await t.test('source availability changes between pages', async () => {
     let page = 0;
-    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+    await assert.rejects(collectJ01FeatureConceptPages(async () => {
       page += 1;
       return page === 1
         ? response([entry('0000')], 'cursor-1')
@@ -990,7 +1002,7 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
   });
   await t.test('cursor repeats', async () => {
     let page = 0;
-    await assert.rejects(collectJ01SemanticConceptPages(async () => {
+    await assert.rejects(collectJ01FeatureConceptPages(async () => {
       page += 1;
       return page === 1
         ? response([entry('0000')], 'cursor-1')
@@ -998,16 +1010,16 @@ test('J01 semantic pagination rejects failure, identity drift, duplicate pages, 
     }, request, fixture), /repeated a pagination cursor/);
   });
   await t.test('duplicate generated code', async () => {
-    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000'), entry('0000')]), request, fixture), /repeated concept identity/);
+    await assert.rejects(collectJ01FeatureConceptPages(async () => response([entry('0000'), entry('0000')]), request, fixture), /repeated concept identity/);
   });
   await t.test('example values leak into browse results', async () => {
-    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000', { examples: ['private value'] })]), request, fixture), /exposed example values/);
+    await assert.rejects(collectJ01FeatureConceptPages(async () => response([entry('0000', { examples: ['private value'] })]), request, fixture), /exposed example values/);
   });
   await t.test('global inventory count leaks into browse response', async () => {
-    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000'), entry('0001')], undefined, { totalCount: 2 }), request, fixture), /global count field/);
+    await assert.rejects(collectJ01FeatureConceptPages(async () => response([entry('0000'), entry('0001')], undefined, { totalCount: 2 }), request, fixture), /global count field/);
   });
   await t.test('missing expected concept identity', async () => {
-    await assert.rejects(collectJ01SemanticConceptPages(async () => response([entry('0000')]), request, fixture), /returned 1 of 2 expected concepts/);
+    await assert.rejects(collectJ01FeatureConceptPages(async () => response([entry('0000')]), request, fixture), /returned 1 of 2 expected concepts/);
   });
 });
 

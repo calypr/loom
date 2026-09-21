@@ -142,9 +142,49 @@ func ResolveSemanticSelectionPlan(observation catalog.SemanticObservation) Seman
 		return resolveExtensionSelectionPlan(observation)
 	case catalog.SemanticRuleHintCodedValueV1:
 		return resolveCodedValueSelectionPlan(observation)
+	case catalog.SemanticRuleHintCategoricalCodeV1:
+		return resolveCategoricalSelectionPlan(observation)
 	default:
 		return semanticUnsupported("SEMANTIC_RULE_UNSUPPORTED", "Loom does not have an authoring rule for this observed FHIR structure.")
 	}
+}
+
+func resolveCategoricalSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {
+	if strings.TrimSpace(observation.Key.Version) != "" {
+		return semanticUnsupported("CATEGORICAL_VERSION_UNSUPPORTED", "Version-specific coding selections are not supported by the current compiler.")
+	}
+	if observation.Status == "UNRESOLVED_SYSTEM" || strings.TrimSpace(observation.Key.System) == "" {
+		return semanticNeedsMapping("CATEGORICAL_SYSTEM_MISSING", "This coded value has no coding system URI; select or map its terminology identity.")
+	}
+	if observation.Status == "UNRESOLVED_CODE" || strings.TrimSpace(observation.Key.Code) == "" {
+		return semanticNeedsMapping("CATEGORICAL_CODE_MISSING", "This coded value has no code; select or map its terminology identity.")
+	}
+	if observation.Status != "SUPPORTED" && observation.Status != "DATA_QUALITY_WARNING" {
+		return semanticStatusPlan(observation.Status)
+	}
+	keyPath := strings.Trim(strings.TrimSpace(observation.Key.Selector), ".")
+	valuePath, valueOK := relativeSemanticPath(keyPath, observation.Value.Selector)
+	logicalType := firstNonBlank(observation.LogicalType, observation.Value.Type)
+	if strings.TrimSpace(observation.Source.Type) == "" || keyPath == "" || !valueOK || logicalType == "" {
+		return semanticUnsupported("CATEGORICAL_BINDING_INCOMPLETE", "The catalog observation does not contain a complete Coding identity and value binding.")
+	}
+	binding := fhirschema.CorrelatedBinding{
+		KeyPath: keyPath, SystemPath: "system", CodePath: "code",
+		ValueScope: fhirschema.CorrelatedValueKeyItem, ValuePath: valuePath,
+		LogicalType: logicalType,
+	}
+	checked, err := fhirschema.ValidateCorrelatedBinding(observation.Source.Type, binding)
+	if err != nil {
+		return semanticUnsupported("FHIR_BINDING_UNSUPPORTED", "The observed categorical paths do not match the generated FHIR schema.")
+	}
+	binding.KeyPath = checked.KeySelector.CanonicalPath()
+	binding.SystemPath = checked.SystemSelector.CanonicalPath()
+	binding.CodePath = checked.CodeSelector.CanonicalPath()
+	binding.ValueScope = checked.ValueScope
+	binding.ValuePath = checked.ValueSelector.CanonicalPath()
+	binding.LogicalType = checked.LogicalType
+	lookup := &LookupSource{Binding: &binding, Key: &fhirschema.CorrelatedKey{System: observation.Key.System, Code: observation.Key.Code}}
+	return semanticReadyPlan(ColumnSource{Kind: SourceCodedValue, Lookup: lookup}, checked.LogicalType, observation.Status)
 }
 
 func resolveIdentifierSelectionPlan(observation catalog.SemanticObservation) SemanticSelectionPlan {

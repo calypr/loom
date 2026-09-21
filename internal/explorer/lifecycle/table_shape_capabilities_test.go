@@ -103,7 +103,7 @@ func lifecycleTableShapeService(t *testing.T, saved *authoringv2.TableShape) (*S
 	} {
 		workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
 			Column: column.key, Label: column.label, LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: column.key, ProjectionMode: "VALUE"}},
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
 		})
 	}
 	if saved != nil {

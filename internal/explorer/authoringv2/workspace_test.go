@@ -159,7 +159,7 @@ func TestDecodeWorkspaceRepairsPreviouslyOmittedEmptyColumns(t *testing.T) {
 
 func TestDecodeWorkspacePreservesArrayProjectionModesAcrossPersistedVersions(t *testing.T) {
 	visible := true
-	for _, semanticsVersion := range []int{0, CurrentSemanticsVersion} {
+	for _, semanticsVersion := range []int{0, structuralFieldSemanticsVersion - 1} {
 		t.Run(fmt.Sprintf("semantics-%d", semanticsVersion), func(t *testing.T) {
 			workspace := Workspace{
 				APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: semanticsVersion,
@@ -244,6 +244,23 @@ func TestDecodeWorkspaceRejectsUnsupportedFutureSemanticsVersion(t *testing.T) {
 	}
 	if _, err := DecodeWorkspace(raw); err == nil || !strings.Contains(err.Error(), "UNSUPPORTED_SEMANTICS_VERSION") {
 		t.Fatalf("error=%v, want unsupported semantics version", err)
+	}
+}
+
+func TestCurrentWorkspaceRejectsRawStructuralFieldSource(t *testing.T) {
+	visible := true
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion,
+		Explorer: ExplorerMetadata{Title: "Patients"},
+		Documents: []Document{{
+			Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}, Rows: RecordsRowDefinition(),
+			Columns: []Column{{Column: "raw_identifier_value", Label: "Raw identifier value", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "identifier[].value", ProjectionMode: "ALL"}}, Table: &TablePresentation{Visible: &visible}}},
+		}},
+		Tabs: []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}},
+	}
+	if err := workspace.Validate(); err == nil || !strings.Contains(err.Error(), "RAW_STRUCTURAL_FIELD_SOURCE") {
+		t.Fatalf("Validate() error = %v, want RAW_STRUCTURAL_FIELD_SOURCE", err)
 	}
 }
 

@@ -17,8 +17,8 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 		contributions = append(contributions, contribution)
 	})
 
-	if len(contributions) != 2000 {
-		t.Fatalf("inventory contributions = %d, want 1000 standalone categories plus 1000 coded values", len(contributions))
+	if len(contributions) != 1000 {
+		t.Fatalf("inventory contributions = %d, want 1000 schema-paired coded values", len(contributions))
 	}
 	conceptIDs := make(map[string]struct{}, len(contributions))
 	bindingIDs := make(map[string]struct{}, len(contributions))
@@ -44,11 +44,11 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	if len(conceptIDs) != 1000 {
 		t.Fatalf("unique concept IDs = %d, want 1000", len(conceptIDs))
 	}
-	if categoryCount != 1000 || codedValueCount != 1000 {
-		t.Fatalf("standalone category/coded-value contributions = %d/%d, want 1000 each", categoryCount, codedValueCount)
+	if categoryCount != 0 || codedValueCount != 1000 {
+		t.Fatalf("standalone category/coded-value contributions = %d/%d, want 0/1000", categoryCount, codedValueCount)
 	}
-	if len(bindingIDs) != 2 {
-		t.Fatalf("unique binding IDs = %d, want one structural binding per semantic rule", len(bindingIDs))
+	if len(bindingIDs) != 1 {
+		t.Fatalf("unique binding IDs = %d, want one schema-paired value binding", len(bindingIDs))
 	}
 
 	var legacyObservations int
@@ -77,8 +77,8 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution SemanticInventoryContribution) {
 		contributions = append(contributions, contribution)
 	})
-	if len(contributions) != 2000 {
-		t.Fatalf("retained emitter events = %d, want both standalone category and coded-value observations", len(contributions))
+	if len(contributions) != 1000 {
+		t.Fatalf("retained emitter events = %d, want schema-paired coded-value observations", len(contributions))
 	}
 	concepts := map[string]struct{}{}
 	for _, contribution := range contributions {
@@ -109,6 +109,28 @@ func TestSemanticInventoryIdentitySeparatesCodingVersionButNotDisplay(t *testing
 	}
 	if got := semanticConceptID(newVersion); got == baseConcept {
 		t.Fatalf("explicit Coding.version did not distinguish concepts: %q", got)
+	}
+}
+
+func TestSemanticConceptSlotMatchesPairedAndStandaloneFormsAtSameLocation(t *testing.T) {
+	paired := inventoryTestObservation("v1", "label")
+	paired.Source.Path = "component[]"
+	paired.OwningScope = "component[]"
+	paired.Key.Selector = "code.coding[]"
+	paired.RuleHint = SemanticRuleHintCodedValueV1
+
+	standalone := paired
+	standalone.Source.Path = "component[].code"
+	standalone.OwningScope = "component[].code"
+	standalone.Key.Selector = "component[].code.coding[]"
+	standalone.RuleHint = SemanticRuleHintCategoricalCodeV1
+
+	if got, want := semanticConceptSlotID(standalone), semanticConceptSlotID(paired); got != want {
+		t.Fatalf("standalone concept slot = %q, want paired slot %q", got, want)
+	}
+	standalone.Key.Selector = "category.coding[]"
+	if got, pairedSlot := semanticConceptSlotID(standalone), semanticConceptSlotID(paired); got == pairedSlot {
+		t.Fatalf("different code location reused paired concept slot %q", got)
 	}
 }
 

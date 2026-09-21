@@ -138,6 +138,7 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		contract.StructuralSuitability = ""
 		contract.LossReasons = nil
 		finalPresentation := explorercompilation.PresentationConfig{OutputID: recipeOutput.Name, Title: presentation.Title, Columns: make([]explorercompilation.PresentationColumn, 0, len(compiledOutput.OutputSchema))}
+		emissionStart := len(reconciled.EmittedColumns)
 		maxOrder := -1
 		for _, schemaColumn := range compiledOutput.OutputSchema {
 			if schemaColumn.Internal || schemaColumn.Identity {
@@ -242,6 +243,23 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				return explorercompilation.WorkspaceResult{}, fmt.Errorf("authored table-shape output %q column %q is absent from the final compiler schema", recipeOutput.Name, name)
 			}
 		}
+		sort.SliceStable(finalPresentation.Columns, func(i, j int) bool {
+			if finalPresentation.Columns[i].Order != finalPresentation.Columns[j].Order {
+				return finalPresentation.Columns[i].Order < finalPresentation.Columns[j].Order
+			}
+			return finalPresentation.Columns[i].PhysicalOrder < finalPresentation.Columns[j].PhysicalOrder
+		})
+		publicOrderByName := make(map[string]int, len(finalPresentation.Columns))
+		for index, column := range finalPresentation.Columns {
+			publicOrderByName[column.PublicColumn] = index
+		}
+		sort.SliceStable(contract.Columns, func(i, j int) bool {
+			return publicOrderByName[contract.Columns[i].Column] < publicOrderByName[contract.Columns[j].Column]
+		})
+		outputEmissions := reconciled.EmittedColumns[emissionStart:]
+		sort.SliceStable(outputEmissions, func(i, j int) bool {
+			return publicOrderByName[outputEmissions[i].PublicColumn] < publicOrderByName[outputEmissions[j].PublicColumn]
+		})
 		reconciled.OutputContracts = append(reconciled.OutputContracts, contract)
 		reconciled.Presentations = append(reconciled.Presentations, finalPresentation)
 	}

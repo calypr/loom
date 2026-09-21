@@ -23,7 +23,7 @@ func TestResolveInterpretationsSelectsUniquePriorityRule(t *testing.T) {
 		Applicability: explorer.InterpretationApplicability{ResourceTypes: []string{"Patient"}, LogicalTypes: []string{"string"}},
 		Rules: []explorer.InterpretationRule{
 			{ID: "rule-low", Priority: &low, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("id")},
-			{ID: "rule-high", Priority: &high, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")},
+			{ID: "rule-high", Priority: &high, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("gender")},
 		},
 	})
 	workspace := interpretationWorkspace(string(revision.ID))
@@ -55,7 +55,7 @@ func TestResolveInterpretationsRejectsMissingInapplicableAndAmbiguous(t *testing
 	second := explorer.InterpretationPriority(1)
 	ambiguous := explorer.InterpretationRevision{Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "tie", Rules: []explorer.InterpretationRule{
 		{ID: "rule-a", Priority: &first, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("id")},
-		{ID: "rule-b", Priority: &second, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("name.family")},
+		{ID: "rule-b", Priority: &second, Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient"}, Definition: fieldDefinition("gender")},
 	}}
 	if _, err := ambiguous.SelectRule(explorer.InterpretationStructuralCandidate{ResourceType: "Patient"}); !errors.Is(err, explorer.ErrAmbiguousMapping) {
 		t.Fatalf("ambiguous selection error = %v", err)
@@ -230,7 +230,7 @@ func TestCompileWorkspaceUsesResolvedDefinitionAndResolvedDigest(t *testing.T) {
 	snapshot := interpretationSnapshot()
 	revision := prepareInterpretation(t, explorer.InterpretationRevision{
 		ID: "revision-source", Project: "project-a", LibraryID: "library-a", Author: "tester", Explanation: "replace suggestion",
-		Rules: []explorer.InterpretationRule{{ID: "rule", Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("name.family")}},
+		Rules: []explorer.InterpretationRule{{ID: "rule", Match: explorer.InterpretationStructuralMatch{ResourceType: "Patient", LogicalType: "string"}, Definition: fieldDefinition("gender")}},
 	})
 	workspace := interpretationWorkspace(string(revision.ID))
 	inputs, err := ResolveWorkspaceInterpretations("project-a", workspace, snapshot, map[explorer.InterpretationRevisionID]explorer.InterpretationRevision{revision.ID: revision})
@@ -241,7 +241,7 @@ func TestCompileWorkspaceUsesResolvedDefinitionAndResolvedDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.Bundle.Outputs) != 1 || len(first.Bundle.Outputs[0].Fields) != 1 || !strings.Contains(first.Bundle.Outputs[0].Fields[0].Expr.Select, "name.family") {
+	if len(first.Bundle.Outputs) != 1 || len(first.Bundle.Outputs[0].Fields) != 1 || !strings.Contains(first.Bundle.Outputs[0].Fields[0].Expr.Select, "gender") {
 		t.Fatalf("compiled source = %#v", first.Bundle.Outputs[0].Fields)
 	}
 	if strings.Contains(first.Bundle.Outputs[0].Fields[0].Expr.Select, "root.id") {
@@ -282,7 +282,7 @@ func interpretationSnapshot() capability.Snapshot {
 		[]capability.Node{{ID: "node-patient", ResourceType: "Patient", RowRootEligible: true, RowGrain: "patient"}}, nil,
 		[]capability.Candidate{
 			{ID: "candidate-id", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}},
-			{ID: "candidate-family", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "name.family", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}},
+			{ID: "candidate-gender", NodeID: "node-patient", ResourceType: "Patient", FieldPath: "gender", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SupportedOperations: []capability.Operation{capability.OperationSelect}},
 		}, nil)
 }
 

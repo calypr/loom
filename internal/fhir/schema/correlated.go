@@ -11,15 +11,46 @@ import (
 // and Code are relative to one Coding item, so they cannot be accidentally
 // paired from different array members.
 type CorrelatedBinding struct {
-	OwnerPath     string   `json:"ownerPath,omitempty"`
-	KeyPath       string   `json:"keyPath"`
-	SystemPath    string   `json:"systemPath"`
-	CodePath      string   `json:"codePath"`
-	ValuePath     string   `json:"valuePath"`
-	ValueFallback []string `json:"valueFallback,omitempty"`
-	ChoiceArms    []string `json:"choiceArms,omitempty"`
-	LogicalType   string   `json:"logicalType"`
-	UnitPath      string   `json:"unitPath,omitempty"`
+	OwnerPath     string               `json:"ownerPath,omitempty"`
+	KeyPath       string               `json:"keyPath"`
+	SystemPath    string               `json:"systemPath"`
+	CodePath      string               `json:"codePath"`
+	ValueScope    CorrelatedValueScope `json:"valueScope,omitempty"`
+	ValuePath     string               `json:"valuePath"`
+	ValueFallback []string             `json:"valueFallback,omitempty"`
+	ChoiceArms    []string             `json:"choiceArms,omitempty"`
+	LogicalType   string               `json:"logicalType"`
+	UnitPath      string               `json:"unitPath,omitempty"`
+}
+
+// CorrelatedValueScope identifies the object that owns a correlated value.
+// OWNER preserves the historical code-to-neighboring-value relationship.
+// KEY_ITEM projects a member of the exact Coding item that matched system and
+// code, which is the lossless representation of categorical FHIR values.
+type CorrelatedValueScope string
+
+const (
+	CorrelatedValueOwner   CorrelatedValueScope = "OWNER"
+	CorrelatedValueKeyItem CorrelatedValueScope = "KEY_ITEM"
+)
+
+// CanonicalValuePath returns the resource-root path of the selected value.
+// Runtime selectors stay relative to their lexical owner, while capability
+// candidates and authoring validation address fields from the resource root.
+func (b CorrelatedBinding) CanonicalValuePath() string {
+	base := b.OwnerPath
+	if CorrelatedValueScope(strings.ToUpper(strings.TrimSpace(string(b.ValueScope)))) == CorrelatedValueKeyItem {
+		base = b.KeyPath
+	}
+	base = CanonicalizePath(base)
+	value := CanonicalizePath(b.ValuePath)
+	if base == "" || value == base || strings.HasPrefix(value, base+".") {
+		return value
+	}
+	if value == "" {
+		return base
+	}
+	return base + "." + value
 }
 
 // CorrelatedKey is the selected terminology identity for one correlated
@@ -60,6 +91,7 @@ type CorrelatedBindingSpec struct {
 	KeyResource    string
 	SystemSelector Selector
 	CodeSelector   Selector
+	ValueScope     CorrelatedValueScope
 	ValueSelector  Selector
 	ValueFallbacks []Selector
 	ChoiceArms     []string
@@ -144,15 +176,25 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	if _, ok := ResolvePath(keyResource, CanonicalizePath(binding.CodePath)); !ok {
 		return CorrelatedBindingSpec{}, fmt.Errorf("codePath %q is not a field of Coding item %q", binding.CodePath, keyResource)
 	}
+	valueScope := CorrelatedValueScope(strings.ToUpper(strings.TrimSpace(string(binding.ValueScope))))
+	if valueScope == "" {
+		valueScope = CorrelatedValueOwner
+	}
+	if valueScope != CorrelatedValueOwner && valueScope != CorrelatedValueKeyItem {
+		return CorrelatedBindingSpec{}, fmt.Errorf("valueScope %q is unsupported", binding.ValueScope)
+	}
 	valueResource := ownerResource
 	if ownerPath == "" {
 		valueResource = resourceType
+	}
+	if valueScope == CorrelatedValueKeyItem {
+		valueResource = keyResource
 	}
 	value, valueErr := validateBindingValue(valueResource, binding.ValuePath, binding.ValueFallback, binding.ChoiceArms, binding.LogicalType, binding.UnitPath)
 	if valueErr != nil {
 		return CorrelatedBindingSpec{}, valueErr
 	}
-	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueScope: valueScope, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
 }
 
 type checkedBindingValue struct {

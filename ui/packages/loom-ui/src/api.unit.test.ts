@@ -256,6 +256,64 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('browses one product feature-catalog section with its node restriction', async () => {
+    const response = {
+      contextToken: 'field-context',
+      buildId: '',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      section: 'FIELDS',
+      entries: [{
+        kind: 'DIRECT_FIELD',
+        featureId: 'field:patient-id',
+        title: 'Patient identifier',
+        description: 'A primitive value stored on Patient.',
+        resourceType: 'Patient',
+        valueType: 'string',
+        cardinality: 'optional_one',
+        occurrences: 10,
+        readiness: { status: 'READY', code: 'READY', message: 'This field is ready to add.' },
+        source: { kind: 'FIELD', candidateId: 'candidate-returned-by-catalog' },
+        sourceDetails: [],
+      }],
+      nextCursor: 'field-cursor-2',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.browseFeatureCatalog({
+      project: 'NCPI_ACCEPTANCE',
+      explorerId: 'default',
+      snapshotToken: 'snapshot-1',
+      rowRoot: 'Patient',
+      section: 'FIELDS',
+      nodeId: 'patient-node',
+      query: 'identifier',
+      cursor: 'field-cursor-1',
+      limit: 50,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/feature-catalog',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          rowRoot: 'Patient',
+          section: 'FIELDS',
+          nodeId: 'patient-node',
+          query: 'identifier',
+          cursor: 'field-cursor-1',
+          limit: 50,
+        }),
+      }),
+    );
+  });
+
   it('loads a server-described column source without sending FHIR selectors', async () => {
     const response = {
       snapshotToken: 'snapshot-1',

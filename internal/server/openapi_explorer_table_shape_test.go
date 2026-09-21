@@ -95,7 +95,10 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 	} {
 		workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
 			Column: column.name, Label: column.label, LogicalType: column.logical, OccurrenceID: "base",
-			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: column.name, ProjectionMode: "VALUE"}},
+			// This test exercises table-shape contracts with synthetic preview
+			// values. projectId is the existing schema-neutral fixture source; it
+			// avoids inventing non-FHIR field paths in a current workspace.
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID},
 		})
 	}
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))

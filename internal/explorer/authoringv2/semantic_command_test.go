@@ -42,6 +42,14 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 		OwningScope:   "dosageInstruction[].doseAndRate[]", ChoiceArm: "doseQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
 		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
 	}
+	categorical := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "category[]"},
+		Key:           catalog.SemanticObservationKey{Selector: "category[].coding[]", System: "http://terminology.hl7.org/CodeSystem/observation-category", Code: "laboratory", Display: "Laboratory"},
+		Value:         catalog.SemanticObservationValue{Selector: "category[].coding[].code", Type: "code"},
+		OwningScope:   "category[]", LogicalType: "code", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCategoricalCodeV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}
 
 	identifierWithoutSystem := identifier
 	identifierWithoutSystem.Key.System = ""
@@ -77,6 +85,7 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 		{name: "mixed value choices", observation: mixed, status: SemanticReadinessNeedsMapping, code: "MULTIPLE_VALUE_CHOICES"},
 		{name: "versioned coded value", observation: versioned, status: SemanticReadinessUnsupported, code: "CODED_VALUE_VERSION_UNSUPPORTED"},
 		{name: "nested MedicationRequest owner", observation: medicationDose, status: SemanticReadinessReady, code: "READY", addable: true},
+		{name: "categorical CodeableConcept", observation: categorical, status: SemanticReadinessReady, code: "READY", addable: true},
 		{name: "coding-only CodeableConcept", observation: codingOnlyConcept, status: SemanticReadinessUnsupported, code: "VALUE_PROJECTION_UNSUPPORTED"},
 	}
 	for _, test := range tests {
@@ -113,5 +122,13 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	binding := medicationPlan.Source.Lookup.Binding
 	if binding.OwnerPath != medicationDose.OwningScope || binding.KeyPath != "dosageInstruction[].doseAndRate[].type.coding[]" || binding.SystemPath != "system" || binding.CodePath != "code" || binding.ValuePath != medicationDose.Value.Selector || binding.UnitPath != "doseQuantity.unit" || len(binding.ChoiceArms) != 1 || binding.ChoiceArms[0] != "doseQuantity" {
 		t.Fatalf("nested MedicationRequest binding = %#v", binding)
+	}
+	categoricalPlan := ResolveSemanticSelectionPlan(categorical)
+	if categoricalPlan.Source == nil || categoricalPlan.Source.Kind != SourceCodedValue || categoricalPlan.Source.Lookup == nil || categoricalPlan.Source.Lookup.Binding == nil || categoricalPlan.Source.Lookup.Key == nil {
+		t.Fatalf("categorical source = %#v", categoricalPlan.Source)
+	}
+	categoricalBinding := categoricalPlan.Source.Lookup.Binding
+	if categoricalBinding.OwnerPath != "" || categoricalBinding.KeyPath != "category[].coding[]" || categoricalBinding.ValueScope != fhirschema.CorrelatedValueKeyItem || categoricalBinding.ValuePath != "code" || categoricalPlan.Source.FieldPath() != "category[].coding[].code" || categoricalPlan.LogicalType != "code" {
+		t.Fatalf("categorical binding = %#v", categoricalBinding)
 	}
 }

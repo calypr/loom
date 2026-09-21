@@ -215,6 +215,29 @@ paths:
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/feature-catalog:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: browseExplorerFeatureCatalog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FeatureCatalogBrowseRequest'}
+      responses:
+        '200':
+          description: Authorized dataframe features classified and presented by the server. Raw structural containers are not entries.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FeatureCatalogBrowseResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2257,6 +2280,7 @@ components:
         keyPath: {type: string, minLength: 1}
         systemPath: {type: string, minLength: 1}
         codePath: {type: string, minLength: 1}
+        valueScope: {type: string, enum: [OWNER, KEY_ITEM]}
         valuePath: {type: string, minLength: 1}
         valueFallback:
           type: array
@@ -3955,6 +3979,19 @@ components:
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
         limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+    FeatureCatalogBrowseRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, rowRoot, section]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        rowRoot: {type: string, minLength: 1}
+        section: {type: string, enum: [CONCEPTS, FIELDS, NEEDS_REVIEW]}
+        resourceType: {type: string}
+        nodeId: {type: string}
+        query: {type: string, maxLength: 256}
+        cursor: {type: string, maxLength: 4096}
+        limit: {type: integer, minimum: 1, maximum: 50, default: 50}
     ConstructionChoiceSearchRequest:
       type: object
       additionalProperties: false
@@ -4136,6 +4173,63 @@ components:
         occurrences: {type: integer, format: int64, minimum: 0}
         readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+    FeatureCatalogBrowseResponse:
+      type: object
+      additionalProperties: false
+      required: [contextToken, buildId, state, sourceAvailability, section, entries]
+      properties:
+        contextToken: {type: string, minLength: 1}
+        buildId: {type: string}
+        state: {type: string, enum: [unknown, not_started, running, complete, failed, invalidated]}
+        sourceAvailability: {type: string, enum: [unknown, verified, unproven]}
+        section: {type: string, enum: [CONCEPTS, FIELDS, NEEDS_REVIEW]}
+        nextCursor: {type: string}
+        entries:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/FeatureCatalogItem'}
+    FeatureCatalogItem:
+      type: object
+      additionalProperties: false
+      required: [kind, featureId, title, description, resourceType, valueType, cardinality, occurrences, readiness, source, sourceDetails]
+      properties:
+        kind: {type: string, enum: [DIRECT_FIELD, SEMANTIC_FEATURE]}
+        featureId: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        resourceType: {type: string, minLength: 1}
+        valueType: {type: string, minLength: 1}
+        cardinality: {type: string, minLength: 1}
+        occurrences: {type: integer, format: int64, minimum: 0}
+        readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
+        source:
+          oneOf:
+            - {$ref: '#/components/schemas/FeatureCatalogFieldSource'}
+            - {$ref: '#/components/schemas/FeatureCatalogSemanticSource'}
+          discriminator:
+            propertyName: kind
+            mapping:
+              FIELD: '#/components/schemas/FeatureCatalogFieldSource'
+              SEMANTIC: '#/components/schemas/FeatureCatalogSemanticSource'
+        sourceDetails:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionChoiceFact'}
+        constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+    FeatureCatalogFieldSource:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId]
+      properties:
+        kind: {type: string, enum: [FIELD]}
+        candidateId: {type: string, minLength: 1}
+    FeatureCatalogSemanticSource:
+      type: object
+      additionalProperties: false
+      required: [kind, conceptId, bindingId]
+      properties:
+        kind: {type: string, enum: [SEMANTIC]}
+        conceptId: {type: string, minLength: 1}
+        bindingId: {type: string, minLength: 1}
     SemanticSelectionReadiness:
       type: object
       additionalProperties: false

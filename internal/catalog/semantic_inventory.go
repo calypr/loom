@@ -15,8 +15,8 @@ const (
 	SemanticInventoryEntryCollection   = "fhir_semantic_inventory_entries"
 	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
 	SemanticInventorySchemaVersion     = 1
-	SemanticInventoryEntryIndexVersion = 2
-	SemanticObservationRuleVersion     = 5
+	SemanticInventoryEntryIndexVersion = 3
+	SemanticObservationRuleVersion     = 6
 	SemanticInventoryPageLimit         = 50
 	SemanticInventorySourceFile        = "file"
 	SemanticInventorySourceRetained    = "retained_vertex"
@@ -86,6 +86,7 @@ type SemanticInventoryContribution struct {
 	SourceID          string              `json:"source_id"`
 	Ordinal           int                 `json:"ordinal"`
 	ConceptID         string              `json:"concept_id"`
+	ConceptSlotID     string              `json:"concept_slot_id"`
 	BindingID         string              `json:"binding_id"`
 	Example           string              `json:"example,omitempty"`
 	Observation       SemanticObservation `json:"observation"`
@@ -233,6 +234,7 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 		}
 	}
 	conceptID := semanticConceptID(observation)
+	conceptSlotID := semanticConceptSlotID(observation)
 	bindingID := semanticBindingID(observation)
 	example := ""
 	if len(observation.Examples) > 0 {
@@ -265,10 +267,29 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 		SourceID:          sourceID,
 		Ordinal:           ordinal,
 		ConceptID:         conceptID,
+		ConceptSlotID:     conceptSlotID,
 		BindingID:         bindingID,
 		Example:           example,
 		Observation:       observation,
 	}
+}
+
+// semanticConceptSlotID identifies where a code plays its role in a resource.
+// Paired-value observations store their code selector relative to the owning
+// scope, while standalone categorical observations store an absolute selector.
+// Normalizing both forms lets dataset materialization prefer observed
+// code/value pairings without confusing the same code used in another field.
+func semanticConceptSlotID(observation SemanticObservation) string {
+	selector := observation.Key.Selector
+	if observation.RuleHint == SemanticRuleHintCodedValueV1 {
+		selector = appendSemanticPath(observation.OwningScope, selector)
+	}
+	return catalogIdentityDigest(
+		"semantic-concept-slot/v1",
+		observation.Source.Type,
+		observation.Source.Profile,
+		selector,
+	)
 }
 
 func semanticConceptID(observation SemanticObservation) string {

@@ -81,6 +81,7 @@ func TestClassifyDirectFieldUsesDatatypeOwnershipInsteadOfResourceNames(t *testi
 		{name: "extension value choice", resource: "Patient", path: "extension[].valueString", reason: DirectFieldSemanticDatatype, owner: "Extension", disposition: DispositionValueAssociation},
 		{name: "quantity value", resource: "Observation", path: "valueQuantity.value", reason: DirectFieldSemanticDatatype, owner: "Quantity", disposition: DispositionCompositeValue},
 		{name: "quantity unit", resource: "Observation", path: "valueQuantity.unit", reason: DirectFieldSemanticDatatype, owner: "Quantity", disposition: DispositionCompositeValue},
+		{name: "reference target", resource: "Observation", path: "subject.reference", reason: DirectFieldSemanticDatatype, owner: "Reference", disposition: DispositionNavigationOnly},
 		{name: "inherited resource id", resource: "Encounter", path: "id", eligible: true, reason: DirectFieldPrimitiveLeaf, owner: "Resource"},
 		{name: "inherited resource type", resource: "Encounter", path: "resourceType", eligible: true, reason: DirectFieldPrimitiveLeaf, owner: "Resource"},
 	}

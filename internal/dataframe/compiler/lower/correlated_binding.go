@@ -38,7 +38,11 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 	}
 	choiceSelectors := make([]spec.Selector, 0)
 	if len(choiceArms) > 0 {
-		for _, option := range fhirschema.ChoiceValueSelectorOptions(checked.OwnerResource) {
+		choiceResource := checked.OwnerResource
+		if checked.ValueScope == fhirschema.CorrelatedValueKeyItem {
+			choiceResource = checked.KeyResource
+		}
+		for _, option := range fhirschema.ChoiceValueSelectorOptions(choiceResource) {
 			selector, parseErr := spec.ParseSelector(fhirschema.SelectorExpression(option))
 			if parseErr != nil {
 				return ir.PhysicalCorrelation{}, fmt.Errorf("choice selector %q: %w", fhirschema.SelectorExpression(option), parseErr)
@@ -49,6 +53,7 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 	correlation := ir.PhysicalCorrelation{
 		Source: source, ResourceType: resourceType, OwnerResource: checked.OwnerResource, OwnerSelector: checked.OwnerSelector, KeyResource: checked.KeyResource,
 		KeySelector: checked.KeySelector, SystemSelector: checked.SystemSelector, CodeSelector: checked.CodeSelector,
+		ValueScope:    ir.PhysicalCorrelationValueScope(checked.ValueScope),
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,

@@ -58,6 +58,7 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 			{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 			{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "concept_id", "concept_slot_id", "observation.rule_hint"},
 			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
 		{Name: catalog.SemanticInventoryEntryCollection, Indexes: [][]string{
@@ -384,6 +385,21 @@ func writeSemanticInventoryFixture(path string, codes []string, scope string) er
 					"system": "urn:c01", "version": "v1", "code": code, "display": "Label " + scope + " " + code,
 				}}},
 				"valueQuantity": map[string]any{"value": float64(i), "unit": unit},
+			}},
+		}
+		if err := encoder.Encode(payload); err != nil {
+			_ = file.Close()
+			return err
+		}
+	}
+	if scope == "scope-a" {
+		payload := map[string]any{
+			"resourceType": "Observation",
+			"id":           "shared_000_without_value",
+			"component": []any{map[string]any{
+				"code": map[string]any{"coding": []any{map[string]any{
+					"system": "urn:c01", "version": "v1", "code": "shared-000", "display": "Label scope-a shared-000",
+				}}},
 			}},
 		}
 		if err := encoder.Encode(payload); err != nil {

@@ -261,7 +261,7 @@ func (s ColumnSource) fieldPath() string {
 			return strings.Trim(strings.TrimSpace(s.Lookup.Identifier.OwnerPath)+"."+strings.TrimSpace(s.Lookup.Identifier.ValuePath), ".")
 		}
 		if s.Lookup.Binding != nil {
-			return qualifySemanticPath(s.Lookup.Binding.OwnerPath, s.Lookup.Binding.ValuePath)
+			return s.Lookup.Binding.CanonicalValuePath()
 		}
 		return s.Lookup.Path
 	}
@@ -324,6 +324,9 @@ func (s ColumnSource) Normalized() ColumnSource {
 		}
 		if lookup.Binding != nil {
 			binding := *lookup.Binding
+			if binding.ValueScope != "" {
+				binding.ValueScope = fhirschema.CorrelatedValueScope(strings.ToUpper(strings.TrimSpace(string(binding.ValueScope))))
+			}
 			binding.ValueFallback = append([]string(nil), lookup.Binding.ValueFallback...)
 			binding.ChoiceArms = append([]string(nil), lookup.Binding.ChoiceArms...)
 			lookup.Binding = &binding
@@ -343,6 +346,9 @@ func (s ColumnSource) Normalized() ColumnSource {
 	}
 	if n.OwnerRecords != nil {
 		ownerRecords := *n.OwnerRecords
+		if ownerRecords.Binding.ValueScope != "" {
+			ownerRecords.Binding.ValueScope = fhirschema.CorrelatedValueScope(strings.ToUpper(strings.TrimSpace(string(ownerRecords.Binding.ValueScope))))
+		}
 		ownerRecords.Binding.ValueFallback = append([]string(nil), n.OwnerRecords.Binding.ValueFallback...)
 		ownerRecords.Binding.ChoiceArms = append([]string(nil), n.OwnerRecords.Binding.ChoiceArms...)
 		n.OwnerRecords = &ownerRecords

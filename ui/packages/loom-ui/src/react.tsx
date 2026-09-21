@@ -4,6 +4,7 @@ import type {
   ApplyExplorerBuilderCommandsArgs,
   AssessExplorerRowChangeArgs,
   BrowseSemanticInventoryArgs,
+  BrowseFeatureCatalogArgs,
   CellTraceArgs,
   CreateExplorerArgs,
   DeleteExplorerArgs,
@@ -195,6 +196,11 @@ export const useGetExplorerCandidateSuggestionsV2Mutation = () => {
 export const useBrowseSemanticInventoryV2Mutation = () => {
   const client = useLoomClient();
   return useMutation<BrowseSemanticInventoryArgs, Awaited<ReturnType<LoomClient['browseSemanticInventory']>>>((args, signal) => client.browseSemanticInventory(args, signal));
+};
+
+export const useBrowseFeatureCatalogV2Mutation = () => {
+  const client = useLoomClient();
+  return useMutation<BrowseFeatureCatalogArgs, Awaited<ReturnType<LoomClient['browseFeatureCatalog']>>>((args, signal) => client.browseFeatureCatalog(args, signal));
 };
 
 export const usePreviewExplorerAuthoringV2Mutation = () => {

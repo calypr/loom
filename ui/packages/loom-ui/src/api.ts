@@ -24,6 +24,7 @@ import {
   explicitGroupRevisionSummarySchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
+  featureCatalogBrowseResponseSchema,
   type ExplorerBuilderCatalog,
   type ExplorerBuilderCommand,
   type ExplorerBuilderCompileResult,
@@ -49,6 +50,8 @@ import {
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
   type SemanticInventoryBrowseResponse,
+  type FeatureCatalogBrowseResponse,
+  type FeatureCatalogSection,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import {
@@ -283,6 +286,18 @@ export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs 
   readonly requestId?: string;
 }
 
+export interface BrowseFeatureCatalogArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly rowRoot: string;
+  readonly section: FeatureCatalogSection;
+  readonly resourceType?: string;
+  readonly nodeId?: string;
+  readonly query?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
 export interface InspectColumnSourceArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
@@ -508,6 +523,10 @@ export interface LoomClient {
     args: BrowseSemanticInventoryArgs,
     signal?: AbortSignal,
   ) => Promise<SemanticInventoryBrowseResponse>;
+  readonly browseFeatureCatalog: (
+    args: BrowseFeatureCatalogArgs,
+    signal?: AbortSignal,
+  ) => Promise<FeatureCatalogBrowseResponse>;
   readonly inspectColumnSource: (
     args: InspectColumnSourceArgs,
     signal?: AbortSignal,
@@ -1071,6 +1090,17 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.cursor ? { cursor: args.cursor } : {}),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal, args.requestId)).then((value) => semanticInventoryBrowseResponseSchema.parse(value));
+  const browseFeatureCatalog = (args: BrowseFeatureCatalogArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/feature-catalog'), withJson({
+      snapshotToken: args.snapshotToken,
+      rowRoot: args.rowRoot,
+      section: args.section,
+      ...(args.resourceType ? { resourceType: args.resourceType } : {}),
+      ...(args.nodeId ? { nodeId: args.nodeId } : {}),
+      ...(args.query ? { query: args.query } : {}),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => featureCatalogBrowseResponseSchema.parse(value));
   const inspectColumnSource = (args: InspectColumnSourceArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/column-source'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1369,6 +1399,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     reconcile,
     suggestions,
     browseSemanticInventory,
+    browseFeatureCatalog,
     inspectColumnSource,
     searchConstructionChoices,
     searchPopulationRoutes,

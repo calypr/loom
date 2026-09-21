@@ -336,21 +336,29 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 	if err := validatePhysicalSelector(correlation.KeyResource, correlation.CodeSelector); err != nil {
 		return fmt.Errorf("code selector: %w", err)
 	}
-	if err := validatePhysicalSelector(ownerResource, correlation.ValueSelector); err != nil {
+	valueResource := ownerResource
+	switch correlation.ValueScope {
+	case "", PhysicalCorrelationValueOwner:
+	case PhysicalCorrelationValueKeyItem:
+		valueResource = correlation.KeyResource
+	default:
+		return fmt.Errorf("correlation value scope %q is unsupported", correlation.ValueScope)
+	}
+	if err := validatePhysicalSelector(valueResource, correlation.ValueSelector); err != nil {
 		return fmt.Errorf("value selector: %w", err)
 	}
 	for index, fallback := range correlation.ValueFallbacks {
-		if err := validatePhysicalSelector(ownerResource, fallback); err != nil {
+		if err := validatePhysicalSelector(valueResource, fallback); err != nil {
 			return fmt.Errorf("value fallback %d: %w", index, err)
 		}
 	}
 	for index, choice := range correlation.ChoiceSelectors {
-		if err := validatePhysicalSelector(ownerResource, choice); err != nil {
+		if err := validatePhysicalSelector(valueResource, choice); err != nil {
 			return fmt.Errorf("choice selector %d: %w", index, err)
 		}
 	}
 	if correlation.UnitSelector != nil {
-		if err := validatePhysicalSelector(ownerResource, *correlation.UnitSelector); err != nil {
+		if err := validatePhysicalSelector(valueResource, *correlation.UnitSelector); err != nil {
 			return fmt.Errorf("unit selector: %w", err)
 		}
 	}

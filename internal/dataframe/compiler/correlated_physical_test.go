@@ -42,6 +42,41 @@ func TestCorrelatedPhysicalProjectionScopesCodingAndValueToOwner(t *testing.T) {
 	}
 }
 
+func TestCorrelatedPhysicalProjectionCanReturnTheMatchedCodingValue(t *testing.T) {
+	binding := &fhirschema.CorrelatedBinding{
+		KeyPath: "category[].coding[]", SystemPath: "system", CodePath: "code",
+		ValueScope: fhirschema.CorrelatedValueKeyItem, ValuePath: "code", LogicalType: "code",
+	}
+	plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+		Alias: "root", ResourceType: "Observation", Pivots: []semantic.SemanticPivot{{
+			Name: "laboratory", Columns: []string{"laboratory"}, ProjectionMode: "FIRST",
+			Correlation: binding, CorrelationSystem: "http://terminology.hl7.org/CodeSystem/observation-category", CorrelationCode: "laboratory",
+		}},
+	}}, semantic.ExecutionContext{Project: "project"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("categorical physical plan invalid: %v", err)
+	}
+	var correlation *ir.PhysicalCorrelation
+	for _, operation := range append(append([]ir.PhysicalOperation(nil), plan.DeferredExpressionLets...), plan.Operations...) {
+		if operation.ExpressionLet != nil && operation.ExpressionLet.Expression.Pivot != nil {
+			correlation = operation.ExpressionLet.Expression.Pivot.Correlation
+		}
+	}
+	if correlation == nil || correlation.ValueScope != ir.PhysicalCorrelationValueKeyItem || correlation.ValueSelector.CanonicalPath() != "code" {
+		t.Fatalf("categorical correlation = %#v", correlation)
+	}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "category") || !strings.Contains(rendered.Query, "correlation_pivot_coding") || !strings.Contains(rendered.Query, ".code") {
+		t.Fatalf("categorical projection lost matched Coding value scope:\n%s", rendered.Query)
+	}
+}
+
 func TestCorrelatedPhysicalProjectionPreservesDeclaredReductionAndAlias(t *testing.T) {
 	for _, test := range []struct {
 		mode       string

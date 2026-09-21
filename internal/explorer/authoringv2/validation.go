@@ -38,8 +38,8 @@ func (w Workspace) Validate() error {
 	if w.SemanticsVersion > CurrentSemanticsVersion {
 		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", w.SemanticsVersion)
 	}
-	if w.SemanticsVersion < CurrentSemanticsVersion && workspaceHasTableShape(w) {
-		return fmt.Errorf("tableShape requires semanticsVersion %d", CurrentSemanticsVersion)
+	if w.SemanticsVersion < tableShapeSemanticsVersion && workspaceHasTableShape(w) {
+		return fmt.Errorf("tableShape requires semanticsVersion %d", tableShapeSemanticsVersion)
 	}
 	if w.SemanticsVersion >= CurrentSemanticsVersion && workspaceHasLegacyContributors(w) {
 		return fmt.Errorf("aggregate source where is not writable in semantics version %d; use column.contributor", CurrentSemanticsVersion)
@@ -83,6 +83,11 @@ func (w Workspace) Validate() error {
 	for i := 0; i < len(orders); i++ {
 		if !orders[i] {
 			return fmt.Errorf("INVALID_TAB_ORDER: orders must be contiguous from zero")
+		}
+	}
+	if w.SemanticsVersion >= structuralFieldSemanticsVersion {
+		if err := validateDirectFieldSources(w); err != nil {
+			return err
 		}
 	}
 	if err := w.validateSemanticBindings(); err != nil {
