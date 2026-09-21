@@ -54,7 +54,7 @@ func TestAddressableSourceRowAcceptsNamedResourceGrains(t *testing.T) {
 			if got, err := resolveAddressableDocumentSourceRow(document, contract, emitted); err != nil || got.ResourceType != fixture.resource || got.PhysicalColumn != "subject_id" {
 				t.Fatalf("source row = %#v, err=%v", got, err)
 			}
-			for _, invalid := range []string{"expanded", "invalid", "diagnosis"} {
+			for _, invalid := range []string{"expanded", "groups", "invalid", "diagnosis"} {
 				contract.RowGrain = invalid
 				if _, err := resolveAddressableDocumentSourceRow(document, contract, emitted); err == nil {
 					t.Fatalf("accepted incompatible grain %q", invalid)

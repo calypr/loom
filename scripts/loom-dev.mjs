@@ -1048,8 +1048,8 @@ const seedJ03ExplicitGroupRevision = async (target, explorerId) => {
   const builder = await fetchBuilderState(target, explorerId);
   if (!builder.catalog?.snapshotToken) throw new Error('J03 cannot seed groups without a current Builder snapshot');
   const sourceMemberIDs = readFileSync(join(target.fixtureDir, 'Patient.ndjson'), 'utf8')
-    .trim().split('\n').map((line) => JSON.parse(line).id).sort();
-  if (sourceMemberIDs.length < 2) throw new Error('J03 explicit-group fixture requires at least two Patient resources');
+    .trim().split('\n').map((line) => JSON.parse(line).id).sort().slice(0, 3);
+  if (sourceMemberIDs.length !== 3) throw new Error('J03 group-authoring fixture requires exactly three selected records');
   const selectionURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/selections`;
   const selection = await requestJSON(selectionURL, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
@@ -1067,27 +1067,44 @@ const seedJ03ExplicitGroupRevision = async (target, explorerId) => {
       },
     }),
   });
-  if (selection.response.status !== 201 || selection.value.complete !== true || selection.value.memberCount !== sourceMemberIDs.length) {
+  if (selection.response.status !== 201 || selection.value.complete !== true || selection.value.memberCount !== 3) {
     throw new Error(`J03 source selection returned HTTP ${selection.response.status}: ${JSON.stringify(selection.value).slice(0, 700)}`);
   }
-  const seedPayload = Buffer.from(JSON.stringify({
-    selection: selection.value,
-    sourceMemberIDs,
-    assignedMemberID: sourceMemberIDs[0],
-  })).toString('base64');
-  const seeded = await compose(target, ['exec', '-T', 'loom-api', 'go', 'run', './cmd/loom-dev-seed-explicit-group', seedPayload]);
-  if (seeded.code !== 0) throw new Error(`J03 explicit-group storage seed failed: ${seeded.stderr || seeded.stdout}`);
-  let explicitGroup;
+  return { selection: selection.value, sourceMemberIDs };
+};
+
+const createJ03ThreeMemberFixture = (sourceDirectory) => {
+  const directory = mkdtempSync(join(tmpdir(), 'loom-dev-j03-fixture-'));
   try {
-    explicitGroup = JSON.parse(seeded.stdout.trim().split('\n').at(-1));
+    for (const name of readdirSync(sourceDirectory)) {
+      const sourcePath = join(sourceDirectory, name);
+      if (!statSync(sourcePath).isFile()) continue;
+      writeFileSync(join(directory, name), readFileSync(sourcePath), { mode: 0o600 });
+    }
+    const patientPath = join(directory, 'Patient.ndjson');
+    const patientLines = readFileSync(patientPath, 'utf8').split(/\r?\n/).filter((line) => line.trim());
+    const patientIDs = new Set(patientLines.map((line) => JSON.parse(line).id));
+    let index = patientLines.length + 1;
+    while (patientLines.length < 3) {
+      let id = `loom-dev-j03-member-${String(index).padStart(3, '0')}`;
+      while (patientIDs.has(id)) {
+        index += 1;
+        id = `loom-dev-j03-member-${String(index).padStart(3, '0')}`;
+      }
+      patientIDs.add(id);
+      patientLines.push(JSON.stringify({
+        resourceType: 'Patient', id,
+        name: [{ use: 'official', family: 'J03Fixture' }],
+        gender: 'unknown',
+      }));
+      index += 1;
+    }
+    writeFileSync(patientPath, `${patientLines.join('\n')}\n`, { mode: 0o600 });
+    return directory;
   } catch (error) {
-    throw new Error(`J03 explicit-group storage seed returned invalid JSON: ${error instanceof Error ? error.message : error}`);
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
   }
-  if (explicitGroup.sourceSelectionRevisionId !== selection.value.id ||
-      JSON.stringify(explicitGroup.sourceMemberIds) !== JSON.stringify(sourceMemberIDs)) {
-    throw new Error(`J03 explicit-group seed did not bind the exact API selection: ${JSON.stringify(explicitGroup)}`);
-  }
-  return { selection: selection.value, explicitGroup };
 };
 
 const ensureDev = async (target, report, rebuild = false, fixtureManifest) => {
@@ -4923,7 +4940,8 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
   const browser = await launchBrowser(downloadDirectory);
   const cdp = browser.cdp;
   cdp.on('Network.requestWillBeSent', (event) => {
-    if (!event.request.url.includes('/authoring/v2/')) return;
+    const pathname = new URL(event.request.url).pathname;
+    if (!pathname.includes('/authoring/v2/') && !pathname.includes('/selections/')) return;
     network.push({ requestId: event.requestId, url: new URL(event.request.url).pathname, method: event.request.method, postData: event.request.postData });
   });
   cdp.on('Network.responseReceived', (event) => {
@@ -5059,7 +5077,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     }),
   });
   const captureBrowserProposal = async (selectChoice) => {
-    await browserEval(cdp, `clickButton('Configure rows')`);
+    await browserEval(cdp, `if (!document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]')) clickButton('Configure rows')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"]'))`);
     const label = await selectChoice();
     const afterIndex = network.length - 1;
@@ -5085,7 +5103,9 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     report.target.outputId = outputId;
     const initialFingerprint = draftFingerprint(state);
     recordAssertion(report, 'j03-opens-current-records-table', 'RECORDS', initialDocument.rows.kind);
-    const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
+    const sourceSelection = report.target.explicitGroupFixture?.selection;
+    if (!sourceSelection?.id || sourceSelection.memberCount !== 3) throw new Error('J03 existing Explorer selection identity is missing');
+    const url = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(sourceSelection.id)}&mode=builder`;
     await navigate(cdp, entryTarget.uiUrl);
     await navigate(cdp, url);
     await waitForBuilderDOM();
@@ -5109,12 +5129,10 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const expectedChanges = membershipChanges.map((item) => `${item.candidatePresent ? 'Added' : 'Removed'} · ${item.rowIdentity}`);
     recordAssertion(report, 'j03-preview-shows-literal-membership-changes', expectedChanges, JSON.parse(renderedChanges));
     const explicitOptionCount = await evaluate(cdp, `document.querySelector('[role="dialog"] select[aria-label="New row definition"]') ? [...document.querySelector('[role="dialog"] select[aria-label="New row definition"]').options].filter((option) => option.textContent.includes('Explicit group')).length : -1`);
-    const seededGroupRevision = report.target.explicitGroupFixture?.explicitGroup?.revisionId;
     recordAssertion(report, 'j03-explicit-group-choice-is-server-provided', {
-      serverReason: false, revisionId: seededGroupRevision, explicitGroupOptions: 3,
+      serverReason: true, explicitGroupOptions: 0,
     }, {
       serverReason: dialogText.includes('The server has no complete explicit group revisions for this table.'),
-      revisionId: dialogText.includes(String(seededGroupRevision).slice(0, 12)) ? seededGroupRevision : '',
       explicitGroupOptions: explicitOptionCount,
     });
     report.target.rowDefinitionComparison = { base: proposal.comparison.base, candidate: proposal.comparison.candidate, examples, membershipChanges };
@@ -5140,10 +5158,97 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     recordAssertion(report, 'j03-rejected-stale-proposal-does-not-mutate-draft', draftFingerprint(state), draftFingerprint(await readState()));
 
     await reloadBuilder(`Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Configure rows'))`);
-    const explicitGroup = report.target.explicitGroupFixture?.explicitGroup;
-    if (!explicitGroup?.revisionId) throw new Error('J03 explicit-group fixture identity is missing');
+    const sourceMemberIDs = report.target.explicitGroupFixture.sourceMemberIDs;
+    await browserEval(cdp, `clickButton('Configure rows')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-labelledby="row-definition-dialog-title"] button') && [...document.querySelectorAll('button')].some((button) => button.textContent.trim() === 'Create groups from this selection'))`, 30000);
+    const beforeGroupSetup = draftFingerprint(await readState());
+    const explicitGroupPostCountBeforeCancel = network.filter((item) => item.method === 'POST' && item.url.endsWith('/explicit-groups')).length;
+    await browserEval(cdp, `clickButton('Create groups from this selection')`);
+    await waitForBrowser(cdp, `document.querySelectorAll('input[aria-label^="Assign Record "]').length === 6`, 30000);
+    await captureDOM('j03-group-authoring-preview-before-cancel');
+    await browserEval(cdp, `clickButton('Cancel group setup')`);
+    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Create explicit groups"]')`);
+    recordAssertion(report, 'j03-cancel-group-setup-does-not-mutate-draft', beforeGroupSetup, draftFingerprint(await readState()));
+    recordAssertion(report, 'j03-cancel-group-setup-does-not-create-a-revision', explicitGroupPostCountBeforeCancel,
+      network.filter((item) => item.method === 'POST' && item.url.endsWith('/explicit-groups')).length);
+
+    const selectionReadIndex = network.length - 1;
+    await browserEval(cdp, `clickButton('Create groups from this selection')`);
+    await waitForBrowser(cdp, `document.querySelectorAll('input[aria-label^="Assign Record "]').length === 6`, 30000);
+    const sourcePage = await waitForResponse(`/selections/${sourceSelection.id}`, selectionReadIndex);
+    if (sourcePage.response?.status !== 200 || sourcePage.responseBody?.revision?.id !== sourceSelection.id || sourcePage.responseBody.members?.length !== 3) {
+      throw new Error(`J03 group editor did not load the exact three-member source selection: ${JSON.stringify(sourcePage.responseBody).slice(0, 700)}`);
+    }
+    const selectedMembers = sourcePage.responseBody.members;
+    const selectedKeys = selectedMembers.map((member) => member.memberKey);
+    const selectedIDs = selectedMembers.map((member) => member.ref?.id);
+    recordAssertion(report, 'j03-group-editor-uses-three-opaque-members-from-existing-selection', sourceMemberIDs, [...selectedIDs].sort());
+    if (selectedKeys.some((key) => typeof key !== 'string' || key.length === 0) || new Set(selectedKeys).size !== 3) {
+      throw new Error('J03 existing selection did not provide three unique opaque member keys');
+    }
+    const groupAName = 'J03 Alpha';
+    const groupBName = 'J03 Beta';
+    await browserEval(cdp, `setInput('Group 1 name', ${JSON.stringify(groupAName)})`);
+    await browserEval(cdp, `setInput('Group 2 name', ${JSON.stringify(groupBName)})`);
+    for (const [memberIndex, groupName] of [[0, groupAName], [1, groupAName], [1, groupBName], [2, groupBName]]) {
+      const checkboxLabel = `Assign Record ${memberIndex + 1} · ${selectedIDs[memberIndex]} to ${groupName}`;
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label=' + JSON.stringify(${JSON.stringify(checkboxLabel)}) + ']'))`, 30000);
+      await browserEval(cdp, `(() => { const input = document.querySelector('input[aria-label=' + JSON.stringify(${JSON.stringify(checkboxLabel)}) + ']'); if (!input || input.checked) throw new Error('J03 group membership checkbox is unavailable or already selected: ' + ${JSON.stringify(checkboxLabel)}); input.click(); })()`);
+    }
+    const exactMembershipRows = JSON.parse(await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('[aria-label="Exact group memberships"] li')].map((item) => item.innerText.replace(/\\s+/g, ' ').trim()))`));
+    const expectedMembershipPreview = [
+      `${groupAName}: Record 1 · ${selectedIDs[0]}, Record 2 · ${selectedIDs[1]}`,
+      `${groupBName}: Record 2 · ${selectedIDs[1]}, Record 3 · ${selectedIDs[2]}`,
+    ];
+    recordAssertion(report, 'j03-group-editor-previews-exact-overlapping-memberships', expectedMembershipPreview, exactMembershipRows);
+    await captureDOM('j03-group-authoring-exact-memberships');
+    const createGroupsAfter = network.length - 1;
+    await browserEval(cdp, `clickButton('Create group revision')`);
+    const createGroupsResponse = await waitForResponse('/explicit-groups', createGroupsAfter);
+    if (createGroupsResponse.method !== 'POST' || createGroupsResponse.response?.status !== 201 || !createGroupsResponse.postData) {
+      throw new Error(`J03 explicit-group API transaction failed: ${JSON.stringify({ method: createGroupsResponse.method, status: createGroupsResponse.response?.status, response: createGroupsResponse.responseBody }).slice(0, 1000)}`);
+    }
+    const createGroupsRequest = JSON.parse(createGroupsResponse.postData);
+    const explicitGroup = createGroupsResponse.responseBody;
+    const expectedGroupMemberKeys = [selectedKeys.slice(0, 2), selectedKeys.slice(1, 3)];
+    if (createGroupsRequest.groups?.length !== 2 || createGroupsRequest.groups.some((group) => !Array.isArray(group.memberIds)) ||
+        createGroupsRequest.groups.some((group) => group.memberIds.some((memberId) => !selectedKeys.includes(memberId))) ||
+        JSON.stringify(createGroupsRequest.groups.map((group) => group.memberIds)) !== JSON.stringify(expectedGroupMemberKeys) ||
+        !createGroupsRequest.groups[0].memberIds.includes(selectedKeys[1]) || !createGroupsRequest.groups[1].memberIds.includes(selectedKeys[1]) ||
+        explicitGroup.sourceSelectionRevisionId !== sourceSelection.id || explicitGroup.groupCount !== 2 || explicitGroup.memberCount !== 4) {
+      throw new Error(`J03 group revision did not preserve two groups and four exact opaque relations: ${JSON.stringify({ request: createGroupsRequest, response: explicitGroup }).slice(0, 1000)}`);
+    }
+    const groupDefinitions = createGroupsRequest.groups.map((group) => ({
+      id: group.id,
+      label: group.label,
+      memberIds: group.memberIds,
+      sourceMemberIDs: selectedMembers.filter((member) => group.memberIds.includes(member.memberKey)).map((member) => member.ref.id).sort(),
+    }));
+    recordAssertion(report, 'j03-create-uses-only-opaque-keys-from-exact-selection', {
+      selectionRevision: sourceSelection.id,
+      groupCount: 2,
+      memberCount: 4,
+      groupNames: [groupAName, groupBName],
+      membersAreOpaque: true,
+    }, {
+      selectionRevision: explicitGroup.sourceSelectionRevisionId,
+      groupCount: explicitGroup.groupCount,
+      memberCount: explicitGroup.memberCount,
+      groupNames: createGroupsRequest.groups.map((group) => group.label),
+      membersAreOpaque: createGroupsRequest.groups.every((group) => group.memberIds.every((memberId) => selectedKeys.includes(memberId))) && !JSON.stringify(createGroupsRequest).includes('resourceType'),
+    });
+    report.target.explicitGroupFixture.explicitGroup = {
+      revisionId: explicitGroup.revisionId,
+      sourceSelectionRevisionId: explicitGroup.sourceSelectionRevisionId,
+      sourceMemberIds: [...selectedIDs].sort(),
+      groups: groupDefinitions,
+      groupCount: explicitGroup.groupCount,
+      memberCount: explicitGroup.memberCount,
+      unassignedMemberIds: [],
+    };
+    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Create explicit groups"]')`);
     const freshBaseFingerprint = draftFingerprint(await readState());
-    const fresh = await captureBrowserProposal(() => selectExplicitGroupPolicy('GROUP_AS_UNASSIGNED', explicitGroup.revisionId));
+    const fresh = await captureBrowserProposal(() => selectExplicitGroupPolicy('ERROR', explicitGroup.revisionId));
     if (!fresh.proposal.proposalId || fresh.proposal.comparison?.status !== 'AVAILABLE') throw new Error(`J03 fresh proposal was unavailable: ${JSON.stringify(fresh.proposal).slice(0, 1000)}`);
     const freshExamples = fresh.proposal.comparison.examples ?? [];
     const freshMembershipChanges = freshExamples.filter((item) => item.basePresent !== item.candidatePresent);
@@ -5168,30 +5273,42 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const appliedGroup = appliedDocument?.rows?.kind === 'GROUPS' && appliedDocument.rows.groups?.source?.kind === 'EXPLICIT'
       ? appliedDocument.rows.groups.source.explicit
       : undefined;
-    if (!appliedDocument || !appliedGroup || appliedGroup.revisionId !== explicitGroup.revisionId || appliedGroup.unassignedMemberPolicy !== 'GROUP_AS_UNASSIGNED') {
+    if (!appliedDocument || !appliedGroup || appliedGroup.revisionId !== explicitGroup.revisionId || appliedGroup.unassignedMemberPolicy !== 'ERROR') {
       throw new Error(`J03 applied row definition differs from the fresh server proposal: ${JSON.stringify(appliedDocument?.rows)}`);
     }
     recordAssertion(report, 'j03-applies-explicit-group-row-definition', {
-      kind: 'EXPLICIT_GROUP', revisionId: explicitGroup.revisionId, policy: 'GROUP_AS_UNASSIGNED',
+      kind: 'EXPLICIT_GROUP', revisionId: explicitGroup.revisionId, policy: 'ERROR',
     }, { kind: appliedGroup ? 'EXPLICIT_GROUP' : appliedDocument?.rows?.kind, revisionId: appliedGroup?.revisionId, policy: appliedGroup?.unassignedMemberPolicy });
     const preview = await capturePreview();
     const fixturePatientIDs = report.target.explicitGroupFixture.explicitGroup.sourceMemberIds;
-    const expectedGroupedRows = [
-      {
-        rowIdentity: `map[group_id:j03-reviewed group_revision_id:${explicitGroup.revisionId}]`,
-        groupRevisionId: explicitGroup.revisionId,
-        groupId: 'j03-reviewed',
-        sourceMemberIDs: [fixturePatientIDs[0]],
-      },
-      {
-        rowIdentity: `map[group_id:__loom_unassigned__ group_revision_id:${explicitGroup.revisionId}]`,
-        groupRevisionId: explicitGroup.revisionId,
-        groupId: '__loom_unassigned__',
-        sourceMemberIDs: fixturePatientIDs.slice(1),
-      },
-    ];
+    const expectedGroupedRows = groupDefinitions.map((group) => ({
+      rowIdentity: `map[group_id:${group.id} group_revision_id:${explicitGroup.revisionId}]`,
+      groupRevisionId: explicitGroup.revisionId,
+      groupId: group.id,
+      sourceMemberIDs: group.sourceMemberIDs,
+    }));
     const actualGroupedRows = explicitGroupPreviewRows(preview.rows).map(({ rawIdentity, ...row }) => row);
     recordAssertion(report, 'j03-preview-contains-exact-explicit-group-identities-and-membership', expectedGroupedRows, actualGroupedRows);
+    const expectedSourceTuples = groupDefinitions.map((group) => ({
+      groupRevisionId: explicitGroup.revisionId,
+      groupId: group.id,
+      sourceTuples: group.sourceMemberIDs.map((id) => {
+        const member = selectedMembers.find((candidate) => candidate.ref.id === id);
+        if (!member) throw new Error(`J03 selection omitted grouped source identity ${id}`);
+        return { project: member.ref.project, generation: member.ref.generation, resourceType: member.ref.resourceType, id };
+      }),
+    }));
+    const readPreviewSourceTuples = (rows) => rows.map((row) => ({
+      groupRevisionId: row.__loom_row_id?.group_revision_id,
+      groupId: row.__loom_row_id?.group_id,
+      sourceTuples: (row.members ?? []).map((member) => ({
+        project: member.source_identity?.project,
+        generation: member.source_identity?.generation,
+        resourceType: member.source_identity?.resource_type ?? member.source_identity?.resourceType,
+        id: member.source_identity?.id,
+      })).sort((left, right) => String(left.id).localeCompare(String(right.id))),
+    }));
+    recordAssertion(report, 'j03-preview-retains-exact-source-tuples', expectedSourceTuples, readPreviewSourceTuples(preview.rows));
     const candidateGroupIdentities = freshExamples.filter((item) => item.candidatePresent).map((item) => item.rowIdentity).sort();
     recordAssertion(report, 'j03-explicit-group-proposal-identities-match-live-preview', expectedGroupedRows.map((row) => row.rowIdentity).sort(), candidateGroupIdentities);
     const previewMemberIDs = [...new Set(actualGroupedRows.flatMap((row) => row.sourceMemberIDs))].sort();
@@ -5200,7 +5317,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     report.target.preview = {
       rowCount: preview.rows.length,
       candidateRowCount: fresh.proposal.comparison.candidate.rowCount,
-      policy: 'GROUP_AS_UNASSIGNED',
+      policy: 'ERROR',
       sourceMemberIDs: fixturePatientIDs,
       rowIdentities: actualGroupedRows.map((row) => row.rowIdentity),
       groupedRows: actualGroupedRows,
@@ -5210,17 +5327,116 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const savedRows = structuredClone(appliedDocument.rows);
     const savedVersion = state.draftVersion;
     const savedDigest = state.draftDigest;
-    await reloadBuilder(`document.body.innerText.includes(${JSON.stringify(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · GROUP_AS_UNASSIGNED`)})`);
+    await reloadBuilder(`document.body.innerText.includes(${JSON.stringify(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · ERROR`)})`);
     const reloaded = await readState();
     const reloadedDocument = reloaded.workspace?.documents?.find((candidate) => candidate.output?.id === outputId);
     recordAssertion(report, 'j03-reload-persists-row-definition', savedRows, reloadedDocument?.rows);
     recordAssertion(report, 'j03-reload-persists-draft-identity', { draftVersion: savedVersion, draftDigest: savedDigest }, { draftVersion: reloaded.draftVersion, draftDigest: reloaded.draftDigest });
     const currentRowsText = String(await evaluate(cdp, 'document.body.innerText'));
     recordAssertion(report, 'j03-reloaded-builder-inspects-explicit-group-current-rows', true,
-      currentRowsText.includes(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · GROUP_AS_UNASSIGNED`));
+      currentRowsText.includes(`Current rows: EXPLICIT_GROUP · ${explicitGroup.revisionId} · ERROR`));
     const reloadedPreview = await capturePreview();
     const reloadedGroupedRows = explicitGroupPreviewRows(reloadedPreview.rows).map(({ rawIdentity, ...row }) => row);
     recordAssertion(report, 'j03-reload-preview-persists-exact-row-membership', expectedGroupedRows, reloadedGroupedRows);
+    recordAssertion(report, 'j03-reload-preview-preserves-stable-row-identities', expectedGroupedRows.map((row) => row.rowIdentity).sort(),
+      reloadedGroupedRows.map((row) => row.rowIdentity).sort());
+    recordAssertion(report, 'j03-reload-preview-retains-exact-source-tuples', expectedSourceTuples, readPreviewSourceTuples(reloadedPreview.rows));
+
+    const reconciled = await requestJSON(`${authoring}/reconcile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ snapshotToken: reloaded.catalog.snapshotToken, draftVersion: reloaded.draftVersion, draftDigest: reloaded.draftDigest }),
+    });
+    if (!reconciled.response.ok || !reconciled.value?.receiptId) {
+      throw new Error(`J03 receipt-backed export reconcile failed: HTTP ${reconciled.response.status} ${JSON.stringify(reconciled.value).slice(0, 700)}`);
+    }
+    const published = await requestJSON(`${authoring}/publish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ receiptId: reconciled.value.receiptId }),
+    });
+    if (!published.response.ok || !published.value?.revisionId) {
+      throw new Error(`J03 receipt-backed export publish failed: HTTP ${published.response.status} ${JSON.stringify(published.value).slice(0, 700)}`);
+    }
+    recordAssertion(report, 'j03-publish-uses-current-immutable-receipt', reconciled.value.receiptId, published.value.receiptId);
+    const prepared = await requestJSON(`${authoring}/artifacts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ revisionId: published.value.revisionId, outputId, idempotencyKey: `loom-dev-j03-${randomUUID()}` }),
+    });
+    if (!prepared.response.ok || prepared.value?.state !== 'COMPLETE' || prepared.value?.revisionId !== published.value.revisionId) {
+      throw new Error(`J03 artifact preparation failed: HTTP ${prepared.response.status} ${JSON.stringify(prepared.value).slice(0, 700)}`);
+    }
+    const archiveResponse = await fetch(`${authoring}/artifacts/${encodeURIComponent(prepared.value.id)}`, { headers: { Accept: 'application/zip' } });
+    if (!archiveResponse.ok) throw new Error(`J03 artifact download returned HTTP ${archiveResponse.status}`);
+    const archivePath = join(evidenceDirectory, 'j03-explicit-group-export.zip');
+    const archiveBytes = Buffer.from(await archiveResponse.arrayBuffer());
+    writeFileSync(archivePath, archiveBytes, { mode: 0o600 });
+    recordEvidence(report, archivePath);
+    const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
+    const expectedArtifactIdentities = expectedGroupedRows.map((row) => ({ groupRevisionId: row.groupRevisionId, groupId: row.groupId }));
+    const artifactIdentities = artifact.rows.map((row) => {
+      const identity = row.rowId ?? row.values?.[artifact.manifest.descriptor.rowIdentity.sourceIdColumn];
+      if (typeof identity === 'string') {
+        try { return JSON.parse(identity); } catch { return identity; }
+      }
+      return identity;
+    });
+    recordAssertion(report, 'j03-export-describes-synthetic-group-grain', {
+      rowGrain: 'groups', sourceResourceType: null, sourceIdColumn: null,
+    }, {
+      rowGrain: artifact.manifest.descriptor.rowGrain,
+      sourceResourceType: artifact.manifest.descriptor.rowIdentity.sourceResourceType ?? null,
+      sourceIdColumn: artifact.manifest.descriptor.rowIdentity.sourceIdColumn ?? null,
+    });
+    recordAssertion(report, 'j03-export-retains-typed-explicit-group-row-identities', expectedArtifactIdentities,
+      artifactIdentities.map((identity) => ({ groupRevisionId: identity?.group_revision_id, groupId: identity?.group_id })));
+    recordAssertion(report, 'j03-export-retains-stable-explicit-group-row-identities', expectedArtifactIdentities.length,
+      new Set(artifactIdentities.map((identity) => JSON.stringify(identity))).size);
+    const artifactMembersColumn = artifact.schema.columns.find((column) => column.name === 'members');
+    if (!artifactMembersColumn || artifactMembersColumn.logicalType !== 'object' || artifactMembersColumn.shape !== 'record_list' || !artifactMembersColumn.repeated) {
+      throw new Error(`J03 export schema omitted the repeated object membership tuples: ${JSON.stringify(artifactMembersColumn)}`);
+    }
+    const exportedSourceTuples = artifact.rows.map((row, index) => {
+      const identity = artifactIdentities[index];
+      const members = row.values[artifactMembersColumn.name];
+      if (!Array.isArray(members) || members.some((member) => !member || typeof member !== 'object' ||
+          !member.source_identity || typeof member.source_identity !== 'object' || Array.isArray(member.source_identity))) {
+        throw new Error(`J03 export row ${index + 1} did not retain nested source member tuples: ${JSON.stringify(members)}`);
+      }
+      return {
+        groupRevisionId: identity?.group_revision_id,
+        groupId: identity?.group_id,
+        sourceTuples: members.map((member) => ({
+          project: member.source_identity.project,
+          generation: member.source_identity.generation,
+          resourceType: member.source_identity.resource_type,
+          id: member.source_identity.id,
+        })).sort((left, right) => left.id.localeCompare(right.id)),
+      };
+    });
+    const expectedExportSourceTuples = groupDefinitions.map((group) => ({
+      groupRevisionId: explicitGroup.revisionId,
+      groupId: group.id,
+      sourceTuples: group.sourceMemberIDs.map((id) => {
+        const member = selectedMembers.find((candidate) => candidate.ref.id === id);
+        if (!member) throw new Error(`J03 export cannot reconstruct source identity ${id}`);
+        return {
+          project: member.ref.project,
+          generation: member.ref.generation,
+          resourceType: member.ref.resourceType,
+          id: member.ref.id,
+        };
+      }),
+    }));
+    recordAssertion(report, 'j03-export-reconstructs-exact-source-tuples-with-stable-group-identities', expectedExportSourceTuples, exportedSourceTuples);
+    recordAssertion(report, 'j03-export-row-count-matches-exact-group-memberships', expectedGroupedRows.length, artifact.rows.length);
+    report.target.export = {
+      path: archivePath,
+      bytes: archiveBytes.length,
+      revisionId: published.value.revisionId,
+      receiptId: reconciled.value.receiptId,
+      rowIdentities: artifactIdentities,
+      sourceTuples: exportedSourceTuples,
+      groupedRows: expectedGroupedRows,
+    };
     await captureDOM('j03-reloaded-explicit-group-preview');
     await Promise.allSettled([...pendingBodies]);
     const networkPath = join(evidenceDirectory, 'network-identities.json');
@@ -5336,32 +5552,38 @@ const main = async (argv) => {
     }
     if (command === 'verify-j03') {
       await ensureDev(target, report);
-      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
-      const verificationReport = createVerificationReport(verificationTarget, 'S03-J03-row-definition-settings-preview-stale-apply-persistence');
-      activeReport = verificationReport;
-      verificationReport.timings.startup_ms = report.timings.startup_ms;
-      verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
-      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
-      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J03 verification fixture was not freshly seeded: ${verificationTarget.fixtureProject}`);
-      verificationReport.target.fixtureSeed = 'seeded';
-      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
-      recordAssertion(verificationReport, 'j03-starts-with-fresh-isolated-fixture-and-bootstrap-table', true,
-        seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && Boolean(seed.bootstrapWorkspace?.workspace?.documents?.length));
-      verificationReport.target.explicitGroupFixture = await seedJ03ExplicitGroupRevision(verificationTarget, seed.bootstrapExplorerId);
-      recordAssertion(verificationReport, 'j03-seeds-complete-explicit-group-from-api-selection', {
-        sourceMemberCount: 2, groupCount: 1, assignedMemberCount: 1, unassignedMemberCount: 1,
-      }, {
-        sourceMemberCount: verificationReport.target.explicitGroupFixture.explicitGroup.sourceMemberIds.length,
-        groupCount: verificationReport.target.explicitGroupFixture.explicitGroup.groups.length,
-        assignedMemberCount: verificationReport.target.explicitGroupFixture.explicitGroup.groups[0]?.memberIds.length,
-        unassignedMemberCount: verificationReport.target.explicitGroupFixture.explicitGroup.unassignedMemberIds.length,
-      });
-      await verifyJ03BrowserScenario(verificationTarget, verificationReport, target);
-      verificationReport.status = 'passed';
-      verificationReport.timings.total_ms = Date.now() - commandStarted;
-      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
-      writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
-      console.log(`DEV_J03_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+      const j03FixtureDirectory = createJ03ThreeMemberFixture(target.fixtureDir);
+      try {
+        const verificationTarget = Object.freeze({
+          ...createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`),
+          fixtureDir: j03FixtureDirectory,
+        });
+        const verificationReport = createVerificationReport(verificationTarget, 'S03-J03-row-definition-settings-preview-stale-apply-persistence');
+        activeReport = verificationReport;
+        verificationReport.timings.startup_ms = report.timings.startup_ms;
+        verificationReport.timings.api_build_barrier_ms = report.timings.api_build_barrier_ms;
+        const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
+        if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error(`J03 verification fixture was not freshly seeded: ${verificationTarget.fixtureProject}`);
+        verificationReport.target.fixtureSeed = 'seeded';
+        verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+        recordAssertion(verificationReport, 'j03-starts-with-fresh-isolated-fixture-and-bootstrap-table', true,
+          seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && Boolean(seed.bootstrapWorkspace?.workspace?.documents?.length));
+        verificationReport.target.explicitGroupFixture = await seedJ03ExplicitGroupRevision(verificationTarget, seed.bootstrapExplorerId);
+        recordAssertion(verificationReport, 'j03-starts-from-existing-three-member-selection', {
+          complete: true, memberCount: 3,
+        }, {
+          complete: verificationReport.target.explicitGroupFixture.selection.complete,
+          memberCount: verificationReport.target.explicitGroupFixture.selection.memberCount,
+        });
+        await verifyJ03BrowserScenario(verificationTarget, verificationReport, target);
+        verificationReport.status = 'passed';
+        verificationReport.timings.total_ms = Date.now() - commandStarted;
+        writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+        writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+        console.log(`DEV_J03_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+      } finally {
+        rmSync(j03FixtureDirectory, { recursive: true, force: true });
+      }
       return;
     }
     if (command === 'verify-j05') {

@@ -12,6 +12,8 @@ import {
   explorerColumnSourceSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
+  explicitGroupCreateRequestSchema,
+  explicitGroupRevisionSummarySchema,
 } from './types';
 
 describe('explorerBuilderDocumentSchema', () => {
@@ -570,5 +572,33 @@ describe('explorerBuilderCommandSchema', () => {
       type: 'SET_COLUMN_CONTRIBUTOR', outputId: 'patients', column: 'registered_count',
       contributor: { ...contributor, value: { kind: 'CODE', code: { system: 'urn:system', code: 'registered' } } },
     }).success).toBe(false);
+  });
+
+  it('keeps explicit-group authoring input closed and preserves overlaps and empty groups', () => {
+    const request = {
+      snapshotToken: 'snapshot-1',
+      idempotencyKey: 'groups-1',
+      groups: [
+        { id: 'group-a', label: 'Alpha', ordinal: 0, memberIds: ['member-a', 'member-b'] },
+        { id: 'group-b', label: 'Beta', ordinal: 1, memberIds: ['member-b'] },
+        { id: 'group-empty', label: 'Empty', ordinal: 2, memberIds: [] },
+      ],
+    };
+    expect(explicitGroupCreateRequestSchema.parse(request)).toEqual(request);
+    expect(explicitGroupCreateRequestSchema.safeParse({
+      ...request,
+      groups: [{ ...request.groups[0], resourceType: 'Patient' }],
+    }).success).toBe(false);
+    expect(explicitGroupCreateRequestSchema.safeParse({
+      ...request,
+      groups: [{ id: 'group-a', label: 'Alpha', ordinal: 0 }],
+    }).success).toBe(false);
+    const summary = {
+      revisionId: 'grouprev-1', sourceSelectionRevisionId: 'selection-1', groupCount: 1, memberCount: 0,
+      createdAt: '2026-09-20T00:00:00.000Z',
+      groups: [{ id: 'group-empty', label: 'Empty', ordinal: 0, memberCount: 0 }],
+    };
+    expect(explicitGroupRevisionSummarySchema.parse(summary)).toEqual(summary);
+    expect(explicitGroupRevisionSummarySchema.safeParse({ ...summary, debugSeed: true }).success).toBe(false);
   });
 });

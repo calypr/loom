@@ -188,7 +188,10 @@ func (s *Store) AppendExplicitGroupMemberships(ctx context.Context, revisionID e
 		return nil, nil
 	}
 	inserted := make([]explorer.ExplicitGroupMembership, 0, len(memberships))
-	err := s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{ExplicitGroupRevisionsCollection, ExplicitGroupMembershipsCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
+	err := s.client.WithTransaction(ctx, store.TransactionCollections{
+		Read:  []string{SelectionsCollection, SelectionMembersCollection},
+		Write: []string{ExplicitGroupRevisionsCollection, ExplicitGroupMembershipsCollection},
+	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		header, row, err := s.readExplicitGroupRevision(txCtx, tx, revisionID, "")
 		if err != nil {
 			return err
@@ -202,6 +205,13 @@ func (s *Store) AppendExplicitGroupMemberships(ctx context.Context, revisionID e
 		}
 		canonical, err := explorer.CanonicalExplicitGroupMemberships(*header, groups, memberships)
 		if err != nil {
+			return err
+		}
+		source, err := readExplicitGroupSourceSelection(txCtx, tx, *header)
+		if err != nil {
+			return err
+		}
+		if err := validateExplicitGroupSourceMemberships(txCtx, tx, *header, *source, canonical); err != nil {
 			return err
 		}
 		docs := make([]map[string]any, 0, len(canonical))
@@ -327,16 +337,33 @@ func digestExplicitGroupChildren(ctx context.Context, queryer store.RowQueryer, 
 	for _, group := range groups {
 		groupIDs[group.ID] = struct{}{}
 	}
+	source, err := readExplicitGroupSourceSelection(ctx, queryer, header)
+	if err != nil {
+		return "", "", 0, 0, err
+	}
 	hash := sha256.New()
 	explorer.StartExplicitGroupMembershipDigest(hash)
 	var memberCount int64
+	batch := make([]explorer.ExplicitGroupMembership, 0, explicitGroupPageSize)
 	err = readStagedExplicitGroupMemberships(ctx, queryer, header, groupIDs, func(membership explorer.ExplicitGroupMembership) error {
+		batch = append(batch, membership)
+		if len(batch) >= explicitGroupPageSize {
+			if err := validateExplicitGroupSourceMemberships(ctx, queryer, header, *source, batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
 		explorer.WriteExplicitGroupMembershipFrame(hash, membership)
 		memberCount++
 		return nil
 	})
 	if err != nil {
 		return "", "", 0, 0, err
+	}
+	if len(batch) > 0 {
+		if err := validateExplicitGroupSourceMemberships(ctx, queryer, header, *source, batch); err != nil {
+			return "", "", 0, 0, err
+		}
 	}
 	return definitionDigest, hex.EncodeToString(hash.Sum(nil)), int64(len(groups)), memberCount, nil
 }
@@ -353,7 +380,7 @@ func (s *Store) CompleteExplicitGroupRevision(ctx context.Context, revisionID ex
 	}
 	var result *explorer.ExplicitGroupRevision
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{
-		Read:  []string{ExplicitGroupDefinitionsCollection, ExplicitGroupMembershipsCollection},
+		Read:  []string{SelectionsCollection, SelectionMembersCollection, ExplicitGroupDefinitionsCollection, ExplicitGroupMembershipsCollection},
 		Write: []string{ExplicitGroupRevisionsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		header, row, err := s.readExplicitGroupRevision(txCtx, tx, revisionID, "")
@@ -401,6 +428,84 @@ RETURN NEW`
 		return nil
 	})
 	return result, err
+}
+
+func readExplicitGroupSourceSelection(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision) (*explorer.SelectionRevision, error) {
+	var source *explorer.SelectionRevision
+	err := queryer.QueryRows(ctx, `FOR d IN @@c FILTER d._key == @key AND d.project == @project RETURN d`, 1, map[string]any{
+		"@c": SelectionsCollection, "key": header.SourceSelectionRevisionID, "project": header.Project,
+	}, func(row map[string]any) error {
+		value, err := decode[explorer.SelectionRevision](row)
+		if err != nil {
+			return err
+		}
+		source = &value
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if source == nil {
+		return nil, explorer.ErrExplicitGroupRevisionStaleSource
+	}
+	if err := header.ValidateSourceSelection(*source); err != nil {
+		return nil, err
+	}
+	return source, nil
+}
+
+// validateExplicitGroupSourceMemberships runs inside each append/completion
+// boundary. It checks every relation against the immutable source selection
+// before any group-membership row can be inserted or the revision completed.
+func validateExplicitGroupSourceMemberships(ctx context.Context, queryer store.RowQueryer, header explorer.ExplicitGroupRevision, source explorer.SelectionRevision, memberships []explorer.ExplicitGroupMembership) error {
+	if err := header.ValidateSourceSelection(source); err != nil {
+		return err
+	}
+	for start := 0; start < len(memberships); start += explicitGroupPageSize {
+		end := start + explicitGroupPageSize
+		if end > len(memberships) {
+			end = len(memberships)
+		}
+		batch := memberships[start:end]
+		keys := make([]string, 0, len(batch))
+		want := make(map[string]explorer.ResourceRef, len(batch))
+		for _, membership := range batch {
+			membership = membership.Canonical()
+			key := selectionMemberKey(header.SourceSelectionRevisionID, membership.Ref)
+			keys = append(keys, key)
+			want[key] = membership.Ref
+		}
+		found := make(map[string]bool, len(keys))
+		err := queryer.QueryRows(ctx, `FOR m IN @@c
+FILTER m._key IN @keys AND m.selectionId == @selectionId AND m.project == @project
+RETURN m`, len(keys), map[string]any{
+			"@c": SelectionMembersCollection, "keys": keys, "selectionId": header.SourceSelectionRevisionID, "project": header.Project,
+		}, func(row map[string]any) error {
+			member, err := decode[explorer.SelectionMember](row)
+			if err != nil {
+				return err
+			}
+			key, _ := row["_key"].(string)
+			ref, ok := want[key]
+			if !ok || member.Ref.Canonical() != ref || member.MemberKey != key {
+				return explorer.ErrCorruptExplicitGroupRevision
+			}
+			if err := member.Validate(header.Project, header.Generation, header.ResourceType); err != nil {
+				return err
+			}
+			found[key] = true
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for key := range want {
+			if !found[key] {
+				return explorer.ErrExplicitGroupMemberNotInSelection
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Store) AbortExplicitGroupRevision(ctx context.Context, revisionID explorer.ExplicitGroupRevisionID, writerToken string) error {

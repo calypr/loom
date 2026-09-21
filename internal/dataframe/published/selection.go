@@ -71,14 +71,18 @@ func (r *Reader) ExactExecutionMaterialization(ctx context.Context, executionID,
 		if !output.Queryable() {
 			return Materialization{}, fmt.Errorf("published output %q is not queryable", outputID)
 		}
-		if !output.SourceRow.Valid() || strings.TrimSpace(execution.ReceiptID) == "" || strings.TrimSpace(execution.SchemaDigest) == "" {
+		if strings.TrimSpace(execution.ReceiptID) == "" || strings.TrimSpace(execution.SchemaDigest) == "" {
 			return Materialization{}, publication.ErrSelectionSourceNotAddressable
 		}
 		selector := output.Selector
 		if !selector.Valid() {
 			selector = execution.Selector(output.Name)
 		}
-		materialization := publishedMaterialization(execution, output, output.SourceRow.ResourceType)
+		name := output.Name
+		if output.SourceRow.Valid() {
+			name = output.SourceRow.ResourceType
+		}
+		materialization := publishedMaterialization(execution, output, name)
 		materialization.Selector = selector
 		return materialization, nil
 	}

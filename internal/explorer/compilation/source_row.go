@@ -48,8 +48,8 @@ func resolveAddressableDocumentSourceRow(document authoringv2.Document, contract
 		return SourceRowDescriptor{}, fmt.Errorf("output contract root resource type %q does not match document %q", contract.RootResourceType, document.RootResourceType)
 	}
 	grain := spec.RowGrain(contract.RowGrain)
-	if grain == spec.RowGrainExpanded {
-		return SourceRowDescriptor{}, fmt.Errorf("expanded rows do not preserve a single resource grain")
+	if grain == spec.RowGrainExpanded || grain == spec.RowGrainGroups {
+		return SourceRowDescriptor{}, fmt.Errorf("synthetic rows do not preserve a single resource grain")
 	}
 	if err := spec.ValidateRootGrain(document.RootResourceType, grain); err != nil {
 		return SourceRowDescriptor{}, fmt.Errorf("source row grain: %w", err)

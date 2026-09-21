@@ -120,6 +120,37 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/selections/{selectionRevision}/explicit-groups:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+      - name: selectionRevision
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    post:
+      operationId: createExplorerExplicitGroupRevision
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ExplicitGroupCreateRequest'}
+      responses:
+        '201':
+          description: Complete immutable groups pinned to the exact source selection.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExplicitGroupRevisionSummary'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/capability:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1289,6 +1320,54 @@ components:
           type: array
           items: {$ref: '#/components/schemas/SelectionMember'}
         nextCursor: {type: string}
+    ExplicitGroupCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, idempotencyKey, groups]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        idempotencyKey: {type: string, minLength: 1, maxLength: 256}
+        groups:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {$ref: '#/components/schemas/ExplicitGroupInput'}
+    ExplicitGroupInput:
+      type: object
+      additionalProperties: false
+      required: [id, label, ordinal, memberIds]
+      properties:
+        id: {type: string, minLength: 1, maxLength: 256}
+        label: {type: string, minLength: 1, maxLength: 256}
+        ordinal: {type: integer, format: int64, minimum: 0}
+        memberIds:
+          type: array
+          maxItems: 100000
+          uniqueItems: true
+          description: Opaque member keys returned by the exact source selection.
+          items: {type: string, minLength: 1, maxLength: 512}
+    ExplicitGroupRevisionSummary:
+      type: object
+      additionalProperties: false
+      required: [revisionId, sourceSelectionRevisionId, groupCount, memberCount, createdAt, groups]
+      properties:
+        revisionId: {type: string, minLength: 1}
+        sourceSelectionRevisionId: {type: string, minLength: 1}
+        groupCount: {type: integer, format: int64, minimum: 1}
+        memberCount: {type: integer, format: int64, minimum: 0}
+        createdAt: {type: string, format: date-time}
+        groups:
+          type: array
+          items: {$ref: '#/components/schemas/ExplicitGroupSummary'}
+    ExplicitGroupSummary:
+      type: object
+      additionalProperties: false
+      required: [id, label, ordinal, memberCount]
+      properties:
+        id: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        ordinal: {type: integer, format: int64, minimum: 0}
+        memberCount: {type: integer, format: int64, minimum: 0}
     RawJSON:
       description: JSON whose existing shape is preserved losslessly during route cutover.
       type: object

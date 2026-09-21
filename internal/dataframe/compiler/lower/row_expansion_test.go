@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -8,7 +10,78 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
+
+func TestSchemaDefinedSecondShapeKeepsIndependentArraysSeparate(t *testing.T) {
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberScope, err := index.ResolveRowPath("Group", "member[]")
+	if err != nil || memberScope.Shape != fhirschema.RowPathArray || memberScope.Cardinality != fhirschema.RowCardinalityMany {
+		t.Fatalf("Group member scope = %#v, %v", memberScope, err)
+	}
+	characteristicScope, err := index.ResolveRowPath("Group", "characteristic[]")
+	if err != nil || characteristicScope.Shape != fhirschema.RowPathArray || characteristicScope.Cardinality != fhirschema.RowCardinalityMany {
+		t.Fatalf("Group characteristic scope = %#v, %v", characteristicScope, err)
+	}
+
+	fixture, err := os.ReadFile("../../../../testdata/s03-independent-arrays/Group.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resource struct {
+		ResourceType   string           `json:"resourceType"`
+		ID             string           `json:"id"`
+		Member         []map[string]any `json:"member"`
+		Characteristic []map[string]any `json:"characteristic"`
+	}
+	if err := json.Unmarshal(fixture, &resource); err != nil {
+		t.Fatal(err)
+	}
+	if resource.ResourceType != "Group" || len(resource.Member) != 2 || len(resource.Characteristic) != 3 {
+		t.Fatalf("independent-array fixture = type %q with %d members and %d characteristics", resource.ResourceType, len(resource.Member), len(resource.Characteristic))
+	}
+
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedGroupMembers", RootResourceType: "Group", RootOccurrenceID: "group-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "characteristics", Expr: recipe.Expression{Select: "root.characteristic[]"}},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "group-root", From: recipe.Expression{Select: "root.member[]"}, As: "member", Ordinality: "position", EmptyPolicy: recipe.ExpansionError},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	})
+	var unnestCount int
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			unnestCount++
+		}
+	}
+	if unnestCount != 1 {
+		t.Fatalf("selected member expansion lowered %d UNNEST operations, want exactly one: %#v", unnestCount, output.Plan.Operations)
+	}
+	unnest := findRecipeUnnest(t, output.Plan)
+	if unnest.Owner.OccurrenceID != "group-root" || unnest.Expression.Extract == nil ||
+		unnest.Expression.Extract.Source.Variable != "root" || len(unnest.Expression.Extract.Selector.Steps) != 1 ||
+		unnest.Expression.Extract.Selector.Steps[0].Field != "member" || !unnest.Expression.Extract.Selector.Steps[0].Iterate {
+		t.Fatalf("selected repeated scope does not resolve only Group.member[]: owner=%#v expression=%#v", unnest.Owner, unnest.Expression)
+	}
+	rendered, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToUpper(rendered.Query), "ZIP(") || strings.Count(rendered.Query, "FOR __loom_physical_unnest_index_") != 1 {
+		t.Fatalf("independent arrays were implicitly zipped or multiplied:\n%s", rendered.Query)
+	}
+	if !strings.Contains(rendered.Query, "characteristic") || !strings.Contains(rendered.Query, "member") {
+		t.Fatalf("rendered expansion did not preserve both independent source arrays:\n%s", rendered.Query)
+	}
+	if len(resource.Member) != 2 || len(resource.Characteristic) != 3 {
+		t.Fatalf("selected member scope changed fixture cardinalities: %d x %d", len(resource.Member), len(resource.Characteristic))
+	}
+}
 
 func TestCompileRecipeRootExpansionBuildsOccurrenceIdentity(t *testing.T) {
 	output := compileExpansionRecipeOutput(t, recipe.Output{

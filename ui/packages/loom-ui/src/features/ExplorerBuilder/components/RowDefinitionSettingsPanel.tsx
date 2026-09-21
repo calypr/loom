@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
+  ExplicitGroupRevisionSummary,
   ExplorerRowDefinition,
   RowDefinitionChoicesResponse,
   RowDefinitionProposal,
   RowDefinitionSelection,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
+import type { SelectionRevision } from '../../../selection';
+import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
 
 type SelectionOption = {
   readonly value: string;
@@ -116,10 +119,11 @@ export const RowDefinitionSettingsPanel = ({
   draftVersion,
   draftDigest,
   table,
+  selection,
   disabled,
   onApply,
 }: {
-  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition'>;
+  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -127,11 +131,13 @@ export const RowDefinitionSettingsPanel = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
   readonly table: DraftTable;
+  readonly selection?: SelectionRevision;
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
+  const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
 
   useEffect(() => {
     setProposalState((current) => current.kind === 'fresh' && !isCurrentProposal(
@@ -208,6 +214,22 @@ export const RowDefinitionSettingsPanel = ({
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
   const comparison = currentProposal?.comparison;
+  const explicitGroupRootMatches = selection?.resourceType === table.document.rootResourceType;
+  const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
+    const choices = await client.listRowDefinitionChoices({
+      project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
+    });
+    if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken ||
+        !choices.explicitGroups.some((group) => group.revisionId === revision.revisionId)) {
+      throw new Error('The new group revision is not available for this table. Check that its selected resource type matches the table row type.');
+    }
+    const options = selectionOptions(choices);
+    const preferred = options.find((option) => option.value === `explicit:${revision.revisionId}:ERROR`) ??
+      options.find((option) => option.value.startsWith(`explicit:${revision.revisionId}:`));
+    setSettings({ kind: 'editing', choices, options, selectionId: preferred?.value ?? options[0]!.value });
+    setProposalState({ kind: 'none' });
+    setGroupAuthoringOpen(false);
+  };
 
   return (
     <section aria-label="Row definition settings" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
@@ -256,6 +278,35 @@ export const RowDefinitionSettingsPanel = ({
                 </label>
                 {settings.choices.explicitGroups.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500">The server has no complete explicit group revisions for this table.</p>
+                ) : null}
+                {groupAuthoringOpen && selection ? (
+                  <ExplicitGroupAuthoring
+                    client={client}
+                    project={project}
+                    explorerId={explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={snapshotToken}
+                    selection={selection}
+                    onCancel={() => setGroupAuthoringOpen(false)}
+                    onCreated={onExplicitGroupsCreated}
+                  />
+                ) : null}
+                {!groupAuthoringOpen ? (
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <h4 className="font-semibold text-slate-900">Author explicit groups</h4>
+                    {selection && explicitGroupRootMatches ? (
+                      <>
+                        <p className="mt-1 text-xs text-slate-600">Use the current Explorer selection of {selection.memberCount} {selection.resourceType} records as the starting set.</p>
+                        <button type="button" className="mt-3 rounded-md border border-blue-700 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50" disabled={disabled} onClick={() => setGroupAuthoringOpen(true)}>
+                          Create groups from this selection
+                        </button>
+                      </>
+                    ) : selection ? (
+                      <p className="mt-1 text-xs text-amber-900">The current selection uses {selection.resourceType}, while this table uses {table.document.rootResourceType}. Choose a matching existing selection before creating groups.</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-600">Choose an existing Explorer selection in the starting-collection controls before creating groups.</p>
+                    )}
+                  </div>
                 ) : null}
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                   <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>

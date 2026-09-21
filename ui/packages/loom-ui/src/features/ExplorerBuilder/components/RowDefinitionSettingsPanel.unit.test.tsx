@@ -3,6 +3,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
+import type { SelectionRevision } from '../../../selection';
 import type { DraftTable } from '../authoring/model';
 import { RowDefinitionSettingsPanel } from './RowDefinitionSettingsPanel';
 
@@ -65,13 +66,40 @@ const table: DraftTable = {
   },
 };
 
+const sourceSelection: SelectionRevision = {
+  id: 'selection-source-1',
+  project: 'project-a',
+  generation: 'generation-1',
+  resourceType: 'Patient',
+  rule: { kind: 'EXPLICIT' },
+  source: { kind: 'EXPLICIT_REFS' },
+  scopeDigest: 'scope-1',
+  ruleDigest: 'rule-1',
+  membershipDigest: 'membership-1',
+  memberCount: 3,
+  memberBytes: 3,
+  complete: true,
+  createdAt: '2026-09-20T00:00:00.000Z',
+};
+
+const selectionPage = {
+  revision: sourceSelection,
+  members: [
+    { ref: { project: 'project-a', generation: 'generation-1', resourceType: 'Patient', id: 'record-a' }, memberKey: 'opaque-member-a' },
+    { ref: { project: 'project-a', generation: 'generation-1', resourceType: 'Patient', id: 'record-b' }, memberKey: 'opaque-member-b' },
+    { ref: { project: 'project-a', generation: 'generation-1', resourceType: 'Patient', id: 'record-c' }, memberKey: 'opaque-member-c' },
+  ],
+};
+
 const renderSettings = (overrides: { draftVersion?: number; draftDigest?: string; proposalValue?: RowDefinitionProposal } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
+  const getSelection = vi.fn().mockResolvedValue(selectionPage);
+  const createExplicitGroupRevision = vi.fn();
   const onApply = vi.fn().mockResolvedValue(true);
   const view = render(
     <RowDefinitionSettingsPanel
-      client={{ listRowDefinitionChoices, proposeRowDefinition }}
+      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
@@ -82,7 +110,7 @@ const renderSettings = (overrides: { draftVersion?: number; draftDigest?: string
       onApply={onApply}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, onApply };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply };
 };
 
 afterEach(cleanup);
@@ -118,12 +146,206 @@ describe('RowDefinitionSettingsPanel', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
   });
 
+  it('authors exact overlapping groups from the owned selection before previewing and applying the receipt-backed proposal', async () => {
+    const revisionID = 'grouprev_new-revision';
+    const createdChoices: RowDefinitionChoicesResponse = {
+      ...choices,
+      explicitGroups: [...choices.explicitGroups, {
+        revisionId: revisionID,
+        groupCount: 2,
+        memberCount: 4,
+        createdAt: '2026-09-20T01:00:00.000Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
+    };
+    const listRowDefinitionChoices = vi.fn()
+      .mockResolvedValueOnce(choices)
+      .mockResolvedValueOnce(createdChoices);
+    const proposeRowDefinition = vi.fn().mockResolvedValue(proposal);
+    const getSelection = vi.fn().mockResolvedValue(selectionPage);
+    const createExplicitGroupRevision = vi.fn().mockImplementation(async (args: {
+      readonly selectionRevision: string;
+      readonly groups: ReadonlyArray<{ readonly id: string; readonly label: string; readonly ordinal: number; readonly memberIds: ReadonlyArray<string> }>;
+    }) => ({
+      revisionId: revisionID,
+      sourceSelectionRevisionId: args.selectionRevision,
+      groupCount: args.groups.length,
+      memberCount: args.groups.reduce((count, group) => count + group.memberIds.length, 0),
+      createdAt: '2026-09-20T01:00:00.000Z',
+      groups: args.groups.map((group) => ({ ...group, memberCount: group.memberIds.length })),
+    }));
+    const onApply = vi.fn().mockResolvedValue(true);
+    render(
+      <RowDefinitionSettingsPanel
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-1"
+        draftVersion={4}
+        draftDigest="draft-digest-4"
+        table={table}
+        selection={sourceSelection}
+        disabled={false}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row definition' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
+    await screen.findByText('Record 3 · record-c');
+    expect(getSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ selectionRevision: sourceSelection.id, cursor: undefined, limit: 100 }),
+      expect.any(AbortSignal),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Assign Record 1 · record-a to Group A' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Assign Record 2 · record-b to Group A' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Assign Record 2 · record-b to Group B' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Assign Record 3 · record-c to Group B' }));
+    expect(screen.getByRole('region', { name: 'Exact group memberships' })).toHaveTextContent('Group A: Record 1 · record-a, Record 2 · record-b');
+    expect(screen.getByRole('region', { name: 'Exact group memberships' })).toHaveTextContent('Group B: Record 2 · record-b, Record 3 · record-c');
+    fireEvent.click(screen.getByRole('button', { name: 'Create group revision' }));
+
+    await waitFor(() => expect(createExplicitGroupRevision).toHaveBeenCalledTimes(1));
+    const createRequest = createExplicitGroupRevision.mock.calls[0]?.[0];
+    expect(createRequest).toEqual(expect.objectContaining({ selectionRevision: sourceSelection.id, snapshotToken: 'snapshot-1' }));
+    expect(createRequest.groups.map((group: { label: string; memberIds: ReadonlyArray<string> }) => ({ label: group.label, memberIds: group.memberIds }))).toEqual([
+      { label: 'Group A', memberIds: ['opaque-member-a', 'opaque-member-b'] },
+      { label: 'Group B', memberIds: ['opaque-member-b', 'opaque-member-c'] },
+    ]);
+    expect(JSON.stringify(createRequest.groups)).not.toContain('resourceType');
+    expect(await screen.findAllByRole('option', { name: /grouprev_new ·/ })).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    await screen.findByRole('button', { name: 'Apply row definition' });
+    expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: revisionID, unassignedMemberPolicy: 'ERROR' } },
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply row definition' }));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
+  });
+
+  it('cancels group setup without creating a revision or changing the draft', async () => {
+    const listRowDefinitionChoices = vi.fn().mockResolvedValue(choices);
+    const proposeRowDefinition = vi.fn();
+    const getSelection = vi.fn().mockResolvedValue(selectionPage);
+    const createExplicitGroupRevision = vi.fn();
+    const onApply = vi.fn();
+    render(
+      <RowDefinitionSettingsPanel
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+        project="project-a"
+        explorerId="explorer-a"
+        snapshotToken="snapshot-1"
+        draftVersion={4}
+        draftDigest="draft-digest-4"
+        table={table}
+        selection={sourceSelection}
+        disabled={false}
+        onApply={onApply}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row definition' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
+    await screen.findByText('Record 3 · record-c');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel group setup' }));
+    expect(createExplicitGroupRevision).not.toHaveBeenCalled();
+    expect(proposeRowDefinition).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('loads selection members by page and retains earlier assignments', async () => {
+    const revisionID = 'grouprev_paged';
+    const firstPage = { revision: sourceSelection, members: selectionPage.members.slice(0, 2), nextCursor: 'cursor-page-2' };
+    const secondPage = { revision: sourceSelection, members: selectionPage.members.slice(2) };
+    const createdChoices: RowDefinitionChoicesResponse = {
+      ...choices,
+      explicitGroups: [...choices.explicitGroups, {
+        revisionId: revisionID, groupCount: 2, memberCount: 1, createdAt: '2026-09-20T01:00:00.000Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
+    };
+    const listRowDefinitionChoices = vi.fn().mockResolvedValueOnce(choices).mockResolvedValueOnce(createdChoices);
+    const getSelection = vi.fn().mockResolvedValueOnce(firstPage).mockResolvedValueOnce(secondPage);
+    const createExplicitGroupRevision = vi.fn().mockImplementation(async (args: {
+      readonly selectionRevision: string;
+      readonly groups: ReadonlyArray<{ readonly id: string; readonly label: string; readonly ordinal: number; readonly memberIds: ReadonlyArray<string> }>;
+    }) => ({
+      revisionId: revisionID, sourceSelectionRevisionId: args.selectionRevision, groupCount: args.groups.length,
+      memberCount: args.groups.reduce((count, group) => count + group.memberIds.length, 0), createdAt: '2026-09-20T01:00:00.000Z',
+      groups: args.groups.map((group) => ({ ...group, memberCount: group.memberIds.length })),
+    }));
+    render(
+      <RowDefinitionSettingsPanel
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
+        project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
+        table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row definition' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
+    await screen.findByText('Record 2 · record-b');
+    expect(screen.getByText('Loaded 2 of 3. Records not loaded or not assigned remain unassigned.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Assign Record 1 · record-a to Group A' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Load more selected records' }));
+    await screen.findByText('Record 3 · record-c');
+    expect((screen.getByRole('checkbox', { name: 'Assign Record 1 · record-a to Group A' }) as HTMLInputElement).checked).toBe(true);
+    expect(getSelection).toHaveBeenNthCalledWith(2,
+      expect.objectContaining({ selectionRevision: sourceSelection.id, cursor: 'cursor-page-2', limit: 100 }), expect.any(AbortSignal));
+    fireEvent.click(screen.getByRole('button', { name: 'Create group revision' }));
+    await waitFor(() => expect(createExplicitGroupRevision).toHaveBeenCalledTimes(1));
+    const request = createExplicitGroupRevision.mock.calls[0]?.[0];
+    expect(request.groups.map((group: { label: string; memberIds: ReadonlyArray<string> }) => ({ label: group.label, memberIds: group.memberIds }))).toEqual([
+      { label: 'Group A', memberIds: ['opaque-member-a'] },
+      { label: 'Group B', memberIds: [] },
+    ]);
+  });
+
+  it('allows creating one explicitly named group', async () => {
+    const revisionID = 'grouprev_one';
+    const createdChoices: RowDefinitionChoicesResponse = {
+      ...choices,
+      explicitGroups: [...choices.explicitGroups, {
+        revisionId: revisionID, groupCount: 1, memberCount: 0, createdAt: '2026-09-20T01:00:00.000Z',
+        unassignedMemberPolicies: ['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'],
+      }],
+    };
+    const listRowDefinitionChoices = vi.fn().mockResolvedValueOnce(choices).mockResolvedValueOnce(createdChoices);
+    const createExplicitGroupRevision = vi.fn().mockImplementation(async (args: {
+      readonly selectionRevision: string;
+      readonly groups: ReadonlyArray<{ readonly id: string; readonly label: string; readonly ordinal: number; readonly memberIds: ReadonlyArray<string> }>;
+    }) => ({
+      revisionId: revisionID, sourceSelectionRevisionId: args.selectionRevision, groupCount: args.groups.length,
+      memberCount: args.groups.reduce((count, group) => count + group.memberIds.length, 0), createdAt: '2026-09-20T01:00:00.000Z',
+      groups: args.groups.map((group) => ({ ...group, memberCount: group.memberIds.length })),
+    }));
+    render(
+      <RowDefinitionSettingsPanel
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
+        project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
+        table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row definition' });
+    fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
+    await screen.findByText('Record 3 · record-c');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Group B' }));
+    expect(screen.queryByRole('button', { name: 'Remove Group A' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Create group revision' }));
+    await waitFor(() => expect(createExplicitGroupRevision).toHaveBeenCalledTimes(1));
+    expect(createExplicitGroupRevision.mock.calls[0]?.[0].groups).toHaveLength(1);
+    expect(createExplicitGroupRevision.mock.calls[0]?.[0].groups[0]).toEqual(expect.objectContaining({ label: 'Group A', memberIds: [] }));
+  });
+
   it('expires a proposal when the saved draft changes', async () => {
     const listRowDefinitionChoices = vi.fn().mockResolvedValue(choices);
     const proposeRowDefinition = vi.fn().mockResolvedValue(proposal);
     const onApply = vi.fn().mockResolvedValue(true);
     const props = {
-      client: { listRowDefinitionChoices, proposeRowDefinition },
+      client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       draftVersion: 4, draftDigest: 'draft-digest-4', table, disabled: false, onApply,
     };
@@ -170,7 +392,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn().mockResolvedValue(true);
     render(
       <RowDefinitionSettingsPanel
-        client={{ listRowDefinitionChoices, proposeRowDefinition }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"

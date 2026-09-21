@@ -4,14 +4,18 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -218,6 +222,119 @@ func TestPrepareArtifactUsesJSONLWhenCSVWouldOmitRowIdentity(t *testing.T) {
 		}
 	}
 	t.Fatal("typed artifact omitted data.jsonl")
+}
+
+func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *testing.T) {
+	receipt := &explorer.CompilationReceipt{
+		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
+		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
+		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"groups","rowGrain":"groups","rowMultiplication":"none","columns":[{"column":"patient_id","label":"Root ID","logicalType":"string"}]}]}`),
+	}
+	materialization := dataframepublished.Materialization{
+		SchemaDigest: "published-schema", Columns: []dataframepublished.Column{
+			{Name: "group_revision_id", SemanticPath: "groups.revision_id", LogicalType: "string", LoomOwned: true},
+			{Name: "group_id", SemanticPath: "groups.group_id", LogicalType: "string"},
+			{Name: "group_label", SemanticPath: "groups.label", LogicalType: "string"},
+			{Name: "group_ordinal", SemanticPath: "groups.ordinal", LogicalType: "integer"},
+			{Name: "members", SemanticPath: "groups.members", LogicalType: "object", Repeated: true},
+			{Name: "__loom_row_id", SemanticPath: "groups.identity", LogicalType: "object", LoomOwned: true},
+			{Name: "auth_resource_path", SemanticPath: "auth.path", LogicalType: "string", LoomOwned: true},
+			{Name: "patient_id", SemanticPath: "root.id", LogicalType: "string"},
+		},
+	}
+	descriptor, columns, err := artifactDescriptor(receipt, materialization, "groups")
+	if err != nil {
+		t.Fatalf("group artifact descriptor: %v", err)
+	}
+	if descriptor.RowGrain != string(spec.RowGrainGroups) || descriptor.RowIdentity.Key != "__loom_row_id" || descriptor.RowIdentity.SourceIDColumn != "" || descriptor.RowIdentity.SourceResourceType != "" {
+		t.Fatalf("group row identity descriptor = %#v, want synthetic GROUPS identity only", descriptor)
+	}
+	wantNames := []string{"group_id", "group_label", "group_ordinal", "members"}
+	if got := artifactColumnNames(columns); !slices.Equal(got, wantNames) {
+		t.Fatalf("group artifact columns = %v, want %v", got, wantNames)
+	}
+	if got := columns[len(columns)-1]; got.LogicalType != "object" || got.Shape != "record_list" || !got.Repeated {
+		t.Fatalf("membership artifact column = %#v, want repeated object records", got)
+	}
+	wantIdentity := map[string]string{"group_revision_id": "grouprev-a", "group_id": "group-a"}
+	wantMembers := []any{
+		map[string]any{"source_identity": map[string]any{"project": "project-a", "generation": "generation-a", "resource_type": "Observation", "id": "obs-a"}, "payload": nil},
+		map[string]any{"source_identity": map[string]any{"project": "project-a", "generation": "generation-a", "resource_type": "Observation", "id": "obs-b"}, "payload": nil},
+	}
+	var archive bytes.Buffer
+	_, err = dataframepublished.WriteArtifact(context.Background(), &archive, dataframepublished.ArtifactRequest{
+		Identity: dataframepublished.ArtifactIdentity{
+			Project: "project-a", DatasetGeneration: "generation-a", ReceiptID: "receipt-a", ExecutionID: "execution-a",
+			OutputID: "groups", RevisionID: "revision-a", SchemaDigest: "published-schema", OutputContractDigest: "contract-digest",
+		},
+		Descriptor: descriptor, Columns: columns, SelectionMetadata: json.RawMessage(`{}`),
+		InterpretationMetadata: json.RawMessage(`[]`), Provenance: json.RawMessage(`{}`), Quality: json.RawMessage(`[]`),
+	}, func(visit dataframepublished.ArtifactRowVisitor) error {
+		return visit(map[string]any{
+			"__loom_row_id": wantIdentity, "group_id": "group-a", "group_label": "Group A", "group_ordinal": int64(0), "members": wantMembers,
+		})
+	})
+	if err != nil {
+		t.Fatalf("write group artifact: %v", err)
+	}
+	archiveReader, err := zip.NewReader(bytes.NewReader(archive.Bytes()), int64(archive.Len()))
+	if err != nil {
+		t.Fatalf("read group artifact: %v", err)
+	}
+	var exported struct {
+		RowID  map[string]string          `json:"rowId"`
+		Values map[string]json.RawMessage `json:"values"`
+	}
+	for _, member := range archiveReader.File {
+		if member.Name != "data.jsonl" {
+			continue
+		}
+		contents, readErr := member.Open()
+		if readErr != nil {
+			t.Fatalf("open group data member: %v", readErr)
+		}
+		data, readErr := io.ReadAll(contents)
+		_ = contents.Close()
+		if readErr != nil {
+			t.Fatalf("read group data member: %v", readErr)
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(data), &exported); err != nil {
+			t.Fatalf("decode group data row: %v", err)
+		}
+		break
+	}
+	if !reflect.DeepEqual(exported.RowID, wantIdentity) {
+		t.Fatalf("exported typed group identity = %#v, want %#v", exported.RowID, wantIdentity)
+	}
+	var exportedMembers []any
+	if err := json.Unmarshal(exported.Values["members"], &exportedMembers); err != nil {
+		t.Fatalf("decode exported members: %v", err)
+	}
+	if !reflect.DeepEqual(exportedMembers, wantMembers) {
+		t.Fatalf("exported nested member tuples = %#v, want %#v", exportedMembers, wantMembers)
+	}
+}
+
+func TestCanonicalGroupArtifactIdentityPreservesTypedCompilerFields(t *testing.T) {
+	const canonical = `{"group_revision_id":"grouprev-a","group_id":"group-a"}`
+	got, err := canonicalGroupArtifactIdentity(canonical)
+	if err != nil {
+		t.Fatalf("canonical group identity: %v", err)
+	}
+	want := map[string]string{"group_revision_id": "grouprev-a", "group_id": "group-a"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("group identity = %#v, want %#v", got, want)
+	}
+	for _, invalid := range []string{
+		`{"groupRevisionId":"grouprev-a","groupId":"group-a"}`,
+		`{"group_revision_id":"grouprev-a","group_id":"group-a","extra":"value"}`,
+		`{"group_revision_id":"grouprev-a","group_id":"group-a" }`,
+		`{"group_revision_id":"grouprev-a","group_id":7}`,
+	} {
+		if _, err := canonicalGroupArtifactIdentity(invalid); err == nil {
+			t.Errorf("accepted invalid group identity %s", invalid)
+		}
+	}
 }
 
 func TestArtifactQualityAcceptsLegacyStorageProjectIdentity(t *testing.T) {

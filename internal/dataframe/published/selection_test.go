@@ -18,13 +18,20 @@ func (c selectionCatalog) GetExecution(context.Context, string) (publication.Bun
 	return c.execution, nil
 }
 
-func TestExactExecutionMaterializationRejectsMissingAddressability(t *testing.T) {
+func TestExactExecutionMaterializationAcceptsSyntheticOutputWithoutSourceRow(t *testing.T) {
 	reader := &Reader{Catalog: selectionCatalog{execution: publication.BundleExecution{
 		ID: "execution-a", BundleIdentity: publication.BundleIdentity{Project: "project", DatasetGeneration: "generation", ReceiptID: "receipt", SchemaDigest: "schema"}, State: publication.BundlePublished,
 		Outputs: []publication.BundleOutputRecord{{Name: "files", PhysicalTable: "files_table", State: publication.BundlePublished, VerifiedAt: timePtr(time.Now())}},
 	}}}
-	if _, err := reader.ExactExecutionMaterialization(context.Background(), "execution-a", "files"); !errors.Is(err, publication.ErrSelectionSourceNotAddressable) {
-		t.Fatalf("error = %v, want source addressability failure", err)
+	materialization, err := reader.ExactExecutionMaterialization(context.Background(), "execution-a", "files")
+	if err != nil {
+		t.Fatalf("exact synthetic materialization error = %v", err)
+	}
+	if materialization.Name != "files" || materialization.SourceRow != nil {
+		t.Fatalf("synthetic materialization = %#v, want output name and no source row", materialization)
+	}
+	if _, _, err := SourceResourceRef(materialization, map[string]any{"id": "not-a-source-identity"}); !errors.Is(err, publication.ErrSelectionSourceNotAddressable) {
+		t.Fatalf("synthetic output source-ref error = %v, want source addressability failure", err)
 	}
 }
 

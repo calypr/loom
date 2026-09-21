@@ -401,6 +401,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		RowChoiceResolver:                  rowChoiceResolver,
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
+		ExplicitGroupRepository:            explorerStore,
 		CompileReceipt:                     compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {

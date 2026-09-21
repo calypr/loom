@@ -363,6 +363,33 @@ export const explicitGroupRevisionChoiceSchema = z.object({
   unassignedMemberPolicies: z.array(z.enum(['ERROR', 'EXCLUDE', 'GROUP_AS_UNASSIGNED'])).min(1),
 }).strict();
 export type ExplicitGroupRevisionChoice = z.infer<typeof explicitGroupRevisionChoiceSchema>;
+export const explicitGroupInputSchema = z.object({
+  id: opaqueIdSchema,
+  label: z.string().min(1).max(256),
+  ordinal: z.number().int().nonnegative().safe(),
+  memberIds: z.array(z.string().min(1).max(512)).max(100_000),
+}).strict();
+export const explicitGroupCreateRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  idempotencyKey: z.string().min(1).max(256),
+  groups: z.array(explicitGroupInputSchema).min(1).max(1000),
+}).strict();
+export type ExplicitGroupCreateRequest = z.infer<typeof explicitGroupCreateRequestSchema>;
+export const explicitGroupSummarySchema = z.object({
+  id: opaqueIdSchema,
+  label: z.string().min(1).max(256),
+  ordinal: z.number().int().nonnegative().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+}).strict();
+export const explicitGroupRevisionSummarySchema = z.object({
+  revisionId: opaqueIdSchema,
+  sourceSelectionRevisionId: opaqueIdSchema,
+  groupCount: z.number().int().positive().safe(),
+  memberCount: z.number().int().nonnegative().safe(),
+  createdAt: z.string().datetime(),
+  groups: z.array(explicitGroupSummarySchema),
+}).strict();
+export type ExplicitGroupRevisionSummary = z.infer<typeof explicitGroupRevisionSummarySchema>;
 export const rowDefinitionChoicesResponseSchema = z
   .object({
     snapshotToken: opaqueIdSchema,

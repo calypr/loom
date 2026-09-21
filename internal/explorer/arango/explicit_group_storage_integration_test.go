@@ -100,6 +100,17 @@ func TestExplicitGroupStorageAgainstArango(t *testing.T) {
 	if _, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, wrongScopeBatch); !errors.Is(err, explorer.ErrResourceRefScopeMismatch) {
 		t.Fatalf("cross-project append = %v", err)
 	}
+	foreignBatch := []explorer.ExplicitGroupMembership{
+		{GroupID: "group-a", Ref: sharedRef},
+		{GroupID: "group-b", Ref: explorer.ResourceRef{Project: project, Generation: source.Generation, ResourceType: source.ResourceType, ID: "not-in-source-selection"}},
+	}
+	if _, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, foreignBatch); !errors.Is(err, explorer.ErrExplicitGroupMemberNotInSelection) {
+		t.Fatalf("foreign source member append = %v", err)
+	}
+	_, _, _, partialCount, err := persistence.DigestExplicitGroupRevision(ctx, project, header.ID)
+	if err != nil || partialCount != 0 {
+		t.Fatalf("foreign batch wrote a partial membership set: count=%d err=%v", partialCount, err)
+	}
 	inserted, err := persistence.AppendExplicitGroupMemberships(ctx, header.ID, writer, memberships)
 	if err != nil || !reflect.DeepEqual(inserted, []explorer.ExplicitGroupMembership{{GroupID: "group-a", Ref: sharedRef.Canonical()}, {GroupID: "group-a", Ref: onlyARef.Canonical()}, {GroupID: "group-b", Ref: sharedRef.Canonical()}}) {
 		t.Fatalf("first append = %#v err=%v", inserted, err)
@@ -239,7 +250,7 @@ func testExplicitGroupCleanup(ctx context.Context, t *testing.T, client *store.C
 	if err := repository.PutExplicitGroupDefinitions(ctx, revision.ID, writer, groups); err != nil {
 		t.Fatal(err)
 	}
-	membership := explorer.ExplicitGroupMembership{GroupID: "group-a", Ref: explorer.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-expired"}}
+	membership := explorer.ExplicitGroupMembership{GroupID: "group-a", Ref: explorer.ResourceRef{Project: revision.Project, Generation: revision.Generation, ResourceType: revision.ResourceType, ID: "patient-3"}}
 	if _, err := repository.AppendExplicitGroupMemberships(ctx, revision.ID, writer, []explorer.ExplicitGroupMembership{membership}); err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +294,12 @@ func persistExplicitGroupTestSelection(ctx context.Context, t *testing.T, persis
 	if _, err := persistence.BeginSelection(ctx, selection, writer); err != nil {
 		return explorer.SelectionRevision{}, writer, err
 	}
-	member := explorer.SelectionMember{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "source-patient"}}
-	if _, err := persistence.AppendSelectionMembers(ctx, selection.ID, writer, []explorer.SelectionMember{member}); err != nil {
+	members := []explorer.SelectionMember{
+		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-1"}},
+		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-2"}},
+		{Ref: explorer.ResourceRef{Project: project, Generation: selection.Generation, ResourceType: selection.ResourceType, ID: "patient-3"}},
+	}
+	if _, err := persistence.AppendSelectionMembers(ctx, selection.ID, writer, members); err != nil {
 		return explorer.SelectionRevision{}, writer, err
 	}
 	digest, count, bytes, err := persistence.DigestSelectionMembers(ctx, project, selection.ID)

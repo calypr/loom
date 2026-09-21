@@ -1435,6 +1435,7 @@ const BuilderWorkspaceContent = ({
                     draftVersion={state.draftVersion}
                     draftDigest={state.draftDigest}
                     table={table}
+                    selection={activePopulationSelection}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                     onApply={(proposalId) => applyCommands([{
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,

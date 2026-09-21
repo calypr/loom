@@ -13,11 +13,12 @@ import (
 )
 
 var (
-	ErrExplicitGroupRevisionNotFound    = errors.New("explicit group revision not found")
-	ErrExplicitGroupRevisionConflict    = errors.New("explicit group revision conflict")
-	ErrExplicitGroupRevisionIncomplete  = errors.New("explicit group revision is incomplete")
-	ErrExplicitGroupRevisionStaleSource = errors.New("explicit group revision source is stale or mismatched")
-	ErrCorruptExplicitGroupRevision     = errors.New("corrupt explicit group revision")
+	ErrExplicitGroupRevisionNotFound     = errors.New("explicit group revision not found")
+	ErrExplicitGroupRevisionConflict     = errors.New("explicit group revision conflict")
+	ErrExplicitGroupRevisionIncomplete   = errors.New("explicit group revision is incomplete")
+	ErrExplicitGroupRevisionStaleSource  = errors.New("explicit group revision source is stale or mismatched")
+	ErrExplicitGroupMemberNotInSelection = errors.New("explicit group member is not in its source selection")
+	ErrCorruptExplicitGroupRevision      = errors.New("corrupt explicit group revision")
 )
 
 type ExplicitGroupRevisionID string

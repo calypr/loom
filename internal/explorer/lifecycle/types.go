@@ -131,6 +131,7 @@ type Config struct {
 	RowChoiceResolver           RowChoiceResolver
 	RowChoicePlanner            RowChoicePlanner
 	ExplicitGroupResolver       ExplicitGroupRevisionResolver
+	ExplicitGroupRepository     explorer.ExplicitGroupRepository
 
 	CompileReceipt               ReceiptCompiler
 	PreviewReceipt               ReceiptPreviewer

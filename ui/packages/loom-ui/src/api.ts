@@ -13,6 +13,8 @@ import {
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
+  explicitGroupCreateRequestSchema,
+  explicitGroupRevisionSummarySchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
   type ExplorerBuilderCatalog,
@@ -29,6 +31,8 @@ import {
   type RowDefinitionChoicesResponse,
   type RowDefinitionProposal,
   type RowDefinitionSelection,
+  type ExplicitGroupCreateRequest,
+  type ExplicitGroupRevisionSummary,
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
   type SemanticInventoryBrowseResponse,
@@ -307,6 +311,14 @@ export interface ProposeRowDefinitionArgs extends ExplorerAuthoringStateArgs {
   readonly requestId?: string;
 }
 
+export interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly selectionRevision: string;
+  readonly idempotencyKey: string;
+  readonly groups: ExplicitGroupCreateRequest['groups'];
+  readonly requestId?: string;
+}
+
 export interface CreateExplorerArgs extends ExplorerAuthoringProjectArgs {
   readonly name: string;
   readonly title?: string;
@@ -421,6 +433,10 @@ export interface LoomOutputResult {
 export interface LoomClient {
   readonly createSelection: (args: CreateSelectionArgs, signal?: AbortSignal) => Promise<SelectionRevision>;
   readonly getSelection: (args: GetSelectionArgs, signal?: AbortSignal) => Promise<SelectionPage>;
+  readonly createExplicitGroupRevision: (
+    args: CreateExplicitGroupRevisionArgs,
+    signal?: AbortSignal,
+  ) => Promise<ExplicitGroupRevisionSummary>;
   readonly listExplorers: (
     args: ExplorerAuthoringProjectArgs,
     signal?: AbortSignal,
@@ -1157,6 +1173,15 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     return request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}/selections/${encodeURIComponent(args.selectionRevision)}${query}`, { signal })
       .then((value) => selectionPageSchema.parse(value));
   };
+  const createExplicitGroupRevision = (args: CreateExplicitGroupRevisionArgs, signal?: AbortSignal) => {
+    const requestBody = explicitGroupCreateRequestSchema.parse({
+      snapshotToken: args.snapshotToken,
+      idempotencyKey: args.idempotencyKey,
+      groups: args.groups,
+    });
+    return request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}/selections/${encodeURIComponent(args.selectionRevision)}/explicit-groups${authResourcePathQuery(args.authResourcePath)}`, withJson(requestBody, signal, args.requestId))
+      .then((value) => explicitGroupRevisionSummarySchema.parse(value));
+  };
   const deleteExplorer = async (args: DeleteExplorerArgs, signal?: AbortSignal) => {
     await request(`${projectPath(args)}/${encodeURIComponent(args.explorerId)}`, { method: 'DELETE', signal, headers: args.requestId ? { 'X-Request-ID': args.requestId } : undefined });
     evictCached(`explorers:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}`);
@@ -1253,6 +1278,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     listExplorers,
     createSelection,
     getSelection,
+    createExplicitGroupRevision,
     getBuilder,
     getCapability,
     getExplorer,

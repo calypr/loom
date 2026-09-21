@@ -9,6 +9,46 @@ import {
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 
 describe('Loom project paths', () => {
+  it('creates explicit groups from opaque source-selection member keys', async () => {
+    const response = {
+      revisionId: 'grouprev-created',
+      sourceSelectionRevisionId: 'selection-source',
+      groupCount: 2,
+      memberCount: 3,
+      createdAt: '2026-09-20T00:00:00.000Z',
+      groups: [
+        { id: 'group-a', label: 'Alpha', ordinal: 0, memberCount: 2 },
+        { id: 'group-b', label: 'Beta', ordinal: 1, memberCount: 1 },
+      ],
+    } as const;
+    const groups = [
+      { id: 'group-a', label: 'Alpha', ordinal: 0, memberIds: ['opaque-member-a', 'opaque-member-b'] },
+      { id: 'group-b', label: 'Beta', ordinal: 1, memberIds: ['opaque-member-b'] },
+    ];
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(response), { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+    const client = createLoomClient({ fetch });
+
+    await expect(client.createExplicitGroupRevision({
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      selectionRevision: 'selection-source',
+      snapshotToken: 'snapshot-1',
+      idempotencyKey: 'idempotency-1',
+      groups,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/selections/selection-source/explicit-groups',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ snapshotToken: 'snapshot-1', idempotencyKey: 'idempotency-1', groups }),
+      }),
+    );
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('resourceType');
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('FHIR');
+  });
+
   it('lists opaque row choices and proposes an exact selected row definition', async () => {
     const choices = {
       snapshotToken: 'snapshot-token',

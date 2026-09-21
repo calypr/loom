@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -173,7 +174,22 @@ func (s *Service) PrepareArtifact(ctx context.Context, request ArtifactRequest) 
 		MaxBytes:               s.artifactMaxBytes(),
 	}, func(visit dataframepublished.ArtifactRowVisitor) error {
 		var err error
-		streamResult, err = s.config.PublishedReader.StreamExactExport(ctx, exactRequest, dataframepublished.ExactExportVisitor(visit))
+		artifactVisit := visit
+		if descriptor.RowGrain == string(spec.RowGrainGroups) {
+			artifactVisit = func(row map[string]any) error {
+				identity, identityErr := canonicalGroupArtifactIdentity(row["__loom_row_id"])
+				if identityErr != nil {
+					return fmt.Errorf("group artifact row identity: %w", identityErr)
+				}
+				copy := make(map[string]any, len(row))
+				for key, value := range row {
+					copy[key] = value
+				}
+				copy["__loom_row_id"] = identity
+				return visit(copy)
+			}
+		}
+		streamResult, err = s.config.PublishedReader.StreamExactExport(ctx, exactRequest, dataframepublished.ExactExportVisitor(artifactVisit))
 		return err
 	})
 	if encodeErr != nil || !encoded.Complete {
@@ -350,6 +366,9 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 	if !ok {
 		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("output %q is absent from its contract", outputID)
 	}
+	if spec.RowGrain(contract.RowGrain) == spec.RowGrainGroups {
+		return groupArtifactDescriptor(receipt, materialization, outputID, contract)
+	}
 	contractColumns := make(map[string]struct{}, len(contract.Columns))
 	for _, column := range contract.Columns {
 		contractColumns[strings.TrimSpace(column.Column)] = struct{}{}
@@ -424,6 +443,107 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 		})
 	}
 	return descriptor, columns, nil
+}
+
+func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract explorer.PublicOutputContract) (dataframepublished.ArtifactDescriptor, []dataframepublished.ArtifactColumn, error) {
+	columns := make([]dataframepublished.ArtifactColumn, 0, len(materialization.Columns))
+	for _, column := range materialization.Columns {
+		name := strings.TrimSpace(column.Name)
+		semanticPath := strings.TrimSpace(column.SemanticPath)
+		if name == "" || name == "auth_resource_path" || strings.HasPrefix(name, "__loom_") || column.LoomOwned || !strings.HasPrefix(semanticPath, "groups.") {
+			continue
+		}
+		shape := "scalar"
+		if column.Repeated {
+			shape = "array"
+			if strings.EqualFold(strings.TrimSpace(column.LogicalType), "object") {
+				shape = "record_list"
+			}
+		}
+		columns = append(columns, dataframepublished.ArtifactColumn{
+			Name: name, OutputKey: name, LogicalType: column.LogicalType, Shape: shape,
+			Nullable: column.Nullable, Repeated: column.Repeated,
+		})
+	}
+	if len(columns) == 0 {
+		return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("group output %q has no public synthetic columns in the exact materialization", outputID)
+	}
+	descriptor := dataframepublished.ArtifactDescriptor{
+		Version: 1, OutputKey: outputID,
+		ReceiptFormatVersion:    receipt.ReceiptFormatVersion,
+		CompilerContractVersion: receipt.CompilerContractVersion,
+		RecipeSchemaVersion:     receipt.Bundle.RecipeSchemaVersion,
+		TranslationVersion:      receipt.Bundle.TranslationVersion,
+		SourceGeneration:        receipt.SourceGeneration,
+		PublishedSchemaDigest:   materialization.SchemaDigest,
+		ResolvedSchemaDigest:    receipt.ResolvedSchemaDigest,
+		OutputContractDigest:    receipt.OutputContractDigest,
+		RowGrain:                string(spec.RowGrainGroups), RowMultiplication: contract.RowMultiplication,
+		RowIdentity: dataframepublished.ArtifactRowIdentity{Key: "__loom_row_id"},
+	}
+	for _, interpretation := range receipt.ResolvedInterpretations {
+		if interpretation.OutputID != outputID {
+			continue
+		}
+		descriptor.Interpretations = append(descriptor.Interpretations, dataframepublished.ArtifactInterpretationIdentity{
+			OutputKey: interpretation.Column, OccurrenceID: interpretation.OccurrenceID,
+			RevisionID: string(interpretation.Revision.ID), ContentDigest: string(interpretation.Revision.ContentDigest),
+			RuleID: string(interpretation.SelectedRuleID),
+		})
+	}
+	return descriptor, columns, nil
+}
+
+func canonicalGroupArtifactIdentity(value any) (map[string]string, error) {
+	var encoded []byte
+	switch typed := value.(type) {
+	case string:
+		encoded = []byte(typed)
+	case []byte:
+		encoded = append([]byte(nil), typed...)
+	case map[string]string:
+		return validateGroupArtifactIdentityMap(typed)
+	case map[string]any:
+		fields := make(map[string]string, len(typed))
+		for key, field := range typed {
+			text, ok := field.(string)
+			if !ok {
+				return nil, fmt.Errorf("identity field %q must be a string", key)
+			}
+			fields[key] = text
+		}
+		return validateGroupArtifactIdentityMap(fields)
+	default:
+		return nil, fmt.Errorf("identity has unsupported type %T", value)
+	}
+	var fields map[string]string
+	if err := json.Unmarshal(encoded, &fields); err != nil || fields == nil {
+		return nil, fmt.Errorf("identity is not a JSON object")
+	}
+	identity, err := validateGroupArtifactIdentityMap(fields)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := json.Marshal(struct {
+		GroupRevisionID string `json:"group_revision_id"`
+		GroupID         string `json:"group_id"`
+	}{GroupRevisionID: identity["group_revision_id"], GroupID: identity["group_id"]})
+	if err != nil || string(encoded) != string(canonical) {
+		return nil, fmt.Errorf("identity JSON is not the canonical compiler group identity")
+	}
+	return identity, nil
+}
+
+func validateGroupArtifactIdentityMap(fields map[string]string) (map[string]string, error) {
+	if len(fields) != 2 || strings.TrimSpace(fields["group_revision_id"]) == "" || strings.TrimSpace(fields["group_id"]) == "" {
+		return nil, fmt.Errorf("identity must contain exactly non-empty group_revision_id and group_id fields")
+	}
+	for key := range fields {
+		if key != "group_revision_id" && key != "group_id" {
+			return nil, fmt.Errorf("identity contains unknown field %q", key)
+		}
+	}
+	return map[string]string{"group_revision_id": fields["group_revision_id"], "group_id": fields["group_id"]}, nil
 }
 
 func artifactColumnNames(columns []dataframepublished.ArtifactColumn) []string {
