@@ -4,14 +4,18 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
   const loaded = loadJ04FixtureContract(fixtureDir);
   assert.equal(loaded.contract.sourceFile, 'j04-records.ndjson.fixture');
-  assert.equal(loaded.sourceRecords.length, 17);
+  assert.equal(loaded.sourceRecords.length, 18);
   assert.equal(validateJ04FixtureContract(loaded.contract, loaded.sourceRecords), true);
+  const manifest = j04FixtureManifest(fixtureDir, loaded);
+  assert.deepEqual(manifest.summary, { sourceFile: 'j04-records.ndjson.fixture', sourceRecords: 18 });
+  assert.deepEqual(manifest.files.map(({ name }) => name), ['Observation.ndjson', 'Patient.ndjson']);
+  assert.deepEqual(manifest.files.map(({ contents }) => contents.toString('utf8').trim().split('\n').length), [16, 2]);
   assert.equal(loaded.contract.baseRowResourceType, 'Observation');
   assert.equal(loaded.contract.aggregateScope.rowResourceType, 'Patient');
   assert.deepEqual(loaded.contract.aggregateScope.selectedRowIdentities, ['Patient/j04-patient-001']);
@@ -40,8 +44,8 @@ test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence
   assert.throws(() => validateJ04FixtureContract(changedIdentity, loaded.sourceRecords), /identities or order differ/);
 
   const changedSource = structuredClone(loaded.sourceRecords);
-  changedSource.find((record) => record.id === 'j04-scalar-empty').valueString = ' ';
-  assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /empty scalar evidence/);
+  changedSource.find((record) => record.id === 'j04-scalar-blank').valueString = 'not blank';
+  assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /blank scalar evidence/);
 });
 
 test('J04 fixture contract recalculates exact aggregate and temporal source evidence', () => {
@@ -126,8 +130,8 @@ test('J04 browser control plan carries both row scopes and fixture-owned operato
   assert.equal(plan.observation.rowResourceType, 'Observation');
   assert.notEqual(plan.aggregate.rowResourceType, plan.observation.rowResourceType);
   assert.deepEqual(plan.observation.pivot.categories.map(({ code }) => code), ['alpha', 'beta']);
-  assert.equal(plan.observation.pivot.expectedInformationLoss.unlistedExcludedRecordCount, 11);
-  assert.deepEqual(plan.observation.presenceCases.map(({ presence }) => presence), ['missing', 'null', 'false', 'zero', 'empty']);
+  assert.equal(plan.observation.pivot.expectedInformationLoss.unlistedExcludedRecordCount, 12);
+  assert.deepEqual(plan.observation.presenceCases.map(({ presence }) => presence), ['missing', 'null', 'false', 'zero', 'blank']);
   assert.throws(() => j04BrowserControlPlan({ ...contract, expectedAggregates: [{ count: 3 }] }), /all six aggregate literals/);
 });
 

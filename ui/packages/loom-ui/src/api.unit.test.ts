@@ -1365,7 +1365,10 @@ describe('configured-column interpretation APIs', () => {
       comparison: {
         status: 'UNAVAILABLE', reasonCode: 'COMPARE_UNAVAILABLE', reason: 'No bounded comparison is available.',
         changedColumns: empty, changedRowCount: 0, changedRowsSampled: false, changedRows: [],
-        contributors: [], contributorsSampled: false, evidenceLimitations: ['No preview sample was returned.'], notices: [],
+        contributors: [], contributorsSampled: false,
+        exclusions: { status: 'UNAVAILABLE', records: [], complete: false, sampled: false, failureCode: 'COMPARE_UNAVAILABLE' },
+        declaredInformationLoss: { status: 'UNAVAILABLE', items: [], failureCode: 'COMPARE_UNAVAILABLE' },
+        evidenceLimitations: [{ code: 'PREVIEW_SAMPLE_UNAVAILABLE', message: 'No preview sample was returned.' }], notices: [],
       },
     };
     const fetch = vi.fn<typeof globalThis.fetch>()

@@ -9,10 +9,11 @@
     { "resourceType": "Observation", "id": "j04-measure-003" },
     { "resourceType": "Observation", "id": "j04-window-excluded" },
     { "resourceType": "Observation", "id": "j04-unsupported-unit" },
+    { "resourceType": "Observation", "id": "j04-scalar-present" },
     { "resourceType": "Observation", "id": "j04-scalar-null" },
     { "resourceType": "Observation", "id": "j04-scalar-false" },
     { "resourceType": "Observation", "id": "j04-scalar-zero" },
-    { "resourceType": "Observation", "id": "j04-scalar-empty" },
+    { "resourceType": "Observation", "id": "j04-scalar-blank" },
     { "resourceType": "Observation", "id": "j04-scalar-missing" },
     { "resourceType": "Observation", "id": "j04-pivot-alpha-a" },
     { "resourceType": "Observation", "id": "j04-pivot-alpha-b" },
@@ -33,7 +34,7 @@
     "selectedRowIdentities": ["Patient/j04-patient-001"],
     "sourceResourceType": "Observation",
     "ownerReferencePath": "subject.reference",
-    "categoryPath": "code.coding.0.code",
+    "categoryPath": "code.coding[].code",
     "categoryCode": "measure",
     "valuePath": "valueQuantity.value",
     "unitPath": "valueQuantity.code",
@@ -89,7 +90,7 @@
     "applied": false
   },
   "recodingOutcomes": {
-    "sourcePath": "interpretation.0.coding.0.code",
+    "sourcePath": "interpretation[].coding[].code",
     "casePolicy": "EXACT",
     "unknownPolicy": "KEEP_ORIGINAL",
     "mapping": { "A": "Positive", "B": "Negative" },
@@ -103,14 +104,13 @@
     "sourceResourceType": "Observation",
     "requiredSourceColumns": [
       { "path": "subject.reference", "label": "Subject reference" },
-      { "path": "code.coding.0.code", "label": "Observation category code" },
-      { "path": "valueQuantity.code", "label": "UCUM unit code" }
+      { "path": "code.coding[].code", "label": "Observation category code", "projectionMode": "FIRST" }
     ],
     "groupColumns": [
       { "path": "subject.reference", "logicalType": "string" },
       { "path": "status", "logicalType": "string" }
     ],
-    "categoryColumn": { "path": "code.coding.0.code", "logicalType": "string" },
+    "categoryColumn": { "path": "code.coding[].code", "logicalType": "string" },
     "valueColumn": {
       "path": "valueQuantity.value",
       "logicalType": "number",
@@ -175,10 +175,11 @@
       { "sourceRecordId": "j04-measure-003", "categoryCode": "measure", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-window-excluded", "categoryCode": "measure", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-unsupported-unit", "categoryCode": "measure", "reason": "UNLISTED_CATEGORY" },
+      { "sourceRecordId": "j04-scalar-present", "categoryCode": "scalar-present", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-null", "categoryCode": "scalar-null", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-false", "categoryCode": "scalar-false", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-zero", "categoryCode": "scalar-zero", "reason": "UNLISTED_CATEGORY" },
-      { "sourceRecordId": "j04-scalar-empty", "categoryCode": "scalar-empty", "reason": "UNLISTED_CATEGORY" },
+      { "sourceRecordId": "j04-scalar-blank", "categoryCode": "scalar-blank", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-missing", "categoryCode": "scalar-missing", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-pivot-unlisted", "categoryCode": "gamma", "reason": "UNLISTED_CATEGORY" }
     ],
@@ -186,7 +187,7 @@
       "sourceRowResourceType": "Observation",
       "groupedRowCount": 2,
       "contributingSourceRecordIds": ["j04-pivot-alpha-a", "j04-pivot-alpha-b", "j04-pivot-beta-a", "j04-pivot-alpha-patient-002"],
-      "unlistedExcludedRecordCount": 11,
+      "unlistedExcludedRecordCount": 12,
       "missingCategoryCells": [
         {
           "groupValues": { "subject.reference": "Patient/j04-patient-002", "status": "final" },
@@ -237,7 +238,7 @@
     { "sourceRecordId": "j04-scalar-null", "fieldPath": "valueString", "presence": "null", "value": null },
     { "sourceRecordId": "j04-scalar-false", "fieldPath": "valueBoolean", "presence": "false", "value": false },
     { "sourceRecordId": "j04-scalar-zero", "fieldPath": "valueInteger", "presence": "zero", "value": 0 },
-    { "sourceRecordId": "j04-scalar-empty", "fieldPath": "valueString", "presence": "empty", "value": "" }
+    { "sourceRecordId": "j04-scalar-blank", "fieldPath": "valueString", "presence": "blank", "value": " " }
   ],
   "acceptanceExpectations": {
     "unsupportedUnitProposalIsRefused": true,
