@@ -390,6 +390,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
+	tableShapeCapabilities, err := explorerarango.NewTableShapeCapabilityRepository(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("configure table-shape capability repository: %w", err)
+	}
 	lifecycleConfig := lifecycle.Config{
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
@@ -402,7 +406,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		RowChoicePlanner:                   rowChoiceResolver,
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
-		CompileReceipt:                     compileReceipt,
+		TableShapeCapabilities:             tableShapeCapabilities,
+		ScanTableShapeCategories: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			if receipt == nil {
+				return dataframeexecution.CategoryScanResult{}, fmt.Errorf("compilation receipt is missing")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer table-shape category scan resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.CategoryScanResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
+			}
+			return recipeEngine.ScanCategories(ctx, resolved, request)
+		},
+		CompileReceipt: compileReceipt,
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)

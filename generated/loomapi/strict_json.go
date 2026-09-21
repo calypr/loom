@@ -152,3 +152,91 @@ func (value *SelectionCreateRequest) UnmarshalJSON(raw []byte) error {
 	*value = SelectionCreateRequest(decoded)
 	return nil
 }
+
+func (value *TableShapeCapabilitiesRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeCapabilitiesRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeCapabilitiesRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeCategoryDiscoveryRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeCategoryDiscoveryRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeCategoryDiscoveryRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeResolutionRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeResolutionRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	payloads := 0
+	if decoded.Pivot != nil {
+		payloads++
+	}
+	if decoded.Unpivot != nil {
+		payloads++
+	}
+	if decoded.Derived != nil {
+		payloads++
+	}
+	if payloads != 1 {
+		return errors.New("table-shape resolution requires exactly one selection payload")
+	}
+	switch decoded.Kind {
+	case TableShapeResolutionRequestKindPIVOT:
+		if decoded.Pivot == nil || decoded.Unpivot != nil || decoded.Derived != nil {
+			return errors.New("PIVOT resolution requires only the pivot payload")
+		}
+	case TableShapeResolutionRequestKindUNPIVOT:
+		if decoded.Unpivot == nil || decoded.Pivot != nil || decoded.Derived != nil {
+			return errors.New("UNPIVOT resolution requires only the unpivot payload")
+		}
+	case TableShapeResolutionRequestKindDERIVED:
+		if decoded.Derived == nil || decoded.Pivot != nil || decoded.Unpivot != nil {
+			return errors.New("DERIVED resolution requires only the derived payload")
+		}
+	default:
+		return errors.New("unsupported table-shape resolution kind")
+	}
+	*value = TableShapeResolutionRequest(decoded)
+	return nil
+}
+
+func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeOperandSelection
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	choice := decoded.ChoiceId != nil
+	resolution := decoded.ResolutionId != nil
+	literal := decoded.Literal != nil
+	switch decoded.Kind {
+	case CATALOGCHOICE:
+		if !choice || resolution || literal {
+			return errors.New("CATALOG_CHOICE operand requires only choiceId")
+		}
+	case RESOLUTIONOUTPUT:
+		if !resolution || choice || literal {
+			return errors.New("RESOLUTION_OUTPUT operand requires only resolutionId")
+		}
+	case LITERAL:
+		if !literal || choice || resolution {
+			return errors.New("LITERAL operand requires only literal")
+		}
+	default:
+		return errors.New("unsupported table-shape operand kind")
+	}
+	*value = TableShapeOperandSelection(decoded)
+	return nil
+}

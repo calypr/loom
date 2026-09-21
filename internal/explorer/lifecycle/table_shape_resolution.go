@@ -286,10 +286,22 @@ func (r *TableShapeResolutionRequest) UnmarshalJSON(data []byte) error {
 }
 
 type TableShapeResolvedCategory struct {
-	ID           string               `json:"id"`
-	Value        tableshapecap.Scalar `json:"value"`
-	OutputColumn string               `json:"outputColumn"`
-	OutputLabel  string               `json:"outputLabel"`
+	ID              string                 `json:"id"`
+	Value           tableshapecap.Scalar   `json:"value"`
+	OutputColumn    string                 `json:"outputColumn"`
+	OutputLabel     string                 `json:"outputLabel"`
+	Type            tableshapecap.TypeFact `json:"type"`
+	OperandChoiceID string                 `json:"operandChoiceId,omitempty"`
+}
+
+type TableShapePostPivotOutput struct {
+	Kind             string                 `json:"kind"`
+	ColumnChoiceID   string                 `json:"columnChoiceId,omitempty"`
+	CategoryChoiceID string                 `json:"categoryChoiceId,omitempty"`
+	OperandChoiceID  string                 `json:"operandChoiceId,omitempty"`
+	OutputColumn     string                 `json:"outputColumn"`
+	OutputLabel      string                 `json:"outputLabel"`
+	Type             tableshapecap.TypeFact `json:"type"`
 }
 
 type TableShapeResolutionResult struct {
@@ -302,6 +314,7 @@ type TableShapeResolutionResult struct {
 	KeyResult           *tableshapecap.TypeFact      `json:"keyResult,omitempty"`
 	ValueResult         *tableshapecap.TypeFact      `json:"valueResult,omitempty"`
 	DerivedOperands     []TableShapeCatalogChoice    `json:"derivedOperands,omitempty"`
+	PostPivotOutputs    []TableShapePostPivotOutput  `json:"postPivotOutputs,omitempty"`
 }
 
 func (s *Service) ResolveTableShape(ctx context.Context, request TableShapeResolutionRequest) (TableShapeResolutionResult, error) {
@@ -367,6 +380,11 @@ func (s *Service) ResolveTableShape(ctx context.Context, request TableShapeResol
 	}
 	result.ResolutionID = stored.ID
 	if stored.Pivot != nil {
+		postPivot, err := tableShapePostPivotOutputs(catalog, stored.Pivot)
+		if err != nil {
+			return TableShapeResolutionResult{}, conflict("table-shape-resolution", "PIVOT_OUTPUT_TYPE_MISSING", "the compiler did not prove types for the selected pivot outputs", nil, err)
+		}
+		result.PostPivotOutputs = postPivot
 		for _, operand := range stored.Pivot.DerivedOperands {
 			fact := operand.Type
 			result.DerivedOperands = append(result.DerivedOperands, TableShapeCatalogChoice{
@@ -375,10 +393,77 @@ func (s *Service) ResolveTableShape(ctx context.Context, request TableShapeResol
 		}
 		result.Categories = make([]TableShapeResolvedCategory, len(stored.Pivot.Categories))
 		for i, category := range stored.Pivot.Categories {
-			result.Categories[i] = TableShapeResolvedCategory{ID: category.ChoiceID, Value: category.Value, OutputColumn: category.OutputColumn, OutputLabel: category.OutputLabel}
+			var output *TableShapePostPivotOutput
+			for index := range result.PostPivotOutputs {
+				if result.PostPivotOutputs[index].Kind == "category" && result.PostPivotOutputs[index].CategoryChoiceID == category.ChoiceID {
+					output = &result.PostPivotOutputs[index]
+					break
+				}
+			}
+			if output == nil {
+				return TableShapeResolutionResult{}, conflict("table-shape-resolution", "PIVOT_OUTPUT_TYPE_MISSING", "the compiler did not prove a type for a selected pivot output", nil, nil)
+			}
+			result.Categories[i] = TableShapeResolvedCategory{
+				ID: category.ChoiceID, Value: category.Value, OutputColumn: category.OutputColumn,
+				OutputLabel: category.OutputLabel, Type: output.Type, OperandChoiceID: output.OperandChoiceID,
+			}
 		}
 	}
 	return result, nil
+}
+
+func tableShapePostPivotOutputs(catalog tableshapecap.CatalogReceipt, pivot *tableshapecap.PivotResolution) ([]TableShapePostPivotOutput, error) {
+	if pivot == nil {
+		return nil, nil
+	}
+	outputs := make([]TableShapePostPivotOutput, 0, len(pivot.GroupColumnChoiceIDs)+len(pivot.Categories))
+	for _, choiceID := range pivot.GroupColumnChoiceIDs {
+		choice, err := catalog.FindColumn(tableshapecap.RolePivotGroup, choiceID)
+		if err != nil {
+			return nil, err
+		}
+		column := findPublicColumn(catalog, choice.ColumnKey)
+		if column == nil {
+			return nil, fmt.Errorf("group column choice has no compiler output")
+		}
+		output := TableShapePostPivotOutput{
+			Kind: "group", ColumnChoiceID: choiceID, OutputColumn: column.Key,
+			OutputLabel: column.Label, Type: tableShapeTypeFact(*column),
+		}
+		for _, operand := range pivot.DerivedOperands {
+			if operand.OutputColumn == column.Key {
+				output.OperandChoiceID = operand.ChoiceID
+				break
+			}
+		}
+		outputs = append(outputs, output)
+	}
+	valueChoice, err := catalog.FindColumn(tableshapecap.RolePivotValue, pivot.ValueColumnChoiceID)
+	if err != nil {
+		return nil, err
+	}
+	valueColumn := findPublicColumn(catalog, valueChoice.ColumnKey)
+	if valueColumn == nil {
+		return nil, fmt.Errorf("value column choice has no compiler output")
+	}
+	categoryType := tableShapeTypeFact(*valueColumn)
+	if missing, err := catalog.FindPolicy(tableshapecap.RolePolicyMissing, pivot.MissingPolicyChoiceID); err == nil && missing.PolicyID == "NULL" {
+		categoryType.Nullable = true
+	}
+	for _, category := range pivot.Categories {
+		output := TableShapePostPivotOutput{
+			Kind: "category", CategoryChoiceID: category.ChoiceID,
+			OutputColumn: category.OutputColumn, OutputLabel: category.OutputLabel, Type: categoryType,
+		}
+		for _, operand := range pivot.DerivedOperands {
+			if operand.OutputColumn == category.OutputColumn {
+				output.OperandChoiceID = operand.ChoiceID
+				break
+			}
+		}
+		outputs = append(outputs, output)
+	}
+	return outputs, nil
 }
 
 func (s *Service) DiscoverTableShapeCategories(ctx context.Context, request TableShapeCategoryDiscoveryRequest) (TableShapeCategoryDiscoveryResult, error) {

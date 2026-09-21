@@ -33,6 +33,7 @@ type TableShapeSavedPivot struct {
 	CategoryDiscoveryID     string                         `json:"categoryDiscoveryId"`
 	Categories              []TableShapeSavedPivotCategory `json:"includedCategories"`
 	DerivedOperands         []TableShapeCatalogChoice      `json:"derivedOperands"`
+	PostPivotOutputs        []TableShapePostPivotOutput    `json:"postPivotOutputs"`
 	DuplicatePolicyChoiceID string                         `json:"duplicatePolicyChoiceId"`
 	MissingPolicyChoiceID   string                         `json:"missingCellPolicyChoiceId"`
 	UnlistedPolicyChoiceID  string                         `json:"unlistedCategoryPolicyChoiceId"`
@@ -255,6 +256,10 @@ func (s *Service) restoreSavedPivot(ctx context.Context, base tableShapeBase, ca
 	for _, operand := range storedResolution.Pivot.DerivedOperands {
 		fact := operand.Type
 		result.DerivedOperands = append(result.DerivedOperands, TableShapeCatalogChoice{Role: tableshapecap.RoleDerivedOperand, ID: operand.ChoiceID, Label: operand.OutputLabel, Type: &fact})
+	}
+	result.PostPivotOutputs, err = tableShapePostPivotOutputs(catalog, storedResolution.Pivot)
+	if err != nil {
+		return err
 	}
 	return nil
 }

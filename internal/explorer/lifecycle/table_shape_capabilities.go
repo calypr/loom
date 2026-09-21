@@ -76,6 +76,7 @@ type TableShapeCatalogChoice struct {
 	ID    string                   `json:"id"`
 	Label string                   `json:"label"`
 	Type  *tableshapecap.TypeFact  `json:"type,omitempty"`
+	RequiresDivisionByZeroPolicy bool `json:"requiresDivisionByZeroPolicy,omitempty"`
 }
 
 type TableShapeCatalogResult struct {
@@ -519,7 +520,10 @@ func publicTableShapeCatalog(receipt tableshapecap.CatalogReceipt, facts map[str
 		result.Columns = append(result.Columns, item)
 	}
 	for _, choice := range receipt.Choices.Operators {
-		result.Operators = append(result.Operators, TableShapeCatalogChoice{Role: choice.Role, ID: choice.ID, Label: tableShapeOperatorLabel(choice.Operator)})
+		result.Operators = append(result.Operators, TableShapeCatalogChoice{
+			Role: choice.Role, ID: choice.ID, Label: tableShapeOperatorLabel(choice.Operator),
+			RequiresDivisionByZeroPolicy: choice.Operator == "DIVIDE",
+		})
 	}
 	for _, choice := range receipt.Choices.Policies {
 		result.Policies = append(result.Policies, TableShapeCatalogChoice{Role: choice.Role, ID: choice.ID, Label: tableShapePolicyLabel(choice.Role, choice.PolicyID)})

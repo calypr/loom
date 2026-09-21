@@ -1781,6 +1781,588 @@ func (e TablePresentationCellRenderer) Valid() bool {
 	}
 }
 
+// Defines values for TableShapeBinaryOperatorChoiceChoiceKind.
+const (
+	TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator TableShapeBinaryOperatorChoiceChoiceKind = "binaryOperator"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorChoiceChoiceKind enum.
+func (e TableShapeBinaryOperatorChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeBinaryOperatorChoiceChoiceKindBinaryOperator:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeBinaryOperatorReferenceKind.
+const (
+	TableShapeBinaryOperatorReferenceKindBinaryOperator TableShapeBinaryOperatorReferenceKind = "binaryOperator"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeBinaryOperatorReferenceKind enum.
+func (e TableShapeBinaryOperatorReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeBinaryOperatorReferenceKindBinaryOperator:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeCategoryDiscoveryResponseKind.
+const (
+	TableShapeCategoryDiscoveryResponseKindComplete TableShapeCategoryDiscoveryResponseKind = "complete"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeCategoryDiscoveryResponseKind enum.
+func (e TableShapeCategoryDiscoveryResponseKind) Valid() bool {
+	switch e {
+	case TableShapeCategoryDiscoveryResponseKindComplete:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeChoiceAvailabilityKind.
+const (
+	TableShapeChoiceAvailabilityKindSupported   TableShapeChoiceAvailabilityKind = "supported"
+	TableShapeChoiceAvailabilityKindUnsupported TableShapeChoiceAvailabilityKind = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeChoiceAvailabilityKind enum.
+func (e TableShapeChoiceAvailabilityKind) Valid() bool {
+	switch e {
+	case TableShapeChoiceAvailabilityKindSupported:
+		return true
+	case TableShapeChoiceAvailabilityKindUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeColumnReferenceKind.
+const (
+	TableShapeColumnReferenceKindColumn TableShapeColumnReferenceKind = "column"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeColumnReferenceKind enum.
+func (e TableShapeColumnReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeColumnReferenceKindColumn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandIntentKind.
+const (
+	TableShapeDerivedOperandIntentKindBase        TableShapeDerivedOperandIntentKind = "base"
+	TableShapeDerivedOperandIntentKindDerived     TableShapeDerivedOperandIntentKind = "derived"
+	TableShapeDerivedOperandIntentKindLiteral     TableShapeDerivedOperandIntentKind = "literal"
+	TableShapeDerivedOperandIntentKindPivotOutput TableShapeDerivedOperandIntentKind = "pivotOutput"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentKind enum.
+func (e TableShapeDerivedOperandIntentKind) Valid() bool {
+	switch e {
+	case TableShapeDerivedOperandIntentKindBase:
+		return true
+	case TableShapeDerivedOperandIntentKindDerived:
+		return true
+	case TableShapeDerivedOperandIntentKindLiteral:
+		return true
+	case TableShapeDerivedOperandIntentKindPivotOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandIntentRepresentation.
+const (
+	Decimal TableShapeDerivedOperandIntentRepresentation = "decimal"
+	Integer TableShapeDerivedOperandIntentRepresentation = "integer"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandIntentRepresentation enum.
+func (e TableShapeDerivedOperandIntentRepresentation) Valid() bool {
+	switch e {
+	case Decimal:
+		return true
+	case Integer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDerivedOperandReferenceKind.
+const (
+	TableShapeDerivedOperandReferenceKindCategory TableShapeDerivedOperandReferenceKind = "category"
+	TableShapeDerivedOperandReferenceKindGroup    TableShapeDerivedOperandReferenceKind = "group"
+	TableShapeDerivedOperandReferenceKindOperand  TableShapeDerivedOperandReferenceKind = "operand"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDerivedOperandReferenceKind enum.
+func (e TableShapeDerivedOperandReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDerivedOperandReferenceKindCategory:
+		return true
+	case TableShapeDerivedOperandReferenceKindGroup:
+		return true
+	case TableShapeDerivedOperandReferenceKindOperand:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDivisionByZeroPolicyReferenceKind.
+const (
+	TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy TableShapeDivisionByZeroPolicyReferenceKind = "divisionByZeroPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDivisionByZeroPolicyReferenceKind enum.
+func (e TableShapeDivisionByZeroPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDivisionByZeroPolicyReferenceKindDivisionByZeroPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeDuplicatePolicyReferenceKind.
+const (
+	TableShapeDuplicatePolicyReferenceKindDuplicatePolicy TableShapeDuplicatePolicyReferenceKind = "duplicatePolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeDuplicatePolicyReferenceKind enum.
+func (e TableShapeDuplicatePolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeDuplicatePolicyReferenceKindDuplicatePolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeEditorChoiceChoiceKind.
+const (
+	TableShapeEditorChoiceChoiceKindBinaryOperator         TableShapeEditorChoiceChoiceKind = "binaryOperator"
+	TableShapeEditorChoiceChoiceKindColumn                 TableShapeEditorChoiceChoiceKind = "column"
+	TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy   TableShapeEditorChoiceChoiceKind = "divisionByZeroPolicy"
+	TableShapeEditorChoiceChoiceKindDuplicatePolicy        TableShapeEditorChoiceChoiceKind = "duplicatePolicy"
+	TableShapeEditorChoiceChoiceKindMissingCellPolicy      TableShapeEditorChoiceChoiceKind = "missingCellPolicy"
+	TableShapeEditorChoiceChoiceKindMissingInputPolicy     TableShapeEditorChoiceChoiceKind = "missingInputPolicy"
+	TableShapeEditorChoiceChoiceKindOperand                TableShapeEditorChoiceChoiceKind = "operand"
+	TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy TableShapeEditorChoiceChoiceKind = "unlistedCategoryPolicy"
+	TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy   TableShapeEditorChoiceChoiceKind = "unpivotNullRowPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeEditorChoiceChoiceKind enum.
+func (e TableShapeEditorChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeEditorChoiceChoiceKindBinaryOperator:
+		return true
+	case TableShapeEditorChoiceChoiceKindColumn:
+		return true
+	case TableShapeEditorChoiceChoiceKindDivisionByZeroPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindDuplicatePolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindMissingCellPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindMissingInputPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindOperand:
+		return true
+	case TableShapeEditorChoiceChoiceKindUnlistedCategoryPolicy:
+		return true
+	case TableShapeEditorChoiceChoiceKindUnpivotNullRowPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeLogicalType.
+const (
+	TableShapeLogicalTypeBOOLEAN  TableShapeLogicalType = "BOOLEAN"
+	TableShapeLogicalTypeDATE     TableShapeLogicalType = "DATE"
+	TableShapeLogicalTypeDATETIME TableShapeLogicalType = "DATETIME"
+	TableShapeLogicalTypeDECIMAL  TableShapeLogicalType = "DECIMAL"
+	TableShapeLogicalTypeINTEGER  TableShapeLogicalType = "INTEGER"
+	TableShapeLogicalTypeOBJECT   TableShapeLogicalType = "OBJECT"
+	TableShapeLogicalTypeSTRING   TableShapeLogicalType = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeLogicalType enum.
+func (e TableShapeLogicalType) Valid() bool {
+	switch e {
+	case TableShapeLogicalTypeBOOLEAN:
+		return true
+	case TableShapeLogicalTypeDATE:
+		return true
+	case TableShapeLogicalTypeDATETIME:
+		return true
+	case TableShapeLogicalTypeDECIMAL:
+		return true
+	case TableShapeLogicalTypeINTEGER:
+		return true
+	case TableShapeLogicalTypeOBJECT:
+		return true
+	case TableShapeLogicalTypeSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeMissingCellPolicyReferenceKind.
+const (
+	TableShapeMissingCellPolicyReferenceKindMissingCellPolicy TableShapeMissingCellPolicyReferenceKind = "missingCellPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeMissingCellPolicyReferenceKind enum.
+func (e TableShapeMissingCellPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeMissingCellPolicyReferenceKindMissingCellPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeMissingInputPolicyReferenceKind.
+const (
+	TableShapeMissingInputPolicyReferenceKindMissingInputPolicy TableShapeMissingInputPolicyReferenceKind = "missingInputPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeMissingInputPolicyReferenceKind enum.
+func (e TableShapeMissingInputPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeMissingInputPolicyReferenceKindMissingInputPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOperandSelectionKind.
+const (
+	CATALOGCHOICE    TableShapeOperandSelectionKind = "CATALOG_CHOICE"
+	LITERAL          TableShapeOperandSelectionKind = "LITERAL"
+	RESOLUTIONOUTPUT TableShapeOperandSelectionKind = "RESOLUTION_OUTPUT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOperandSelectionKind enum.
+func (e TableShapeOperandSelectionKind) Valid() bool {
+	switch e {
+	case CATALOGCHOICE:
+		return true
+	case LITERAL:
+		return true
+	case RESOLUTIONOUTPUT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOutputDescriptorSupportKind.
+const (
+	TableShapeOutputDescriptorSupportKindSupported   TableShapeOutputDescriptorSupportKind = "supported"
+	TableShapeOutputDescriptorSupportKindUnsupported TableShapeOutputDescriptorSupportKind = "unsupported"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOutputDescriptorSupportKind enum.
+func (e TableShapeOutputDescriptorSupportKind) Valid() bool {
+	switch e {
+	case TableShapeOutputDescriptorSupportKindSupported:
+		return true
+	case TableShapeOutputDescriptorSupportKindUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeOutputSuggestionChoiceKind.
+const (
+	DerivedOutput      TableShapeOutputSuggestionChoiceKind = "derivedOutput"
+	UnpivotKeyOutput   TableShapeOutputSuggestionChoiceKind = "unpivotKeyOutput"
+	UnpivotValueOutput TableShapeOutputSuggestionChoiceKind = "unpivotValueOutput"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeOutputSuggestionChoiceKind enum.
+func (e TableShapeOutputSuggestionChoiceKind) Valid() bool {
+	switch e {
+	case DerivedOutput:
+		return true
+	case UnpivotKeyOutput:
+		return true
+	case UnpivotValueOutput:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryChoiceChoiceKind.
+const (
+	TableShapePivotCategoryChoiceChoiceKindPivotCategory TableShapePivotCategoryChoiceChoiceKind = "pivotCategory"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryChoiceChoiceKind enum.
+func (e TableShapePivotCategoryChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryChoiceChoiceKindPivotCategory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryDiscoveryKind.
+const (
+	TableShapePivotCategoryDiscoveryKindComplete     TableShapePivotCategoryDiscoveryKind = "complete"
+	TableShapePivotCategoryDiscoveryKindNotRequested TableShapePivotCategoryDiscoveryKind = "not-requested"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryDiscoveryKind enum.
+func (e TableShapePivotCategoryDiscoveryKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryDiscoveryKindComplete:
+		return true
+	case TableShapePivotCategoryDiscoveryKindNotRequested:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapePivotCategoryReferenceKind.
+const (
+	TableShapePivotCategoryReferenceKindPivotCategory TableShapePivotCategoryReferenceKind = "pivotCategory"
+)
+
+// Valid indicates whether the value is a known member of the TableShapePivotCategoryReferenceKind enum.
+func (e TableShapePivotCategoryReferenceKind) Valid() bool {
+	switch e {
+	case TableShapePivotCategoryReferenceKindPivotCategory:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeProposalIntentKind.
+const (
+	TableShapeProposalIntentKindGROUPEDPIVOT TableShapeProposalIntentKind = "GROUPED_PIVOT"
+	TableShapeProposalIntentKindNONE         TableShapeProposalIntentKind = "NONE"
+	TableShapeProposalIntentKindUNPIVOT      TableShapeProposalIntentKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeProposalIntentKind enum.
+func (e TableShapeProposalIntentKind) Valid() bool {
+	switch e {
+	case TableShapeProposalIntentKindGROUPEDPIVOT:
+		return true
+	case TableShapeProposalIntentKindNONE:
+		return true
+	case TableShapeProposalIntentKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeChoiceChoiceKind.
+const (
+	TableShapeReshapeModeChoiceChoiceKindReshapeMode TableShapeReshapeModeChoiceChoiceKind = "reshapeMode"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceChoiceKind enum.
+func (e TableShapeReshapeModeChoiceChoiceKind) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeChoiceChoiceKindReshapeMode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeChoiceMode.
+const (
+	TableShapeReshapeModeChoiceModeGROUPEDPIVOT TableShapeReshapeModeChoiceMode = "GROUPED_PIVOT"
+	TableShapeReshapeModeChoiceModeNONE         TableShapeReshapeModeChoiceMode = "NONE"
+	TableShapeReshapeModeChoiceModeUNPIVOT      TableShapeReshapeModeChoiceMode = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeChoiceMode enum.
+func (e TableShapeReshapeModeChoiceMode) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeChoiceModeGROUPEDPIVOT:
+		return true
+	case TableShapeReshapeModeChoiceModeNONE:
+		return true
+	case TableShapeReshapeModeChoiceModeUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeReshapeModeReferenceKind.
+const (
+	TableShapeReshapeModeReferenceKindReshapeMode TableShapeReshapeModeReferenceKind = "reshapeMode"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeReshapeModeReferenceKind enum.
+func (e TableShapeReshapeModeReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeReshapeModeReferenceKindReshapeMode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolutionRequestKind.
+const (
+	TableShapeResolutionRequestKindDERIVED TableShapeResolutionRequestKind = "DERIVED"
+	TableShapeResolutionRequestKindPIVOT   TableShapeResolutionRequestKind = "PIVOT"
+	TableShapeResolutionRequestKindUNPIVOT TableShapeResolutionRequestKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolutionRequestKind enum.
+func (e TableShapeResolutionRequestKind) Valid() bool {
+	switch e {
+	case TableShapeResolutionRequestKindDERIVED:
+		return true
+	case TableShapeResolutionRequestKindPIVOT:
+		return true
+	case TableShapeResolutionRequestKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolutionResponseKind.
+const (
+	TableShapeResolutionResponseKindDERIVED TableShapeResolutionResponseKind = "DERIVED"
+	TableShapeResolutionResponseKindPIVOT   TableShapeResolutionResponseKind = "PIVOT"
+	TableShapeResolutionResponseKindUNPIVOT TableShapeResolutionResponseKind = "UNPIVOT"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolutionResponseKind enum.
+func (e TableShapeResolutionResponseKind) Valid() bool {
+	switch e {
+	case TableShapeResolutionResponseKindDERIVED:
+		return true
+	case TableShapeResolutionResponseKindPIVOT:
+		return true
+	case TableShapeResolutionResponseKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeResolvedOutputDescriptorKind.
+const (
+	TableShapeResolvedOutputDescriptorKindCategory     TableShapeResolvedOutputDescriptorKind = "category"
+	TableShapeResolvedOutputDescriptorKindDerived      TableShapeResolvedOutputDescriptorKind = "derived"
+	TableShapeResolvedOutputDescriptorKindGroup        TableShapeResolvedOutputDescriptorKind = "group"
+	TableShapeResolvedOutputDescriptorKindUnpivotKey   TableShapeResolvedOutputDescriptorKind = "unpivotKey"
+	TableShapeResolvedOutputDescriptorKindUnpivotValue TableShapeResolvedOutputDescriptorKind = "unpivotValue"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeResolvedOutputDescriptorKind enum.
+func (e TableShapeResolvedOutputDescriptorKind) Valid() bool {
+	switch e {
+	case TableShapeResolvedOutputDescriptorKindCategory:
+		return true
+	case TableShapeResolvedOutputDescriptorKindDerived:
+		return true
+	case TableShapeResolvedOutputDescriptorKindGroup:
+		return true
+	case TableShapeResolvedOutputDescriptorKindUnpivotKey:
+		return true
+	case TableShapeResolvedOutputDescriptorKindUnpivotValue:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeScalarKind.
+const (
+	TableShapeScalarKindBOOLEAN     TableShapeScalarKind = "BOOLEAN"
+	TableShapeScalarKindDECIMAL     TableShapeScalarKind = "DECIMAL"
+	TableShapeScalarKindINTEGER     TableShapeScalarKind = "INTEGER"
+	TableShapeScalarKindLessThannil TableShapeScalarKind = "<nil>"
+	TableShapeScalarKindMISSING     TableShapeScalarKind = "MISSING"
+	TableShapeScalarKindSTRING      TableShapeScalarKind = "STRING"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeScalarKind enum.
+func (e TableShapeScalarKind) Valid() bool {
+	switch e {
+	case TableShapeScalarKindBOOLEAN:
+		return true
+	case TableShapeScalarKindDECIMAL:
+		return true
+	case TableShapeScalarKindINTEGER:
+		return true
+	case TableShapeScalarKindLessThannil:
+		return true
+	case TableShapeScalarKindMISSING:
+		return true
+	case TableShapeScalarKindSTRING:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeUnlistedCategoryPolicyReferenceKind.
+const (
+	TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy TableShapeUnlistedCategoryPolicyReferenceKind = "unlistedCategoryPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeUnlistedCategoryPolicyReferenceKind enum.
+func (e TableShapeUnlistedCategoryPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeUnlistedCategoryPolicyReferenceKindUnlistedCategoryPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TableShapeUnpivotNullRowPolicyReferenceKind.
+const (
+	TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy TableShapeUnpivotNullRowPolicyReferenceKind = "unpivotNullRowPolicy"
+)
+
+// Valid indicates whether the value is a known member of the TableShapeUnpivotNullRowPolicyReferenceKind enum.
+func (e TableShapeUnpivotNullRowPolicyReferenceKind) Valid() bool {
+	switch e {
+	case TableShapeUnpivotNullRowPolicyReferenceKindUnpivotNullRowPolicy:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TemporalReductionSourceDirection.
 const (
 	ASC  TemporalReductionSourceDirection = "ASC"
@@ -3725,6 +4307,466 @@ type TablePresentation struct {
 // TablePresentationCellRenderer defines model for TablePresentation.CellRenderer.
 type TablePresentationCellRenderer string
 
+// TableShapeBinaryOperatorChoice defines model for TableShapeBinaryOperatorChoice.
+type TableShapeBinaryOperatorChoice struct {
+	Availability                 TableShapeChoiceAvailability             `json:"availability"`
+	ChoiceId                     string                                   `json:"choiceId"`
+	ChoiceKind                   TableShapeBinaryOperatorChoiceChoiceKind `json:"choiceKind"`
+	Label                        string                                   `json:"label"`
+	RequiresDivisionByZeroPolicy bool                                     `json:"requiresDivisionByZeroPolicy"`
+}
+
+// TableShapeBinaryOperatorChoiceChoiceKind defines model for TableShapeBinaryOperatorChoice.ChoiceKind.
+type TableShapeBinaryOperatorChoiceChoiceKind string
+
+// TableShapeBinaryOperatorReference defines model for TableShapeBinaryOperatorReference.
+type TableShapeBinaryOperatorReference struct {
+	ChoiceId string                                `json:"choiceId"`
+	Kind     TableShapeBinaryOperatorReferenceKind `json:"kind"`
+}
+
+// TableShapeBinaryOperatorReferenceKind defines model for TableShapeBinaryOperatorReference.Kind.
+type TableShapeBinaryOperatorReferenceKind string
+
+// TableShapeCapabilitiesRequest defines model for TableShapeCapabilitiesRequest.
+type TableShapeCapabilitiesRequest struct {
+	ExpectedDraftDigest  string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int    `json:"expectedDraftVersion"`
+	OutputId             string `json:"outputId"`
+	SnapshotToken        string `json:"snapshotToken"`
+}
+
+// TableShapeCapabilitiesResponse defines model for TableShapeCapabilitiesResponse.
+type TableShapeCapabilitiesResponse struct {
+	BinaryOperators                []TableShapeBinaryOperatorChoice  `json:"binaryOperators"`
+	CatalogId                      string                            `json:"catalogId"`
+	CategoryColumns                []TableShapeEditorChoice          `json:"categoryColumns"`
+	DerivedAvailability            TableShapeChoiceAvailability      `json:"derivedAvailability"`
+	DerivedOutputSuggestions       []TableShapeOutputSuggestion      `json:"derivedOutputSuggestions"`
+	DivisionByZeroPolicies         []TableShapeEditorChoice          `json:"divisionByZeroPolicies"`
+	DuplicatePolicies              []TableShapeEditorChoice          `json:"duplicatePolicies"`
+	GroupColumns                   []TableShapeEditorChoice          `json:"groupColumns"`
+	MissingCellPolicies            []TableShapeEditorChoice          `json:"missingCellPolicies"`
+	MissingInputPolicies           []TableShapeEditorChoice          `json:"missingInputPolicies"`
+	Operands                       []TableShapeEditorChoice          `json:"operands"`
+	OutputId                       string                            `json:"outputId"`
+	PivotCategoryDiscovery         TableShapePivotCategoryDiscovery  `json:"pivotCategoryDiscovery"`
+	ReshapeModes                   []TableShapeReshapeModeChoice     `json:"reshapeModes"`
+	SavedProposalAvailability      TableShapeChoiceAvailability      `json:"savedProposalAvailability"`
+	SavedProposalIntent            TableShapeProposalIntent          `json:"savedProposalIntent"`
+	UnlistedCategoryPolicies       []TableShapeEditorChoice          `json:"unlistedCategoryPolicies"`
+	UnpivotColumns                 []TableShapeEditorChoice          `json:"unpivotColumns"`
+	UnpivotKeyOutput               TableShapeOutputDescriptorSupport `json:"unpivotKeyOutput"`
+	UnpivotNullRowPolicies         []TableShapeEditorChoice          `json:"unpivotNullRowPolicies"`
+	UnpivotValueOutput             TableShapeOutputDescriptorSupport `json:"unpivotValueOutput"`
+	UnpivotWithDerivedAvailability TableShapeChoiceAvailability      `json:"unpivotWithDerivedAvailability"`
+	ValueColumns                   []TableShapeEditorChoice          `json:"valueColumns"`
+}
+
+// TableShapeCategoryDiscoveryRequest defines model for TableShapeCategoryDiscoveryRequest.
+type TableShapeCategoryDiscoveryRequest struct {
+	CatalogId              string `json:"catalogId"`
+	CategoryColumnChoiceId string `json:"categoryColumnChoiceId"`
+	ExpectedDraftDigest    string `json:"expectedDraftDigest"`
+	ExpectedDraftVersion   int    `json:"expectedDraftVersion"`
+	OutputId               string `json:"outputId"`
+	SnapshotToken          string `json:"snapshotToken"`
+	ValueColumnChoiceId    string `json:"valueColumnChoiceId"`
+}
+
+// TableShapeCategoryDiscoveryResponse defines model for TableShapeCategoryDiscoveryResponse.
+type TableShapeCategoryDiscoveryResponse struct {
+	CatalogId         string                                  `json:"catalogId"`
+	Categories        []TableShapePivotCategoryChoice         `json:"categories"`
+	DiscoveryIdentity string                                  `json:"discoveryIdentity"`
+	Kind              TableShapeCategoryDiscoveryResponseKind `json:"kind"`
+	Pair              TableShapePivotCategoryPair             `json:"pair"`
+}
+
+// TableShapeCategoryDiscoveryResponseKind defines model for TableShapeCategoryDiscoveryResponse.Kind.
+type TableShapeCategoryDiscoveryResponseKind string
+
+// TableShapeChoiceAvailability defines model for TableShapeChoiceAvailability.
+type TableShapeChoiceAvailability struct {
+	Kind   TableShapeChoiceAvailabilityKind `json:"kind"`
+	Reason *string                          `json:"reason,omitempty"`
+}
+
+// TableShapeChoiceAvailabilityKind defines model for TableShapeChoiceAvailability.Kind.
+type TableShapeChoiceAvailabilityKind string
+
+// TableShapeColumnReference defines model for TableShapeColumnReference.
+type TableShapeColumnReference struct {
+	ChoiceId string                        `json:"choiceId"`
+	Kind     TableShapeColumnReferenceKind `json:"kind"`
+}
+
+// TableShapeColumnReferenceKind defines model for TableShapeColumnReference.Kind.
+type TableShapeColumnReferenceKind string
+
+// TableShapeDerivedColumnProposal defines model for TableShapeDerivedColumnProposal.
+type TableShapeDerivedColumnProposal struct {
+	DivisionByZeroPolicy *TableShapeDivisionByZeroPolicyReference `json:"divisionByZeroPolicy,omitempty"`
+	LeftOperand          TableShapeDerivedOperandIntent           `json:"leftOperand"`
+	LocalId              string                                   `json:"localId"`
+	MissingInputPolicy   TableShapeMissingInputPolicyReference    `json:"missingInputPolicy"`
+	Operator             TableShapeBinaryOperatorReference        `json:"operator"`
+	Output               TableShapeOutputName                     `json:"output"`
+	RightOperand         TableShapeDerivedOperandIntent           `json:"rightOperand"`
+}
+
+// TableShapeDerivedOperandIntent defines model for TableShapeDerivedOperandIntent.
+type TableShapeDerivedOperandIntent struct {
+	Kind           TableShapeDerivedOperandIntentKind            `json:"kind"`
+	LocalId        *string                                       `json:"localId,omitempty"`
+	Reference      *TableShapeDerivedOperandReference            `json:"reference,omitempty"`
+	Representation *TableShapeDerivedOperandIntentRepresentation `json:"representation,omitempty"`
+	Text           *string                                       `json:"text,omitempty"`
+}
+
+// TableShapeDerivedOperandIntentKind defines model for TableShapeDerivedOperandIntent.Kind.
+type TableShapeDerivedOperandIntentKind string
+
+// TableShapeDerivedOperandIntentRepresentation defines model for TableShapeDerivedOperandIntent.Representation.
+type TableShapeDerivedOperandIntentRepresentation string
+
+// TableShapeDerivedOperandReference defines model for TableShapeDerivedOperandReference.
+type TableShapeDerivedOperandReference struct {
+	Category *TableShapePivotCategoryReference     `json:"category,omitempty"`
+	ChoiceId *string                               `json:"choiceId,omitempty"`
+	Column   *TableShapeColumnReference            `json:"column,omitempty"`
+	Kind     TableShapeDerivedOperandReferenceKind `json:"kind"`
+}
+
+// TableShapeDerivedOperandReferenceKind defines model for TableShapeDerivedOperandReference.Kind.
+type TableShapeDerivedOperandReferenceKind string
+
+// TableShapeDerivedSelection defines model for TableShapeDerivedSelection.
+type TableShapeDerivedSelection struct {
+	DivisionByZeroPolicyChoiceId *string                    `json:"divisionByZeroPolicyChoiceId,omitempty"`
+	Left                         TableShapeOperandSelection `json:"left"`
+	MissingPolicyChoiceId        string                     `json:"missingPolicyChoiceId"`
+	OperatorChoiceId             string                     `json:"operatorChoiceId"`
+	OutputColumn                 string                     `json:"outputColumn"`
+	OutputLabel                  string                     `json:"outputLabel"`
+	PivotResolutionId            *string                    `json:"pivotResolutionId,omitempty"`
+	Right                        TableShapeOperandSelection `json:"right"`
+}
+
+// TableShapeDivisionByZeroPolicyReference defines model for TableShapeDivisionByZeroPolicyReference.
+type TableShapeDivisionByZeroPolicyReference struct {
+	ChoiceId string                                      `json:"choiceId"`
+	Kind     TableShapeDivisionByZeroPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeDivisionByZeroPolicyReferenceKind defines model for TableShapeDivisionByZeroPolicyReference.Kind.
+type TableShapeDivisionByZeroPolicyReferenceKind string
+
+// TableShapeDuplicatePolicyReference defines model for TableShapeDuplicatePolicyReference.
+type TableShapeDuplicatePolicyReference struct {
+	ChoiceId string                                 `json:"choiceId"`
+	Kind     TableShapeDuplicatePolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeDuplicatePolicyReferenceKind defines model for TableShapeDuplicatePolicyReference.Kind.
+type TableShapeDuplicatePolicyReferenceKind string
+
+// TableShapeEditorChoice defines model for TableShapeEditorChoice.
+type TableShapeEditorChoice struct {
+	Availability TableShapeChoiceAvailability     `json:"availability"`
+	ChoiceId     string                           `json:"choiceId"`
+	ChoiceKind   TableShapeEditorChoiceChoiceKind `json:"choiceKind"`
+	Label        string                           `json:"label"`
+}
+
+// TableShapeEditorChoiceChoiceKind defines model for TableShapeEditorChoice.ChoiceKind.
+type TableShapeEditorChoiceChoiceKind string
+
+// TableShapeLogicalType defines model for TableShapeLogicalType.
+type TableShapeLogicalType string
+
+// TableShapeMissingCellPolicyReference defines model for TableShapeMissingCellPolicyReference.
+type TableShapeMissingCellPolicyReference struct {
+	ChoiceId string                                   `json:"choiceId"`
+	Kind     TableShapeMissingCellPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeMissingCellPolicyReferenceKind defines model for TableShapeMissingCellPolicyReference.Kind.
+type TableShapeMissingCellPolicyReferenceKind string
+
+// TableShapeMissingInputPolicyReference defines model for TableShapeMissingInputPolicyReference.
+type TableShapeMissingInputPolicyReference struct {
+	ChoiceId string                                    `json:"choiceId"`
+	Kind     TableShapeMissingInputPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeMissingInputPolicyReferenceKind defines model for TableShapeMissingInputPolicyReference.Kind.
+type TableShapeMissingInputPolicyReferenceKind string
+
+// TableShapeOperandSelection defines model for TableShapeOperandSelection.
+type TableShapeOperandSelection struct {
+	ChoiceId     *string                        `json:"choiceId,omitempty"`
+	Kind         TableShapeOperandSelectionKind `json:"kind"`
+	Literal      *TableShapeScalar              `json:"literal,omitempty"`
+	ResolutionId *string                        `json:"resolutionId,omitempty"`
+}
+
+// TableShapeOperandSelectionKind defines model for TableShapeOperandSelection.Kind.
+type TableShapeOperandSelectionKind string
+
+// TableShapeOutputDescriptorSupport defines model for TableShapeOutputDescriptorSupport.
+type TableShapeOutputDescriptorSupport struct {
+	Kind            TableShapeOutputDescriptorSupportKind `json:"kind"`
+	Reason          *string                               `json:"reason,omitempty"`
+	ResultTypeLabel *string                               `json:"resultTypeLabel,omitempty"`
+	Suggestions     *[]TableShapeOutputSuggestion         `json:"suggestions,omitempty"`
+}
+
+// TableShapeOutputDescriptorSupportKind defines model for TableShapeOutputDescriptorSupport.Kind.
+type TableShapeOutputDescriptorSupportKind string
+
+// TableShapeOutputName defines model for TableShapeOutputName.
+type TableShapeOutputName struct {
+	Column string `json:"column"`
+	Label  string `json:"label"`
+}
+
+// TableShapeOutputSuggestion defines model for TableShapeOutputSuggestion.
+type TableShapeOutputSuggestion struct {
+	Availability    TableShapeChoiceAvailability         `json:"availability"`
+	ChoiceId        string                               `json:"choiceId"`
+	ChoiceKind      TableShapeOutputSuggestionChoiceKind `json:"choiceKind"`
+	Label           string                               `json:"label"`
+	ResultTypeLabel string                               `json:"resultTypeLabel"`
+	SuggestedOutput TableShapeOutputName                 `json:"suggestedOutput"`
+}
+
+// TableShapeOutputSuggestionChoiceKind defines model for TableShapeOutputSuggestion.ChoiceKind.
+type TableShapeOutputSuggestionChoiceKind string
+
+// TableShapePivotCategoryChoice defines model for TableShapePivotCategoryChoice.
+type TableShapePivotCategoryChoice struct {
+	Availability    TableShapeChoiceAvailability            `json:"availability"`
+	ChoiceId        string                                  `json:"choiceId"`
+	ChoiceKind      TableShapePivotCategoryChoiceChoiceKind `json:"choiceKind"`
+	Label           string                                  `json:"label"`
+	SuggestedOutput TableShapeOutputName                    `json:"suggestedOutput"`
+	Value           TableShapeScalar                        `json:"value"`
+}
+
+// TableShapePivotCategoryChoiceChoiceKind defines model for TableShapePivotCategoryChoice.ChoiceKind.
+type TableShapePivotCategoryChoiceChoiceKind string
+
+// TableShapePivotCategoryDiscovery defines model for TableShapePivotCategoryDiscovery.
+type TableShapePivotCategoryDiscovery struct {
+	Categories        *[]TableShapePivotCategoryChoice     `json:"categories,omitempty"`
+	DiscoveryIdentity *string                              `json:"discoveryIdentity,omitempty"`
+	Kind              TableShapePivotCategoryDiscoveryKind `json:"kind"`
+	Pair              *TableShapePivotCategoryPair         `json:"pair,omitempty"`
+}
+
+// TableShapePivotCategoryDiscoveryKind defines model for TableShapePivotCategoryDiscovery.Kind.
+type TableShapePivotCategoryDiscoveryKind string
+
+// TableShapePivotCategoryPair defines model for TableShapePivotCategoryPair.
+type TableShapePivotCategoryPair struct {
+	CategoryColumn TableShapeColumnReference `json:"categoryColumn"`
+	ValueColumn    TableShapeColumnReference `json:"valueColumn"`
+}
+
+// TableShapePivotCategoryReference defines model for TableShapePivotCategoryReference.
+type TableShapePivotCategoryReference struct {
+	ChoiceId string                               `json:"choiceId"`
+	Kind     TableShapePivotCategoryReferenceKind `json:"kind"`
+}
+
+// TableShapePivotCategoryReferenceKind defines model for TableShapePivotCategoryReference.Kind.
+type TableShapePivotCategoryReferenceKind string
+
+// TableShapePivotCategorySelection defines model for TableShapePivotCategorySelection.
+type TableShapePivotCategorySelection struct {
+	ChoiceId     string `json:"choiceId"`
+	OutputColumn string `json:"outputColumn"`
+	OutputLabel  string `json:"outputLabel"`
+}
+
+// TableShapePivotProposal defines model for TableShapePivotProposal.
+type TableShapePivotProposal struct {
+	CategoryColumn            TableShapeColumnReference                 `json:"categoryColumn"`
+	CategoryDiscoveryIdentity string                                    `json:"categoryDiscoveryIdentity"`
+	DuplicatePolicy           TableShapeDuplicatePolicyReference        `json:"duplicatePolicy"`
+	GroupColumns              []TableShapeColumnReference               `json:"groupColumns"`
+	IncludedCategories        []TableShapeSavedPivotCategorySelection   `json:"includedCategories"`
+	MissingCellPolicy         TableShapeMissingCellPolicyReference      `json:"missingCellPolicy"`
+	UnlistedCategoryPolicy    TableShapeUnlistedCategoryPolicyReference `json:"unlistedCategoryPolicy"`
+	ValueColumn               TableShapeColumnReference                 `json:"valueColumn"`
+}
+
+// TableShapePivotSelection defines model for TableShapePivotSelection.
+type TableShapePivotSelection struct {
+	Categories              []TableShapePivotCategorySelection `json:"categories"`
+	CategoryColumnChoiceId  string                             `json:"categoryColumnChoiceId"`
+	CategoryDiscoveryId     string                             `json:"categoryDiscoveryId"`
+	DuplicatePolicyChoiceId string                             `json:"duplicatePolicyChoiceId"`
+	GroupColumnChoiceIds    []string                           `json:"groupColumnChoiceIds"`
+	MissingPolicyChoiceId   string                             `json:"missingPolicyChoiceId"`
+	UnlistedPolicyChoiceId  string                             `json:"unlistedPolicyChoiceId"`
+	ValueColumnChoiceId     string                             `json:"valueColumnChoiceId"`
+}
+
+// TableShapeProposalIntent defines model for TableShapeProposalIntent.
+type TableShapeProposalIntent struct {
+	DerivedColumns []TableShapeDerivedColumnProposal `json:"derivedColumns"`
+	Kind           TableShapeProposalIntentKind      `json:"kind"`
+	Pivot          *TableShapePivotProposal          `json:"pivot,omitempty"`
+	ReshapeMode    TableShapeReshapeModeReference    `json:"reshapeMode"`
+	Unpivot        *TableShapeUnpivotProposal        `json:"unpivot,omitempty"`
+}
+
+// TableShapeProposalIntentKind defines model for TableShapeProposalIntent.Kind.
+type TableShapeProposalIntentKind string
+
+// TableShapeReshapeModeChoice defines model for TableShapeReshapeModeChoice.
+type TableShapeReshapeModeChoice struct {
+	Availability TableShapeChoiceAvailability          `json:"availability"`
+	ChoiceId     string                                `json:"choiceId"`
+	ChoiceKind   TableShapeReshapeModeChoiceChoiceKind `json:"choiceKind"`
+	Label        string                                `json:"label"`
+	Mode         TableShapeReshapeModeChoiceMode       `json:"mode"`
+}
+
+// TableShapeReshapeModeChoiceChoiceKind defines model for TableShapeReshapeModeChoice.ChoiceKind.
+type TableShapeReshapeModeChoiceChoiceKind string
+
+// TableShapeReshapeModeChoiceMode defines model for TableShapeReshapeModeChoice.Mode.
+type TableShapeReshapeModeChoiceMode string
+
+// TableShapeReshapeModeReference defines model for TableShapeReshapeModeReference.
+type TableShapeReshapeModeReference struct {
+	ChoiceId string                             `json:"choiceId"`
+	Kind     TableShapeReshapeModeReferenceKind `json:"kind"`
+}
+
+// TableShapeReshapeModeReferenceKind defines model for TableShapeReshapeModeReference.Kind.
+type TableShapeReshapeModeReferenceKind string
+
+// TableShapeResolutionRequest defines model for TableShapeResolutionRequest.
+type TableShapeResolutionRequest struct {
+	CatalogId            string                          `json:"catalogId"`
+	Derived              *TableShapeDerivedSelection     `json:"derived,omitempty"`
+	ExpectedDraftDigest  string                          `json:"expectedDraftDigest"`
+	ExpectedDraftVersion int                             `json:"expectedDraftVersion"`
+	Kind                 TableShapeResolutionRequestKind `json:"kind"`
+	OutputId             string                          `json:"outputId"`
+	Pivot                *TableShapePivotSelection       `json:"pivot,omitempty"`
+	SnapshotToken        string                          `json:"snapshotToken"`
+	Unpivot              *TableShapeUnpivotSelection     `json:"unpivot,omitempty"`
+}
+
+// TableShapeResolutionRequestKind defines model for TableShapeResolutionRequest.Kind.
+type TableShapeResolutionRequestKind string
+
+// TableShapeResolutionResponse defines model for TableShapeResolutionResponse.
+type TableShapeResolutionResponse struct {
+	CatalogId           string                               `json:"catalogId"`
+	Categories          *[]TableShapeResolvedCategory        `json:"categories,omitempty"`
+	CategoryDiscoveryId *string                              `json:"categoryDiscoveryId,omitempty"`
+	KeyResult           *TableShapeTypeFact                  `json:"keyResult,omitempty"`
+	Kind                TableShapeResolutionResponseKind     `json:"kind"`
+	OutputDescriptors   []TableShapeResolvedOutputDescriptor `json:"outputDescriptors"`
+	PostPivotOperands   []TableShapeEditorChoice             `json:"postPivotOperands"`
+	ResolutionId        string                               `json:"resolutionId"`
+	Result              *TableShapeTypeFact                  `json:"result,omitempty"`
+	ValueResult         *TableShapeTypeFact                  `json:"valueResult,omitempty"`
+}
+
+// TableShapeResolutionResponseKind defines model for TableShapeResolutionResponse.Kind.
+type TableShapeResolutionResponseKind string
+
+// TableShapeResolvedCategory defines model for TableShapeResolvedCategory.
+type TableShapeResolvedCategory struct {
+	Id           string             `json:"id"`
+	OutputColumn string             `json:"outputColumn"`
+	OutputLabel  string             `json:"outputLabel"`
+	Type         TableShapeTypeFact `json:"type"`
+	Value        TableShapeScalar   `json:"value"`
+}
+
+// TableShapeResolvedOutputDescriptor defines model for TableShapeResolvedOutputDescriptor.
+type TableShapeResolvedOutputDescriptor struct {
+	Category        *TableShapePivotCategoryReference      `json:"category,omitempty"`
+	GroupColumn     *TableShapeColumnReference             `json:"groupColumn,omitempty"`
+	Kind            TableShapeResolvedOutputDescriptorKind `json:"kind"`
+	OperandChoiceId *string                                `json:"operandChoiceId,omitempty"`
+	OutputColumn    string                                 `json:"outputColumn"`
+	OutputLabel     string                                 `json:"outputLabel"`
+	Type            TableShapeTypeFact                     `json:"type"`
+}
+
+// TableShapeResolvedOutputDescriptorKind defines model for TableShapeResolvedOutputDescriptor.Kind.
+type TableShapeResolvedOutputDescriptorKind string
+
+// TableShapeSavedPivotCategorySelection defines model for TableShapeSavedPivotCategorySelection.
+type TableShapeSavedPivotCategorySelection struct {
+	Category TableShapePivotCategoryReference `json:"category"`
+	Output   TableShapeOutputName             `json:"output"`
+}
+
+// TableShapeScalar defines model for TableShapeScalar.
+type TableShapeScalar struct {
+	Boolean *bool                `json:"boolean,omitempty"`
+	Decimal *float64             `json:"decimal,omitempty"`
+	Integer *int64               `json:"integer,omitempty"`
+	Kind    TableShapeScalarKind `json:"kind"`
+	String  *string              `json:"string,omitempty"`
+}
+
+// TableShapeScalarKind defines model for TableShapeScalar.Kind.
+type TableShapeScalarKind string
+
+// TableShapeTypeFact defines model for TableShapeTypeFact.
+type TableShapeTypeFact struct {
+	LogicalType  TableShapeLogicalType `json:"logicalType"`
+	Nullable     bool                  `json:"nullable"`
+	UnitIdentity *string               `json:"unitIdentity,omitempty"`
+}
+
+// TableShapeUnlistedCategoryPolicyReference defines model for TableShapeUnlistedCategoryPolicyReference.
+type TableShapeUnlistedCategoryPolicyReference struct {
+	ChoiceId string                                        `json:"choiceId"`
+	Kind     TableShapeUnlistedCategoryPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeUnlistedCategoryPolicyReferenceKind defines model for TableShapeUnlistedCategoryPolicyReference.Kind.
+type TableShapeUnlistedCategoryPolicyReferenceKind string
+
+// TableShapeUnpivotNullRowPolicyReference defines model for TableShapeUnpivotNullRowPolicyReference.
+type TableShapeUnpivotNullRowPolicyReference struct {
+	ChoiceId string                                      `json:"choiceId"`
+	Kind     TableShapeUnpivotNullRowPolicyReferenceKind `json:"kind"`
+}
+
+// TableShapeUnpivotNullRowPolicyReferenceKind defines model for TableShapeUnpivotNullRowPolicyReference.Kind.
+type TableShapeUnpivotNullRowPolicyReferenceKind string
+
+// TableShapeUnpivotProposal defines model for TableShapeUnpivotProposal.
+type TableShapeUnpivotProposal struct {
+	InputColumns  []TableShapeColumnReference             `json:"inputColumns"`
+	KeyOutput     TableShapeOutputName                    `json:"keyOutput"`
+	NullRowPolicy TableShapeUnpivotNullRowPolicyReference `json:"nullRowPolicy"`
+	ValueOutput   TableShapeOutputName                    `json:"valueOutput"`
+}
+
+// TableShapeUnpivotSelection defines model for TableShapeUnpivotSelection.
+type TableShapeUnpivotSelection struct {
+	InputColumnChoiceIds []string `json:"inputColumnChoiceIds"`
+	KeyOutputColumn      string   `json:"keyOutputColumn"`
+	KeyOutputLabel       string   `json:"keyOutputLabel"`
+	NullPolicyChoiceId   string   `json:"nullPolicyChoiceId"`
+	ValueOutputColumn    string   `json:"valueOutputColumn"`
+	ValueOutputLabel     string   `json:"valueOutputLabel"`
+}
+
 // TemporalFieldChoice defines model for TemporalFieldChoice.
 type TemporalFieldChoice struct {
 	CandidateId  string `json:"candidateId"`
@@ -4068,6 +5110,15 @@ type BrowseExplorerSemanticInventoryJSONRequestBody = SemanticInventoryBrowseReq
 
 // SearchExplorerCandidatesJSONRequestBody defines body for SearchExplorerCandidates for application/json ContentType.
 type SearchExplorerCandidatesJSONRequestBody = CandidateSearchRequest
+
+// GetExplorerTableShapeCapabilitiesJSONRequestBody defines body for GetExplorerTableShapeCapabilities for application/json ContentType.
+type GetExplorerTableShapeCapabilitiesJSONRequestBody = TableShapeCapabilitiesRequest
+
+// DiscoverExplorerTableShapeCategoriesJSONRequestBody defines body for DiscoverExplorerTableShapeCategories for application/json ContentType.
+type DiscoverExplorerTableShapeCategoriesJSONRequestBody = TableShapeCategoryDiscoveryRequest
+
+// ResolveExplorerTableShapeJSONRequestBody defines body for ResolveExplorerTableShape for application/json ContentType.
+type ResolveExplorerTableShapeJSONRequestBody = TableShapeResolutionRequest
 
 // CreateExplorerSelectionJSONRequestBody defines body for CreateExplorerSelection for application/json ContentType.
 type CreateExplorerSelectionJSONRequestBody = SelectionCreateRequest
@@ -5283,6 +6334,15 @@ type ServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(c fiber.Ctx, project Project, explorerId ExplorerId) error
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
+	GetExplorerTableShapeCapabilities(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
+	DiscoverExplorerTableShapeCategories(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
+	ResolveExplorerTableShape(c fiber.Ctx, project Project, explorerId ExplorerId) error
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
 	CreateExplorerSelection(c fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error
 
@@ -6497,6 +7557,117 @@ func (siw *ServerInterfaceWrapper) SearchExplorerCandidates(c fiber.Ctx) error {
 	return handler(c)
 }
 
+// GetExplorerTableShapeCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetExplorerTableShapeCapabilities(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.GetExplorerTableShapeCapabilities(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// DiscoverExplorerTableShapeCategories operation middleware
+func (siw *ServerInterfaceWrapper) DiscoverExplorerTableShapeCategories(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.DiscoverExplorerTableShapeCategories(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
+// ResolveExplorerTableShape operation middleware
+func (siw *ServerInterfaceWrapper) ResolveExplorerTableShape(c fiber.Ctx) error {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project" -------------
+	var project Project
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project", c.Params("project"), &project, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter project: %w", err).Error())
+	}
+
+	// ------------- Path parameter "explorerId" -------------
+	var explorerId ExplorerId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "explorerId", c.Params("explorerId"), &explorerId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter explorerId: %w", err).Error())
+	}
+
+	handler := func(c fiber.Ctx) error {
+		return siw.Handler.ResolveExplorerTableShape(c, project, explorerId)
+	}
+
+	for i := len(siw.HandlerMiddlewares) - 1; i >= 0; i-- {
+		m := siw.HandlerMiddlewares[i]
+		next := handler
+		handler = func(c fiber.Ctx) error {
+			return m(c, next)
+		}
+	}
+
+	return handler(c)
+}
+
 // CreateExplorerSelection operation middleware
 func (siw *ServerInterfaceWrapper) CreateExplorerSelection(c fiber.Ctx) error {
 
@@ -7036,6 +8207,12 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 	router.Get(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-choices", wrapper.ListExplorerRowDefinitionChoices)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/row-definition-proposals", wrapper.ProposeExplorerRowDefinition)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-capabilities", wrapper.GetExplorerTableShapeCapabilities)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-category-discoveries", wrapper.DiscoverExplorerTableShapeCategories)
+
+	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/table-shape-resolutions", wrapper.ResolveExplorerTableShape)
 
 	router.Post(options.BaseURL+"/api/v1/projects/:project/explorers/:explorerId/authoring/v2/population-routes", wrapper.SearchExplorerPopulationRoutes)
 
@@ -9776,6 +10953,309 @@ func (response SearchExplorerCandidates503JSONResponse) VisitSearchExplorerCandi
 	return ctx.JSON(&response)
 }
 
+type GetExplorerTableShapeCapabilitiesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *GetExplorerTableShapeCapabilitiesJSONRequestBody
+}
+
+type GetExplorerTableShapeCapabilitiesResponseObject interface {
+	VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error
+}
+
+type GetExplorerTableShapeCapabilities200JSONResponse TableShapeCapabilitiesResponse
+
+func (response GetExplorerTableShapeCapabilities200JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities400JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities401JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities403JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities404JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response GetExplorerTableShapeCapabilities409JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities422JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities500JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type GetExplorerTableShapeCapabilities503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response GetExplorerTableShapeCapabilities503JSONResponse) VisitGetExplorerTableShapeCapabilitiesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategoriesRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *DiscoverExplorerTableShapeCategoriesJSONRequestBody
+}
+
+type DiscoverExplorerTableShapeCategoriesResponseObject interface {
+	VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error
+}
+
+type DiscoverExplorerTableShapeCategories200JSONResponse TableShapeCategoryDiscoveryResponse
+
+func (response DiscoverExplorerTableShapeCategories200JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories400JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories401JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories403JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories404JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response DiscoverExplorerTableShapeCategories409JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories422JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories500JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type DiscoverExplorerTableShapeCategories503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response DiscoverExplorerTableShapeCategories503JSONResponse) VisitDiscoverExplorerTableShapeCategoriesResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShapeRequestObject struct {
+	Project    Project    `json:"project"`
+	ExplorerId ExplorerId `json:"explorerId"`
+	Body       *ResolveExplorerTableShapeJSONRequestBody
+}
+
+type ResolveExplorerTableShapeResponseObject interface {
+	VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error
+}
+
+type ResolveExplorerTableShape200JSONResponse TableShapeResolutionResponse
+
+func (response ResolveExplorerTableShape200JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(200)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape400JSONResponse struct {
+	AuthoringBadRequestJSONResponse
+}
+
+func (response ResolveExplorerTableShape400JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(400)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape401JSONResponse struct {
+	ServiceUnauthorizedJSONResponse
+}
+
+func (response ResolveExplorerTableShape401JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(401)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape403JSONResponse struct{ AuthoringForbiddenJSONResponse }
+
+func (response ResolveExplorerTableShape403JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(403)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape404JSONResponse struct{ AuthoringNotFoundJSONResponse }
+
+func (response ResolveExplorerTableShape404JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(404)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape409JSONResponse struct{ AuthoringConflictJSONResponse }
+
+func (response ResolveExplorerTableShape409JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(409)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape422JSONResponse struct {
+	AuthoringUnprocessableJSONResponse
+}
+
+func (response ResolveExplorerTableShape422JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(422)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape500JSONResponse struct {
+	AuthoringInternalErrorJSONResponse
+}
+
+func (response ResolveExplorerTableShape500JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(500)
+
+	return ctx.JSON(&response)
+}
+
+type ResolveExplorerTableShape503JSONResponse struct {
+	AuthoringUnavailableJSONResponse
+}
+
+func (response ResolveExplorerTableShape503JSONResponse) VisitResolveExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	ctx.Response().Header.Set("Content-Type", "application/json")
+	ctx.Status(503)
+
+	return ctx.JSON(&response)
+}
+
 type CreateExplorerSelectionRequestObject struct {
 	Project    Project    `json:"project"`
 	ExplorerId ExplorerId `json:"explorerId"`
@@ -10767,6 +12247,15 @@ type StrictServerInterface interface {
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/suggestions)
 	SearchExplorerCandidates(ctx context.Context, request SearchExplorerCandidatesRequestObject) (SearchExplorerCandidatesResponseObject, error)
 
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities)
+	GetExplorerTableShapeCapabilities(ctx context.Context, request GetExplorerTableShapeCapabilitiesRequestObject) (GetExplorerTableShapeCapabilitiesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries)
+	DiscoverExplorerTableShapeCategories(ctx context.Context, request DiscoverExplorerTableShapeCategoriesRequestObject) (DiscoverExplorerTableShapeCategoriesResponseObject, error)
+
+	// (POST /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions)
+	ResolveExplorerTableShape(ctx context.Context, request ResolveExplorerTableShapeRequestObject) (ResolveExplorerTableShapeResponseObject, error)
+
 	// (POST /api/v1/projects/{project}/explorers/{explorerId}/selections)
 	CreateExplorerSelection(ctx context.Context, request CreateExplorerSelectionRequestObject) (CreateExplorerSelectionResponseObject, error)
 
@@ -11723,6 +13212,108 @@ func (sh *strictHandler) SearchExplorerCandidates(ctx fiber.Ctx, project Project
 	return nil
 }
 
+// GetExplorerTableShapeCapabilities operation middleware
+func (sh *strictHandler) GetExplorerTableShapeCapabilities(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request GetExplorerTableShapeCapabilitiesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body GetExplorerTableShapeCapabilitiesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.GetExplorerTableShapeCapabilities(ctx.Context(), request.(GetExplorerTableShapeCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetExplorerTableShapeCapabilities")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(GetExplorerTableShapeCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetExplorerTableShapeCapabilitiesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// DiscoverExplorerTableShapeCategories operation middleware
+func (sh *strictHandler) DiscoverExplorerTableShapeCategories(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request DiscoverExplorerTableShapeCategoriesRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body DiscoverExplorerTableShapeCategoriesJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.DiscoverExplorerTableShapeCategories(ctx.Context(), request.(DiscoverExplorerTableShapeCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DiscoverExplorerTableShapeCategories")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(DiscoverExplorerTableShapeCategoriesResponseObject); ok {
+		if err := validResponse.VisitDiscoverExplorerTableShapeCategoriesResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
+// ResolveExplorerTableShape operation middleware
+func (sh *strictHandler) ResolveExplorerTableShape(ctx fiber.Ctx, project Project, explorerId ExplorerId) error {
+	var request ResolveExplorerTableShapeRequestObject
+
+	request.Project = project
+	request.ExplorerId = explorerId
+
+	var body ResolveExplorerTableShapeJSONRequestBody
+	if err := ctx.Bind().Body(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	request.Body = &body
+
+	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveExplorerTableShape(ctx.Context(), request.(ResolveExplorerTableShapeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveExplorerTableShape")
+	}
+
+	response, err := handler(ctx, request)
+
+	if err != nil {
+		return err
+	} else if validResponse, ok := response.(ResolveExplorerTableShapeResponseObject); ok {
+		if err := validResponse.VisitResolveExplorerTableShapeResponse(ctx); err != nil {
+			return err
+		}
+	} else if response != nil {
+		return fmt.Errorf("unexpected response type: %T", response)
+	}
+	return nil
+}
+
 // CreateExplorerSelection operation middleware
 func (sh *strictHandler) CreateExplorerSelection(ctx fiber.Ctx, project Project, explorerId ExplorerId, params CreateExplorerSelectionParams) error {
 	var request CreateExplorerSelectionRequestObject
@@ -12140,268 +13731,306 @@ func (sh *strictHandler) GetReadiness(ctx fiber.Ctx) error {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"AAAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

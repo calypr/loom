@@ -294,6 +294,81 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-capabilities:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerTableShapeCapabilities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TableShapeCapabilitiesRequest'}
+      responses:
+        '200':
+          description: Server-derived column, reshape, operator, policy, and saved intent choices for the exact Explorer draft and compiler output.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TableShapeCapabilitiesResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-category-discoveries:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: discoverExplorerTableShapeCategories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TableShapeCategoryDiscoveryRequest'}
+      responses:
+        '200':
+          description: A complete, catalog-bound list of server-discovered category values and safe output-name suggestions.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TableShapeCategoryDiscoveryResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-resolutions:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: resolveExplorerTableShape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TableShapeResolutionRequest'}
+      responses:
+        '200':
+          description: An immutable catalog-bound pivot, unpivot, or derived-column resolution with compiler-proved output type facts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TableShapeResolutionResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2933,6 +3008,672 @@ components:
         candidateWorkspaceDigest: {type: string, minLength: 1}
         mode: {type: string, enum: [RECORDS, FIELD_GROUP, EXPLICIT_GROUP, EXPANDED]}
         comparison: {$ref: '#/components/schemas/RowDefinitionComparison'}
+    TableShapeCapabilitiesRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+    TableShapeCapabilitiesResponse:
+      type: object
+      additionalProperties: false
+      required: [catalogId, outputId, reshapeModes, groupColumns, categoryColumns, valueColumns, pivotCategoryDiscovery, duplicatePolicies, missingCellPolicies, unlistedCategoryPolicies, unpivotColumns, unpivotKeyOutput, unpivotValueOutput, unpivotNullRowPolicies, derivedAvailability, unpivotWithDerivedAvailability, derivedOutputSuggestions, binaryOperators, operands, missingInputPolicies, divisionByZeroPolicies, savedProposalIntent, savedProposalAvailability]
+      properties:
+        catalogId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        reshapeModes:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeReshapeModeChoice'}
+        groupColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        categoryColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        valueColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        pivotCategoryDiscovery: {$ref: '#/components/schemas/TableShapePivotCategoryDiscovery'}
+        duplicatePolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        missingCellPolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        unlistedCategoryPolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        unpivotColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        unpivotKeyOutput: {$ref: '#/components/schemas/TableShapeOutputDescriptorSupport'}
+        unpivotValueOutput: {$ref: '#/components/schemas/TableShapeOutputDescriptorSupport'}
+        unpivotNullRowPolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        derivedAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        unpivotWithDerivedAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        derivedOutputSuggestions:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeOutputSuggestion'}
+        binaryOperators:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeBinaryOperatorChoice'}
+        operands:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        missingInputPolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        divisionByZeroPolicies:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+        savedProposalIntent: {$ref: '#/components/schemas/TableShapeProposalIntent'}
+        savedProposalAvailability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+    TableShapeChoiceAvailability:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [supported, unsupported]}
+        reason: {type: string}
+    TableShapeEditorChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, choiceKind, label, availability]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        choiceKind: {type: string, enum: [column, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy, unpivotNullRowPolicy, binaryOperator, operand, missingInputPolicy, divisionByZeroPolicy]}
+        label: {type: string}
+        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+    TableShapeReshapeModeChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, choiceKind, label, availability, mode]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        choiceKind: {type: string, enum: [reshapeMode]}
+        label: {type: string}
+        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        mode: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
+    TableShapeBinaryOperatorChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, choiceKind, label, availability, requiresDivisionByZeroPolicy]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        choiceKind: {type: string, enum: [binaryOperator]}
+        label: {type: string}
+        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        requiresDivisionByZeroPolicy: {type: boolean}
+    TableShapeOutputName:
+      type: object
+      additionalProperties: false
+      required: [column, label]
+      properties:
+        column: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+    TableShapeOutputSuggestion:
+      type: object
+      additionalProperties: false
+      required: [choiceId, choiceKind, label, availability, suggestedOutput, resultTypeLabel]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        choiceKind: {type: string, enum: [unpivotKeyOutput, unpivotValueOutput, derivedOutput]}
+        label: {type: string}
+        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        suggestedOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
+        resultTypeLabel: {type: string}
+    TableShapeOutputDescriptorSupport:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [supported, unsupported]}
+        reason: {type: string}
+        resultTypeLabel: {type: string}
+        suggestions:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeOutputSuggestion'}
+    TableShapePivotCategoryReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [pivotCategory]}
+        choiceId: {type: string, minLength: 1}
+    TableShapePivotCategoryChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, choiceKind, label, availability, suggestedOutput, value]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        choiceKind: {type: string, enum: [pivotCategory]}
+        label: {type: string}
+        availability: {$ref: '#/components/schemas/TableShapeChoiceAvailability'}
+        suggestedOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
+        value: {$ref: '#/components/schemas/TableShapeScalar'}
+    TableShapeChoiceReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [reshapeMode, column, pivotCategory, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy, unpivotNullRowPolicy, binaryOperator, operand, missingInputPolicy, divisionByZeroPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapePivotCategoryPair:
+      type: object
+      additionalProperties: false
+      required: [categoryColumn, valueColumn]
+      properties:
+        categoryColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        valueColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
+    TableShapePivotCategoryDiscovery:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [not-requested, complete]}
+        discoveryIdentity: {type: string}
+        pair: {$ref: '#/components/schemas/TableShapePivotCategoryPair'}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapePivotCategoryChoice'}
+    TableShapeColumnReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [column]}
+        choiceId: {type: string, minLength: 1}
+    TableShapePivotOutputReference:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [group, category]}
+        column: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
+    TableShapePivotProposal:
+      type: object
+      additionalProperties: false
+      required: [groupColumns, categoryColumn, valueColumn, categoryDiscoveryIdentity, includedCategories, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy]
+      properties:
+        groupColumns:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        categoryColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        valueColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        categoryDiscoveryIdentity: {type: string, minLength: 1}
+        includedCategories:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/TableShapeSavedPivotCategorySelection'}
+        duplicatePolicy: {$ref: '#/components/schemas/TableShapeDuplicatePolicyReference'}
+        missingCellPolicy: {$ref: '#/components/schemas/TableShapeMissingCellPolicyReference'}
+        unlistedCategoryPolicy: {$ref: '#/components/schemas/TableShapeUnlistedCategoryPolicyReference'}
+    TableShapeSavedPivotCategorySelection:
+      type: object
+      additionalProperties: false
+      required: [category, output]
+      properties:
+        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
+        output: {$ref: '#/components/schemas/TableShapeOutputName'}
+    TableShapeUnpivotProposal:
+      type: object
+      additionalProperties: false
+      required: [inputColumns, keyOutput, valueOutput, nullRowPolicy]
+      properties:
+        inputColumns:
+          type: array
+          minItems: 2
+          items: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        keyOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
+        valueOutput: {$ref: '#/components/schemas/TableShapeOutputName'}
+        nullRowPolicy: {$ref: '#/components/schemas/TableShapeUnpivotNullRowPolicyReference'}
+    TableShapeDerivedColumnProposal:
+      type: object
+      additionalProperties: false
+      required: [localId, output, operator, leftOperand, rightOperand, missingInputPolicy]
+      properties:
+        localId: {type: string, minLength: 1}
+        output: {$ref: '#/components/schemas/TableShapeOutputName'}
+        operator: {$ref: '#/components/schemas/TableShapeBinaryOperatorReference'}
+        leftOperand: {$ref: '#/components/schemas/TableShapeDerivedOperandIntent'}
+        rightOperand: {$ref: '#/components/schemas/TableShapeDerivedOperandIntent'}
+        missingInputPolicy: {$ref: '#/components/schemas/TableShapeMissingInputPolicyReference'}
+        divisionByZeroPolicy: {$ref: '#/components/schemas/TableShapeDivisionByZeroPolicyReference'}
+    TableShapeDerivedOperandIntent:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [base, derived, pivotOutput, literal]}
+        reference: {$ref: '#/components/schemas/TableShapeDerivedOperandReference'}
+        localId: {type: string}
+        representation: {type: string, enum: [integer, decimal]}
+        text: {type: string}
+    TableShapeDerivedOperandReference:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [operand, group, category]}
+        choiceId: {type: string}
+        column: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
+    TableShapeProposalIntent:
+      type: object
+      additionalProperties: false
+      required: [kind, reshapeMode, derivedColumns]
+      properties:
+        kind: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
+        reshapeMode: {$ref: '#/components/schemas/TableShapeReshapeModeReference'}
+        pivot: {$ref: '#/components/schemas/TableShapePivotProposal'}
+        unpivot: {$ref: '#/components/schemas/TableShapeUnpivotProposal'}
+        derivedColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeDerivedColumnProposal'}
+    TableShapeReshapeModeReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [reshapeMode]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeDuplicatePolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [duplicatePolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeMissingCellPolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [missingCellPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeUnlistedCategoryPolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [unlistedCategoryPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeUnpivotNullRowPolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [unpivotNullRowPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeBinaryOperatorReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [binaryOperator]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeMissingInputPolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [missingInputPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeDivisionByZeroPolicyReference:
+      type: object
+      additionalProperties: false
+      required: [kind, choiceId]
+      properties:
+        kind: {type: string, enum: [divisionByZeroPolicy]}
+        choiceId: {type: string, minLength: 1}
+    TableShapeCatalogColumn:
+      type: object
+      additionalProperties: false
+      required: [label, logicalType, nullable]
+      properties:
+        label: {type: string}
+        logicalType: {$ref: '#/components/schemas/TableShapeLogicalType'}
+        nullable: {type: boolean}
+        unitIdentity: {type: string}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeColumnChoice'}
+    TableShapeColumnChoice:
+      type: object
+      additionalProperties: false
+      required: [role, id]
+      properties:
+        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
+        id: {type: string, minLength: 1}
+    TableShapeCatalogChoice:
+      type: object
+      additionalProperties: false
+      required: [role, id, label]
+      properties:
+        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
+        id: {type: string, minLength: 1}
+        label: {type: string}
+        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
+    TableShapeChoiceRole:
+      type: string
+      enum: [PIVOT_GROUP, PIVOT_CATEGORY, PIVOT_CATEGORY_VALUE, PIVOT_VALUE, UNPIVOT_INPUT, DERIVED_OPERAND, DERIVED_OPERATOR, POLICY_DUPLICATE, POLICY_MISSING, POLICY_UNLISTED, POLICY_UNPIVOT_NULL, POLICY_DERIVED_MISSING, POLICY_DIVISION_BY_ZERO]
+    TableShapeLogicalType:
+      type: string
+      enum: [STRING, INTEGER, DECIMAL, BOOLEAN, DATE, DATETIME, OBJECT]
+    TableShapeTypeFact:
+      type: object
+      additionalProperties: false
+      required: [logicalType, nullable]
+      properties:
+        logicalType: {$ref: '#/components/schemas/TableShapeLogicalType'}
+        nullable: {type: boolean}
+        unitIdentity: {type: string}
+    TableShapeRoleAvailability:
+      type: object
+      additionalProperties: false
+      required: [role, state]
+      properties:
+        role: {$ref: '#/components/schemas/TableShapeChoiceRole'}
+        state: {type: string, enum: [SUPPORTED, REFUSED]}
+        reasonCode: {type: string}
+        message: {type: string}
+    TableShapeReshapeMode:
+      type: object
+      additionalProperties: false
+      required: [id, mode, label, state]
+      properties:
+        id: {type: string, minLength: 1}
+        mode: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
+        label: {type: string}
+        state: {type: string, enum: [SUPPORTED, REFUSED]}
+        reasonCode: {type: string}
+        reason: {type: string}
+    TableShapeSavedSummary:
+      type: object
+      additionalProperties: false
+      required: [derivedColumns]
+      properties:
+        reshapeKind: {type: string}
+        derivedColumns: {type: integer, minimum: 0}
+        shapeDigest: {type: string}
+    TableShapeScalar:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
+        string: {type: string}
+        integer: {type: integer, format: int64}
+        decimal: {type: number, format: double}
+        boolean: {type: boolean}
+    TableShapeSavedSupport:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state: {type: string, enum: [SUPPORTED, REFUSED]}
+        reasonCode: {type: string}
+        message: {type: string}
+    TableShapeSavedProposalIntent:
+      type: object
+      additionalProperties: false
+      required: [kind, reshapeModeChoiceId, support, derivedColumns]
+      properties:
+        kind: {type: string, enum: [NONE, GROUPED_PIVOT, UNPIVOT]}
+        reshapeModeChoiceId: {type: string, minLength: 1}
+        support: {$ref: '#/components/schemas/TableShapeSavedSupport'}
+        pivot: {$ref: '#/components/schemas/TableShapeSavedPivot'}
+        unpivot: {$ref: '#/components/schemas/TableShapeSavedUnpivot'}
+        derivedColumns:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeSavedDerived'}
+    TableShapeSavedPivot:
+      type: object
+      additionalProperties: false
+      required: [pivotResolutionId, groupColumnChoiceIds, categoryColumnChoiceId, valueColumnChoiceId, categoryDiscoveryId, includedCategories, derivedOperands, duplicatePolicyChoiceId, missingCellPolicyChoiceId, unlistedCategoryPolicyChoiceId]
+      properties:
+        pivotResolutionId: {type: string, minLength: 1}
+        groupColumnChoiceIds:
+          type: array
+          items: {type: string, minLength: 1}
+        categoryColumnChoiceId: {type: string, minLength: 1}
+        valueColumnChoiceId: {type: string, minLength: 1}
+        categoryDiscoveryId: {type: string, minLength: 1}
+        includedCategories:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeSavedPivotCategory'}
+        derivedOperands:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeCatalogChoice'}
+        duplicatePolicyChoiceId: {type: string, minLength: 1}
+        missingCellPolicyChoiceId: {type: string, minLength: 1}
+        unlistedCategoryPolicyChoiceId: {type: string, minLength: 1}
+    TableShapeSavedPivotCategory:
+      type: object
+      additionalProperties: false
+      required: [value, outputColumn, outputLabel, support]
+      properties:
+        choiceId: {type: string}
+        value: {$ref: '#/components/schemas/TableShapeScalar'}
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+        support: {$ref: '#/components/schemas/TableShapeSavedSupport'}
+    TableShapeSavedUnpivot:
+      type: object
+      additionalProperties: false
+      required: [inputColumnChoiceIds, inputs, keyOutputColumn, keyOutputLabel, valueOutputColumn, valueOutputLabel, nullPolicyChoiceId]
+      properties:
+        inputColumnChoiceIds:
+          type: array
+          items: {type: string, minLength: 1}
+        inputs:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeSavedUnpivotInput'}
+        keyOutputColumn: {type: string, minLength: 1}
+        keyOutputLabel: {type: string, minLength: 1}
+        valueOutputColumn: {type: string, minLength: 1}
+        valueOutputLabel: {type: string, minLength: 1}
+        nullPolicyChoiceId: {type: string, minLength: 1}
+    TableShapeSavedUnpivotInput:
+      type: object
+      additionalProperties: false
+      required: [columnChoiceId, key]
+      properties:
+        columnChoiceId: {type: string, minLength: 1}
+        key: {$ref: '#/components/schemas/TableShapeScalar'}
+    TableShapeSavedOperand:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [CATALOG_CHOICE, RESOLUTION_OUTPUT, LITERAL]}
+        choiceId: {type: string}
+        resolutionId: {type: string}
+        literal: {$ref: '#/components/schemas/TableShapeScalar'}
+    TableShapeSavedDerived:
+      type: object
+      additionalProperties: false
+      required: [localId, resolutionId, outputColumn, outputLabel, operatorChoiceId, left, right, result, missingInputPolicyChoiceId]
+      properties:
+        localId: {type: string, minLength: 1}
+        resolutionId: {type: string, minLength: 1}
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+        operatorChoiceId: {type: string, minLength: 1}
+        left: {$ref: '#/components/schemas/TableShapeSavedOperand'}
+        right: {$ref: '#/components/schemas/TableShapeSavedOperand'}
+        result: {$ref: '#/components/schemas/TableShapeTypeFact'}
+        missingInputPolicyChoiceId: {type: string, minLength: 1}
+        divisionByZeroPolicyChoiceId: {type: string}
+    TableShapeDerivedReference:
+      type: object
+      additionalProperties: false
+      required: [resolutionId, label, type]
+      properties:
+        resolutionId: {type: string, minLength: 1}
+        label: {type: string}
+        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
+    TableShapeCategoryDiscoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, catalogId, categoryColumnChoiceId, valueColumnChoiceId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        catalogId: {type: string, minLength: 1}
+        categoryColumnChoiceId: {type: string, minLength: 1}
+        valueColumnChoiceId: {type: string, minLength: 1}
+    TableShapeCategoryDiscoveryResponse:
+      type: object
+      additionalProperties: false
+      required: [catalogId, kind, discoveryIdentity, pair, categories]
+      properties:
+        catalogId: {type: string, minLength: 1}
+        kind: {type: string, enum: [complete]}
+        discoveryIdentity: {type: string, minLength: 1}
+        pair: {$ref: '#/components/schemas/TableShapePivotCategoryPair'}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapePivotCategoryChoice'}
+    TableShapeDiscoveredCategory:
+      type: object
+      additionalProperties: false
+      required: [id, value, label, suggestedOutputColumn, suggestedOutputLabel]
+      properties:
+        id: {type: string, minLength: 1}
+        value: {$ref: '#/components/schemas/TableShapeScalar'}
+        label: {type: string}
+        suggestedOutputColumn: {type: string, minLength: 1}
+        suggestedOutputLabel: {type: string, minLength: 1}
+    TableShapeResolutionRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, catalogId, kind]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        catalogId: {type: string, minLength: 1}
+        kind: {type: string, enum: [PIVOT, UNPIVOT, DERIVED]}
+        pivot: {$ref: '#/components/schemas/TableShapePivotSelection'}
+        unpivot: {$ref: '#/components/schemas/TableShapeUnpivotSelection'}
+        derived: {$ref: '#/components/schemas/TableShapeDerivedSelection'}
+    TableShapePivotSelection:
+      type: object
+      additionalProperties: false
+      required: [categoryDiscoveryId, groupColumnChoiceIds, categoryColumnChoiceId, valueColumnChoiceId, categories, duplicatePolicyChoiceId, missingPolicyChoiceId, unlistedPolicyChoiceId]
+      properties:
+        categoryDiscoveryId: {type: string, minLength: 1}
+        groupColumnChoiceIds:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        categoryColumnChoiceId: {type: string, minLength: 1}
+        valueColumnChoiceId: {type: string, minLength: 1}
+        categories:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/TableShapePivotCategorySelection'}
+        duplicatePolicyChoiceId: {type: string, minLength: 1}
+        missingPolicyChoiceId: {type: string, minLength: 1}
+        unlistedPolicyChoiceId: {type: string, minLength: 1}
+    TableShapePivotCategorySelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, outputColumn, outputLabel]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+    TableShapeUnpivotSelection:
+      type: object
+      additionalProperties: false
+      required: [inputColumnChoiceIds, nullPolicyChoiceId, keyOutputColumn, keyOutputLabel, valueOutputColumn, valueOutputLabel]
+      properties:
+        inputColumnChoiceIds:
+          type: array
+          minItems: 2
+          items: {type: string, minLength: 1}
+        nullPolicyChoiceId: {type: string, minLength: 1}
+        keyOutputColumn: {type: string, minLength: 1}
+        keyOutputLabel: {type: string, minLength: 1}
+        valueOutputColumn: {type: string, minLength: 1}
+        valueOutputLabel: {type: string, minLength: 1}
+    TableShapeDerivedSelection:
+      type: object
+      additionalProperties: false
+      required: [outputColumn, outputLabel, operatorChoiceId, left, right, missingPolicyChoiceId]
+      properties:
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+        pivotResolutionId: {type: string}
+        operatorChoiceId: {type: string, minLength: 1}
+        left: {$ref: '#/components/schemas/TableShapeOperandSelection'}
+        right: {$ref: '#/components/schemas/TableShapeOperandSelection'}
+        missingPolicyChoiceId: {type: string, minLength: 1}
+        divisionByZeroPolicyChoiceId: {type: string}
+    TableShapeOperandSelection:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [CATALOG_CHOICE, RESOLUTION_OUTPUT, LITERAL]}
+        choiceId: {type: string}
+        resolutionId: {type: string}
+        literal: {$ref: '#/components/schemas/TableShapeScalar'}
+    TableShapeResolutionResponse:
+      type: object
+      additionalProperties: false
+      required: [catalogId, resolutionId, kind, outputDescriptors, postPivotOperands]
+      properties:
+        catalogId: {type: string, minLength: 1}
+        resolutionId: {type: string, minLength: 1}
+        kind: {type: string, enum: [PIVOT, UNPIVOT, DERIVED]}
+        categoryDiscoveryId: {type: string}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeResolvedCategory'}
+        result: {$ref: '#/components/schemas/TableShapeTypeFact'}
+        keyResult: {$ref: '#/components/schemas/TableShapeTypeFact'}
+        valueResult: {$ref: '#/components/schemas/TableShapeTypeFact'}
+        outputDescriptors:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeResolvedOutputDescriptor'}
+        postPivotOperands:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeEditorChoice'}
+    TableShapeResolvedCategory:
+      type: object
+      additionalProperties: false
+      required: [id, value, outputColumn, outputLabel, type]
+      properties:
+        id: {type: string, minLength: 1}
+        value: {$ref: '#/components/schemas/TableShapeScalar'}
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
+    TableShapeResolvedOutputDescriptor:
+      type: object
+      additionalProperties: false
+      required: [kind, outputColumn, outputLabel, type]
+      properties:
+        kind: {type: string, enum: [group, category, unpivotKey, unpivotValue, derived]}
+        groupColumn: {$ref: '#/components/schemas/TableShapeColumnReference'}
+        category: {$ref: '#/components/schemas/TableShapePivotCategoryReference'}
+        operandChoiceId: {type: string, minLength: 1}
+        outputColumn: {type: string, minLength: 1}
+        outputLabel: {type: string, minLength: 1}
+        type: {$ref: '#/components/schemas/TableShapeTypeFact'}
     RoutePolicy:
       type: object
       additionalProperties: false
