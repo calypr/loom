@@ -15,12 +15,14 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-const maxRowDefinitionComparisonExamples = 10
+const maxProposalComparisonExamples = 10
 
-type rowDefinitionPreviewRows struct {
+type proposalPreviewRows struct {
 	Rows    map[string]map[string]any
 	Summary dataframeexecution.PreviewSummary
 }
+
+type rowDefinitionPreviewRows = proposalPreviewRows
 
 func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowDefinitionProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (RowDefinitionComparison, error) {
 	if receiptHasUnsupportedGroupedRows(base, request.OutputID) || receiptHasUnsupportedGroupedRows(candidate, request.OutputID) {
@@ -54,7 +56,7 @@ func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowD
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
 	applyAuthorizedScope(&bindings, authorized, false)
-	baseRows, err := s.previewRowDefinitionReceipt(ctx, base, bindings, limit)
+	baseRows, err := s.previewReceiptRows(ctx, base, bindings, limit)
 	if err != nil {
 		comparison := unavailableRowDefinitionComparison("BASE_PREVIEW_UNAVAILABLE", "The base receipt could not be previewed with stable row identities.")
 		comparison.Base = rowDefinitionPreviewSummary(baseRows.Summary)
@@ -63,7 +65,7 @@ func (s *Service) compareRowDefinitionReceipts(ctx context.Context, request RowD
 		}
 		return comparison, nil
 	}
-	candidateRows, err := s.previewRowDefinitionReceipt(ctx, candidate, bindings, limit)
+	candidateRows, err := s.previewReceiptRows(ctx, candidate, bindings, limit)
 	if err != nil {
 		comparison := unavailableRowDefinitionComparison("CANDIDATE_PREVIEW_UNAVAILABLE", "The candidate receipt could not be previewed with stable row identities.")
 		comparison.Base = rowDefinitionPreviewSummary(baseRows.Summary)
@@ -97,7 +99,7 @@ func (s *Service) previewUnavailableRowDefinitionComparison(ctx context.Context,
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
 	applyAuthorizedScope(&bindings, authorized, false)
-	preview, err := s.previewRowDefinitionReceipt(ctx, base, bindings, limit)
+	preview, err := s.previewReceiptRows(ctx, base, bindings, limit)
 	if err == nil || preview.Summary.RowCount > 0 {
 		comparison.Base = rowDefinitionPreviewSummary(preview.Summary)
 	}
@@ -107,8 +109,8 @@ func (s *Service) previewUnavailableRowDefinitionComparison(ctx context.Context,
 	return comparison, nil
 }
 
-func (s *Service) previewRowDefinitionReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (rowDefinitionPreviewRows, error) {
-	preview := rowDefinitionPreviewRows{Rows: make(map[string]map[string]any, limit)}
+func (s *Service) previewReceiptRows(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, limit int) (proposalPreviewRows, error) {
+	preview := proposalPreviewRows{Rows: make(map[string]map[string]any, limit)}
 	summary, err := s.config.PreviewReceipt(ctx, receipt, bindings, func(row map[string]any) error {
 		identity, ok := row["__loom_row_id"]
 		if !ok || identity == nil || strings.TrimSpace(fmt.Sprint(identity)) == "" {
@@ -206,7 +208,7 @@ func compareRowDefinitionPreviewRows(base, candidate rowDefinitionPreviewRows) R
 	comparison := RowDefinitionComparison{
 		Status: RowDefinitionComparisonAvailable, Base: rowDefinitionPreviewSummary(base.Summary),
 		Candidate: rowDefinitionPreviewSummary(candidate.Summary), AffectedColumns: affected,
-		Notices: []string{}, Examples: make([]RowDefinitionComparisonExample, 0, min(maxRowDefinitionComparisonExamples, len(rowIDs))),
+		Notices: []string{}, Examples: make([]RowDefinitionComparisonExample, 0, min(maxProposalComparisonExamples, len(rowIDs))),
 	}
 	if comparison.Base.Sampled {
 		comparison.Notices = append(comparison.Notices, "Base row count reflects a bounded sample.")
@@ -214,10 +216,10 @@ func compareRowDefinitionPreviewRows(base, candidate rowDefinitionPreviewRows) R
 	if comparison.Candidate.Sampled {
 		comparison.Notices = append(comparison.Notices, "Candidate row count reflects a bounded sample.")
 	}
-	if len(rowIDs) > maxRowDefinitionComparisonExamples {
+	if len(rowIDs) > maxProposalComparisonExamples {
 		comparison.Notices = append(comparison.Notices, "Example row identities are limited to 10.")
 	}
-	for _, rowID := range rowIDs[:min(maxRowDefinitionComparisonExamples, len(rowIDs))] {
+	for _, rowID := range rowIDs[:min(maxProposalComparisonExamples, len(rowIDs))] {
 		_, beforeOK := base.Rows[rowID]
 		_, afterOK := candidate.Rows[rowID]
 		comparison.Examples = append(comparison.Examples, RowDefinitionComparisonExample{

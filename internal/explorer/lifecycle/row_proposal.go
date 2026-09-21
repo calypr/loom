@@ -550,36 +550,7 @@ func (s *Service) validateExplicitGroupReceipt(ctx context.Context, proof *Expli
 }
 
 func (s *Service) verifyRowDefinitionReceipt(ctx context.Context, receipt *explorer.CompilationReceipt, project, explorerID, snapshotToken string, snapshot capability.Snapshot, expected *authoringv2.Workspace) (authoringv2.Workspace, error) {
-	if receipt == nil || strings.TrimSpace(receipt.ID) == "" {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt is missing", nil, nil)
-	}
-	if err := validateCandidateReceiptIdentity(receipt, project, explorerID, snapshotToken, snapshot); err != nil {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt capability identity does not match the request", nil, err)
-	}
-	if err := receipt.Validate(); err != nil {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt failed integrity validation", nil, err)
-	}
-	if strings.TrimSpace(receipt.IntentDigest) == "" {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt has no authoring intent digest", nil, nil)
-	}
-	if expected != nil {
-		expectedDigest, err := expected.Digest()
-		if err != nil {
-			return authoringv2.Workspace{}, err
-		}
-		if receipt.IntentDigest != expectedDigest {
-			return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt does not represent the expected workspace", nil, nil)
-		}
-	}
-	compiled, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
-	if err != nil {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt workspace is invalid", nil, err)
-	}
-	compiledDigest, err := compiled.Digest()
-	if err != nil || compiledDigest != receipt.IntentDigest {
-		return authoringv2.Workspace{}, conflict("row-definition-proposal", "INVALID_COMPILATION_RECEIPT", "the compiled receipt workspace digest does not match its intent digest", nil, err)
-	}
-	return compiled, nil
+	return s.verifyProposalReceipt(ctx, "row-definition-proposal", receipt, project, explorerID, snapshotToken, snapshot, expected)
 }
 
 func (s *Service) prepareRowDefinitionProposal(ctx context.Context, project, explorerID string, request authoringv2.ApplyCommandsRequest, snapshot capability.Snapshot, current authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, *explorer.CompilationReceipt, error) {
@@ -698,7 +669,7 @@ func proposalDocument(workspace authoringv2.Workspace, outputID string) *authori
 func documentDigest(document authoringv2.Document) (string, error) {
 	raw, err := json.Marshal(document)
 	if err != nil {
-		return "", fmt.Errorf("encode row-definition document digest: %w", err)
+		return "", fmt.Errorf("encode authoring document digest: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil

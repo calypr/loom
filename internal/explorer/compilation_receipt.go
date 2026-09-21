@@ -103,6 +103,7 @@ type CompilationReceipt struct {
 	OutputColumnProvenance map[string]map[string]string  `json:"outputColumnProvenance,omitempty"`
 	Warnings               []CompilationWarning          `json:"warnings,omitempty"`
 	RowDefinitionProposal  *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
+	TableShapeProposal     *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	RequestID              string                        `json:"requestId,omitempty"`
 	CreatedAt              time.Time                     `json:"createdAt"`
 }
@@ -138,6 +139,41 @@ func (b RowDefinitionProposalBinding) Validate(intentDigest, snapshotToken strin
 	}
 	if b.SnapshotToken != snapshotToken {
 		return fmt.Errorf("row-definition proposal snapshot token does not match receipt snapshot")
+	}
+	return nil
+}
+
+// TableShapeProposalBinding freezes the exact draft and output from which a
+// candidate table-shape workspace was compiled. It is optional because
+// ordinary compilation receipts are not table-shape proposals.
+type TableShapeProposalBinding struct {
+	DraftVersion             int64  `json:"draftVersion"`
+	DraftDigest              string `json:"draftDigest"`
+	OutputID                 string `json:"outputId"`
+	BaseDocumentDigest       string `json:"baseDocumentDigest"`
+	CandidateWorkspaceDigest string `json:"candidateWorkspaceDigest"`
+	SnapshotToken            string `json:"snapshotToken"`
+}
+
+func (b TableShapeProposalBinding) Validate(intentDigest, snapshotToken string) error {
+	if b.DraftVersion < 1 {
+		return fmt.Errorf("table-shape proposal draftVersion must be positive")
+	}
+	for name, value := range map[string]string{
+		"draftDigest": b.DraftDigest, "outputId": b.OutputID,
+		"baseDocumentDigest":       b.BaseDocumentDigest,
+		"candidateWorkspaceDigest": b.CandidateWorkspaceDigest,
+		"snapshotToken":            b.SnapshotToken,
+	} {
+		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
+			return fmt.Errorf("table-shape proposal %s must be an exact non-empty value", name)
+		}
+	}
+	if b.CandidateWorkspaceDigest != intentDigest {
+		return fmt.Errorf("table-shape proposal candidate workspace digest does not match receipt intent")
+	}
+	if b.SnapshotToken != snapshotToken {
+		return fmt.Errorf("table-shape proposal snapshot token does not match receipt snapshot")
 	}
 	return nil
 }
@@ -181,6 +217,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		ShapeDigest             string                        `json:"shapeDigest,omitempty"`
 		SourceGeneration        string                        `json:"sourceGeneration"`
 		RowDefinitionProposal   *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal      *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	}{}
 	normalized, err := canonicalRaw(r.NormalizedBundle)
 	if err != nil {
@@ -201,10 +238,11 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		ShapeDigest             string                        `json:"shapeDigest,omitempty"`
 		SourceGeneration        string                        `json:"sourceGeneration"`
 		RowDefinitionProposal   *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal      *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	}{
 		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
 		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
-		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.RowDefinitionProposal,
+		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.RowDefinitionProposal, r.TableShapeProposal,
 	}
 	return digestIdentity("compile_", identity)
 }
@@ -240,11 +278,12 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		ResolvedInterpretations []ResolvedInterpretation      `json:"resolvedInterpretations,omitempty"`
 		Warnings                []CompilationWarning          `json:"warnings,omitempty"`
 		RowDefinitionProposal   *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
+		TableShapeProposal      *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	}{
 		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
-		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.RowDefinitionProposal,
+		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.RowDefinitionProposal, r.TableShapeProposal,
 	}
 	return digestIdentity("receipt_", identity)
 }
@@ -276,6 +315,11 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 func (r CompilationReceipt) Validate() error {
 	if r.RowDefinitionProposal != nil {
 		if err := r.RowDefinitionProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
+			return err
+		}
+	}
+	if r.TableShapeProposal != nil {
+		if err := r.TableShapeProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
 			return err
 		}
 	}

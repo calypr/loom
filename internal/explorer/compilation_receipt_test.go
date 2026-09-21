@@ -119,6 +119,52 @@ func TestCompilationReceiptIdentityIncludesRowDefinitionProposalBinding(t *testi
 	}
 }
 
+func TestCompilationReceiptIdentityIncludesTableShapeProposalBinding(t *testing.T) {
+	base := testReceipt()
+	base.IntentDigest = "sha256:candidate"
+	base.TableShapeProposal = &TableShapeProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
+		SnapshotToken: base.SnapshotToken,
+	}
+	base.CompilationKey, _ = CompilationKey(base)
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []struct {
+		name   string
+		change func(*TableShapeProposalBinding)
+	}{
+		{name: "draft version", change: func(binding *TableShapeProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *TableShapeProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *TableShapeProposalBinding) { binding.OutputID = "other" }},
+		{name: "base document", change: func(binding *TableShapeProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
+		{name: "candidate workspace", change: func(binding *TableShapeProposalBinding) { binding.CandidateWorkspaceDigest = "sha256:other-candidate" }},
+		{name: "snapshot", change: func(binding *TableShapeProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			binding := *base.TableShapeProposal
+			test.change(&binding)
+			changed.TableShapeProposal = &binding
+			key, keyErr := CompilationKey(changed)
+			if keyErr != nil {
+				t.Fatal(keyErr)
+			}
+			changed.CompilationKey = key
+			id, idErr := ReceiptID(changed)
+			if idErr != nil {
+				t.Fatal(idErr)
+			}
+			if id == first {
+				t.Fatal("table-shape proposal binding did not change receipt identity")
+			}
+		})
+	}
+}
+
 func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
@@ -129,6 +175,19 @@ func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing
 	}
 	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted proposal binding for a different candidate workspace")
+	}
+}
+
+func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T) {
+	receipt := testReceipt()
+	receipt.IntentDigest = "sha256:candidate"
+	receipt.TableShapeProposal = &TableShapeProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
+		SnapshotToken: receipt.SnapshotToken,
+	}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted table-shape proposal binding for a different candidate workspace")
 	}
 }
 

@@ -86,6 +86,63 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 	}
 }
 
+func TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentDigest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &explorer.TableShapeProposalBinding{
+		DraftVersion: 3, DraftDigest: "sha256:draft", OutputID: "patients",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: intentDigest,
+		SnapshotToken: snapshot.Token,
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized:         lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+		TableShapeProposal: binding,
+	}, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(receipt.TableShapeProposal, binding) {
+		t.Fatalf("stored proposal binding = %#v, want %#v", receipt.TableShapeProposal, binding)
+	}
+	if receipt.TableShapeProposal == binding {
+		t.Fatal("stored receipt aliases the caller-owned proposal binding")
+	}
+	withoutBinding := *receipt
+	withoutBinding.TableShapeProposal = nil
+	withoutBinding.CompilationKey = ""
+	withoutBinding.ID = ""
+	keyWithoutBinding, err := explorer.CompilationKey(withoutBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idWithoutBinding, err := explorer.ReceiptID(withoutBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.CompilationKey == keyWithoutBinding || receipt.ID == idWithoutBinding {
+		t.Fatalf("proposal binding did not enter receipt identity: with=(%q,%q) without=(%q,%q)", receipt.CompilationKey, receipt.ID, keyWithoutBinding, idWithoutBinding)
+	}
+}
+
 func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{},

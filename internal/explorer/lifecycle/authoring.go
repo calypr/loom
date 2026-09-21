@@ -25,6 +25,8 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
 	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
 	var rowDefinitionCandidate *explorer.CompilationReceipt
+	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
+	var tableShapeCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	populationRouteCount := 0
 	for _, command := range request.Commands {
@@ -114,6 +116,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			rowDefinitionCandidate = receipt
 			return prepared, prepareErr
 		}
+	} else if tableShapeProposalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			prepared, receipt, prepareErr := s.prepareTableShapeProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			tableShapeCandidate = receipt
+			return prepared, prepareErr
+		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
@@ -127,6 +135,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		if rowDefinitionProposalCommand {
 			return s.checkRowDefinitionProposalResult(workspace, rowDefinitionCandidate)
+		}
+		if tableShapeProposalCommand {
+			return checkTableShapeProposalResult(workspace, tableShapeCandidate)
 		}
 		return nil
 	})
@@ -252,7 +263,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -295,6 +306,9 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	if !sameRowDefinitionProposalBinding(request.RowDefinitionProposal, receipt.RowDefinitionProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt row-definition proposal binding does not match the request", nil, nil)
 	}
+	if !sameTableShapeProposalBinding(request.TableShapeProposal, receipt.TableShapeProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt table-shape proposal binding does not match the request", nil, nil)
+	}
 	if authorized.Scope.Mode != "" {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 			return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
@@ -324,6 +338,21 @@ func sameRowDefinitionProposalBinding(left, right *explorer.RowDefinitionProposa
 }
 
 func cloneRowDefinitionProposalBinding(binding *explorer.RowDefinitionProposalBinding) *explorer.RowDefinitionProposalBinding {
+	if binding == nil {
+		return nil
+	}
+	cloned := *binding
+	return &cloned
+}
+
+func sameTableShapeProposalBinding(left, right *explorer.TableShapeProposalBinding) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func cloneTableShapeProposalBinding(binding *explorer.TableShapeProposalBinding) *explorer.TableShapeProposalBinding {
 	if binding == nil {
 		return nil
 	}
