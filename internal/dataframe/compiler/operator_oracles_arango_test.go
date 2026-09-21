@@ -463,6 +463,7 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		{patientID: "patient-units", column: "unit_sum", want: []operatorOracleContributor{
 			{resourceType: "Observation", resourceID: "obs-height-cm", value: float64(180)},
 			{resourceType: "Observation", resourceID: "obs-height-m", value: float64(180)},
+			{resourceType: "Observation", resourceID: "obs-height-outside", value: float64(900)},
 			{resourceType: "Observation", resourceID: "obs-height-zero", value: float64(0)},
 		}},
 	}
