@@ -1820,6 +1820,44 @@ export const loadJ04FixtureContract = (fixtureDir) => {
   return { contract, sourceRecords };
 };
 
+export const j04BrowserControlPlan = (contract) => {
+  if (!contract?.aggregateScope || !contract?.expectedAggregates?.length || !contract?.pivot) {
+    throw new Error('J04 browser control plan requires aggregate and pivot fixture scopes');
+  }
+  const aggregate = contract.expectedAggregates[0];
+  const operations = ['count', 'exists', 'min', 'max', 'mean', 'sum'];
+  if (operations.some((operation) => !Object.hasOwn(aggregate, operation))) {
+    throw new Error('J04 browser control plan requires all six aggregate literals');
+  }
+  return {
+    aggregate: {
+      rowResourceType: contract.aggregateScope.rowResourceType,
+      selectedRowIdentities: [...contract.aggregateScope.selectedRowIdentities],
+      operations: operations.map((operation) => ({
+        operation: operation.toUpperCase(),
+        expected: aggregate[operation],
+      })),
+      temporal: structuredClone(contract.temporalOutcomes),
+      unitNormalization: {
+        ...structuredClone(contract.normalizationPolicy),
+        cases: structuredClone(contract.normalizationCases),
+        refusal: structuredClone(contract.unsupportedUnitRefusal),
+      },
+      derived: structuredClone(contract.derivedResults),
+    },
+    observation: {
+      rowResourceType: contract.baseRowResourceType,
+      baseColumns: structuredClone(contract.baseColumns),
+      pivotSourceColumns: structuredClone(contract.pivot.requiredSourceColumns),
+      recoding: structuredClone(contract.recodingOutcomes),
+      pivot: structuredClone(contract.pivot),
+      presenceCases: structuredClone(contract.presenceCases),
+      unrelatedColumnLiteral: structuredClone(contract.unrelatedColumnLiteral),
+    },
+    acceptance: structuredClone(contract.acceptanceExpectations),
+  };
+};
+
 export const j04ExactEqual = (expected, actual) => {
   if (Object.is(expected, actual)) return true;
   if (expected === null || actual === null || typeof expected !== typeof actual) return false;
@@ -5883,6 +5921,7 @@ const j04EvidenceDocument = (report) => {
 };
 
 const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) => {
+  const controlPlan = j04BrowserControlPlan(fixture.contract);
   const evidenceDirectory = report.target.evidenceDirectory;
   const downloadDirectory = join(evidenceDirectory, 'downloads');
   mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
@@ -5900,7 +5939,9 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
   report.target.exclusionEvidence = null;
   report.target.informationLossEvidence = null;
   report.target.appliedComparisonScreenshot = null;
+  report.target.browserControlPlan = controlPlan;
   const network = [];
+  const pendingNetworkBodies = new Set();
   let browser;
   let cdp;
   let failure;
@@ -5923,6 +5964,12 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     await operation();
     report.actions ??= [];
     report.actions.push({ name, elapsedMs: Date.now() - actionStarted });
+  };
+  const failAtMissingDOMAction = (actionName, selector, reason, details = {}) => {
+    report.target.firstMissingDOMAction ??= { action: actionName, selector, reason, ...details };
+    report.assertions.push({ name: `j04-dom-action-${actionName}`, status: 'failed', expected: selector, actual: null });
+    markJ04DownstreamUnproven(report);
+    throw new Error(`J04 first missing DOM action: ${actionName} requires ${selector}: ${reason}`);
   };
   const saveWorkspaceSnapshot = async (stage, explorerId) => {
     const state = await fetchBuilderState(target, explorerId);
@@ -5965,17 +6012,89 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     }
     return fetchBuilderState(target, explorerId);
   };
+  const clickTestID = async (testId) => browserEval(cdp, `(() => {
+    const element = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
+    if (!element || !visible(element)) throw new Error('J04 visible test selector is missing: ' + ${JSON.stringify(testId)});
+    if (element.disabled || element.getAttribute('aria-disabled') === 'true') throw new Error('J04 test selector is disabled: ' + ${JSON.stringify(testId)});
+    element.scrollIntoView({ block: 'center' });
+    element.click();
+    return ${JSON.stringify(testId)};
+  })()`);
+  const setTestInput = async (testId, value) => browserEval(cdp, `(() => {
+    const element = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
+    if (!element || !visible(element)) throw new Error('J04 visible test input is missing: ' + ${JSON.stringify(testId)});
+    if (element.disabled) throw new Error('J04 test input is disabled: ' + ${JSON.stringify(testId)});
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
+    descriptor?.set?.call(element, ${JSON.stringify(String(value))});
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return element.value;
+  })()`);
+  const selectTestOption = async (testId, textNeedle) => browserEval(cdp, `(() => {
+    const select = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
+    const wanted = String(${JSON.stringify(textNeedle)}).toLocaleLowerCase();
+    const option = [...(select?.options || [])].find((item) => norm(item.textContent).toLocaleLowerCase().includes(wanted));
+    if (!select || !visible(select)) throw new Error('J04 visible test select is missing: ' + ${JSON.stringify(testId)});
+    if (!option || option.disabled) throw new Error('J04 test option is unavailable: ' + ${JSON.stringify(textNeedle)} + '; choices=' + [...select.options].map((item) => norm(item.textContent)).join(' | '));
+    select.value = option.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return { value: option.value, label: norm(option.textContent) };
+  })()`);
+  const checkTestID = async (testId, checked = true) => browserEval(cdp, `(() => {
+    const input = document.querySelector('[data-testid="' + ${JSON.stringify(testId)} + '"]');
+    if (!input || !visible(input)) throw new Error('J04 visible test checkbox is missing: ' + ${JSON.stringify(testId)});
+    if (input.disabled) throw new Error('J04 test checkbox is disabled: ' + ${JSON.stringify(testId)});
+    if (input.checked !== ${JSON.stringify(checked)}) input.click();
+    return input.checked;
+  })()`);
+  const setAccessibleSelect = async (label, value) => browserEval(cdp, `(() => {
+    const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)} && visible(item));
+    if (!select) throw new Error('J04 visible select is missing: ' + ${JSON.stringify(label)});
+    const option = [...select.options].find((item) => item.value === ${JSON.stringify(value)});
+    if (!option || option.disabled) throw new Error('J04 accessible option is unavailable: ' + ${JSON.stringify(value)} + ' for ' + ${JSON.stringify(label)});
+    select.value = option.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return option.textContent.trim();
+  })()`);
+  const checkChoiceByLabel = async (testIdPrefix, labelNeedle) => browserEval(cdp, `(() => {
+    const needle = norm(${JSON.stringify(labelNeedle)}).toLocaleLowerCase();
+    const input = [...document.querySelectorAll('input[type="checkbox"][data-testid^="' + ${JSON.stringify(testIdPrefix)} + '"]')]
+      .find((item) => norm(item.closest('label')?.innerText).toLocaleLowerCase().includes(needle));
+    if (!input || !visible(input)) throw new Error('J04 visible choice is missing: ' + ${JSON.stringify(testIdPrefix)} + ' / ' + ${JSON.stringify(labelNeedle)});
+    if (input.disabled) throw new Error('J04 visible choice is disabled: ' + ${JSON.stringify(labelNeedle)});
+    if (!input.checked) input.click();
+    return { testId: input.dataset.testid, label: norm(input.closest('label')?.innerText) };
+  })()`);
 
   try {
     browser = await launchBrowser(downloadDirectory);
     cdp = browser.cdp;
     cdp.on('Network.requestWillBeSent', (event) => {
       if (!event.request.url.includes('/authoring/v2/')) return;
-      network.push({ requestId: event.requestId, path: new URL(event.request.url).pathname, method: event.request.method });
+      const path = new URL(event.request.url).pathname;
+      network.push({ requestId: event.requestId, path, method: event.request.method,
+        requestJSON: event.request.postData ? (() => { try { return JSON.parse(event.request.postData); } catch { return undefined; } })() : undefined });
     });
     cdp.on('Network.responseReceived', (event) => {
       const item = network.find((candidate) => candidate.requestId === event.requestId);
-      if (item) item.status = event.response.status;
+      if (item) {
+        item.status = event.response.status;
+        item.mimeType = event.response.mimeType;
+      }
+    });
+    cdp.on('Network.loadingFinished', (event) => {
+      const item = network.find((candidate) => candidate.requestId === event.requestId);
+      if (!item || !/table-shape|preview/i.test(item.path) || item.responseJSON !== undefined) return;
+      const capture = (async () => {
+        try {
+          const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+          const raw = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
+          item.responseJSON = JSON.parse(raw);
+        } catch (error) { item.responseBodyError = String(error); }
+      })().finally(() => pendingNetworkBodies.delete(capture));
+      pendingNetworkBodies.add(capture);
     });
     const explorerId = report.target.bootstrapExplorerId;
     if (!explorerId) throw new Error('J04 fixture seed has no empty bootstrap Explorer identity');
@@ -6003,6 +6122,34 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     if (!root?.nodeId || !outputDocument?.output?.id) throw new Error(`J04 ${rowResourceType} row selection did not create a saved output table`);
     const outputId = outputDocument.output.id;
     report.target.outputId = outputId;
+    const startingCollection = await evaluate(cdp, `(() => {
+      const panel = document.querySelector('[aria-label="Starting collection"]');
+      return {
+        visible: Boolean(panel && visible(panel)),
+        text: norm(panel?.innerText),
+        visibleActions: [...(panel?.querySelectorAll('button, select, input') || [])].filter(visible).map((item) => ({
+          role: item.tagName.toLowerCase(), label: item.getAttribute('aria-label') || norm(item.innerText), disabled: Boolean(item.disabled),
+        })),
+      };
+    })()`);
+    report.target.patientOperatorJourney = {
+      outputId: null,
+      rowResourceType: controlPlan.aggregate.rowResourceType,
+      requiredRowIdentities: controlPlan.aggregate.selectedRowIdentities,
+      status: 'not-proven',
+      blocker: {
+        selector: '[aria-label="Starting collection"]',
+        visiblePanel: startingCollection,
+        reason: 'This fresh fixture has no immutable Patient selection revision loaded into Builder. Starting collection can attach a provided selection and compiler-proved route, but it cannot create the exact Patient-001 membership from the visible Builder controls. No API-created selection or population was substituted.',
+      },
+    };
+    report.assertions.push({
+      name: 'j04-patient-operator-population-is-exactly-the-fixture-identity',
+      status: 'not-proven',
+      expected: controlPlan.aggregate.selectedRowIdentities,
+      actual: { patientOutputCreated: false, visibleStartingCollection: startingCollection },
+      detail: report.target.patientOperatorJourney.blocker.reason,
+    });
     const fieldChoices = fieldChoicesFromCatalog(state, root.nodeId, fixture.contract.baseColumns);
     report.target.capabilityIdentities = fieldChoices.map(({ path, candidate, selection }) => ({
       path,
@@ -6030,22 +6177,6 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     recordAssertion(report, 'j04-builder-saves-the-literal-browser-authored-base-column-identities', fixture.contract.baseColumns.map((column) => column.path), report.target.exactOutputSchemaColumns.map((column) => column.source.path));
     await saveWorkspaceSnapshot('after-base-authoring', explorerId);
     await captureDOM('j04-builder-base-authored');
-
-    const selector = '[data-testid="ui04-table-shape-editor"]';
-    const editorVisible = await evaluate(cdp, `Boolean(document.querySelector(${JSON.stringify(selector)}))`);
-    if (!editorVisible) {
-      const visibleShapeActions = await evaluate(cdp, `([...document.querySelectorAll('button')].map((button) => button.textContent.trim()).filter((label) => /shape|reshape|pivot|transform/i.test(label)))`);
-      report.target.firstMissingDOMAction = {
-        action: 'open-ui04-table-shape-editor',
-        selector,
-        reason: 'The saved-table Builder route has no visible action that renders the UI04 table-shape editor.',
-        visibleShapeActions,
-        baseColumnCount: authored.columns.length,
-      };
-      report.assertions.push({ name: 'j04-builder-renders-the-ui04-table-shape-editor-after-base-authoring', status: 'failed', expected: selector, actual: null });
-      markJ04DownstreamUnproven(report);
-      throw new Error(`J04 first missing DOM action: Builder does not render the Table shape editor ${selector} after ${authored.columns.length} base columns were authored through visible controls`);
-    }
     const pivotFieldChoices = fieldChoicesFromCatalog(state, root.nodeId, fixture.contract.pivot.requiredSourceColumns);
     report.target.pivotCapabilityIdentities = pivotFieldChoices.map(({ path, candidate, selection }) => ({
       path,
@@ -6065,9 +6196,251 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     recordAssertion(report, 'j04-pivot-source-columns-are-saved-before-pivot-configuration',
       [...fixture.contract.baseColumns, ...fixture.contract.pivot.requiredSourceColumns].map((column) => column.path),
       report.target.pivotSourceColumns);
-    await saveWorkspaceSnapshot('after-pivot-source-authoring', explorerId);
-    await captureDOM('j04-builder-pivot-sources-authored');
-    throw new Error('J04 verifier reached the UI04 table-shape editor, but the downstream browser workflow is not implemented');
+    const recoding = controlPlan.observation.recoding;
+    const scalarFields = controlPlan.observation.presenceCases.map((item) => ({
+      path: item.fieldPath,
+      label: `J04 ${item.presence} scalar evidence`,
+    }));
+    const additionalFields = [...new Map([
+      ...scalarFields,
+      { path: recoding.sourcePath, label: 'J04 exact category recoding' },
+    ].map((column) => [column.path, column])).values()];
+    const additionalChoices = fieldChoicesFromCatalog(state, root.nodeId, additionalFields);
+    report.target.policyCapabilityIdentities = additionalChoices.map(({ path, candidate, selection }) => ({
+      path,
+      candidateId: candidate.candidateId,
+      choiceId: selection.choiceId,
+      form: selection.form,
+      logicalType: candidate.logicalType,
+      projectionModes: candidate.projectionModes,
+      recoding: candidate.valueTransformations?.exactCategoryRecode ?? candidate.valueTransformations?.codedValueRecoding,
+    }));
+    await action('add-presence-and-recode-columns-through-visible-builder-controls', async () => {
+      state = await authorCatalogFields(explorerId, outputId, rowResourceType, additionalChoices, pivotAuthored.columns.length);
+    });
+    let authoredObservation = state.workspace?.documents?.find((document) => document.output?.id === outputId);
+    if (!authoredObservation) throw new Error('J04 Observation output disappeared after Values columns were authored');
+    const sourcePathFor = (column) => String(column?.source?.field?.path ?? '').replace(/^root\./, '');
+    const recodingColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === recoding.sourcePath);
+    if (!recodingColumn) throw new Error(`J04 Builder omitted the recoding source column ${recoding.sourcePath}`);
+    const recodingCandidate = additionalChoices.find((choice) => choice.path === recoding.sourcePath)?.candidate;
+    const recodingCapability = recodingCandidate?.valueTransformations?.exactCategoryRecode
+      ?? recodingCandidate?.valueTransformations?.codedValueRecoding;
+    if (!recodingCapability?.available) {
+      failAtMissingDOMAction('open-exact-category-recoding', `details summary "Recode exact category values" for ${recodingColumn.label}`,
+        recodingCapability?.reason ?? `the saved catalog offered no exact recoding capability for ${recoding.sourcePath}`, {
+          sourcePath: recoding.sourcePath,
+          candidateId: recodingCandidate?.candidateId,
+        });
+    }
+    await action('recode-exact-category-values-through-values-controls', async () => {
+      const summary = await evaluate(cdp, `Boolean([...document.querySelectorAll('summary')].find((item) => visible(item) && norm(item.textContent) === 'Recode exact category values'))`);
+      if (!summary) failAtMissingDOMAction('open-exact-category-recoding', `details summary "Recode exact category values" for ${recodingColumn.label}`,
+        'the Values section did not render the saved catalog recoding capability');
+      await browserEval(cdp, `clickText('summary', 'Recode exact category values')`);
+      const recodeMappings = Object.entries(recoding.mapping);
+      for (let index = 0; index < recodeMappings.length; index += 1) {
+        if (index > 0) await browserEval(cdp, `clickButton('Add mapping')`);
+        const [targetFrom, targetTo] = recodeMappings[index];
+        await browserEval(cdp, `setInput(${JSON.stringify(`Recorded category ${index + 1} for ${recodingColumn.label}`)}, ${JSON.stringify(targetFrom)})`);
+        await browserEval(cdp, `setInput(${JSON.stringify(`Replacement value ${index + 1} for ${recodingColumn.label}`)}, ${JSON.stringify(targetTo)})`);
+      }
+      await setAccessibleSelect(`Unmapped value policy for ${recodingColumn.label}`, recoding.unknownPolicy);
+      await browserEval(cdp, `clickButton('Save recoding')`);
+      const startedSaving = Date.now();
+      while (Date.now() - startedSaving < 30000) {
+        state = await fetchBuilderState(target, explorerId);
+        authoredObservation = state.workspace?.documents?.find((document) => document.output?.id === outputId);
+        const saved = authoredObservation?.columns?.find((column) => sourcePathFor(column) === recoding.sourcePath)?.valueTransformation;
+        if (saved?.kind === 'EXACT_CATEGORY_RECODE') break;
+        await sleep(150);
+      }
+      const saved = authoredObservation?.columns?.find((column) => sourcePathFor(column) === recoding.sourcePath)?.valueTransformation;
+      const savedMapping = Object.fromEntries((saved?.exactCategoryRecode?.mappings ?? []).map(({ from, to }) => [from, to]));
+      recordAssertion(report, 'j04-values-control-saves-exact-case-recoding-and-unknown-preservation', {
+        mapping: recoding.mapping,
+        unknownPolicy: recoding.unknownPolicy,
+      }, { mapping: savedMapping, unknownPolicy: saved?.exactCategoryRecode?.unknownPolicy });
+      if (!j04ExactEqual({ mapping: recoding.mapping, unknownPolicy: recoding.unknownPolicy },
+        { mapping: savedMapping, unknownPolicy: saved?.exactCategoryRecode?.unknownPolicy })) {
+        throw new Error(`J04 browser-authored recoding differs from its literal plan: ${JSON.stringify(saved)}`);
+      }
+      report.target.recoding = { column: recodingColumn.column, sourcePath: recoding.sourcePath, saved: saved.exactCategoryRecode };
+    });
+    const savedPresencePaths = authoredObservation.columns.map(sourcePathFor).filter((path) =>
+      controlPlan.observation.presenceCases.some((item) => item.fieldPath === path));
+    recordAssertion(report, 'j04-observation-output-authors-all-five-scalar-presence-cases',
+      [...new Set(controlPlan.observation.presenceCases.map((item) => item.fieldPath))].sort(),
+      [...new Set(savedPresencePaths)].sort());
+    report.target.presenceColumns = controlPlan.observation.presenceCases.map((item) => {
+      const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === item.fieldPath);
+      return { sourceRecordId: item.sourceRecordId, fieldPath: item.fieldPath, presence: item.presence, column: column?.column, label: column?.label };
+    });
+    const policyRegions = await evaluate(cdp, `({ values: document.querySelectorAll('[data-testid="feature-policy-values"]').length, timeUnits: document.querySelectorAll('[data-testid="feature-policy-time-units"]').length })`);
+    recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns', authoredObservation.columns.length, policyRegions.values);
+    report.target.observationPolicyRegions = policyRegions;
+    await saveWorkspaceSnapshot('after-pivot-and-values-authoring', explorerId);
+    await captureDOM('j04-builder-pivot-and-values-authored');
+
+    const openShapeSelector = '[data-testid="ui04-open-table-shape-settings"]';
+    const openShapeVisible = await evaluate(cdp, `Boolean([...document.querySelectorAll(${JSON.stringify(openShapeSelector)})].find(visible))`);
+    if (!openShapeVisible) {
+      const visibleShapeActions = await evaluate(cdp, `([...document.querySelectorAll('button')].map((button) => button.textContent.trim()).filter((label) => /shape|reshape|pivot|transform/i.test(label)))`);
+      failAtMissingDOMAction('open-ui04-table-shape-settings', openShapeSelector,
+        'The saved-table Builder route does not expose the UI04 Table shape settings action.', {
+          visibleShapeActions,
+          outputId,
+          authoredColumns: authoredObservation.columns.length,
+        });
+    }
+    await action('open-table-shape-settings-through-builder', async () => {
+      await clickTestID('ui04-open-table-shape-settings');
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-dialog"] [data-testid="ui04-table-shape-editor"]'))`, 30000);
+      await captureDOM('j04-table-shape-editor-open');
+    });
+
+    const sourceColumn = (path) => authoredObservation.columns.find((column) => sourcePathFor(column) === path);
+    const requiredEditor = async (testId, actionName, reason) => {
+      const visibleControl = await evaluate(cdp, `Boolean([...document.querySelectorAll('[data-testid="${testId}"]')].find(visible))`);
+      if (!visibleControl) failAtMissingDOMAction(actionName, `[data-testid="${testId}"]`, reason, { outputId });
+    };
+    const configureObservationPivot = async () => {
+      await requiredEditor('ui04-table-shape-editor', 'configure-grouped-pivot', 'The route did not mount the standalone UI04 editor inside its dialog.');
+      await requiredEditor('ui04-reshape-mode', 'select-grouped-pivot-mode', 'The grouped-pivot mode selector is absent from the visible editor.');
+      await selectTestOption('ui04-reshape-mode', 'Grouped pivot');
+      const groups = controlPlan.observation.pivot.groupColumns.map((group) => sourceColumn(group.path));
+      if (groups.some((column) => !column)) throw new Error(`J04 grouped pivot is missing a browser-authored group column: ${JSON.stringify(controlPlan.observation.pivot.groupColumns)}`);
+      for (const group of groups) {
+        const found = await evaluate(cdp, `Boolean([...document.querySelectorAll('input[type="checkbox"][data-testid^="ui04-pivot-group-columns-choice-"]')].find((input) => norm(input.closest('label')?.innerText).includes(${JSON.stringify(group.label)})))`);
+        if (!found) failAtMissingDOMAction('select-pivot-group-column', `[data-testid^="ui04-pivot-group-columns-choice-"]`, `The visible group-column choices do not contain authored column ${group.label}.`, { sourcePath: sourcePathFor(group) });
+        await checkChoiceByLabel('ui04-pivot-group-columns-choice-', group.label);
+      }
+      const categoryColumn = sourceColumn(controlPlan.observation.pivot.categoryColumn.path);
+      const valueColumn = sourceColumn(controlPlan.observation.pivot.valueColumn.path);
+      if (!categoryColumn || !valueColumn) throw new Error('J04 category/value columns are missing from the authored Observation table');
+      await selectTestOption('ui04-pivot-category-column', categoryColumn.label);
+      await selectTestOption('ui04-pivot-value-column', valueColumn.label);
+      await requiredEditor('ui04-pivot-discover-categories', 'discover-pivot-categories', 'The server-backed category discovery action is absent.');
+      await clickTestID('ui04-pivot-discover-categories');
+      await waitForBrowser(cdp, `document.querySelector('[data-testid="ui04-pivot-category-discovery-state"]')?.innerText.includes('Discovered')`, 60000);
+      const discovered = await evaluate(cdp, `([...document.querySelectorAll('[data-testid="ui04-pivot-frozen-categories"] > li')]).map((row, index) => ({ index: index + 1, testId: row.querySelector('input[type="checkbox"]')?.dataset.testid, text: norm(row.innerText) }))`);
+      for (const category of controlPlan.observation.pivot.categories) {
+        const found = discovered.find((item) => item.testId && item.text.split(/[\s(]/).includes(category.code));
+        if (!found) failAtMissingDOMAction('select-discovered-pivot-category', '[data-testid="ui04-pivot-frozen-categories"] input[type="checkbox"]', `The server did not visibly discover fixture category ${category.code}.`, { discovered });
+        await checkTestID(found.testId);
+        await setTestInput(`ui04-pivot-category-output-${found.index}-column`, category.outputColumn);
+        await setTestInput(`ui04-pivot-category-output-${found.index}-label`, category.outputColumn);
+      }
+      await selectTestOption('ui04-pivot-duplicate-policy', 'sum');
+      await selectTestOption('ui04-pivot-missing-policy', 'null');
+      await selectTestOption('ui04-pivot-unlisted-policy', 'exclude');
+      await requiredEditor('ui04-add-derived-column', 'add-pivot-derived-column', 'The derived-column action is absent or unavailable for this compiler output.');
+      await clickTestID('ui04-add-derived-column');
+      await setTestInput('ui04-derived-output-1-column', controlPlan.observation.pivot.derivedColumns[0].name);
+      await setTestInput('ui04-derived-output-1-label', controlPlan.observation.pivot.derivedColumns[0].name);
+      await selectTestOption('ui04-derived-operator-1', 'add');
+      await selectTestOption('ui04-derived-left-operand-1-source', 'pivot output');
+      await selectTestOption('ui04-derived-left-operand-1-pivot-output', controlPlan.observation.pivot.categories[0].outputColumn);
+      await selectTestOption('ui04-derived-right-operand-1-source', 'pivot output');
+      await selectTestOption('ui04-derived-right-operand-1-pivot-output', controlPlan.observation.pivot.categories[1].outputColumn);
+      await selectTestOption('ui04-derived-missing-input-policy-1', 'propagate');
+      await captureDOM('j04-grouped-pivot-proposal-form');
+    };
+    const summarizeShapeNetwork = async (stage) => {
+      await Promise.allSettled([...pendingNetworkBodies]);
+      const recent = network.filter((item) => /table-shape|preview/i.test(item.path));
+      const pickIdentity = (value) => {
+        if (!value || typeof value !== 'object') return undefined;
+        return Object.fromEntries(['proposalId', 'receiptId', 'resolutionId', 'catalogId', 'outputId', 'draftVersion', 'draftDigest', 'snapshotToken', 'status', 'reasonCode']
+          .filter((key) => value[key] !== undefined).map((key) => [key, value[key]]));
+      };
+      report.target.proposalIdentities.push({
+        stage,
+        requests: recent.map((item) => ({ path: item.path, method: item.method, status: item.status,
+          request: pickIdentity(item.requestJSON), response: pickIdentity(item.responseJSON),
+          responseBodyError: item.responseBodyError })),
+      });
+      const latestComparison = [...recent].reverse().find((item) => item.responseJSON && /proposal|table-shape/i.test(item.path));
+      return latestComparison?.responseJSON;
+    };
+    const requestProposal = async (stage) => {
+      await requiredEditor('ui04-apply-table-shape', 'request-table-shape-proposal', 'The editor does not expose its proposal action.');
+      await clickTestID('ui04-apply-table-shape');
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-comparison"]'))`, 60000);
+      await captureDOM(`j04-${stage}-comparison`);
+      const text = await evaluate(cdp, `document.querySelector('[data-testid="ui04-table-shape-comparison"]')?.innerText ?? ''`);
+      const details = await summarizeShapeNetwork(stage);
+      const comparison = {
+        text,
+        baseRows: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-base-rows"]')?.innerText ?? ''`),
+        candidateRows: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-candidate-rows"]')?.innerText ?? ''`),
+        contributors: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-contributors"]')?.innerText ?? ''`),
+        exclusions: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-exclusions"]')?.innerText ?? ''`),
+        informationLoss: await evaluate(cdp, `document.querySelector('[data-testid="ui04-comparison-information-loss"]')?.innerText ?? ''`),
+        response: details ?? null,
+      };
+      report.target[`${stage}Comparison`] = comparison;
+      return comparison;
+    };
+
+    await action('preview-grouped-pivot-with-receipt-backed-comparison', async () => {
+      const beforeProposal = await saveWorkspaceSnapshot('before-proposal', explorerId);
+      const beforeDefinition = j04WorkspaceSnapshot(beforeProposal);
+      await configureObservationPivot();
+      const previewComparison = await requestProposal('cancelled');
+      const proposalState = await saveWorkspaceSnapshot('after-proposal-preview', explorerId);
+      recordAssertion(report, 'j04-preview-proposal-does-not-mutate-saved-workspace', beforeDefinition, j04WorkspaceSnapshot(proposalState));
+      const expectedContributorIDs = controlPlan.observation.pivot.expectedContributors.flatMap((item) => item.sourceRecordIds).sort();
+      const expectedExcludedIDs = controlPlan.observation.pivot.expectedExclusions.map((item) => item.sourceRecordId).sort();
+      const evidenceText = `${previewComparison.text}\n${JSON.stringify(previewComparison.response ?? {})}`;
+      report.target.contributorEvidence = { expected: expectedContributorIDs, visibleOrReceipt: expectedContributorIDs.filter((id) => evidenceText.includes(id)), ui: previewComparison.contributors };
+      report.target.exclusionEvidence = { expected: expectedExcludedIDs, visibleOrReceipt: expectedExcludedIDs.filter((id) => evidenceText.includes(id)), ui: previewComparison.exclusions };
+      report.target.informationLossEvidence = { expected: controlPlan.observation.pivot.expectedInformationLoss, ui: previewComparison.informationLoss, comparisonText: previewComparison.text };
+      await requiredEditor('ui04-cancel-table-shape-proposal', 'cancel-reviewed-table-shape-proposal', 'The receipt-backed comparison does not expose the explicit proposal-cancel action.');
+      await clickTestID('ui04-cancel-table-shape-proposal');
+      await waitForBrowser(cdp, `!document.querySelector('[data-testid="ui04-table-shape-comparison"]')`, 30000);
+      const afterCancel = await saveWorkspaceSnapshot('after-cancelled-proposal', explorerId);
+      recordAssertion(report, 'j04-cancelling-reviewed-proposal-preserves-saved-definition', beforeDefinition, j04WorkspaceSnapshot(afterCancel));
+      if (!await evaluate(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-editor"]'))`)) {
+        await clickTestID('ui04-open-table-shape-settings');
+        await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="ui04-table-shape-dialog"] [data-testid="ui04-table-shape-editor"]'))`, 30000);
+      }
+      await configureObservationPivot();
+      const applyComparison = await requestProposal('applied');
+      const applyComparisonPath = await captureScreenshot('j04-table-shape-receipt-comparison');
+      report.target.appliedComparisonScreenshot = applyComparisonPath;
+      await requiredEditor('ui04-confirm-table-shape', 'confirm-receipt-backed-table-shape', 'The comparison does not expose the receipt-backed confirmation action.');
+      await clickTestID('ui04-confirm-table-shape');
+      await waitForBrowser(cdp, `!document.querySelector('[data-testid="ui04-table-shape-comparison"]')`, 60000);
+      const appliedStarted = Date.now();
+      let appliedState;
+      let savedShape;
+      while (Date.now() - appliedStarted < 60000) {
+        appliedState = await fetchBuilderState(target, explorerId);
+        savedShape = appliedState.workspace?.documents?.find((document) => document.output?.id === outputId)?.tableShape;
+        if (savedShape?.reshape?.kind === 'GROUPED_PIVOT' && savedShape.derived?.length) break;
+        await sleep(200);
+      }
+      if (!savedShape?.reshape?.pivot || !savedShape.derived?.length) throw new Error(`J04 receipt confirmation did not persist a grouped pivot and derived output: ${JSON.stringify(savedShape)}`);
+      report.target.appliedTableShape = savedShape;
+      recordAssertion(report, 'j04-confirm-applies-only-the-reviewed-receipt-backed-shape', {
+        mode: 'GROUPED_PIVOT',
+        outputs: [
+          ...controlPlan.observation.pivot.categories.map((category) => category.outputColumn),
+          ...controlPlan.observation.pivot.derivedColumns.map((column) => column.name),
+        ].sort(),
+      }, {
+        mode: savedShape.reshape.kind,
+        outputs: [...(savedShape.reshape.pivot?.categories ?? []).map((category) => category.output?.column), ...(savedShape.derived ?? []).map((column) => column.output?.column)].sort(),
+      });
+      await saveWorkspaceSnapshot('after-applied-shape', explorerId);
+      await captureDOM('j04-table-shape-applied');
+      await summarizeShapeNetwork('stale-rejection-observation');
+      const staleResponse = network.find((item) => /table-shape/i.test(item.path) && item.status === 409);
+      report.assertions.push({ name: 'j04-stale-proposal-application-is-rejected-with-conflict', status: staleResponse ? 'passed' : 'not-proven', expected: 409, actual: staleResponse?.status ?? null,
+        detail: staleResponse ? 'Captured a browser-issued stale table-shape request response.' : 'No stale receipt was available to submit without changing the visible Builder draft in a second user session.' });
+      if (applyComparison) report.target.appliedProposalResponse = applyComparison.response ?? null;
+    });
   } catch (error) {
     failure = error;
     report.status = 'failed';

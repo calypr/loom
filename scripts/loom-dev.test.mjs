@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04ExactEqual, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ05LogicalValue, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -105,6 +105,30 @@ test('J04 fixture preserves the receipt, refusal, reload, Preview, Viewer, and t
   const changedPresence = structuredClone(contract);
   changedPresence.presenceCases.find((item) => item.presence === 'false').value = true;
   assert.throws(() => validateJ04FixtureContract(changedPresence, sourceRecords), /declared false literal/);
+});
+
+test('J04 browser control plan carries both row scopes and fixture-owned operator literals', () => {
+  const { contract } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  const plan = j04BrowserControlPlan(contract);
+  assert.equal(plan.aggregate.rowResourceType, 'Patient');
+  assert.deepEqual(plan.aggregate.selectedRowIdentities, ['Patient/j04-patient-001']);
+  assert.deepEqual(plan.aggregate.operations, [
+    { operation: 'COUNT', expected: 3 },
+    { operation: 'EXISTS', expected: true },
+    { operation: 'MIN', expected: 0 },
+    { operation: 'MAX', expected: 180 },
+    { operation: 'MEAN', expected: 120 },
+    { operation: 'SUM', expected: 360 },
+  ]);
+  assert.equal(plan.aggregate.temporal.latestSelectedRecordId, 'j04-measure-002');
+  assert.equal(plan.aggregate.unitNormalization.targetUnit, 'cm');
+  assert.equal(plan.aggregate.unitNormalization.refusal.applied, false);
+  assert.equal(plan.observation.rowResourceType, 'Observation');
+  assert.notEqual(plan.aggregate.rowResourceType, plan.observation.rowResourceType);
+  assert.deepEqual(plan.observation.pivot.categories.map(({ code }) => code), ['alpha', 'beta']);
+  assert.equal(plan.observation.pivot.expectedInformationLoss.unlistedExcludedRecordCount, 11);
+  assert.deepEqual(plan.observation.presenceCases.map(({ presence }) => presence), ['missing', 'null', 'false', 'zero', 'empty']);
+  assert.throws(() => j04BrowserControlPlan({ ...contract, expectedAggregates: [{ count: 3 }] }), /all six aggregate literals/);
 });
 
 test('J04 evidence shaping keeps missing, recorded null, false, zero, and empty distinct', () => {
