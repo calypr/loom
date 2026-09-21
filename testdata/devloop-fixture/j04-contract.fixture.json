@@ -56,12 +56,12 @@
     { "sourceRecordId": "j04-measure-001", "status": "NORMALIZED", "input": { "value": 180, "unit": "cm" }, "expected": { "value": 180, "unit": "cm" } },
     { "sourceRecordId": "j04-measure-002", "status": "NORMALIZED", "input": { "value": 1.8, "unit": "m" }, "expected": { "value": 180, "unit": "cm" } },
     { "sourceRecordId": "j04-measure-003", "status": "NORMALIZED", "input": { "value": 0, "unit": "cm" }, "expected": { "value": 0, "unit": "cm" } },
-    { "sourceRecordId": "j04-unsupported-unit", "status": "REFUSED", "input": { "value": 1, "unit": "furlong" }, "reason": "UNSUPPORTED_UNIT" }
+    { "sourceRecordId": "j04-unsupported-unit", "status": "REFUSED", "input": { "value": 1, "unit": "furlong" }, "reason": "UNIT_IDENTITY_UNKNOWN" }
   ],
   "recodingOutcomes": {
     "sourcePath": "interpretation.coding[].code",
     "casePolicy": "EXACT",
-    "unknownPolicy": "KEEP",
+    "unknownPolicy": "KEEP_ORIGINAL",
     "mapping": { "A": "Positive", "B": "Negative" },
     "cases": [
       { "sourceRecordId": "j04-measure-001", "input": "A", "expected": "Positive" },
@@ -80,7 +80,7 @@
     ],
     "duplicatePolicy": "ERROR",
     "missingPolicy": "NULL",
-    "unlistedCategoryPolicy": "IGNORE",
+    "unlistedCategoryPolicy": "EXCLUDE_WITH_EVIDENCE",
     "cells": [
       { "rowIdentity": "Observation/j04-pivot-missing", "column": "j04_missing", "presence": "missing" },
       { "rowIdentity": "Observation/j04-pivot-null", "column": "j04_recorded_null", "presence": "null", "value": null },

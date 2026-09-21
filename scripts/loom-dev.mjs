@@ -1552,12 +1552,12 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
     if (!['NORMALIZED', 'REFUSED'].includes(item.status)) throw new Error(`J04 normalization status is unsupported: ${item.status}`);
   }
   const recoding = contract.recodingOutcomes;
-  if (!recoding?.sourcePath || recoding.casePolicy !== 'EXACT' || recoding.unknownPolicy !== 'KEEP' || !recoding.mapping || typeof recoding.mapping !== 'object' || !Array.isArray(recoding.cases) || !recoding.cases.length) throw new Error('J04 recoding outcomes must declare exact-case mapping and unknown preservation');
+  if (!recoding?.sourcePath || recoding.casePolicy !== 'EXACT' || recoding.unknownPolicy !== 'KEEP_ORIGINAL' || !recoding.mapping || typeof recoding.mapping !== 'object' || !Array.isArray(recoding.cases) || !recoding.cases.length) throw new Error('J04 recoding outcomes must declare exact-case mapping and unknown preservation');
   if (!recoding.cases.every((item) => hasSource(item?.sourceRecordId) && typeof item.input === 'string' && typeof item.expected === 'string')) throw new Error('J04 recoding cases must have source and literal output values');
   if (!recoding.cases.some((item) => item.input.toLowerCase() === item.input && Object.hasOwn(recoding.mapping, item.input.toUpperCase())) || !recoding.cases.some((item) => !Object.hasOwn(recoding.mapping, item.input))) throw new Error('J04 recoding cases must cover case mismatch and an unknown code');
   const pivot = contract.pivot;
   if (!Array.isArray(pivot?.categories) || pivot.categories.length < 2 || pivot.categories.some((item) => !item?.code || !item?.outputColumn)) throw new Error('J04 pivot must list categories and output names');
-  if (new Set(pivot.categories.map((item) => item.outputColumn)).size !== pivot.categories.length || !['ERROR', 'FIRST', 'LAST'].includes(pivot.duplicatePolicy) || !['NULL', 'OMIT', 'ERROR'].includes(pivot.missingPolicy) || !['IGNORE', 'ERROR'].includes(pivot.unlistedCategoryPolicy)) throw new Error('J04 pivot categories or policies are invalid');
+  if (new Set(pivot.categories.map((item) => item.outputColumn)).size !== pivot.categories.length || !['ERROR', 'SUM', 'MIN', 'MAX'].includes(pivot.duplicatePolicy) || !['NULL', 'ERROR'].includes(pivot.missingPolicy) || !['ERROR', 'EXCLUDE_WITH_EVIDENCE'].includes(pivot.unlistedCategoryPolicy)) throw new Error('J04 pivot categories or policies are invalid');
   if (!Array.isArray(pivot.cells) || !['missing', 'null', 'false', 'zero', 'empty'].every((state) => pivot.cells.some((cell) => cell.presence === state))) throw new Error('J04 pivot cells must cover missing, null, false, zero, and empty values');
   for (const cell of pivot.cells) {
     if (typeof cell?.rowIdentity !== 'string' || !cell.column || !J04_PRESENCE_STATES.has(cell.presence)) throw new Error('J04 pivot cell identity or presence is invalid');
