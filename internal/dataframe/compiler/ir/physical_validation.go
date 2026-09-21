@@ -196,6 +196,11 @@ func (p PhysicalPlan) Validate() error {
 				return fmt.Errorf("operation %d cell trace return: %w", i, err)
 			}
 			returns++
+		case PhysicalTableShapeExclusionReturnOp:
+			if err := validatePhysicalTableShapeExclusionReturn(*operation.TableShapeExclusionReturn, defined, p.BindVars); err != nil {
+				return fmt.Errorf("operation %d table-shape exclusion return: %w", i, err)
+			}
+			returns++
 		case PhysicalGroupRowsOp:
 			if i != len(p.Operations)-1 {
 				return fmt.Errorf("operation %d: GROUP_ROWS must be the terminal operation", i)
@@ -267,7 +272,7 @@ func (p PhysicalPlan) Validate() error {
 		return fmt.Errorf("group rows cannot be combined with a table reshape")
 	}
 	if returns+graphReturns != 1 {
-		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, or CELL_TRACE_RETURN")
+		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, CELL_TRACE_RETURN, or TABLE_SHAPE_EXCLUSION_RETURN")
 	}
 	return nil
 }
@@ -876,6 +881,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.CellTraceReturn != nil {
 		payloads++
 	}
+	if operation.TableShapeExclusionReturn != nil {
+		payloads++
+	}
 	if operation.GroupRows != nil {
 		payloads++
 	}
@@ -904,6 +912,7 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
 		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
 		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil) ||
+		(operation.Kind == PhysicalTableShapeExclusionReturnOp && operation.TableShapeExclusionReturn != nil) ||
 		(operation.Kind == PhysicalGroupRowsOp && operation.GroupRows != nil) ||
 		(operation.Kind == PhysicalGroupedPivotOp && operation.GroupedPivot != nil) ||
 		(operation.Kind == PhysicalUnpivotOp && operation.Unpivot != nil)
@@ -1150,6 +1159,31 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 		if err := validatePhysicalExpression(*terminal.ExplicitIdentity, defined, bindVars); err != nil {
 			return fmt.Errorf("trace explicit identity: %w", err)
 		}
+	}
+	return nil
+}
+
+func validatePhysicalTableShapeExclusionReturn(terminal PhysicalTableShapeExclusionReturn, defined map[string]bool, bindVars map[string]any) error {
+	if terminal.Pivot.UnlistedCategoryPolicy != PhysicalPivotUnlistedCategoryExcludeWithEvidence {
+		return fmt.Errorf("table-shape exclusions require EXCLUDE_WITH_EVIDENCE")
+	}
+	if err := validatePhysicalGroupedPivot(terminal.Pivot, defined, bindVars); err != nil {
+		return fmt.Errorf("exclusion pivot: %w", err)
+	}
+	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {
+		return fmt.Errorf("exclusion offset, limit, and fetch-limit binds are required")
+	}
+	offset, ok := bindVars[terminal.OffsetBindKey].(int)
+	if !ok || offset < 0 {
+		return fmt.Errorf("exclusion offset bind %q must be a non-negative int", terminal.OffsetBindKey)
+	}
+	limit, ok := bindVars[terminal.LimitBindKey].(int)
+	if !ok || limit <= 0 {
+		return fmt.Errorf("exclusion limit bind %q must be a positive int", terminal.LimitBindKey)
+	}
+	fetchLimit, ok := bindVars[terminal.FetchLimitBindKey].(int)
+	if !ok || fetchLimit != limit+1 {
+		return fmt.Errorf("exclusion fetch-limit bind %q must be limit plus one", terminal.FetchLimitBindKey)
 	}
 	return nil
 }

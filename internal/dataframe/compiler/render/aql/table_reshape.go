@@ -140,17 +140,16 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		)
 	}
 
-	constructionBind := pivot.ConstructionIDBindKey
-	if _, ok := r.bindVars[constructionBind]; !ok {
-		return nil, fmt.Errorf("grouped pivot construction ID bind %q is missing", pivot.ConstructionIDBindKey)
-	}
-	identityParts := make([]string, 0, 2+len(pivot.GroupKeys))
-	identityParts = append(identityParts, `"GROUPED_PIVOT"`, "@"+constructionBind)
+	groupValues := make([]string, 0, len(pivot.GroupKeys))
 	for _, key := range pivot.GroupKeys {
-		identityParts = append(identityParts, "[\""+key.Kind+"\", "+key.Variable+"]")
+		groupValues = append(groupValues, key.Variable)
+	}
+	identity, err := r.renderGroupedPivotIdentity(pivot, groupValues)
+	if err != nil {
+		return nil, err
 	}
 	identityVariable := r.newInternalVariable("reshape_identity")
-	lines = append(lines, fmt.Sprintf("  LET %s = TO_STRING([%s])", identityVariable, strings.Join(identityParts, ", ")))
+	lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	outputProjections = append(outputProjections, ir.PhysicalProjection{Name: "__loom_row_id", Value: ir.PhysicalValue{Variable: identityVariable}})
 	output, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
@@ -347,11 +346,17 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 }
 
 func (r *physicalPlanRenderer) traceReshapeApplies(outputVariable string) bool {
-	return r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable
+	if r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable {
+		return true
+	}
+	return r.tableShapeExclusion != nil && r.tableShapeExclusion.Pivot.OutputRowVariable == outputVariable
 }
 
 func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections []ir.PhysicalProjection, outputVariable string) (string, error) {
-	if !r.traceReshapeApplies(outputVariable) || !traceReshapeHasSupportedSource(*r.cellTrace.Reshape) {
+	if !r.traceReshapeApplies(outputVariable) {
+		return input, nil
+	}
+	if r.cellTrace != nil && r.cellTrace.Reshape != nil && !traceReshapeHasSupportedSource(*r.cellTrace.Reshape) {
 		return input, nil
 	}
 	if r.rootVariable == "" {

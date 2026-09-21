@@ -55,12 +55,13 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	}
 
 	renderer := physicalPlanRenderer{
-		bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
-		collectionKeys: collectionKeys,
-		setVariables:   map[string]string{},
-		reservedVars:   physicalPlanVariableNames(plan),
-		rootVariable:   layout.root.Variable,
-		cellTrace:      layout.traceReturn,
+		bindVars:            runtimePhysicalBindVars(plan.BindVars, collectionKeys),
+		collectionKeys:      collectionKeys,
+		setVariables:        map[string]string{},
+		reservedVars:        physicalPlanVariableNames(plan),
+		rootVariable:        layout.root.Variable,
+		cellTrace:           layout.traceReturn,
+		tableShapeExclusion: layout.exclusionReturn,
 	}
 	lines, err := renderer.renderRootScan(layout.root)
 	if err != nil {
@@ -144,6 +145,12 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render cell trace RETURN: %w", traceErr)
 		}
 		lines = append(lines, traceLines...)
+	} else if layout.exclusionReturn != nil {
+		exclusionLines, exclusionErr := renderer.renderTableShapeExclusionReturn(*layout.exclusionReturn)
+		if exclusionErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render table-shape exclusion RETURN: %w", exclusionErr)
+		}
+		lines = append(lines, exclusionLines...)
 	} else {
 		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
 		if returnErr != nil {
@@ -253,13 +260,14 @@ func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOp
 }
 
 type physicalPlanRenderer struct {
-	bindVars       map[string]any
-	collectionKeys map[string]struct{}
-	setVariables   map[string]string
-	reservedVars   map[string]struct{}
-	preparedItem   string
-	rootVariable   string
-	cellTrace      *ir.PhysicalCellTraceReturn
+	bindVars            map[string]any
+	collectionKeys      map[string]struct{}
+	setVariables        map[string]string
+	reservedVars        map[string]struct{}
+	preparedItem        string
+	rootVariable        string
+	cellTrace           *ir.PhysicalCellTraceReturn
+	tableShapeExclusion *ir.PhysicalTableShapeExclusionReturn
 }
 
 func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {
@@ -305,15 +313,16 @@ func (r *physicalPlanRenderer) renderScopeOperation(operation ir.PhysicalOperati
 // plan order because sets, traversals, and expression LETs may depend on values
 // introduced by any preceding operation.
 type physicalNavigationRenderLayout struct {
-	root           ir.PhysicalRootScan
-	rootScope      []ir.PhysicalOperation
-	rootPredicates []ir.PhysicalOperation
-	rootWindow     []ir.PhysicalOperation
-	unnests        []ir.PhysicalUnnest
-	postWindow     []physicalNavigationRenderItem
-	returnOp       *ir.PhysicalReturn
-	mappingReturn  *ir.PhysicalPopulationMappingReturn
-	traceReturn    *ir.PhysicalCellTraceReturn
+	root            ir.PhysicalRootScan
+	rootScope       []ir.PhysicalOperation
+	rootPredicates  []ir.PhysicalOperation
+	rootWindow      []ir.PhysicalOperation
+	unnests         []ir.PhysicalUnnest
+	postWindow      []physicalNavigationRenderItem
+	returnOp        *ir.PhysicalReturn
+	mappingReturn   *ir.PhysicalPopulationMappingReturn
+	traceReturn     *ir.PhysicalCellTraceReturn
+	exclusionReturn *ir.PhysicalTableShapeExclusionReturn
 }
 
 type physicalNavigationRenderItem struct {

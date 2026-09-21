@@ -122,6 +122,15 @@ type PhysicalCellTraceReturn struct {
 	OmissionCode      string
 }
 
+// PhysicalTableShapeExclusionReturn emits source-level exclusions from the
+// input rows of one compiler-validated grouped pivot.
+type PhysicalTableShapeExclusionReturn struct {
+	Pivot             PhysicalGroupedPivot
+	OffsetBindKey     string
+	LimitBindKey      string
+	FetchLimitBindKey string
+}
+
 // PhysicalCellTraceReshape carries the exact source-cell lineage needed to
 // explain a table-shape output. It exists only on the diagnostic terminal;
 // ordinary dataframe rows and schemas remain unchanged.
@@ -189,6 +198,22 @@ const (
 	PhysicalCellTraceStatusField           = "__loom_trace_status"
 	PhysicalCellTraceHasMoreField          = "__loom_trace_has_more"
 	PhysicalCellTraceOmissionField         = "__loom_trace_omission"
+)
+
+const (
+	PhysicalTableShapeExclusionResourceTypeField         = "__loom_table_shape_exclusion_resource_type"
+	PhysicalTableShapeExclusionResourceIDField           = "__loom_table_shape_exclusion_resource_id"
+	PhysicalTableShapeExclusionIdentityStatusField       = "__loom_table_shape_exclusion_identity_status"
+	PhysicalTableShapeExclusionCategoryValueField        = "__loom_table_shape_exclusion_category_value"
+	PhysicalTableShapeExclusionCategoryPresentField      = "__loom_table_shape_exclusion_category_present"
+	PhysicalTableShapeExclusionCategoryTypeField         = "__loom_table_shape_exclusion_category_type"
+	PhysicalTableShapeExclusionOutputRowIDField          = "__loom_table_shape_exclusion_output_row_id"
+	PhysicalTableShapeExclusionReasonField               = "__loom_table_shape_exclusion_reason"
+	PhysicalTableShapeExclusionOmissionField             = "__loom_table_shape_exclusion_omission"
+	PhysicalTableShapeExclusionReasonUnlistedCategory    = "UNLISTED_CATEGORY"
+	PhysicalTableShapeExclusionIdentityExact             = "EXACT"
+	PhysicalTableShapeExclusionIdentityUnavailable       = "UNAVAILABLE"
+	PhysicalTableShapeExclusionSourceIdentityUnavailable = "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE"
 )
 
 const (

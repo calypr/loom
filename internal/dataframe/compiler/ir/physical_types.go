@@ -73,6 +73,10 @@ const (
 	// compiled value expression and exposes pre-reduction contributors without
 	// changing ordinary dataframe execution.
 	PhysicalCellTraceReturnOp PhysicalOperationKind = "CELL_TRACE_RETURN"
+	// PhysicalTableShapeExclusionReturnOp replaces a grouped pivot and its
+	// publication projection with a bounded diagnostic over the exact pivot
+	// input rows.
+	PhysicalTableShapeExclusionReturnOp PhysicalOperationKind = "TABLE_SHAPE_EXCLUSION_RETURN"
 	// PhysicalGroupRowsOp emits one row per definition in a pinned immutable group revision.
 	PhysicalGroupRowsOp PhysicalOperationKind = "GROUP_ROWS"
 	// PhysicalGroupedPivotOp groups finalized output rows by authored scalar
@@ -86,27 +90,28 @@ const (
 // PhysicalOperation is a tagged union. Exactly one payload matching Kind must
 // be set. Source can be more specific than the plan-level provenance.
 type PhysicalOperation struct {
-	Kind                    PhysicalOperationKind
-	Source                  PhysicalSource
-	RootScan                *PhysicalRootScan
-	Traversal               *PhysicalTraversal
-	Filter                  *PhysicalFilter
-	DerivedLet              *PhysicalDerivedLet
-	ExpressionLet           *PhysicalExpressionLet
-	Set                     *PhysicalSet
-	Unnest                  *PhysicalUnnest
-	Sort                    *PhysicalSort
-	Limit                   *PhysicalLimit
-	Return                  *PhysicalReturn
-	PathSeed                *PhysicalPathSeed
-	PathExtend              *PhysicalPathExtend
-	GraphReturn             *PhysicalGraphReturn
-	CollectionScan          *PhysicalCollectionScan
-	PopulationMappingReturn *PhysicalPopulationMappingReturn
-	CellTraceReturn         *PhysicalCellTraceReturn
-	GroupRows               *PhysicalGroupRows
-	GroupedPivot            *PhysicalGroupedPivot
-	Unpivot                 *PhysicalUnpivot
+	Kind                      PhysicalOperationKind
+	Source                    PhysicalSource
+	RootScan                  *PhysicalRootScan
+	Traversal                 *PhysicalTraversal
+	Filter                    *PhysicalFilter
+	DerivedLet                *PhysicalDerivedLet
+	ExpressionLet             *PhysicalExpressionLet
+	Set                       *PhysicalSet
+	Unnest                    *PhysicalUnnest
+	Sort                      *PhysicalSort
+	Limit                     *PhysicalLimit
+	Return                    *PhysicalReturn
+	PathSeed                  *PhysicalPathSeed
+	PathExtend                *PhysicalPathExtend
+	GraphReturn               *PhysicalGraphReturn
+	CollectionScan            *PhysicalCollectionScan
+	PopulationMappingReturn   *PhysicalPopulationMappingReturn
+	CellTraceReturn           *PhysicalCellTraceReturn
+	TableShapeExclusionReturn *PhysicalTableShapeExclusionReturn
+	GroupRows                 *PhysicalGroupRows
+	GroupedPivot              *PhysicalGroupedPivot
+	Unpivot                   *PhysicalUnpivot
 }
 
 // PhysicalGroupRows is a typed source and terminal for grouped dataframe rows.

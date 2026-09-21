@@ -223,6 +223,16 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 			}
 		}
 		return nil
+	case ir.PhysicalTableShapeExclusionReturnOp:
+		if operation.TableShapeExclusionReturn == nil {
+			return fmt.Errorf("table-shape exclusion return requires a payload")
+		}
+		for _, key := range []string{operation.TableShapeExclusionReturn.OffsetBindKey, operation.TableShapeExclusionReturn.LimitBindKey, operation.TableShapeExclusionReturn.FetchLimitBindKey} {
+			if _, isCollection := collectionKeys[key]; isCollection {
+				return fmt.Errorf("table-shape exclusion bind key %q cannot be a collection bind", key)
+			}
+		}
+		return validateRenderableProjections(operation.TableShapeExclusionReturn.Pivot.InputProjections, collectionKeys)
 	case ir.PhysicalUnnestOp:
 		if operation.Unnest == nil {
 			return fmt.Errorf("UNNEST requires a payload")

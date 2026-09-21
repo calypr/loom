@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const PhysicalPivotUnlistedCategoryExcludeWithEvidence = "EXCLUDE_WITH_EVIDENCE"
+
 func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string]bool, bindVars map[string]any) error {
 	for _, variable := range []string{pivot.InputRowVariable, pivot.GroupRowsVariable, pivot.OutputRowVariable} {
 		if !physicalVariablePattern.MatchString(variable) || defined[variable] {
@@ -48,11 +50,11 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 		return fmt.Errorf("unsupported missing-cell policy %q", pivot.MissingCellPolicy)
 	}
 	switch pivot.UnlistedCategoryPolicy {
-	case "ERROR", "EXCLUDE_WITH_EVIDENCE":
+	case "ERROR", PhysicalPivotUnlistedCategoryExcludeWithEvidence:
 	default:
 		return fmt.Errorf("unsupported unlisted-category policy %q", pivot.UnlistedCategoryPolicy)
 	}
-	if pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" {
+	if pivot.UnlistedCategoryPolicy == PhysicalPivotUnlistedCategoryExcludeWithEvidence {
 		if !physicalPathPartPattern.MatchString(pivot.UnlistedEvidenceColumn) {
 			return fmt.Errorf("unlisted-category evidence column is required and must be safe")
 		}
