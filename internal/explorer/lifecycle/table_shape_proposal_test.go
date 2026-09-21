@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -397,6 +399,34 @@ func TestApplyTableShapeProposalRejectsStaleAndTamperedReceipts(t *testing.T) {
 func TestProposeTableShapeComparesChangedColumnsAndRowsByStableIdentity(t *testing.T) {
 	service, store, snapshot, _ := tableShapeProposalService(t)
 	previewCalls := 0
+	traceCalls := 0
+	service.config.CellTrace = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		traceCalls++
+		if receipt.TableShapeProposal == nil || receipt.TableShapeProposal.OutputID != "patients" ||
+			bindings.DatasetGeneration != snapshot.Identity.Generation || request.Limit != compiler.MaxCellTraceContributions || request.Offset != 0 {
+			t.Fatalf("cell trace was not bound to the candidate receipt: receipt=%#v bindings=%#v request=%#v", receipt, bindings, request)
+		}
+		var contributions []dataframeexecution.CellTraceContribution
+		switch request.RowID + "/" + request.Column {
+		case "row-1/patient_id_copy":
+			contributions = []dataframeexecution.CellTraceContribution{
+				{ResourceType: "Patient", ResourceID: "p1", Value: "p1"},
+				{ResourceType: "Observation", ResourceID: "obs-2", Value: "red"},
+				{ResourceType: "Observation", ResourceID: "obs-2", Value: "red"},
+				{ResourceType: "Observation", ResourceID: "obs-2", Value: "green"},
+			}
+		case "row-3/patient_id":
+			contributions = []dataframeexecution.CellTraceContribution{{ResourceType: "Patient", ResourceID: "p3", Value: "p3"}}
+		case "row-3/patient_id_copy":
+			contributions = []dataframeexecution.CellTraceContribution{{ResourceType: "Observation", ResourceID: "obs-3", Value: "sample"}}
+		default:
+			t.Fatalf("unexpected cell trace request: %#v", request)
+		}
+		return dataframeexecution.CellTraceResult{
+			RowID: request.RowID, Column: request.Column, Status: dataframeexecution.CellTraceValue,
+			Contributions: contributions, Complete: true,
+		}, nil
+	}
 	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 		previewCalls++
 		if bindings.PreviewLimit != 2 || !bindings.IncludeRowIdentity || !reflect.DeepEqual(bindings.OutputNames, []string{"patients"}) {
@@ -408,21 +438,21 @@ func TestProposeTableShapeComparesChangedColumnsAndRowsByStableIdentity(t *testi
 		}
 		shape := proposalDocument(workspace, "patients").TableShape
 		if shape == nil {
-			if err := visit(map[string]any{"__loom_row_id": "row-1", "patient_id": "p1", "value": 1}); err != nil {
+			if err := visit(map[string]any{"__loom_row_id": "row-1", "patient_id": "p1", "value": 1, "__loom_reshape_unlisted_count": 10}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			if err := visit(map[string]any{"__loom_row_id": "row-2", "patient_id": "p2", "value": 2}); err != nil {
+			if err := visit(map[string]any{"__loom_row_id": "row-2", "patient_id": "p2", "value": 2, "__loom_reshape_unlisted_count": 20}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			return dataframeexecution.PreviewSummary{Columns: []string{"patient_id", "value"}, RowCount: 100, Truncated: true}, nil
+			return dataframeexecution.PreviewSummary{Columns: []string{"patient_id", "value", "__loom_reshape_unlisted_count"}, RowCount: 100, Truncated: true}, nil
 		}
-		if err := visit(map[string]any{"__loom_row_id": "row-1", "patient_id": "p1", "patient_id_copy": 2}); err != nil {
+		if err := visit(map[string]any{"__loom_row_id": "row-1", "patient_id": "p1", "patient_id_copy": 2, "__loom_reshape_unlisted_count": 1}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		if err := visit(map[string]any{"__loom_row_id": "row-3", "patient_id": "p3", "patient_id_copy": 6}); err != nil {
+		if err := visit(map[string]any{"__loom_row_id": "row-3", "patient_id": "p3", "patient_id_copy": 6, "__loom_reshape_unlisted_count": 2}); err != nil {
 			return dataframeexecution.PreviewSummary{}, err
 		}
-		return dataframeexecution.PreviewSummary{Columns: []string{"patient_id", "patient_id_copy"}, RowCount: 100, Truncated: true}, nil
+		return dataframeexecution.PreviewSummary{Columns: []string{"patient_id", "patient_id_copy", "__loom_reshape_unlisted_count"}, RowCount: 100, Truncated: true}, nil
 	}
 	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
 	request.Limit = 2
@@ -431,11 +461,23 @@ func TestProposeTableShapeComparesChangedColumnsAndRowsByStableIdentity(t *testi
 		t.Fatal(err)
 	}
 	comparison := proposal.Comparison
-	if previewCalls != 2 || comparison.Status != TableShapeComparisonAvailable || !comparison.Base.Sampled || !comparison.Candidate.Sampled {
-		t.Fatalf("preview comparison summary = %#v, calls=%d", comparison, previewCalls)
+	if previewCalls != 2 || traceCalls != 3 || comparison.Status != TableShapeComparisonAvailable || !comparison.Base.Sampled || !comparison.Candidate.Sampled || !comparison.ChangedRowsSampled {
+		t.Fatalf("preview comparison summary = %#v, preview calls=%d trace calls=%d", comparison, previewCalls, traceCalls)
 	}
 	if !reflect.DeepEqual(comparison.ChangedColumns, []string{"patient_id", "patient_id_copy", "value"}) {
 		t.Fatalf("changed columns = %#v", comparison.ChangedColumns)
+	}
+	for _, row := range comparison.ChangedRows {
+		for _, column := range row.ChangedColumns {
+			if column == "__loom_reshape_unlisted_count" {
+				t.Fatalf("physical reshape evidence leaked as a changed column: %#v", row)
+			}
+		}
+		for _, cell := range row.ChangedCells {
+			if cell.Column == "__loom_reshape_unlisted_count" {
+				t.Fatalf("physical reshape evidence leaked as a changed cell: %#v", cell)
+			}
+		}
 	}
 	if comparison.ChangedRowCount != 3 || len(comparison.ChangedRows) != 3 {
 		t.Fatalf("changed row summary = count %d, rows %#v", comparison.ChangedRowCount, comparison.ChangedRows)
@@ -443,11 +485,350 @@ func TestProposeTableShapeComparesChangedColumnsAndRowsByStableIdentity(t *testi
 	if got := comparison.ChangedRows[0]; got.RowIdentity != "row-1" || !got.BasePresent || !got.CandidatePresent || !reflect.DeepEqual(got.ChangedColumns, []string{"patient_id_copy", "value"}) {
 		t.Fatalf("changed shared row = %#v", got)
 	}
+	changedCopy := tableShapeChangedCell(t, comparison.ChangedRows[0], "patient_id_copy")
+	if changedCopy.Before.Present || changedCopy.Before.Value != nil || !changedCopy.After.Present || changedCopy.After.Value != 2 {
+		t.Fatalf("changed column cell values = %#v, want missing before and integer 2 after", changedCopy)
+	}
+	if changedCopy.Trace.State != TableShapeCellTraceAvailable || !changedCopy.Trace.Complete ||
+		!reflect.DeepEqual(changedCopy.Trace.Contributors, []TableShapeCellContributor{
+			{ResourceType: "Observation", ResourceID: "obs-2", Value: "green"},
+			{ResourceType: "Observation", ResourceID: "obs-2", Value: "red"},
+			{ResourceType: "Patient", ResourceID: "p1", Value: "p1"},
+		}) {
+		t.Fatalf("candidate cell lineage = %#v", changedCopy.Trace)
+	}
+	encodedContributors, err := json.Marshal(changedCopy.Trace.Contributors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wireContributors []struct {
+		ResourceType string          `json:"resourceType"`
+		ResourceID   string          `json:"resourceId"`
+		Value        json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(encodedContributors, &wireContributors); err != nil {
+		t.Fatal(err)
+	}
+	if len(wireContributors) != 3 || string(wireContributors[0].Value) != `"green"` || string(wireContributors[1].Value) != `"red"` {
+		t.Fatalf("serialized source contribution values = %#v", wireContributors)
+	}
+	removedValue := tableShapeChangedCell(t, comparison.ChangedRows[0], "value")
+	if !removedValue.Before.Present || removedValue.Before.Value != 1 || removedValue.After.Present || removedValue.Trace.State != TableShapeCellTraceNotApplicable {
+		t.Fatalf("removed cell evidence = %#v", removedValue)
+	}
 	if got := comparison.ChangedRows[1]; got.RowIdentity != "row-2" || !got.BasePresent || got.CandidatePresent {
 		t.Fatalf("removed row = %#v", got)
 	}
+	if got := tableShapeChangedCell(t, comparison.ChangedRows[1], "patient_id"); !got.Before.Present || got.Before.Value != "p2" || got.After.Present {
+		t.Fatalf("removed row cell evidence = %#v", got)
+	}
 	if got := comparison.ChangedRows[2]; got.RowIdentity != "row-3" || got.BasePresent || !got.CandidatePresent {
 		t.Fatalf("added row = %#v", got)
+	}
+	if got := tableShapeChangedCell(t, comparison.ChangedRows[2], "patient_id_copy"); got.Before.Present || !got.After.Present || got.After.Value != 6 {
+		t.Fatalf("added row cell evidence = %#v", got)
+	}
+	wantContributors := []TableShapeContributor{
+		{ResourceType: "Observation", ResourceID: "obs-2"},
+		{ResourceType: "Observation", ResourceID: "obs-3"},
+		{ResourceType: "Patient", ResourceID: "p1"},
+		{ResourceType: "Patient", ResourceID: "p3"},
+	}
+	if !reflect.DeepEqual(comparison.Contributors, wantContributors) || !comparison.ContributorsSampled {
+		t.Fatalf("comparison contributor union = %#v, sampled=%t", comparison.Contributors, comparison.ContributorsSampled)
+	}
+	if len(comparison.EvidenceLimitations) != 2 || comparison.EvidenceLimitations[0] != "Excluded records are not enumerated by this comparison." {
+		t.Fatalf("comparison evidence limitations = %#v", comparison.EvidenceLimitations)
+	}
+}
+
+func tableShapeChangedCell(t *testing.T, row TableShapeChangedRow, column string) TableShapeChangedCell {
+	t.Helper()
+	for _, cell := range row.ChangedCells {
+		if cell.Column == column {
+			return cell
+		}
+	}
+	t.Fatalf("changed cell %q not found in %#v", column, row.ChangedCells)
+	return TableShapeChangedCell{}
+}
+
+func setSingleValueTableShapePreview(service *Service) {
+	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		value := int64(1)
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		if workspace.Documents[0].TableShape != nil {
+			value = 2
+		}
+		if err := visit(map[string]any{"__loom_row_id": "row-1", "value": value}); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Columns: []string{"value"}, RowCount: 1, Complete: true}, nil
+	}
+}
+
+func TestTableShapeComparisonPreservesCellPresenceAndDegradesTraceFailures(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	traceCalls := 0
+	service.config.CellTrace = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		traceCalls++
+		if request.Limit != compiler.MaxCellTraceContributions || request.Offset != 0 {
+			t.Fatalf("trace request bounds = %#v", request)
+		}
+		if request.Column == "zero_value" {
+			return dataframeexecution.CellTraceResult{}, errors.New("trace database unavailable")
+		}
+		result := dataframeexecution.CellTraceResult{
+			RowID: request.RowID, Column: request.Column, Status: dataframeexecution.CellTraceValue, Complete: true,
+			Contributions: []dataframeexecution.CellTraceContribution{},
+		}
+		if request.Column == "explicit_null" {
+			result.Status = dataframeexecution.CellTraceRecordedNull
+			result.OmissionCode = "TABLE_SHAPE_SOURCE_LINEAGE_UNAVAILABLE"
+		}
+		return result, nil
+	}
+	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		row := map[string]any{"__loom_row_id": "row-1"}
+		columns := []string{"explicit_null", "false_value", "zero_value", "empty_value", "removed_null"}
+		if workspace.Documents[0].TableShape == nil {
+			row["removed_null"] = nil
+			row["existing"] = int64(1)
+			columns = append(columns, "existing")
+		} else {
+			row["explicit_null"] = nil
+			row["false_value"] = false
+			row["zero_value"] = int64(0)
+			row["empty_value"] = ""
+			row["existing"] = int64(2)
+			columns = append(columns, "existing")
+		}
+		if err := visit(row); err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		return dataframeexecution.PreviewSummary{Columns: columns, RowCount: 1, Complete: true}, nil
+	}
+	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	request.Limit = 1
+	proposal, err := service.ProposeTableShape(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison := proposal.Comparison
+	if comparison.Status != TableShapeComparisonAvailable || len(comparison.ChangedRows) != 1 || traceCalls != 5 {
+		t.Fatalf("comparison or trace calls = %#v, calls=%d", comparison, traceCalls)
+	}
+	row := comparison.ChangedRows[0]
+	if cell := tableShapeChangedCell(t, row, "explicit_null"); cell.Before.Present || !cell.After.Present || cell.After.Value != nil ||
+		cell.Trace.CellStatus != string(dataframeexecution.CellTraceRecordedNull) || cell.Trace.Complete || cell.Trace.OmissionCode != "TABLE_SHAPE_SOURCE_LINEAGE_UNAVAILABLE" {
+		t.Fatalf("missing-to-recorded-null evidence = %#v", cell)
+	}
+	if cell := tableShapeChangedCell(t, row, "false_value"); cell.Before.Present || !cell.After.Present || cell.After.Value != false {
+		t.Fatalf("false value was not retained = %#v", cell)
+	}
+	if cell := tableShapeChangedCell(t, row, "zero_value"); cell.Before.Present || !cell.After.Present || cell.After.Value != int64(0) ||
+		cell.Trace.State != TableShapeCellTraceFailed || cell.Trace.FailureCode != "CELL_TRACE_FAILED" || !cell.Trace.Sampled {
+		t.Fatalf("zero value or failed trace evidence = %#v", cell)
+	}
+	if cell := tableShapeChangedCell(t, row, "empty_value"); cell.Before.Present || !cell.After.Present || cell.After.Value != "" {
+		t.Fatalf("empty string was not retained = %#v", cell)
+	}
+	if cell := tableShapeChangedCell(t, row, "removed_null"); !cell.Before.Present || cell.Before.Value != nil || cell.After.Present {
+		t.Fatalf("recorded-null-to-missing evidence = %#v", cell)
+	}
+	if !comparison.ContributorsSampled || len(comparison.EvidenceLimitations) != 2 {
+		t.Fatalf("incomplete lineage or fixed comparison limitations were hidden: %#v", comparison)
+	}
+	encoded, err := json.Marshal(comparison)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		ChangedRows []struct {
+			ChangedCells []struct {
+				Column string `json:"column"`
+				Before struct {
+					Present bool            `json:"present"`
+					Value   json.RawMessage `json:"value"`
+				} `json:"before"`
+				After struct {
+					Present bool            `json:"present"`
+					Value   json.RawMessage `json:"value"`
+				} `json:"after"`
+			} `json:"changedCells"`
+		} `json:"changedRows"`
+	}
+	if err := json.Unmarshal(encoded, &wire); err != nil {
+		t.Fatal(err)
+	}
+	wireCells := make(map[string]struct {
+		beforePresent bool
+		beforeValue   string
+		afterPresent  bool
+		afterValue    string
+	})
+	for _, changedRow := range wire.ChangedRows {
+		for _, cell := range changedRow.ChangedCells {
+			wireCells[cell.Column] = struct {
+				beforePresent bool
+				beforeValue   string
+				afterPresent  bool
+				afterValue    string
+			}{cell.Before.Present, string(cell.Before.Value), cell.After.Present, string(cell.After.Value)}
+		}
+	}
+	for column, want := range map[string]struct {
+		beforePresent bool
+		beforeValue   string
+		afterPresent  bool
+		afterValue    string
+	}{
+		"explicit_null": {false, "null", true, "null"},
+		"false_value":   {false, "null", true, "false"},
+		"zero_value":    {false, "null", true, "0"},
+		"empty_value":   {false, "null", true, `""`},
+		"removed_null":  {true, "null", false, "null"},
+	} {
+		if got := wireCells[column]; got != want {
+			t.Fatalf("serialized %s cell = %#v, want %#v", column, got, want)
+		}
+	}
+}
+
+func TestTableShapeComparisonBoundsTracesAndGlobalContributors(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	columns := make([]string, 8)
+	for index := range columns {
+		columns[index] = fmt.Sprintf("value_%02d", index)
+	}
+	traceCalls := make(map[string]int)
+	service.config.CellTrace = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		traceCalls[request.RowID]++
+		if request.Limit != compiler.MaxCellTraceContributions || request.Offset != 0 {
+			t.Fatalf("trace request bounds = %#v", request)
+		}
+		contributions := make([]dataframeexecution.CellTraceContribution, 0, 10)
+		for index := 0; index < 10; index++ {
+			contributions = append(contributions, dataframeexecution.CellTraceContribution{
+				ResourceType: "Patient", ResourceID: fmt.Sprintf("%s-%s-%02d", request.RowID, request.Column, index),
+			})
+		}
+		return dataframeexecution.CellTraceResult{
+			RowID: request.RowID, Column: request.Column, Status: dataframeexecution.CellTraceValue,
+			Contributions: contributions, Complete: true,
+		}, nil
+	}
+	service.config.PreviewReceipt = func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+		if err != nil {
+			return dataframeexecution.PreviewSummary{}, err
+		}
+		for _, id := range []string{"row-1", "row-2"} {
+			row := map[string]any{"__loom_row_id": id}
+			for _, column := range columns {
+				value := int64(0)
+				if workspace.Documents[0].TableShape != nil {
+					value = 1
+				}
+				row[column] = value
+			}
+			if err := visit(row); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+		}
+		return dataframeexecution.PreviewSummary{Columns: columns, RowCount: 2, Complete: true}, nil
+	}
+	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	request.Limit = 2
+	proposal, err := service.ProposeTableShape(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comparison := proposal.Comparison
+	if len(comparison.ChangedRows) != 2 || traceCalls["row-1"] != maxProposalComparisonTraceColumns || traceCalls["row-2"] != maxProposalComparisonTraceColumns {
+		t.Fatalf("trace calls did not honor per-example bound: rows=%#v calls=%#v", comparison.ChangedRows, traceCalls)
+	}
+	for _, row := range comparison.ChangedRows {
+		for index, cell := range row.ChangedCells {
+			if index < maxProposalComparisonTraceColumns && cell.Trace.State != TableShapeCellTraceAvailable {
+				t.Fatalf("trace %s/%s unexpectedly skipped: %#v", row.RowIdentity, cell.Column, cell.Trace)
+			}
+			if index >= maxProposalComparisonTraceColumns &&
+				(cell.Trace.State != TableShapeCellTraceNotRequested || cell.Trace.OmissionCode != "TABLE_SHAPE_TRACE_COLUMN_LIMIT" || !cell.Trace.Sampled) {
+				t.Fatalf("trace %s/%s did not disclose the per-example limit: %#v", row.RowIdentity, cell.Column, cell.Trace)
+			}
+		}
+	}
+	if len(comparison.Contributors) != maxProposalComparisonContributors || !comparison.ContributorsSampled {
+		t.Fatalf("global contributor list is not bounded and marked sampled: count=%d sampled=%t", len(comparison.Contributors), comparison.ContributorsSampled)
+	}
+	globalLimitNotice := false
+	cellLimitNotice := false
+	for _, notice := range comparison.Notices {
+		globalLimitNotice = globalLimitNotice || notice == "The global contributor list is limited to 100 unique resource identities."
+		cellLimitNotice = cellLimitNotice || notice == "Cell contributor evidence is limited to 6 changed candidate columns per example."
+	}
+	if !globalLimitNotice || !cellLimitNotice {
+		t.Fatalf("bounded evidence lacks explicit notices: %#v", comparison.Notices)
+	}
+	all := make([]TableShapeContributor, 0, 120)
+	for _, rowID := range []string{"row-1", "row-2"} {
+		for _, column := range columns[:maxProposalComparisonTraceColumns] {
+			for index := 0; index < 10; index++ {
+				all = append(all, TableShapeContributor{
+					ResourceType: "Patient", ResourceID: fmt.Sprintf("%s-%s-%02d", rowID, column, index),
+				})
+			}
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return tableShapeContributorKey(all[i]) < tableShapeContributorKey(all[j]) })
+	if !reflect.DeepEqual(comparison.Contributors, all[:maxProposalComparisonContributors]) {
+		t.Fatalf("global contributors are not the deterministic bounded union: got first=%#v want first=%#v", comparison.Contributors[:3], all[:3])
+	}
+}
+
+func TestTableShapeComparisonTraceCancellationDoesNotMutateDraft(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	setSingleValueTableShapePreview(service)
+	ctx, cancel := context.WithCancel(context.Background())
+	service.config.CellTrace = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		cancel()
+		return dataframeexecution.CellTraceResult{}, context.Canceled
+	}
+	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	request.Limit = 1
+	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
+	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
+	if _, err := service.ProposeTableShape(ctx, request); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled cell trace error = %v", err)
+	}
+	if store.saveDraftCalls != 0 || store.created.DraftVersion != beforeVersion || store.created.DraftDigest != beforeDigest || string(store.created.DraftConfig) != string(beforeConfig) {
+		t.Fatalf("cancelled proposal mutated draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+	}
+}
+
+func TestTableShapeComparisonPropagatesStaleTraceAuthorization(t *testing.T) {
+	service, store, snapshot, _ := tableShapeProposalService(t)
+	setSingleValueTableShapePreview(service)
+	service.config.CellTrace = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		return dataframeexecution.CellTraceResult{}, conflict("cellTrace", "RECEIPT_STALE", "authorization changed during comparison", nil, nil)
+	}
+	request := tableShapeProposalRequest(t, service, store.created, snapshot, TableShapeProposalAdd)
+	request.Limit = 1
+	beforeConfig := append([]byte(nil), store.created.DraftConfig...)
+	beforeVersion, beforeDigest := store.created.DraftVersion, store.created.DraftDigest
+	if _, err := service.ProposeTableShape(context.Background(), request); !proposalErrorIs(err, ClassConflict, "RECEIPT_STALE") {
+		t.Fatalf("stale cell trace error = %v", err)
+	}
+	if store.saveDraftCalls != 0 || store.created.DraftVersion != beforeVersion || store.created.DraftDigest != beforeDigest || string(store.created.DraftConfig) != string(beforeConfig) {
+		t.Fatalf("stale proposal mutated draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
 	}
 }
 

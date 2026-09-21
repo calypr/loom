@@ -111,23 +111,71 @@ type TableShapePreviewSummary struct {
 	Sampled  bool `json:"sampled"`
 }
 
+type TableShapeCellValue struct {
+	Present bool `json:"present"`
+	Value   any  `json:"value"`
+}
+
+type TableShapeContributor struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+}
+
+type TableShapeCellContributor struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+	Value        any    `json:"value"`
+}
+
+type TableShapeCellTraceState string
+
+const (
+	TableShapeCellTraceNotApplicable TableShapeCellTraceState = "NOT_APPLICABLE"
+	TableShapeCellTraceNotRequested  TableShapeCellTraceState = "NOT_REQUESTED"
+	TableShapeCellTraceUnavailable   TableShapeCellTraceState = "UNAVAILABLE"
+	TableShapeCellTraceFailed        TableShapeCellTraceState = "FAILED"
+	TableShapeCellTraceAvailable     TableShapeCellTraceState = "AVAILABLE"
+)
+
+type TableShapeCellTraceEvidence struct {
+	State        TableShapeCellTraceState    `json:"state"`
+	CellStatus   string                      `json:"cellStatus,omitempty"`
+	Contributors []TableShapeCellContributor `json:"contributors"`
+	Complete     bool                        `json:"complete"`
+	Sampled      bool                        `json:"sampled"`
+	OmissionCode string                      `json:"omissionCode,omitempty"`
+	FailureCode  string                      `json:"failureCode,omitempty"`
+}
+
+type TableShapeChangedCell struct {
+	Column string                      `json:"column"`
+	Before TableShapeCellValue         `json:"before"`
+	After  TableShapeCellValue         `json:"after"`
+	Trace  TableShapeCellTraceEvidence `json:"trace"`
+}
+
 type TableShapeChangedRow struct {
-	RowIdentity      string   `json:"rowIdentity"`
-	BasePresent      bool     `json:"basePresent"`
-	CandidatePresent bool     `json:"candidatePresent"`
-	ChangedColumns   []string `json:"changedColumns"`
+	RowIdentity      string                  `json:"rowIdentity"`
+	BasePresent      bool                    `json:"basePresent"`
+	CandidatePresent bool                    `json:"candidatePresent"`
+	ChangedColumns   []string                `json:"changedColumns"`
+	ChangedCells     []TableShapeChangedCell `json:"changedCells"`
 }
 
 type TableShapeComparison struct {
-	Status          TableShapeComparisonStatus `json:"status"`
-	ReasonCode      string                     `json:"reasonCode,omitempty"`
-	Reason          string                     `json:"reason,omitempty"`
-	Base            *TableShapePreviewSummary  `json:"base,omitempty"`
-	Candidate       *TableShapePreviewSummary  `json:"candidate,omitempty"`
-	ChangedColumns  []string                   `json:"changedColumns"`
-	ChangedRowCount int                        `json:"changedRowCount"`
-	ChangedRows     []TableShapeChangedRow     `json:"changedRows"`
-	Notices         []string                   `json:"notices"`
+	Status              TableShapeComparisonStatus `json:"status"`
+	ReasonCode          string                     `json:"reasonCode,omitempty"`
+	Reason              string                     `json:"reason,omitempty"`
+	Base                *TableShapePreviewSummary  `json:"base,omitempty"`
+	Candidate           *TableShapePreviewSummary  `json:"candidate,omitempty"`
+	ChangedColumns      []string                   `json:"changedColumns"`
+	ChangedRowCount     int                        `json:"changedRowCount"`
+	ChangedRowsSampled  bool                       `json:"changedRowsSampled"`
+	ChangedRows         []TableShapeChangedRow     `json:"changedRows"`
+	Contributors        []TableShapeContributor    `json:"contributors"`
+	ContributorsSampled bool                       `json:"contributorsSampled"`
+	EvidenceLimitations []string                   `json:"evidenceLimitations"`
+	Notices             []string                   `json:"notices"`
 }
 
 type TableShapeProposal struct {
