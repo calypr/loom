@@ -73,6 +73,9 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	previews := 0
 	config := lifecycle.Config{
 		Capability: lifecycle.CapabilityResolver{
+			Token: func(context.Context, string, string) (capability.Snapshot, error) {
+				return snapshot, nil
+			},
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 			},
@@ -163,5 +166,22 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	}
 	if afterStale.DraftVersion != before.DraftVersion || afterStale.DraftDigest != before.DraftDigest || string(afterStale.DraftConfig) != string(before.DraftConfig) {
 		t.Fatalf("stale choice mutated the draft: before=%#v after=%#v", before, afterStale)
+	}
+	applyBody := fmt.Sprintf(`{"commandId":"apply-row-definition","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_ROW_DEFINITION_PROPOSAL","outputId":"patients","proposalId":%q}]}`,
+		authoringv2.CurrentSemanticsVersion, snapshot.Token, before.DraftVersion, before.DraftDigest, proposal.ProposalID)
+	applied := requestJSON(t, app, http.MethodPost, basePath+"/commands", applyBody)
+	if applied.StatusCode != http.StatusOK {
+		t.Fatalf("apply row-definition proposal status=%d body=%s", applied.StatusCode, applied.Body)
+	}
+	afterApply, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var appliedWorkspace authoringv2.Workspace
+	if err := json.Unmarshal(afterApply.DraftConfig, &appliedWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if appliedWorkspace.Documents[0].Rows.Kind != authoringv2.RowDefinitionExpanded {
+		t.Fatalf("applied row definition = %#v, want EXPANDED", appliedWorkspace.Documents[0].Rows)
 	}
 }

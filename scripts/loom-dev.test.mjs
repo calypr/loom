@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
 
 const j05Identity = {
   project: 'loom_dev_j05',
@@ -61,6 +61,21 @@ const j05ArtifactPackage = ({ format, columns, data, rowCount, rowIdentity = { k
   })));
   return members;
 };
+
+test('J03 reads explicit group revision identity from the preview row identity object', () => {
+  const rows = explicitGroupPreviewRows([{
+    group_id: 'j03-reviewed',
+    members: [{ source_identity: { id: 'dev-patient-001' } }],
+    __loom_row_id: { group_revision_id: 'grouprev_j03', group_id: 'j03-reviewed' },
+  }]);
+
+  assert.deepEqual(rows.map(({ rawIdentity, ...row }) => row), [{
+    rowIdentity: 'map[group_id:j03-reviewed group_revision_id:grouprev_j03]',
+    groupRevisionId: 'grouprev_j03',
+    groupId: 'j03-reviewed',
+    sourceMemberIDs: ['dev-patient-001'],
+  }]);
+});
 
 test('development evidence compares canonical project identities', () => {
   assert.equal(canonicalProjectID('loom_dev_verify_run-1234'), 'loom_dev_verify_run/1234');

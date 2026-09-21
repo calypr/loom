@@ -14,7 +14,7 @@ func TestCompileExplicitGroupRowsUsesPinnedRevisionTerminal(t *testing.T) {
 	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "group rows", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE"}}},
-	}, recipe.RuntimeBindings{Project: "project-1", DatasetGeneration: "generation-1"})
+	}, recipe.RuntimeBindings{Project: "project-1", SelectionProject: "project/1", DatasetGeneration: "generation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +35,9 @@ func TestCompileExplicitGroupRowsUsesPinnedRevisionTerminal(t *testing.T) {
 	}
 	if output.Plan.BindVars["group_rows_revision_id"] != "grouprev_1" || output.Plan.BindVars["group_rows_resource_collection"] != "Patient" {
 		t.Fatalf("group row binds = %#v", output.Plan.BindVars)
+	}
+	if output.Plan.BindVars["project"] != "project/1" {
+		t.Fatalf("explicit group project bind = %#v, want canonical selection project", output.Plan.BindVars["project"])
 	}
 	rendered, err := aql.RenderPhysicalPlan(output.Plan)
 	if err != nil {

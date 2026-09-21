@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -56,6 +57,69 @@ func TestValidateReceiptEnginePublicColumnsUsesExactPublicColumnSet(t *testing.T
 	extra.EmittedColumns = append(append([]explorer.EmittedColumn(nil), receipt.EmittedColumns...), explorer.EmittedColumn{OutputID: "patients", PublicColumn: "extra"})
 	if err := validateReceiptEnginePublicColumns(&extra, resolved); !errors.Is(err, ErrReceiptExecutionContract) {
 		t.Fatalf("extra-column error=%v, want contract mismatch", err)
+	}
+}
+
+func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "explicit-group-preview",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "patients", RootResourceType: "Patient", RowGrain: "groups",
+			GroupRows: &recipe.GroupRows{RevisionID: "grouprev_pinned", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
+			Fields:    []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		}},
+	}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:     compilerTestRegistry{},
+		RootPageRows: 25,
+		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			return visit(map[string]any{
+				"group_revision_id": "grouprev_pinned", "group_id": "j03-reviewed", "group_label": "J03 reviewed", "group_ordinal": 0,
+				"members":       []any{map[string]any{"source_identity": map[string]any{"id": "dev-patient-001"}}},
+				"__loom_row_id": map[string]any{"group_revision_id": "grouprev_pinned", "group_id": "j03-reviewed"},
+			})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a", SelectionProject: "project-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprints, _, err := resolvedOutputArtifacts(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := &explorer.CompilationReceipt{
+		Bundle: bundle, OutputFingerprints: fingerprints,
+		EmittedColumns: []explorer.EmittedColumn{{OutputID: "patients", PublicColumn: "id"}},
+	}
+	if err := validateReceiptEnginePublicColumns(receipt, resolved); err != nil {
+		t.Fatalf("grouped row schema rejected despite stable explicit-group contract: %v", err)
+	}
+	var previewed []map[string]any
+	summary, err := engine.PreviewOutput(context.Background(), resolved, dataframeexecution.PreviewRequest{Output: "patients", Limit: 25, IncludeRowIdentity: true}, func(row map[string]any) error {
+		previewed = append(previewed, row)
+		return nil
+	})
+	if err != nil || summary.RowCount != 1 || len(previewed) != 1 {
+		t.Fatalf("explicit-group preview summary=%#v rows=%#v err=%v", summary, previewed, err)
+	}
+	identity, ok := previewed[0]["__loom_row_id"].(map[string]any)
+	if !ok || identity["group_revision_id"] != "grouprev_pinned" || identity["group_id"] != "j03-reviewed" || previewed[0]["members"] == nil {
+		t.Fatalf("explicit-group preview row lacks exact group identity/members: %#v", previewed[0])
+	}
+
+	wrongSchema := resolved
+	wrongSchema.Compiled.Outputs = append([]lower.CompiledRecipeOutput(nil), resolved.Compiled.Outputs...)
+	wrongSchema.Compiled.Outputs[0].OutputSchema = append([]lower.CompiledOutputColumn(nil), resolved.Compiled.Outputs[0].OutputSchema...)
+	wrongSchema.Compiled.Outputs[0].OutputSchema = append(wrongSchema.Compiled.Outputs[0].OutputSchema, lower.CompiledOutputColumn{Name: "unexpected"})
+	var mismatch *receiptContractMismatch
+	if err := validateReceiptEnginePublicColumns(receipt, wrongSchema); !errors.As(err, &mismatch) || mismatch.Component != "output_execution" {
+		t.Fatalf("unexpected grouped output fingerprint error=%v, want output execution mismatch", err)
 	}
 }
 

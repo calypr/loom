@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/explorer"
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -75,6 +76,9 @@ func (s *Store) BeginExplicitGroupRevision(ctx context.Context, revision explore
 	doc["writerToken"] = writerToken
 	doc["writerExpiresAt"] = time.Now().UTC().Add(explicitGroupWriterLease).UnixMilli()
 	if err := s.client.QueryRows(ctx, `INSERT @doc INTO @@c OPTIONS { overwriteMode: "ignore" } RETURN NEW`, 1, map[string]any{"@c": ExplicitGroupRevisionsCollection, "doc": doc}, func(map[string]any) error { return nil }); err != nil {
+		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
+			return nil, explorer.ErrExplicitGroupRevisionConflict
+		}
 		return nil, err
 	}
 	stored, row, err := s.readExplicitGroupRevision(ctx, s.client, revision.ID, revision.Project)

@@ -42,7 +42,18 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	if !receiptHasOutput(receipt.Bundle, request.OutputID) || validateReceiptOutputContract(receipt, request.OutputID) != nil {
 		return PreviewResult{}, unprocessable("preview", "UNKNOWN_AUTHORING_OUTPUT", "outputId is not in the receipt", nil)
 	}
-	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project), DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection, PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}}
+	includeRowIdentity := false
+	for _, output := range receipt.Bundle.Outputs {
+		if output.Name == request.OutputID && output.RowGrain == "groups" && output.GroupRows != nil {
+			includeRowIdentity = true
+			break
+		}
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
+		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
+		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: includeRowIdentity,
+	}
 	applyAuthorizedScope(&bindings, authorized, false)
 	columns := emittedColumnsForOutput(receipt, request.OutputID)
 	result := PreviewResult{Receipt: receipt, Columns: columns}

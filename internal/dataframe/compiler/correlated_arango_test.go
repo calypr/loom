@@ -143,36 +143,40 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 	}
 	project, generation := "group_rows_"+uuid.NewString(), "generation_"+uuid.NewString()
 	revisionID, selectionID := "grouprev_"+uuid.NewString(), "selection_"+uuid.NewString()
+	member1ID, member2ID := project+"-member-1", project+"-member-2"
+	missingMemberID, unrelatedID := project+"-member-missing", project+"-unrelated"
 	resourceDocs := []map[string]any{
-		{"_key": "member-1", "id": "member-1", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "member-1", "component": []any{map[string]any{"valueInteger": 1}, map[string]any{"valueInteger": 2}}}},
-		{"_key": "member-2", "id": "member-2", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "member-2", "component": []any{map[string]any{"valueInteger": 3}}}},
-		{"_key": "unrelated", "id": "unrelated", "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": "unrelated", "component": []any{map[string]any{"valueInteger": 4}, map[string]any{"valueInteger": 5}, map[string]any{"valueInteger": 6}}}},
+		{"_key": member1ID, "id": member1ID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": member1ID, "component": []any{map[string]any{"valueInteger": 1}, map[string]any{"valueInteger": 2}}}},
+		{"_key": member2ID, "id": member2ID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": member2ID, "component": []any{map[string]any{"valueInteger": 3}}}},
+		{"_key": unrelatedID, "id": unrelatedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/all", "payload": map[string]any{"resourceType": "Observation", "id": unrelatedID, "component": []any{map[string]any{"valueInteger": 4}, map[string]any{"valueInteger": 5}, map[string]any{"valueInteger": 6}}}},
 	}
 	insertGroupRowsFixtureDocs(ctx, t, client, "Observation", resourceDocs)
+	scopeDigest, sourceMembershipDigest := "group-row-scope", "group-row-source-membership"
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_revisions", []map[string]any{{
 		"_key": revisionID, "id": revisionID, "project": project, "generation": generation, "resourceType": "Observation",
-		"sourceSelectionRevisionId": selectionID, "sourceMembershipDigest": "source-digest", "definitionDigest": "definition-digest",
+		"scopeDigest": scopeDigest, "sourceSelectionRevisionId": selectionID, "sourceMembershipDigest": sourceMembershipDigest, "definitionDigest": "definition-digest",
 		"membershipDigest": "membership-digest", "state": "COMPLETE",
 	}})
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selections", []map[string]any{{
-		"_key": selectionID, "id": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "complete": true,
+		"_key": selectionID, "id": selectionID, "project": project, "generation": generation, "resourceType": "Observation",
+		"scopeDigest": scopeDigest, "membershipDigest": sourceMembershipDigest, "complete": true,
 	}})
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_definitions", []map[string]any{
 		{"_key": "def-a-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-a", "label": "Alpha", "ordinal": 0},
 		{"_key": "def-b-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-b", "label": "Beta", "ordinal": 1},
 		{"_key": "def-empty-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-empty", "label": "Empty", "ordinal": 2},
 	})
-	selectionIDs := []string{"member-1", "member-2", "member-missing", "member-unassigned"}
+	selectionIDs := []string{member1ID, member2ID, missingMemberID, project + "-member-unassigned"}
 	selectionMembers := make([]map[string]any, 0, len(selectionIDs))
 	for _, id := range selectionIDs {
 		selectionMembers = append(selectionMembers, map[string]any{"_key": "sel-" + revisionID + "-" + id, "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": id})
 	}
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selection_members", selectionMembers)
 	groupMemberships := []map[string]any{
-		groupRowsMembership(revisionID, project, generation, "group-a", "member-1"),
-		groupRowsMembership(revisionID, project, generation, "group-a", "member-2"),
-		groupRowsMembership(revisionID, project, generation, "group-a", "member-missing"),
-		groupRowsMembership(revisionID, project, generation, "group-b", "member-1"),
+		groupRowsMembership(revisionID, project, generation, "group-a", member1ID),
+		groupRowsMembership(revisionID, project, generation, "group-a", member2ID),
+		groupRowsMembership(revisionID, project, generation, "group-a", missingMemberID),
+		groupRowsMembership(revisionID, project, generation, "group-b", member1ID),
 	}
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_memberships", groupMemberships)
 
@@ -196,7 +200,7 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		t.Fatalf("group rows=%#v, want two populated groups and one declared empty group", rows)
 	}
 	wantGroups := []string{"group-a", "group-b", "group-empty"}
-	wantMembers := [][]string{{"member-1", "member-2", "member-missing"}, {"member-1"}, {}}
+	wantMembers := [][]string{{member1ID, member2ID, missingMemberID}, {member1ID}, {}}
 	identities := make([]any, len(rows))
 	for index, row := range rows {
 		if row["group_id"] != wantGroups[index] || row["group_revision_id"] != revisionID {
@@ -216,10 +220,10 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 			if identity["project"] != project || identity["generation"] != generation || identity["resource_type"] != "Observation" {
 				t.Fatalf("member exact source identity = %#v", identity)
 			}
-			if identity["id"] == "member-missing" && value["payload"] != nil {
+			if identity["id"] == missingMemberID && value["payload"] != nil {
 				t.Fatalf("missing resource payload = %#v, want null with membership retained", value["payload"])
 			}
-			if identity["id"] == "member-1" {
+			if identity["id"] == member1ID {
 				payload := value["payload"].(map[string]any)
 				components := payload["component"].([]any)
 				if len(components) != 2 {
@@ -259,7 +263,7 @@ func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]Co
 	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "explicit groups", TranslationVersion: "test",
 		Outputs: []recipe.Output{{Name: "Grouped", RootResourceType: "Observation", RowGrain: "groups", GroupRows: &recipe.GroupRows{RevisionID: revisionID, UnassignedMemberPolicy: policy}}},
-	}, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+	}, recipe.RuntimeBindings{Project: project, SelectionProject: project, DatasetGeneration: generation})
 	if err != nil {
 		return nil, err
 	}

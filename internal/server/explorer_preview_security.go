@@ -46,15 +46,38 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 		return receiptExecutionContractError("receipt is required")
 	}
 	want := make(map[string][]string)
+	groupedOutputs := make(map[string]bool)
+	for _, output := range receipt.Bundle.Outputs {
+		if output.RowGrain == "groups" && output.GroupRows != nil {
+			groupedOutputs[output.Name] = true
+		}
+	}
 	for _, emitted := range receipt.EmittedColumns {
 		if strings.TrimSpace(emitted.OutputID) == "" || strings.TrimSpace(emitted.PublicColumn) == "" {
 			return receiptExecutionContractError("receipt contains an invalid emitted column")
 		}
 		want[emitted.OutputID] = append(want[emitted.OutputID], emitted.PublicColumn)
 	}
+	var groupedFingerprints map[string]string
+	if len(groupedOutputs) > 0 {
+		var err error
+		groupedFingerprints, _, err = resolvedOutputArtifacts(resolved)
+		if err != nil {
+			return receiptExecutionContractError("cannot reproduce grouped output fingerprints: %v", err)
+		}
+	}
 	seen := make(map[string]bool)
 	for _, output := range resolved.Compiled.Outputs {
 		seen[output.Name] = true
+		if groupedOutputs[output.Name] {
+			// Explicit groups are terminal row sources, so their executable
+			// columns are not the authored root-field emissions. Bind this
+			// exception to the receipt's full compiler-derived schema and plan.
+			if expected, actual := receipt.OutputFingerprints[output.Name], groupedFingerprints[output.Name]; expected == "" || actual == "" || expected != actual {
+				return contractMismatch("output_execution", output.Name, expected, actual)
+			}
+			continue
+		}
 		actual := make([]string, 0, len(output.OutputSchema))
 		for _, column := range output.OutputSchema {
 			if !column.Internal {

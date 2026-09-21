@@ -755,6 +755,43 @@ func TestPreviewRejectsStaleGenerationAndScope(t *testing.T) {
 	}
 }
 
+func TestPreviewIncludesStableRowIdentityForExplicitGroupRows(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	receipt.Bundle.Outputs[0].RowGrain = "groups"
+	receipt.Bundle.Outputs[0].GroupRows = &recipe.GroupRows{RevisionID: "grouprev_pinned", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"}
+	receipt.RecipeDigest, _ = receipt.Bundle.Digest()
+	receipt.ResolvedRecipeDigest = receipt.RecipeDigest
+	var err error
+	receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = explorer.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := testConfig(snapshot)
+	var previewBindings recipe.RuntimeBindings
+	config.PreviewReceipt = func(_ context.Context, _ *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, _ func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		previewBindings = bindings
+		return dataframeexecution.PreviewSummary{}, nil
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+	_, err = service.Preview(context.Background(), PreviewRequest{
+		Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", Limit: 10,
+		SinkFactory: func(*explorer.CompilationReceipt, []explorer.EmittedColumn) (func(map[string]any) error, error) {
+			return func(map[string]any) error { return nil }, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !previewBindings.IncludeRowIdentity {
+		t.Fatal("explicit-group preview did not request its stable row identity")
+	}
+}
+
 func TestValidateReceiptRouteAcceptsEquivalentProjectIdentities(t *testing.T) {
 	receipt := nativeReceipt(readySnapshot("HTAN_INT/BForePC", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}))
 	for _, project := range []string{"HTAN_INT/BForePC", "HTAN_INT%2FBForePC", "HTAN_INT-BForePC"} {

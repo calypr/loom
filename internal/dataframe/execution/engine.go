@@ -448,7 +448,11 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
 			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
 		}
-		if e.rootPageRows > 0 {
+		// Group rows are a terminal source rather than a root scan; their query
+		// limit bounds output directly and cannot use root-key paging.
+		terminalGroupRows := len(output.Plan.Operations) == 1 &&
+			output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
+		if e.rootPageRows > 0 && !terminalGroupRows {
 			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 			if pageErr != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)

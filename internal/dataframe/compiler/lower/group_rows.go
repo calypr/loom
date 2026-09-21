@@ -16,6 +16,10 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 	if strings.TrimSpace(groups.RevisionID) == "" || strings.TrimSpace(context.DatasetGeneration) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires revision and dataset generation identities")
 	}
+	selectionProject := strings.TrimSpace(context.SelectionProject)
+	if selectionProject == "" {
+		return ir.PhysicalPlan{}, fmt.Errorf("grouped physical plan requires the canonical selection project identity")
+	}
 	policy := groups.UnassignedMemberPolicy
 	if policy != "ERROR" && policy != "EXCLUDE" && policy != "GROUP_AS_UNASSIGNED" {
 		return ir.PhysicalPlan{}, fmt.Errorf("unsupported unassigned member policy %q", policy)
@@ -35,7 +39,7 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 		"group_rows_selection_members_collection": selectionMembers,
 		"group_rows_resource_collection":          output.RootResourceType,
 		"group_rows_revision_id":                  groups.RevisionID,
-		"project":                                 context.Project,
+		"project":                                 selectionProject,
 		"dataset_generation":                      context.DatasetGeneration,
 		"resource_type":                           output.RootResourceType,
 		"group_rows_unassigned_policy":            policy,
