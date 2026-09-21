@@ -232,10 +232,10 @@ func missingRowDefinition(rows RowDefinition) bool {
 	return rows.Kind == "" && rows.Records == nil && rows.Groups == nil && rows.Expanded == nil
 }
 
-// migratePreV7MissingRows installs the historical root-record behavior only
+// migrateMissingRowsBeforeCurrent installs the historical root-record behavior only
 // across the semantics-version boundary. It copies the document slice before
 // editing and deliberately leaves the version bump to its migration owner.
-func migratePreV7MissingRows(workspace Workspace) Workspace {
+func migrateMissingRowsBeforeCurrent(workspace Workspace) Workspace {
 	if workspace.SemanticsVersion >= CurrentSemanticsVersion {
 		return workspace
 	}

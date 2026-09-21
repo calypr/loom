@@ -21,16 +21,25 @@ func (d Document) Validate() error {
 	if err := d.Rows.Validate(); err != nil {
 		return fmt.Errorf("rows: %w", err)
 	}
-	return d.validateSemantic()
+	if err := d.validateSemantic(); err != nil {
+		return err
+	}
+	if err := d.TableShape.Validate(d.Columns); err != nil {
+		return fmt.Errorf("tableShape: %w", err)
+	}
+	return nil
 }
 
 func (w Workspace) Validate() error {
-	w = migratePreV7MissingRows(w)
+	w = migrateMissingRowsBeforeCurrent(w)
 	if w.APIVersion != APIVersion || w.Kind != WorkspaceKind {
 		return fmt.Errorf("unsupported V2 workspace protocol or kind")
 	}
 	if w.SemanticsVersion > CurrentSemanticsVersion {
 		return fmt.Errorf("UNSUPPORTED_SEMANTICS_VERSION: semanticsVersion %d is unsupported", w.SemanticsVersion)
+	}
+	if w.SemanticsVersion < CurrentSemanticsVersion && workspaceHasTableShape(w) {
+		return fmt.Errorf("tableShape requires semanticsVersion %d", CurrentSemanticsVersion)
 	}
 	if w.SemanticsVersion >= CurrentSemanticsVersion && workspaceHasLegacyContributors(w) {
 		return fmt.Errorf("aggregate source where is not writable in semantics version %d; use column.contributor", CurrentSemanticsVersion)

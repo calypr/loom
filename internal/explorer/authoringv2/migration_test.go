@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestMigrateLosslessDefaultsAdvancesV7WithoutInventingTableShape(t *testing.T) {
+	legacy, err := DecodeWorkspace(persistedWorkspaceWithoutRows(CurrentSemanticsVersion - 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated := MigrateLosslessDefaults(legacy, CatalogSnapshot{})
+	if migrated.SemanticsVersion != CurrentSemanticsVersion {
+		t.Fatalf("semanticsVersion = %d, want %d", migrated.SemanticsVersion, CurrentSemanticsVersion)
+	}
+	if migrated.Documents[0].TableShape != nil {
+		t.Fatalf("migration invented table shape: %#v", migrated.Documents[0].TableShape)
+	}
+}
+
 func TestMigrateLegacyNestedAggregateWhereEmptyEqualsToExists(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":3,"explorer":{"title":"Patients"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"patient_count","label":"Patients","occurrenceId":"base","source":{"kind":"aggregate","aggregate":{"operation":"COUNT","where":{"path":"id","equals":""}}}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
 	workspace, err := DecodeWorkspace([]byte(raw))

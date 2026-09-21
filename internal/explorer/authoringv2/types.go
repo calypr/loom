@@ -17,7 +17,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 7
+	CurrentSemanticsVersion = 8
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a
@@ -31,6 +31,7 @@ type Document struct {
 	Rows             RowDefinition `json:"rows"`
 	Population       *Population   `json:"population,omitempty"`
 	Columns          []Column      `json:"columns"`
+	TableShape       *TableShape   `json:"tableShape,omitempty"`
 	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
 	Actions          []Action      `json:"actions,omitempty"`
 }

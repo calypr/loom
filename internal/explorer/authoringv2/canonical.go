@@ -14,7 +14,7 @@ import (
 )
 
 func (w Workspace) CanonicalJSON() ([]byte, error) {
-	w = migratePreV7MissingRows(w)
+	w = migrateMissingRowsBeforeCurrent(w)
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (s BuilderState) Digest() (string, error) {
 func DecodeWorkspace(raw []byte) (Workspace, error) {
 	var out Workspace
 	if err := strictDecode(raw, &out); err == nil {
-		out = migratePreV7MissingRows(out)
+		out = migrateMissingRowsBeforeCurrent(out)
 		if err := out.Validate(); err != nil {
 			return out, err
 		}
@@ -308,7 +308,7 @@ func DecodeWorkspace(raw []byte) (Workspace, error) {
 		}
 		out = migrated
 	}
-	out = migratePreV7MissingRows(out)
+	out = migrateMissingRowsBeforeCurrent(out)
 	if err := out.Validate(); err != nil {
 		return out, err
 	}
