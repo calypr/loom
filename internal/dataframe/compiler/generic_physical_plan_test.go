@@ -337,6 +337,28 @@ func TestBuildAndRenderOrderedContributorWindowAggregate(t *testing.T) {
 	if got := strings.Count(rendered.Query, "LET __loom_physical_temporal_candidates ="); got != 1 {
 		t.Fatalf("temporal candidates evaluated %d times, want once:\n%s", got, rendered.Query)
 	}
+	for _, check := range []struct {
+		name   string
+		filter string
+		assert string
+	}{
+		{
+			name:   "window timestamp",
+			filter: "FILTER __loom_physical_contributor_window_timestamp != null",
+			assert: "FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_physical_contributor_window_timestamp)",
+		},
+		{
+			name:   "ordering timestamp",
+			filter: "FILTER __loom_temporal_timestamp != null",
+			assert: "FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_temporal_timestamp)",
+		},
+	} {
+		nullFilter := strings.Index(rendered.Query, check.filter)
+		precisionAssertion := strings.Index(rendered.Query, check.assert)
+		if nullFilter < 0 || precisionAssertion <= nullFilter {
+			t.Fatalf("%s must exclude null timestamps before validating non-null precision; filter=%d assert=%d:\n%s", check.name, nullFilter, precisionAssertion, rendered.Query)
+		}
+	}
 	foundLower, foundUpper := false, false
 	for _, value := range rendered.BindVars {
 		foundLower = foundLower || value == int64(-86400)

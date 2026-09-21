@@ -101,9 +101,11 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 
 	projectPrefix := "loom_s04_operator_" + uuid.NewString()
 	projects := map[string]string{
-		"main":         projectPrefix + "_main",
-		"unsupported":  projectPrefix + "_unsupported",
-		"missing-time": projectPrefix + "_missing_time",
+		"main":                  projectPrefix + "_main",
+		"unsupported":           projectPrefix + "_unsupported",
+		"missing-time":          projectPrefix + "_missing_time",
+		"window-missing-time":   projectPrefix + "_window_missing_time",
+		"window-malformed-time": projectPrefix + "_window_malformed_time",
 	}
 	const generation = "generation-s04-operator-oracle"
 	anchor := "2020-01-10T00:00:00Z"
@@ -127,6 +129,9 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		{project: "main", patientID: "patient-unknown-category", category: "mystery", sourceID: "obs-unknown-category", state: operatorOracleInteger, integer: operatorOracleInt(4), timestamp: anchor},
 		{project: "unsupported", patientID: "patient-unsupported-unit", category: "female ", sourceID: "obs-unsupported-unit", state: operatorOracleQuantity, quantity: operatorOracleFloat(7), unitSystem: "http://unitsofmeasure.org", unitCode: "furlong"},
 		{project: "missing-time", patientID: "patient-missing-time", category: "female", sourceID: "obs-missing-time", state: operatorOracleInteger, integer: operatorOracleInt(1)},
+		{project: "window-missing-time", patientID: "patient-window-missing-time", category: "female", rootAnchor: "2025-01-03T00:00:00Z", sourceID: "obs-window-valid", state: operatorOracleQuantity, quantity: operatorOracleFloat(25), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "2025-01-02T00:00:00Z"},
+		{project: "window-missing-time", patientID: "patient-window-missing-time", category: "female", sourceID: "obs-window-missing-time", state: operatorOracleQuantity, quantity: operatorOracleFloat(700), unitSystem: "http://unitsofmeasure.org", unitCode: "cm"},
+		{project: "window-malformed-time", patientID: "patient-window-malformed-time", category: "female", rootAnchor: "2025-01-03T00:00:00Z", sourceID: "obs-window-malformed-time", state: operatorOracleQuantity, quantity: operatorOracleFloat(42), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "not-an-instant"},
 	}
 
 	patients := make(map[string]map[string]string)
@@ -364,6 +369,34 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	windowedFirstWant := []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-height-m", value: float64(180)}}
 	if got := windowedFirstTrace["patient-units"]; !reflect.DeepEqual(got, windowedFirstWant) {
 		t.Errorf("window_first_ordered contributors = %#v, want first keyed eligible contributor %#v", got, windowedFirstWant)
+	}
+	windowMissingTimeCompiled := compileOracleBundle(t, recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-window-missing-time", TranslationVersion: "1", Outputs: []recipe.Output{windowedSummary},
+	}, projects["window-missing-time"], generation)
+	windowMissingTimeRows := executeOracleQuery(t, ctx, client, windowMissingTimeCompiled.Outputs[0])
+	if len(windowMissingTimeRows) != 1 {
+		t.Fatalf("windowed missing-time rows = %#v, want exactly one patient row", windowMissingTimeRows)
+	}
+	windowMissingTimeRow := windowMissingTimeRows[0]
+	for column, expected := range map[string]any{
+		"window_count": float64(1), "window_exists": true, "window_minimum": float64(25), "window_maximum": float64(25),
+		"window_mean": float64(25), "window_sum": float64(25), "window_first_ordered": float64(25),
+	} {
+		if got := windowMissingTimeRow[column]; !reflect.DeepEqual(got, expected) {
+			t.Errorf("missing-timestamp contributor patient.%s = %#v, want %#v", column, got, expected)
+		}
+	}
+	windowMissingTimeTrace := executeOracleTrace(t, ctx, client, windowMissingTimeCompiled.Outputs[0], "window_sum")
+	windowMissingTimeWant := []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-window-valid", value: float64(25)}}
+	if got := windowMissingTimeTrace["patient-window-missing-time"]; !reflect.DeepEqual(got, windowMissingTimeWant) {
+		t.Errorf("windowed missing-time trace = %#v, want only the timestamp-eligible contributor %#v", got, windowMissingTimeWant)
+	}
+	windowMalformedTimeCompiled := compileOracleBundle(t, recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-window-malformed-time", TranslationVersion: "1", Outputs: []recipe.Output{windowedSummary},
+	}, projects["window-malformed-time"], generation)
+	windowMalformedTimeRows, windowMalformedTimeErr := queryOracleOutput(ctx, client, windowMalformedTimeCompiled.Outputs[0])
+	if windowMalformedTimeErr == nil || !strings.Contains(windowMalformedTimeErr.Error(), "TEMPORAL_PRECISION_UNSUPPORTED") {
+		t.Fatalf("windowed malformed-time query returned rows=%#v error=%v; want TEMPORAL_PRECISION_UNSUPPORTED", windowMalformedTimeRows, windowMalformedTimeErr)
 	}
 	rows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[0])
 	if len(rows) != len(wants) {
@@ -604,8 +637,15 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-missing-temporal-time", TranslationVersion: "1", Outputs: []recipe.Output{missingTimeOutput},
 	}, projects["missing-time"], generation)
 	missingTimeRows, missingTimeErr := queryOracleOutput(ctx, client, missingTimeCompiled.Outputs[0])
-	if missingTimeErr == nil || !strings.Contains(missingTimeErr.Error(), "TEMPORAL_PRECISION_UNSUPPORTED") {
-		t.Fatalf("missing-time temporal query returned rows=%#v error=%v; want TEMPORAL_PRECISION_UNSUPPORTED", missingTimeRows, missingTimeErr)
+	if missingTimeErr != nil || len(missingTimeRows) != 1 {
+		t.Fatalf("missing-time temporal query returned rows=%#v error=%v; want one row with no selected value", missingTimeRows, missingTimeErr)
+	}
+	if latest, exists := missingTimeRows[0]["latest"]; !exists || latest != nil {
+		t.Fatalf("missing-time latest = %#v (present=%t), want null", latest, exists)
+	}
+	missingTimeTrace := executeOracleTrace(t, ctx, client, missingTimeCompiled.Outputs[0], "latest")
+	if contributors, exists := missingTimeTrace["patient-missing-time"]; !exists || len(contributors) != 0 {
+		t.Fatalf("missing-time temporal trace = %#v (present=%t), want an empty contributor list", contributors, exists)
 	}
 }
 
