@@ -59,6 +59,8 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		collectionKeys: collectionKeys,
 		setVariables:   map[string]string{},
 		reservedVars:   physicalPlanVariableNames(plan),
+		rootVariable:   layout.root.Variable,
+		cellTrace:      layout.traceReturn,
 	}
 	lines, err := renderer.renderRootScan(layout.root)
 	if err != nil {
@@ -256,6 +258,8 @@ type physicalPlanRenderer struct {
 	setVariables   map[string]string
 	reservedVars   map[string]struct{}
 	preparedItem   string
+	rootVariable   string
+	cellTrace      *ir.PhysicalCellTraceReturn
 }
 
 func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {

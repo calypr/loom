@@ -67,6 +67,9 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 	if terminal.Contribution != nil {
 		return r.renderReducedSetTraceContributors(*terminal.Contribution, terminal)
 	}
+	if terminal.Reshape != nil {
+		return r.renderReshapeTraceContributors(*terminal.Reshape, terminal)
+	}
 	expression := terminal.Value
 	switch expression.Kind {
 	case ir.PhysicalExtractExpression:
@@ -121,6 +124,145 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 	default:
 		return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 	}
+}
+
+func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.PhysicalCellTraceReshape, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	queries := make([]string, 0, len(lineage.Sources))
+	omission = lineage.OmissionCode
+	for _, source := range lineage.Sources {
+		if source.OmissionCode != "" && omission == "" {
+			omission = source.OmissionCode
+		}
+		if source.OmissionCode != "" {
+			continue
+		}
+		switch source.Kind {
+		case ir.PhysicalCellTracePivotGroupKey:
+			query, queryErr := r.renderPivotGroupKeyTraceQuery(source)
+			if queryErr != nil {
+				return "", "", false, "", queryErr
+			}
+			queries = append(queries, query)
+		case ir.PhysicalCellTracePivotCell:
+			query, queryErr := r.renderPivotCellTraceQuery(source, terminal)
+			if queryErr != nil {
+				return "", "", false, "", queryErr
+			}
+			queries = append(queries, query)
+		case ir.PhysicalCellTraceUnpivotValue, ir.PhysicalCellTraceUnpivotField:
+			query, queryErr := r.renderUnpivotValueTraceQuery(lineage.OutputVariable, terminal)
+			if queryErr != nil {
+				return "", "", false, "", queryErr
+			}
+			queries = append(queries, query)
+			// Each output row came from exactly one unpivot input. Do not
+			// duplicate its evidence once for every configured input column.
+			goto contributorsReady
+		default:
+			return "", "", false, "", fmt.Errorf("unsupported reshape trace source kind %q", source.Kind)
+		}
+	}
+
+contributorsReady:
+	if len(queries) == 0 {
+		return "[]", "[]", false, omission, nil
+	}
+	all := "UNIQUE(FLATTEN([" + strings.Join(queries, ", ") + "]))"
+	sorted := fmt.Sprintf("(FOR __loom_trace_source IN %s SORT __loom_trace_source.resourceType ASC, __loom_trace_source.resourceId ASC RETURN __loom_trace_source)", all)
+	page = fmt.Sprintf("SLICE(%s, @%s, @%s)", sorted, terminal.OffsetBindKey, terminal.FetchLimitBindKey)
+	status = fmt.Sprintf("SLICE(%s, 0, 2)", sorted)
+	return page, status, false, omission, nil
+}
+
+func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) (string, error) {
+	item := r.newInternalVariable("trace_pivot_group_key_source")
+	columnBind := r.newInternalBindKey("trace_pivot_group_key_column")
+	r.bindVars[columnBind] = source.SourceColumn
+	presenceBind := r.newInternalBindKey("trace_pivot_group_key_presence")
+	r.bindVars[presenceBind] = source.SourcePresenceField
+	documentBind := r.newInternalBindKey("trace_pivot_group_key_document")
+	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
+	value := fmt.Sprintf("%s[@%s]", item, columnBind)
+	document := fmt.Sprintf("%s[@%s]", item, documentBind)
+	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, source.GroupRowsVariable, item, presenceBind, document, document, value), nil
+}
+
+func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellTraceReshapeSource, terminal ir.PhysicalCellTraceReturn) (string, error) {
+	if source.Category == nil {
+		return "", fmt.Errorf("pivot cell trace requires a category")
+	}
+	item := r.newInternalVariable("trace_pivot_cell_source")
+	columnBind := r.newInternalBindKey("trace_pivot_cell_column")
+	r.bindVars[columnBind] = source.SourceColumn
+	presenceBind := r.newInternalBindKey("trace_pivot_cell_presence")
+	r.bindVars[presenceBind] = source.SourcePresenceField
+	documentBind := r.newInternalBindKey("trace_pivot_cell_document")
+	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
+	categoryColumnBind := r.newInternalBindKey("trace_pivot_category_column")
+	r.bindVars[categoryColumnBind] = source.CategoryColumn
+	categoryPresenceBind := ""
+	if source.CategoryPresenceField != "" {
+		categoryPresenceBind = r.newInternalBindKey("trace_pivot_category_presence")
+		r.bindVars[categoryPresenceBind] = source.CategoryPresenceField
+	}
+	categoryTypeBind := ""
+	if source.Category.MatchKind == ir.PhysicalPivotCategoryValueMatch {
+		categoryType, err := aqlTableScalarType(source.CategoryType)
+		if err != nil {
+			return "", err
+		}
+		categoryTypeBind = r.newInternalBindKey("trace_pivot_category_type")
+		r.bindVars[categoryTypeBind] = categoryType
+	}
+	match, err := groupedPivotCategoryMatchPredicate(*source.Category, item, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+	if err != nil {
+		return "", err
+	}
+	value := fmt.Sprintf("%s[@%s]", item, columnBind)
+	filters := []string{
+		"FILTER " + match,
+		fmt.Sprintf("FILTER %s[@%s] == true", item, presenceBind),
+	}
+	valueTypeBind := ""
+	if source.DuplicatePolicy != "ERROR" {
+		valueType, typeErr := aqlTableScalarType(source.ValueColumnType)
+		if typeErr != nil {
+			return "", typeErr
+		}
+		valueTypeBind = r.newInternalBindKey("trace_pivot_value_type")
+		r.bindVars[valueTypeBind] = valueType
+		filters = append(filters, "FILTER "+value+" != null", "FILTER ASSERT(TYPENAME("+value+") == @"+valueTypeBind+", \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\")")
+	}
+	if source.DuplicatePolicy == "MIN" || source.DuplicatePolicy == "MAX" {
+		result, renderErr := r.renderExpression(terminal.Value)
+		if renderErr != nil {
+			return "", renderErr
+		}
+		filters = append(filters, "FILTER "+value+" == ("+result+")")
+	}
+	document := fmt.Sprintf("%s[@%s]", item, documentBind)
+	return fmt.Sprintf("(FOR %s IN %s %s RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, source.GroupRowsVariable, strings.Join(filters, " "), document, document, value), nil
+}
+
+func (r *physicalPlanRenderer) renderUnpivotValueTraceQuery(outputVariable string, terminal ir.PhysicalCellTraceReturn) (string, error) {
+	item := r.newInternalVariable("trace_unpivot_value_source")
+	documentField := ir.PhysicalCellTraceSourceDocumentField
+	presenceField := ir.PhysicalCellTraceSourcePresenceField
+	supportedField := ir.PhysicalCellTraceSourceSupportedField
+	for _, source := range terminal.Reshape.Sources {
+		if source.Kind == ir.PhysicalCellTraceUnpivotField {
+			documentField = ir.PhysicalCellTracePassSourceDocumentField
+			presenceField = ir.PhysicalCellTracePassSourcePresenceField
+			supportedField = ir.PhysicalCellTracePassSourceSupportedField
+			break
+		}
+	}
+	document := fmt.Sprintf("%s.%s", item, documentField)
+	value, err := r.renderExpression(terminal.Value)
+	if err != nil {
+		return "", fmt.Errorf("trace unpivot value: %w", err)
+	}
+	return fmt.Sprintf("(FOR %s IN [%s] FILTER %s.%s == true FILTER %s.%s == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, outputVariable, item, supportedField, item, presenceField, document, document, value), nil
 }
 
 func (r *physicalPlanRenderer) categoryRecodeTraceSource(expression ir.PhysicalExpression) (ir.PhysicalExpression, bool) {

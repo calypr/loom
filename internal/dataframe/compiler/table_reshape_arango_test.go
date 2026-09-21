@@ -172,6 +172,8 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 		}
 		if row.Number != nil {
 			payload["valueQuantity"] = map[string]any{"value": *row.Number}
+		} else {
+			payload["valueQuantity"] = map[string]any{"value": nil}
 		}
 		document, err := json.Marshal(map[string]any{
 			"_key": project + "_" + row.SourceID, "id": row.SourceID, "project": project, "project_id": project,
@@ -241,6 +243,7 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 			}
 		}
 	}
+	assertReshapeOraclePivotCellTrace(t, ctx, client, compiled)
 
 	assertReshapeOracleRepeatedIdentities(t, ctx, client, query, rows)
 	assertReshapeOraclePivotWindow(t, ctx, client, output, project, generation)
@@ -249,6 +252,7 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 	assertReshapeOracleBooleanValues(t, ctx, client, project, generation)
 	assertReshapeOracleEmptyStringValue(t, ctx, client, project, generation)
 	assertReshapeOraclePivotErrors(t, ctx, client, project, generation)
+	assertReshapeOraclePivotErrorTrace(t, ctx, client, project, generation)
 	assertReshapeOracleUnpivot(t, ctx, client, project, generation)
 	assertReshapeOracleUnpivotRejectsIncompatibleInputs(t, project, generation)
 }
@@ -414,6 +418,7 @@ func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client 
 					}
 				}
 			}
+			assertReshapeOraclePivotReducerTrace(t, ctx, client, output, project, generation, test.policy)
 		})
 	}
 }
@@ -616,6 +621,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 		{SourceID: "empty-and-null", GroupText: "preliminary", StringCategory: "", NumericCategory: 2, Flag: false, Text: "", Unrelated: "keep-empty-and-null", Key: "z-integer", Value: 2.0, RowID: reshapeOracleUnpivotID(project, "s04-unpivot", "empty-and-null", "z-integer")},
 	}
 	assertReshapeOracleUnpivotRows(t, rows, wantPreserve)
+	assertReshapeOracleUnpivotCellTrace(t, ctx, client, compiled, project)
 	_, limitedQuery, err := compileReshapeOracle(output, project, generation, 3)
 	if err != nil {
 		t.Fatalf("compile limited unpivot: %v", err)
@@ -639,6 +645,12 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 		wantDrop[index].RowID = reshapeOracleUnpivotID(project, "s04-unpivot-drop", wantDrop[index].SourceID, wantDrop[index].Key)
 	}
 	assertReshapeOracleUnpivotRows(t, dropRows, wantDrop)
+	droppedNullIdentity := reshapeOracleUnpivotID(project, "s04-unpivot-drop", "empty-and-null", "a-decimal")
+	for _, identity := range reshapeOracleIdentities(dropRows) {
+		if identity == droppedNullIdentity {
+			t.Fatalf("DROP output unexpectedly retained null-row identity %q", droppedNullIdentity)
+		}
+	}
 
 	repeated := executeReshapeOracleQuery(t, ctx, client, query)
 	if got, want := reshapeOracleIdentities(repeated), reshapeOracleIdentities(rows); !reflect.DeepEqual(got, want) {
@@ -670,6 +682,23 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 		if got, ok := row["__loom_row_id"].(string); !ok || !strings.Contains(got, fmt.Sprintf(`["STRING","%v"]`, row["measure"])) {
 			t.Errorf("unpivot identity %v does not include its selected input key %v", row["__loom_row_id"], row["measure"])
 		}
+	}
+}
+
+func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, project string) {
+	t.Helper()
+	_, amount := executeReshapeOracleTrace(t, ctx, client, output, "amount")
+	alphaID := reshapeOracleUnpivotID(project, "s04-unpivot", "alpha-a", "a-decimal")
+	assertReshapeTraceResult(t, amount[alphaID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
+	nullID := reshapeOracleUnpivotID(project, "s04-unpivot", "empty-and-null", "a-decimal")
+	assertReshapeTraceResult(t, amount[nullID], nil, "RECORDED_NULL", reshapeOracleContributors("empty-and-null", nil), "")
+	trace, measure := executeReshapeOracleTrace(t, ctx, client, output, "measure")
+	keyCell := measure[alphaID]
+	if keyCell.value != "a-decimal" || keyCell.status != "NO_MATCH" || keyCell.omission != ir.PhysicalCellTraceGeneratedKeyOmission || len(keyCell.contributors) != 0 {
+		t.Fatalf("unpivot generated-key evidence = %#v, want explicit no-source omission", keyCell)
+	}
+	if trace.ExplicitIdentityColumn == "" {
+		t.Fatal("unpivot trace does not preserve stable row identity")
 	}
 }
 
@@ -751,4 +780,120 @@ func queryReshapeOracle(ctx context.Context, client *store.Client, query Compile
 		return nil
 	})
 	return rows, err
+}
+
+func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+	t.Helper()
+	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile %s cell trace: %v", column, err)
+	}
+	if trace.ExplicitIdentityColumn == "" {
+		t.Fatalf("reshaped %s trace has no explicit output-row identity", column)
+	}
+	rows := make([]map[string]any, 0)
+	if err := client.QueryRows(ctx, trace.Query, 500, trace.BindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute %s cell trace: %v\n%s", column, err, trace.Query)
+	}
+	results := make(map[string]operatorOracleTraceResult, len(rows))
+	for _, row := range rows {
+		identity, ok := row[trace.ExplicitIdentityColumn].(string)
+		if !ok || identity == "" {
+			t.Fatalf("trace explicit identity = %#v, want stable string", row[trace.ExplicitIdentityColumn])
+		}
+		items, ok := row[trace.ContributionsColumn].([]any)
+		if !ok {
+			t.Fatalf("trace contributors = %#v, want array", row[trace.ContributionsColumn])
+		}
+		contributors := make([]operatorOracleContributor, 0, len(items))
+		for _, item := range items {
+			contributor, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("trace contributor = %#v, want object", item)
+			}
+			resourceType, _ := contributor["resourceType"].(string)
+			resourceID, _ := contributor["resourceId"].(string)
+			contributors = append(contributors, operatorOracleContributor{resourceType: resourceType, resourceID: resourceID, value: contributor["value"]})
+		}
+		status, _ := row[trace.StatusColumn].(string)
+		omission, _ := row[trace.OmissionColumn].(string)
+		results[identity] = operatorOracleTraceResult{value: row[trace.ValueColumn], status: status, omission: omission, contributors: contributors}
+	}
+	return trace, results
+}
+
+func assertReshapeTraceResult(t *testing.T, result operatorOracleTraceResult, value any, status string, contributors []operatorOracleContributor, omission string) {
+	t.Helper()
+	if !reflect.DeepEqual(result.value, value) || result.status != status || result.omission != omission || !reflect.DeepEqual(result.contributors, contributors) {
+		t.Fatalf("cell trace = %#v, want value=%#v status=%q omission=%q contributors=%#v", result, value, status, omission, contributors)
+	}
+}
+
+func reshapeOracleContributors(values ...any) []operatorOracleContributor {
+	contributors := make([]operatorOracleContributor, 0, len(values)/2)
+	for index := 0; index+1 < len(values); index += 2 {
+		contributors = append(contributors, operatorOracleContributor{resourceType: "Observation", resourceID: values[index].(string), value: values[index+1]})
+	}
+	return contributors
+}
+
+func assertReshapeOraclePivotCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) {
+	t.Helper()
+	rowID := reshapeOraclePivotSumWant[0].RowID
+	_, alpha := executeReshapeOracleTrace(t, ctx, client, output, "alpha")
+	assertReshapeTraceResult(t, alpha[rowID], float64(7), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5), "alpha-b", float64(4.5)), "")
+	_, zero := executeReshapeOracleTrace(t, ctx, client, output, "zero")
+	assertReshapeTraceResult(t, zero[rowID], float64(0), "VALUE", reshapeOracleContributors("zero", float64(0)), "")
+	_, derived := executeReshapeOracleTrace(t, ctx, client, output, "alpha_plus_zero")
+	assertReshapeTraceResult(t, derived[rowID], float64(7), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5), "alpha-b", float64(4.5), "zero", float64(0)), "")
+	_, group := executeReshapeOracleTrace(t, ctx, client, output, "group_text")
+	assertReshapeTraceResult(t, group[rowID], "final", "VALUE", reshapeOracleContributors("alpha-a", "final", "alpha-b", "final", "beta", "final", "unlisted", "final", "zero", "final"), "")
+}
+
+func assertReshapeOraclePivotReducerTrace(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string, policy recipe.PivotDuplicatePolicy) {
+	t.Helper()
+	compiled, _, err := compileReshapeOracle(output, project, generation, 100)
+	if err != nil {
+		t.Fatalf("compile %s trace fixture: %v", policy, err)
+	}
+	_, cells := executeReshapeOracleTrace(t, ctx, client, compiled, "alpha")
+	rowID := fmt.Sprintf(`["GROUPED_PIVOT","s04-pivot-%s",["STRING","final"],["INTEGER",1]]`, strings.ToLower(string(policy)))
+	var value any
+	var contributors []operatorOracleContributor
+	switch policy {
+	case recipe.PivotDuplicateMin:
+		value = float64(2.5)
+		contributors = reshapeOracleContributors("alpha-a", float64(2.5))
+	case recipe.PivotDuplicateMax:
+		value = float64(4.5)
+		contributors = reshapeOracleContributors("alpha-b", float64(4.5))
+	default:
+		t.Fatalf("unexpected reducer trace policy %q", policy)
+	}
+	assertReshapeTraceResult(t, cells[rowID], value, "VALUE", contributors, "")
+}
+
+func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+	t.Helper()
+	output := reshapeOracleOutput("pivot_error_trace", &recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "s04-pivot-error", GroupKeys: []string{"source_id"},
+			CategoryColumn: "string_category", ValueColumn: "numeric_value",
+			Categories:      []recipe.GroupedPivotCategory{{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"}},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a")}}}
+	compiled, _, err := compileReshapeOracle(output, project, generation, 100)
+	if err != nil {
+		t.Fatalf("compile ERROR pivot trace: %v", err)
+	}
+	_, cells := executeReshapeOracleTrace(t, ctx, client, compiled, "alpha")
+	rowID := `["GROUPED_PIVOT","s04-pivot-error",["STRING","alpha-a"]]`
+	assertReshapeTraceResult(t, cells[rowID], float64(2.5), "VALUE", reshapeOracleContributors("alpha-a", float64(2.5)), "")
 }

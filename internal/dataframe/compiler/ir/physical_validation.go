@@ -47,7 +47,7 @@ func (p PhysicalPlan) Validate() error {
 				reshapeWindowClosed = true
 			}
 			switch operation.Kind {
-			case PhysicalExpressionLetOp, PhysicalReturnOp:
+			case PhysicalExpressionLetOp, PhysicalReturnOp, PhysicalCellTraceReturnOp:
 			case PhysicalSortOp:
 				if reshapeWindowSortSeen || reshapeWindowLimitSeen || reshapeWindowClosed {
 					return fmt.Errorf("operation %d: reshaped execution window can contain only one SORT", i)
@@ -1090,6 +1090,31 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 		}
 		if !physicalPathPartPattern.MatchString(terminal.Contribution.ValueField) {
 			return fmt.Errorf("trace contribution field %q is invalid", terminal.Contribution.ValueField)
+		}
+	}
+	if terminal.Reshape != nil {
+		if !defined[terminal.Reshape.OutputVariable] {
+			return fmt.Errorf("trace reshape output %q is not defined", terminal.Reshape.OutputVariable)
+		}
+		for index, source := range terminal.Reshape.Sources {
+			switch source.Kind {
+			case PhysicalCellTracePivotGroupKey, PhysicalCellTracePivotCell:
+				if !defined[source.GroupRowsVariable] {
+					return fmt.Errorf("trace reshape source %d group rows %q are not defined", index, source.GroupRowsVariable)
+				}
+				if strings.TrimSpace(source.SourceColumn) == "" || source.OmissionCode == "" && !physicalPathPartPattern.MatchString(source.SourcePresenceField) {
+					return fmt.Errorf("trace reshape source %d requires a source column and compiler-owned presence field", index)
+				}
+				if source.Kind == PhysicalCellTracePivotCell && source.Category == nil {
+					return fmt.Errorf("trace pivot-cell source %d requires its frozen category", index)
+				}
+			case PhysicalCellTraceUnpivotValue, PhysicalCellTraceUnpivotField:
+				if strings.TrimSpace(source.SourceColumn) == "" {
+					return fmt.Errorf("trace unpivot source %d requires a source column", index)
+				}
+			default:
+				return fmt.Errorf("trace reshape source %d has unsupported kind %q", index, source.Kind)
+			}
 		}
 	}
 	if strings.TrimSpace(terminal.OffsetBindKey) == "" || strings.TrimSpace(terminal.LimitBindKey) == "" || strings.TrimSpace(terminal.FetchLimitBindKey) == "" {

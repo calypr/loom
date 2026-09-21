@@ -369,6 +369,18 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 			contribution := *operation.CellTraceReturn.Contribution
 			traceCopy.Contribution = &contribution
 		}
+		if operation.CellTraceReturn.Reshape != nil {
+			reshape := *operation.CellTraceReturn.Reshape
+			reshape.Sources = make([]PhysicalCellTraceReshapeSource, len(operation.CellTraceReturn.Reshape.Sources))
+			for index, source := range operation.CellTraceReturn.Reshape.Sources {
+				reshape.Sources[index] = source
+				if source.Category != nil {
+					category := *source.Category
+					reshape.Sources[index].Category = &category
+				}
+			}
+			traceCopy.Reshape = &reshape
+		}
 		traceCopy.Value = clonePhysicalExpression(operation.CellTraceReturn.Value)
 		traceCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.CellTraceReturn.IdentityParts))
 		for index, part := range operation.CellTraceReturn.IdentityParts {

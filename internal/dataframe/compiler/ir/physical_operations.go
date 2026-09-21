@@ -113,6 +113,7 @@ type PhysicalPopulationMappingIdentityPart struct {
 type PhysicalCellTraceReturn struct {
 	Value             PhysicalExpression
 	Contribution      *PhysicalCellTraceContribution
+	Reshape           *PhysicalCellTraceReshape
 	IdentityParts     []PhysicalPopulationMappingIdentityPart
 	ExplicitIdentity  *PhysicalExpression
 	OffsetBindKey     string
@@ -120,6 +121,56 @@ type PhysicalCellTraceReturn struct {
 	FetchLimitBindKey string
 	OmissionCode      string
 }
+
+// PhysicalCellTraceReshape carries the exact source-cell lineage needed to
+// explain a table-shape output. It exists only on the diagnostic terminal;
+// ordinary dataframe rows and schemas remain unchanged.
+type PhysicalCellTraceReshape struct {
+	OutputVariable string
+	Sources        []PhysicalCellTraceReshapeSource
+	OmissionCode   string
+}
+
+type PhysicalCellTraceReshapeSourceKind string
+
+const (
+	PhysicalCellTracePivotGroupKey PhysicalCellTraceReshapeSourceKind = "PIVOT_GROUP_KEY"
+	PhysicalCellTracePivotCell     PhysicalCellTraceReshapeSourceKind = "PIVOT_CELL"
+	PhysicalCellTraceUnpivotValue  PhysicalCellTraceReshapeSourceKind = "UNPIVOT_VALUE"
+	PhysicalCellTraceUnpivotField  PhysicalCellTraceReshapeSourceKind = "UNPIVOT_PASSTHROUGH"
+)
+
+// PhysicalCellTraceReshapeSource identifies one source expression that
+// contributes to the requested reshaped cell. Pivot sources are evaluated
+// over GroupRowsVariable; unpivot sources are carried on the emitted row.
+type PhysicalCellTraceReshapeSource struct {
+	Kind                  PhysicalCellTraceReshapeSourceKind
+	GroupRowsVariable     string
+	SourceColumn          string
+	SourcePresenceField   string
+	CategoryColumn        string
+	CategoryPresenceField string
+	CategoryType          string
+	Category              *PhysicalGroupedPivotCategory
+	ValueColumn           string
+	ValueColumnType       string
+	DuplicatePolicy       string
+	OmissionCode          string
+}
+
+const (
+	PhysicalCellTraceSourceDocumentField      = "__loom_trace_source_document"
+	PhysicalCellTraceSourcePresencePrefix     = "__loom_trace_source_presence_"
+	PhysicalCellTraceSourcePresenceField      = "__loom_trace_source_presence"
+	PhysicalCellTraceSourceSupportedField     = "__loom_trace_source_supported"
+	PhysicalCellTracePassSourceDocumentField  = "__loom_trace_pass_source_document"
+	PhysicalCellTracePassSourcePresenceField  = "__loom_trace_pass_source_presence"
+	PhysicalCellTracePassSourceSupportedField = "__loom_trace_pass_source_supported"
+	PhysicalCellTraceGeneratedKeyOmission     = "TABLE_SHAPE_GENERATED_KEY_HAS_NO_SOURCE_CELL"
+	PhysicalCellTraceSourceOmission           = "TABLE_SHAPE_SOURCE_LINEAGE_UNAVAILABLE"
+	PhysicalCellTraceDerivedOmission          = "TABLE_SHAPE_DERIVED_LINEAGE_UNAVAILABLE"
+	PhysicalCellTraceDerivedLiteralOnly       = "TABLE_SHAPE_DERIVED_HAS_NO_SOURCE_CELL"
+)
 
 // PhysicalCellTraceContribution points at the pre-reduction projected set
 // already produced by canonical lowering. ValueField is compiler-generated,

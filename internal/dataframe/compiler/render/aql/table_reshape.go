@@ -29,6 +29,10 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if err != nil {
 		return nil, err
 	}
+	input, err = r.renderTraceSourceInput(input, pivot.InputProjections, pivot.OutputRowVariable)
+	if err != nil {
+		return nil, err
+	}
 	categoryColumnBind := r.newInternalBindKey("reshape_category_column")
 	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
 	valueColumnBind := r.newInternalBindKey("reshape_value_column")
@@ -235,12 +239,29 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	if err != nil {
 		return nil, err
 	}
+	input, err = r.renderTraceSourceInput(input, unpivot.InputProjections, unpivot.OutputRowVariable)
+	if err != nil {
+		return nil, err
+	}
 	lines := []string{fmt.Sprintf("  LET %s = %s", unpivot.InputRowVariable, input)}
 	slots := make([]string, 0, len(unpivot.Inputs))
 	for index, selected := range unpivot.Inputs {
 		columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_unpivot_column_%d", index))
 		r.bindVars[columnBind] = selected.Column
-		slots = append(slots, fmt.Sprintf("{key: @%s, value: %s[@%s]}", selected.KeyBindKey, unpivot.InputRowVariable, columnBind))
+		slot := fmt.Sprintf("{key: @%s, value: %s[@%s]}", selected.KeyBindKey, unpivot.InputRowVariable, columnBind)
+		if r.traceReshapeApplies(unpivot.OutputRowVariable) {
+			presenceField, supported := r.traceUnpivotInput(selected.Column)
+			if supported {
+				presenceBind := r.newInternalBindKey("reshape_unpivot_trace_presence")
+				r.bindVars[presenceBind] = presenceField
+				documentBind := r.newInternalBindKey("reshape_unpivot_trace_document")
+				r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
+				slot = fmt.Sprintf("MERGE(%s, {sourceDocument: %s[@%s], sourcePresence: %s[@%s], sourceSupported: true})", slot, unpivot.InputRowVariable, documentBind, unpivot.InputRowVariable, presenceBind)
+			} else {
+				slot = fmt.Sprintf("MERGE(%s, {sourceDocument: null, sourcePresence: false, sourceSupported: false})", slot)
+			}
+		}
+		slots = append(slots, slot)
 	}
 	lines = append(lines, fmt.Sprintf("  FOR %s IN [%s]", unpivot.SlotVariable, strings.Join(slots, ", ")))
 	valueType, err := aqlTableScalarType(unpivot.ValueType)
@@ -292,12 +313,102 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 		ir.PhysicalProjection{Name: unpivot.ValueOutput, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"value"}}},
 		ir.PhysicalProjection{Name: "__loom_row_id", Hidden: true, Value: ir.PhysicalValue{Variable: identityVariable}},
 	)
+	if r.traceReshapeApplies(unpivot.OutputRowVariable) {
+		outputProjections = append(outputProjections,
+			ir.PhysicalProjection{Name: ir.PhysicalCellTraceSourceDocumentField, Hidden: true, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"sourceDocument"}}},
+			ir.PhysicalProjection{Name: ir.PhysicalCellTraceSourcePresenceField, Hidden: true, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"sourcePresence"}}},
+			ir.PhysicalProjection{Name: ir.PhysicalCellTraceSourceSupportedField, Hidden: true, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"sourceSupported"}}},
+		)
+		for _, source := range r.cellTrace.Reshape.Sources {
+			if source.Kind != ir.PhysicalCellTraceUnpivotField {
+				continue
+			}
+			if source.OmissionCode == "" {
+				outputProjections = append(outputProjections,
+					ir.PhysicalProjection{Name: ir.PhysicalCellTracePassSourceDocumentField, Hidden: true, Value: ir.PhysicalValue{Variable: unpivot.InputRowVariable, Path: []string{ir.PhysicalCellTraceSourceDocumentField}}},
+					ir.PhysicalProjection{Name: ir.PhysicalCellTracePassSourcePresenceField, Hidden: true, Value: ir.PhysicalValue{Variable: unpivot.InputRowVariable, Path: []string{source.SourcePresenceField}}},
+					r.traceLiteralProjection(ir.PhysicalCellTracePassSourceSupportedField, true),
+				)
+			} else {
+				outputProjections = append(outputProjections,
+					r.traceLiteralProjection(ir.PhysicalCellTracePassSourceDocumentField, nil),
+					r.traceLiteralProjection(ir.PhysicalCellTracePassSourcePresenceField, false),
+					r.traceLiteralProjection(ir.PhysicalCellTracePassSourceSupportedField, false),
+				)
+			}
+		}
+	}
 	output, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
 		return nil, err
 	}
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", unpivot.OutputRowVariable, output))
 	return lines, nil
+}
+
+func (r *physicalPlanRenderer) traceReshapeApplies(outputVariable string) bool {
+	return r.cellTrace != nil && r.cellTrace.Reshape != nil && r.cellTrace.Reshape.OutputVariable == outputVariable
+}
+
+func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections []ir.PhysicalProjection, outputVariable string) (string, error) {
+	if !r.traceReshapeApplies(outputVariable) || !traceReshapeHasSupportedSource(*r.cellTrace.Reshape) {
+		return input, nil
+	}
+	if r.rootVariable == "" {
+		return "", fmt.Errorf("cell trace reshape source has no root resource variable")
+	}
+	document, err := r.renderValue(ir.PhysicalValue{Variable: r.rootVariable, Path: []string{"payload"}})
+	if err != nil {
+		return "", fmt.Errorf("render trace source document: %w", err)
+	}
+	entries := []string{}
+	documentBind := r.newInternalBindKey("reshape_trace_document_field")
+	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
+	entries = append(entries, fmt.Sprintf("[@%s]: %s", documentBind, document))
+	for index, projection := range projections {
+		if projection.Presence == nil {
+			continue
+		}
+		present, err := r.renderGroupedPivotPresence(*projection.Presence)
+		if err != nil {
+			return "", fmt.Errorf("render trace source presence for %q: %w", projection.Name, err)
+		}
+		keyBind := r.newInternalBindKey("reshape_trace_presence_field")
+		r.bindVars[keyBind] = fmt.Sprintf("%s%d", ir.PhysicalCellTraceSourcePresencePrefix, index)
+		entries = append(entries, fmt.Sprintf("[@%s]: %s", keyBind, present))
+	}
+	return fmt.Sprintf("MERGE(%s, {%s})", input, strings.Join(entries, ", ")), nil
+}
+
+func traceReshapeHasSupportedSource(lineage ir.PhysicalCellTraceReshape) bool {
+	for _, source := range lineage.Sources {
+		if source.OmissionCode == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *physicalPlanRenderer) traceUnpivotInput(column string) (string, bool) {
+	if r.cellTrace == nil || r.cellTrace.Reshape == nil {
+		return "", false
+	}
+	for _, source := range r.cellTrace.Reshape.Sources {
+		if source.Kind == ir.PhysicalCellTraceUnpivotValue && source.SourceColumn == column && source.OmissionCode == "" {
+			return source.SourcePresenceField, source.SourcePresenceField != ""
+		}
+	}
+	return "", false
+}
+
+func (r *physicalPlanRenderer) traceLiteralProjection(name string, value any) ir.PhysicalProjection {
+	key := r.newInternalBindKey("unpivot_trace_literal")
+	r.bindVars[key] = value
+	expression := ir.PhysicalExpression{
+		Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: key},
+	}
+	return ir.PhysicalProjection{Name: name, Hidden: true, Expression: &expression}
 }
 
 func aqlTableScalarType(kind string) (string, error) {
