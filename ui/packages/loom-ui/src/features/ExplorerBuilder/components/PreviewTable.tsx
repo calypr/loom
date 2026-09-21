@@ -6,6 +6,7 @@ import type {
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { displayValue, losslessText } from '../../../valueDisplay';
+import { resultUnitTitle } from '../../../resultUnitDisplay';
 import { useDismissibleLayer } from './useDismissibleLayer';
 import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization';
 
@@ -356,6 +357,9 @@ export const PreviewTable = ({
                   <div
                     role="columnheader"
                     key={column.emissionId}
+                    aria-label={column.resultUnit
+                      ? `${column.label} (${column.resultUnit.code})`
+                      : undefined}
                     className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
                     style={{
                       left: columnIndex * PREVIEW_COLUMN_WIDTH,
@@ -364,6 +368,14 @@ export const PreviewTable = ({
                     }}
                   >
                     {column.label}
+                    {column.resultUnit ? (
+                      <span
+                        className="font-normal normal-case text-slate-500"
+                        title={resultUnitTitle(column.resultUnit)}
+                      >
+                        {' '}({column.resultUnit.code})
+                      </span>
+                    ) : null}
                   </div>
                 );
               })}

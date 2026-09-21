@@ -15,6 +15,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import type { EChartsOption } from 'echarts';
 import type { LoomFacetResult, LoomOutputResult } from '../../api';
 import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
+import { resultUnitTitle } from '../../resultUnitDisplay';
 import { PAGE_SIZES, activeOutputState, isPageSize, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType } from './serialization';
@@ -261,12 +262,21 @@ export const OutputTable = ({ runtime, output, result, state, dispatch, onExplai
   const cellTitle = (rowIndex: number, column: string, value: unknown): string =>
     formattingCache.getOrSet(`title:${rowIndex}:${column}`, () => textFor(value));
   const tableColumns = useMemo<ColumnDef<ViewerRow>[]>(() => bindings.map((binding, bindingIndex) => {
-    const label = binding.label ?? output.columns.find((column) => column.column === binding.column)?.label ?? binding.column;
+    const outputColumn = output.columns.find((column) => column.column === binding.column);
+    const label = binding.label ?? outputColumn?.label ?? binding.column;
+    const resultUnit = outputColumn?.resultUnit;
     return {
       id: binding.column,
       accessorKey: binding.column,
       size: 180,
-      header: label,
+      header: () => resultUnit ? (
+          <span>
+            {label}{' '}
+            <Text component="span" size="xs" c="dimmed" fw={400} tt="none" title={resultUnitTitle(resultUnit)}>
+              ({resultUnit.code})
+            </Text>
+          </span>
+        ) : label,
       cell: (info) => {
         const value = info.row.original[binding.column];
         if (binding.cellRenderer === 'fileActions') return <FileCell value={value} row={info.row.original} runtime={runtime} />;

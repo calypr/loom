@@ -100,6 +100,40 @@ describe('formatPreviewCell', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('shows compiler-provided units in Preview headers while leaving unitless columns unchanged', () => {
+    const previewWithUnit: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: preview.columns.map((entry) => entry.column === 'first_column'
+        ? {
+            ...entry,
+            column: 'mean_body_height',
+            authoredColumns: ['first_column'],
+            label: 'Mean body height',
+            logicalType: 'decimal',
+            resultUnit: { system: 'http://unitsofmeasure.org', code: 'cm' },
+          }
+        : entry),
+      rows: [{ mean_body_height: 180, second_column: 'two' }],
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: previewWithUnit,
+        table,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    const heightHeader = screen.getByRole('columnheader', { name: 'Mean body height (cm)' });
+    expect(heightHeader).toBeInTheDocument();
+    expect(screen.getByText('(cm)')).toHaveAttribute(
+      'title', 'Unit cm; system http://unitsofmeasure.org',
+    );
+    expect(screen.getByRole('columnheader', { name: 'Second column' })).toBeInTheDocument();
+  });
+
   it('opens a repeated FHIR record inspector without flattening cell evidence', () => {
     const ownerColumn: ExplorerBuilderColumn = {
       column: 'height_records',

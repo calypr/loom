@@ -8,6 +8,7 @@ import { createViewerReducerState, viewerReducer } from './features/ExplorerView
 import { outputRequestFor } from './features/ExplorerViewer/serialization';
 import { CellExplanationDialog, type CellExplanationCoordinate } from './features/ExplorerViewer/CellExplanationDialog';
 import { LoomProvider, useCellTraceMutation, useLoomClient, useLoomOutput, useLoomRuntime } from './react';
+import { resultUnitTitle } from './resultUnitDisplay';
 import type { CellTraceResponse } from './cellTrace';
 import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from './types';
 
@@ -304,7 +305,13 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
                 {preparedOutput?.columns.map((column) => (
                   <Group key={column.column} justify="space-between" gap="sm" wrap="nowrap">
                     <Text size="sm" fw={600}>{column.label}</Text>
-                    <Text size="xs" c="dimmed">{column.logicalType}{column.repeated ? ' · repeated' : ''}</Text>
+                    <Text
+                      size="xs"
+                      c="dimmed"
+                      title={column.resultUnit ? resultUnitTitle(column.resultUnit) : undefined}
+                    >
+                      {column.logicalType}{column.repeated ? ' · repeated' : ''}{column.resultUnit ? ` · unit ${column.resultUnit.code}` : ''}
+                    </Text>
                   </Group>
                 ))}
               </Stack>

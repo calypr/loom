@@ -49,6 +49,38 @@ const result: LoomOutputResult = {
 };
 
 describe('Explorer Viewer output table', () => {
+  it('shows compiler-provided units in output headers and leaves unitless headers unchanged', () => {
+    const output = {
+      ...runtime.outputs[0],
+      columns: [...runtime.outputs[0].columns, {
+        column: 'body_height', label: 'Body height', logicalType: 'decimal',
+        resultUnit: { system: 'http://unitsofmeasure.org', code: 'cm' },
+        visible: true, order: 1, filterable: false, chartable: false,
+      }],
+      table: { columns: [
+        ...runtime.outputs[0].table.columns,
+        { column: 'body_height', label: 'Body height', visible: true },
+      ] },
+    };
+    render(
+      <MantineProvider>
+        <OutputTable
+          runtime={runtime}
+          output={output}
+          result={{ ...result, columns: ['id', 'body_height'], rows: [{ id: 'patient-1', body_height: 180 }] }}
+          state={createViewerReducerState(runtime)}
+          dispatch={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(screen.getByRole('columnheader', { name: 'Body height (cm)' })).toBeInTheDocument();
+    expect(screen.getByText('(cm)')).toHaveAttribute(
+      'title', 'Unit cm; system http://unitsofmeasure.org',
+    );
+    expect(screen.getByRole('columnheader', { name: 'ID' })).toBeInTheDocument();
+  });
+
   it('keeps table data stable when result rows are unchanged', () => {
     const state = createViewerReducerState(runtime);
     const dispatch = vi.fn();

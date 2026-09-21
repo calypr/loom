@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertExplorerBuilderPreviewResult,
+  assertExplorerStateV1,
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
   columnTransformationChangeSchema,
@@ -721,5 +723,77 @@ describe('explorerBuilderCommandSchema', () => {
     };
     expect(tableShapeProposalRequestSchema.parse(request)).toEqual(request);
     expect(tableShapeProposalRequestSchema.safeParse({ ...request, tableShape: {} }).success).toBe(false);
+  });
+
+  it('parses compiler-owned result units on Preview columns and preserves omission', () => {
+    const unit = { system: 'http://unitsofmeasure.org', code: 'cm' };
+    const unitColumn = {
+      column: 'body_height', label: 'Body height', logicalType: 'decimal',
+      resultUnit: unit, filterable: false, chartable: false,
+    };
+    const unitlessColumn = {
+      column: 'patient_id', label: 'Patient ID', logicalType: 'string',
+      filterable: false, chartable: false,
+    };
+    const response = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderPreview',
+      receiptId: 'receipt-1', outputId: 'patients',
+      columns: [unitColumn, unitlessColumn],
+      rows: [{ body_height: 180, patient_id: 'patient-1' }], rowCount: 1,
+      diagnostics: [],
+    };
+
+    const parsed = assertExplorerBuilderPreviewResult(response);
+    expect(parsed.columns[0]?.resultUnit).toEqual(unit);
+    expect(parsed.columns[1]).not.toHaveProperty('resultUnit');
+    expect(() => assertExplorerBuilderPreviewResult({
+      ...response,
+      columns: [{ ...unitColumn, resultUnit: { ...unit, debug: true } }],
+    })).toThrow();
+  });
+
+  it('parses compiler-owned result units on published runtime columns', () => {
+    const unit = { system: 'http://unitsofmeasure.org', code: 'cm' };
+    const runtimeState = {
+      apiVersion: 'loom.calypr.org/explorer-state/v1', kind: 'ExplorerState',
+      project: 'project-1', explorerId: 'explorer-1', title: 'Clinical data',
+      management: 'interactive', active: {}, generated: {}, activeUrl: '/viewer',
+      draft: { version: 1, digest: 'draft-1' },
+      runtime: {
+        outputs: [{
+          outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient',
+          selector: { recipe: 'recipe', translationVersion: 'v1', output: 'patients' },
+          columns: [
+            { column: 'body_height', label: 'Body height', logicalType: 'decimal', resultUnit: unit, visible: true, order: 0, filterable: false, chartable: false },
+            { column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 1, filterable: false, chartable: false },
+          ],
+          table: { columns: [
+            { column: 'body_height', visible: true },
+            { column: 'patient_id', visible: true },
+          ] },
+          filters: [], charts: [], fixedFilters: {},
+        }],
+        sharedFilters: {}, diagnostics: [],
+      },
+    };
+
+    const parsed = assertExplorerStateV1(runtimeState);
+    const columns = parsed.runtime?.outputs[0]?.columns;
+    expect(columns?.[0]?.resultUnit).toEqual(unit);
+    expect(columns?.[1]).not.toHaveProperty('resultUnit');
+    expect(() => assertExplorerStateV1({
+      ...runtimeState,
+      runtime: {
+        ...runtimeState.runtime,
+        outputs: [{
+          ...runtimeState.runtime.outputs[0],
+          columns: [{
+            ...runtimeState.runtime.outputs[0].columns[0],
+            resultUnit: { ...unit, debug: true },
+          }],
+        }],
+      },
+    })).toThrow();
   });
 });

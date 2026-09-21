@@ -17,14 +17,32 @@ const state = {
 
 describe('Loom Explorer Viewer', () => {
   it('shows the exact representation and types before downloading the dataset', async () => {
+    const stateWithUnits = {
+      ...state,
+      runtime: {
+        ...state.runtime,
+        outputs: [{
+          ...state.runtime.outputs[0],
+          columns: [...state.runtime.outputs[0].columns, {
+            column: 'body_height', label: 'Body height', logicalType: 'decimal',
+            resultUnit: { system: 'http://unitsofmeasure.org', code: 'cm' },
+            visible: true, order: 1, filterable: false, chartable: false,
+          }],
+          table: { columns: [
+            ...state.runtime.outputs[0].table.columns,
+            { column: 'body_height', label: 'Body height', visible: true },
+          ] },
+        }],
+      },
+    };
     const fetch = vi.fn<typeof globalThis.fetch>((input) => {
-      if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(state), { status: 200 }));
+      if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(stateWithUnits), { status: 200 }));
       return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [['patient-1']], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
     });
     const client = createLoomClient({ fetch });
     const artifactId = `artifact_${'0'.repeat(64)}`;
     const prepareArtifact = vi.spyOn(client, 'prepareArtifact').mockResolvedValue({
-      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', format: 'CSV', filename: 'loom-dataset-artifact-v2.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 1, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
+      id: artifactId, project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients', receiptId: 'receipt-1', executionId: 'execution-1', datasetGeneration: 'generation-1', schemaDigest: 'schema-1', state: 'COMPLETE', format: 'CSV', filename: 'loom-dataset-artifact-v2.zip', mediaType: 'application/zip', archiveSha256: 'a'.repeat(64), bytes: 100, rows: 1, features: 2, createdAt: '2026-09-18T12:00:00Z', completedAt: '2026-09-18T12:00:01Z', expiresAt: '2026-09-19T12:00:00Z',
     });
     const artifactDownloadURL = vi.spyOn(client, 'artifactDownloadURL');
     render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" />);
@@ -34,7 +52,15 @@ describe('Loom Explorer Viewer', () => {
     expect(prepareArtifact).toHaveBeenCalledWith(expect.objectContaining({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', revisionId: 'revision-1', outputId: 'patients' }));
     expect(dialog).toHaveTextContent('1 row from the complete authorized population. Each row represents patient');
     expect(dialog).toHaveTextContent('Typed scalar CSV in a ZIP archive');
-    expect(screen.getByRole('region', { name: 'Declared output types' })).toHaveTextContent('Patient ID');
+    const declaredTypes = screen.getByRole('region', { name: 'Declared output types' });
+    expect(declaredTypes).toHaveTextContent('Patient ID');
+    expect(declaredTypes).toHaveTextContent('string');
+    expect(declaredTypes).not.toHaveTextContent('unit string');
+    expect(declaredTypes).toHaveTextContent('Body height');
+    expect(declaredTypes).toHaveTextContent('decimal · unit cm');
+    expect(screen.getByText('decimal · unit cm')).toHaveAttribute(
+      'title', 'Unit cm; system http://unitsofmeasure.org',
+    );
     const download = screen.getByRole('link', { name: 'Download ZIP' });
     expect(artifactDownloadURL).toHaveBeenCalledWith({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', artifactId });
     expect(download.getAttribute('href')).toContain(`/artifacts/${artifactId}`);

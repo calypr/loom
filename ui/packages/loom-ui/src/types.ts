@@ -183,6 +183,11 @@ const unitNormalizationSchema = z.object({
   policyId: opaqueIdSchema,
   version: opaqueIdSchema,
 }).strict();
+export const resultUnitSchema = z.object({
+  system: opaqueIdSchema,
+  code: opaqueIdSchema,
+}).strict();
+export type ResultUnit = z.infer<typeof resultUnitSchema>;
 const aggregateColumnSourceSchema = z.object({
   kind: z.literal('aggregate'),
   aggregate: z.discriminatedUnion('operation', [
@@ -1756,6 +1761,7 @@ export const explorerBuilderContractColumnSchema = z
     authoredColumns: z.array(opaqueIdSchema).min(1).optional(),
     label: z.string(),
     logicalType: opaqueIdSchema,
+    resultUnit: resultUnitSchema.optional(),
     filterable: z.boolean(),
     chartable: z.boolean(),
     nullable: z.boolean().optional(),
@@ -1779,7 +1785,7 @@ export const explorerBuilderContractColumnSchema = z
     structuralSuitability: z.enum(['scalar', 'array', 'requires-review']).optional(),
     lossReasons: z.array(z.string()).optional(),
     unitNormalization: z.object({
-      target: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
+      target: resultUnitSchema,
       rules: z.array(z.object({ id: opaqueIdSchema, version: opaqueIdSchema }).strict()).min(1),
     }).strict().optional(),
   })
@@ -2010,6 +2016,7 @@ export interface ExplorerRuntimeColumnV1 {
   readonly column: string;
   readonly label: string;
   readonly logicalType: string;
+  readonly resultUnit?: ResultUnit;
   readonly visible: boolean;
   readonly order: number;
   readonly repeated?: boolean;
@@ -2242,6 +2249,7 @@ const runtimeColumnSchema = z
     column: opaqueIdSchema,
     label: z.string(),
     logicalType: z.string(),
+    resultUnit: resultUnitSchema.optional(),
     visible: z.boolean(),
     order: z.number().int().nonnegative(),
     repeated: z.boolean().optional(),
