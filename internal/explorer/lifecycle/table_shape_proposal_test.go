@@ -537,7 +537,7 @@ func TestProposeTableShapeComparesChangedColumnsAndRowsByStableIdentity(t *testi
 	if !reflect.DeepEqual(comparison.Contributors, wantContributors) || !comparison.ContributorsSampled {
 		t.Fatalf("comparison contributor union = %#v, sampled=%t", comparison.Contributors, comparison.ContributorsSampled)
 	}
-	if len(comparison.EvidenceLimitations) != 2 || comparison.EvidenceLimitations[0] != "Excluded records are not enumerated by this comparison." {
+	if len(comparison.EvidenceLimitations) != 1 || comparison.EvidenceLimitations[0].Code != "TABLE_SHAPE_EXCLUSION_EXECUTOR_UNAVAILABLE" {
 		t.Fatalf("comparison evidence limitations = %#v", comparison.EvidenceLimitations)
 	}
 }
@@ -643,7 +643,7 @@ func TestTableShapeComparisonPreservesCellPresenceAndDegradesTraceFailures(t *te
 	if cell := tableShapeChangedCell(t, row, "removed_null"); !cell.Before.Present || cell.Before.Value != nil || cell.After.Present {
 		t.Fatalf("recorded-null-to-missing evidence = %#v", cell)
 	}
-	if !comparison.ContributorsSampled || len(comparison.EvidenceLimitations) != 2 {
+	if !comparison.ContributorsSampled || len(comparison.EvidenceLimitations) != 1 || comparison.EvidenceLimitations[0].Code != "TABLE_SHAPE_EXCLUSION_EXECUTOR_UNAVAILABLE" {
 		t.Fatalf("incomplete lineage or fixed comparison limitations were hidden: %#v", comparison)
 	}
 	encoded, err := json.Marshal(comparison)

@@ -85,6 +85,10 @@ type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceip
 // and authorization bindings validated by lifecycle.
 type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
+// TableShapeExclusionExecutor enumerates exact exclusions from one validated
+// candidate receipt under its existing authorization bindings.
+type TableShapeExclusionExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error)
+
 // SelectionReferenceValidator resolves explicit references against the
 // authorized active generation. It must verify both resource existence and
 // auth_resource_path before lifecycle persists any member or exclusion.
@@ -146,6 +150,7 @@ type Config struct {
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
+	TableShapeExclusions         TableShapeExclusionExecutor
 	MaterializeReceipt           ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
 	ArtifactStore                explorer.ArtifactStore

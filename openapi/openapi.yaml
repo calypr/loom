@@ -3637,7 +3637,7 @@ components:
     TableShapeComparisonAvailable:
       type: object
       additionalProperties: false
-      required: [status, base, candidate, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, evidenceLimitations, notices]
+      required: [status, base, candidate, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, exclusions, declaredInformationLoss, evidenceLimitations, notices]
       properties:
         status: {type: string, enum: [AVAILABLE]}
         base: {$ref: '#/components/schemas/TableShapePreviewSummary'}
@@ -3654,16 +3654,18 @@ components:
           type: array
           items: {$ref: '#/components/schemas/TableShapeContributor'}
         contributorsSampled: {type: boolean}
+        exclusions: {$ref: '#/components/schemas/TableShapeExclusionEvidence'}
+        declaredInformationLoss: {$ref: '#/components/schemas/TableShapeDeclaredInformationLoss'}
         evidenceLimitations:
           type: array
-          items: {type: string}
+          items: {$ref: '#/components/schemas/TableShapeEvidenceLimitation'}
         notices:
           type: array
           items: {type: string}
     TableShapeComparisonUnavailable:
       type: object
       additionalProperties: false
-      required: [status, reasonCode, reason, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, evidenceLimitations, notices]
+      required: [status, reasonCode, reason, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, exclusions, declaredInformationLoss, evidenceLimitations, notices]
       properties:
         status: {type: string, enum: [UNAVAILABLE]}
         reasonCode: {type: string}
@@ -3682,12 +3684,79 @@ components:
           type: array
           items: {$ref: '#/components/schemas/TableShapeContributor'}
         contributorsSampled: {type: boolean}
+        exclusions: {$ref: '#/components/schemas/TableShapeExclusionEvidence'}
+        declaredInformationLoss: {$ref: '#/components/schemas/TableShapeDeclaredInformationLoss'}
         evidenceLimitations:
           type: array
-          items: {type: string}
+          items: {$ref: '#/components/schemas/TableShapeEvidenceLimitation'}
         notices:
           type: array
           items: {type: string}
+    TableShapeExclusionEvidence:
+      type: object
+      additionalProperties: false
+      required: [status, records, complete, sampled]
+      properties:
+        status: {type: string, enum: [COMPLETE, INCOMPLETE, UNAVAILABLE]}
+        records:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeExcludedRecord'}
+        complete: {type: boolean}
+        sampled: {type: boolean}
+        failureCode: {type: string}
+    TableShapeExcludedRecord:
+      type: object
+      additionalProperties: false
+      required: [category, categoryType, outputRowId, reason]
+      properties:
+        sourceIdentity: {$ref: '#/components/schemas/TableShapeSourceIdentity'}
+        category: {$ref: '#/components/schemas/TableShapeCategoryValue'}
+        categoryType: {type: string, minLength: 1}
+        outputRowId: {type: string, minLength: 1}
+        reason: {type: string, minLength: 1}
+        omissionCode: {type: string}
+    TableShapeSourceIdentity:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId]
+      properties:
+        resourceType: {type: string, minLength: 1}
+        resourceId: {type: string, minLength: 1}
+    TableShapeCategoryValue:
+      type: object
+      additionalProperties: false
+      required: [present, value]
+      properties:
+        present: {type: boolean}
+        value: {}
+    TableShapeDeclaredInformationLoss:
+      type: object
+      additionalProperties: false
+      required: [status, items]
+      properties:
+        status: {type: string, enum: [COMPLETE, UNAVAILABLE]}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeInformationLoss'}
+        failureCode: {type: string}
+    TableShapeInformationLoss:
+      type: object
+      additionalProperties: false
+      required: [code, label, detail, affectedColumns]
+      properties:
+        code: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        detail: {type: string, minLength: 1}
+        affectedColumns:
+          type: array
+          items: {type: string}
+    TableShapeEvidenceLimitation:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code: {type: string, minLength: 1}
+        message: {type: string, minLength: 1}
     TableShapePreviewSummary:
       type: object
       additionalProperties: false

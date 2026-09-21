@@ -106,6 +106,66 @@ const (
 	TableShapeComparisonUnavailable TableShapeComparisonStatus = "UNAVAILABLE"
 )
 
+type TableShapeExclusionEvidenceStatus string
+
+const (
+	TableShapeExclusionsComplete    TableShapeExclusionEvidenceStatus = "COMPLETE"
+	TableShapeExclusionsIncomplete  TableShapeExclusionEvidenceStatus = "INCOMPLETE"
+	TableShapeExclusionsUnavailable TableShapeExclusionEvidenceStatus = "UNAVAILABLE"
+)
+
+type TableShapeInformationLossStatus string
+
+const (
+	TableShapeInformationLossComplete    TableShapeInformationLossStatus = "COMPLETE"
+	TableShapeInformationLossUnavailable TableShapeInformationLossStatus = "UNAVAILABLE"
+)
+
+type TableShapeSourceIdentity struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
+}
+
+type TableShapeCategoryValue struct {
+	Present bool `json:"present"`
+	Value   any  `json:"value"`
+}
+
+type TableShapeExcludedRecord struct {
+	SourceIdentity *TableShapeSourceIdentity `json:"sourceIdentity,omitempty"`
+	Category       TableShapeCategoryValue   `json:"category"`
+	CategoryType   string                    `json:"categoryType"`
+	OutputRowID    string                    `json:"outputRowId"`
+	Reason         string                    `json:"reason"`
+	OmissionCode   string                    `json:"omissionCode,omitempty"`
+}
+
+type TableShapeExclusionEvidence struct {
+	Status      TableShapeExclusionEvidenceStatus `json:"status"`
+	Records     []TableShapeExcludedRecord        `json:"records"`
+	Complete    bool                              `json:"complete"`
+	Sampled     bool                              `json:"sampled"`
+	FailureCode string                            `json:"failureCode,omitempty"`
+}
+
+type TableShapeInformationLoss struct {
+	Code            string   `json:"code"`
+	Label           string   `json:"label"`
+	Detail          string   `json:"detail"`
+	AffectedColumns []string `json:"affectedColumns"`
+}
+
+type TableShapeDeclaredInformationLoss struct {
+	Status      TableShapeInformationLossStatus `json:"status"`
+	Items       []TableShapeInformationLoss     `json:"items"`
+	FailureCode string                          `json:"failureCode,omitempty"`
+}
+
+type TableShapeEvidenceLimitation struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type TableShapePreviewSummary struct {
 	RowCount int  `json:"rowCount"`
 	Sampled  bool `json:"sampled"`
@@ -163,19 +223,21 @@ type TableShapeChangedRow struct {
 }
 
 type TableShapeComparison struct {
-	Status              TableShapeComparisonStatus `json:"status"`
-	ReasonCode          string                     `json:"reasonCode,omitempty"`
-	Reason              string                     `json:"reason,omitempty"`
-	Base                *TableShapePreviewSummary  `json:"base,omitempty"`
-	Candidate           *TableShapePreviewSummary  `json:"candidate,omitempty"`
-	ChangedColumns      []string                   `json:"changedColumns"`
-	ChangedRowCount     int                        `json:"changedRowCount"`
-	ChangedRowsSampled  bool                       `json:"changedRowsSampled"`
-	ChangedRows         []TableShapeChangedRow     `json:"changedRows"`
-	Contributors        []TableShapeContributor    `json:"contributors"`
-	ContributorsSampled bool                       `json:"contributorsSampled"`
-	EvidenceLimitations []string                   `json:"evidenceLimitations"`
-	Notices             []string                   `json:"notices"`
+	Status                  TableShapeComparisonStatus        `json:"status"`
+	ReasonCode              string                            `json:"reasonCode,omitempty"`
+	Reason                  string                            `json:"reason,omitempty"`
+	Base                    *TableShapePreviewSummary         `json:"base,omitempty"`
+	Candidate               *TableShapePreviewSummary         `json:"candidate,omitempty"`
+	ChangedColumns          []string                          `json:"changedColumns"`
+	ChangedRowCount         int                               `json:"changedRowCount"`
+	ChangedRowsSampled      bool                              `json:"changedRowsSampled"`
+	ChangedRows             []TableShapeChangedRow            `json:"changedRows"`
+	Contributors            []TableShapeContributor           `json:"contributors"`
+	ContributorsSampled     bool                              `json:"contributorsSampled"`
+	Exclusions              TableShapeExclusionEvidence       `json:"exclusions"`
+	DeclaredInformationLoss TableShapeDeclaredInformationLoss `json:"declaredInformationLoss"`
+	EvidenceLimitations     []TableShapeEvidenceLimitation    `json:"evidenceLimitations"`
+	Notices                 []string                          `json:"notices"`
 }
 
 type TableShapeProposal struct {

@@ -174,6 +174,22 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 				Complete:      true,
 			}, nil
 		},
+		TableShapeExclusions: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
+			if receipt == nil || receipt.TableShapeProposal == nil || receipt.TableShapeProposal.OutputID != "patients" || request.Output != "patients" || request.Offset != 0 || request.Limit != 25 || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
+				t.Fatalf("unexpected table-shape exclusion request: receipt=%#v bindings=%#v request=%#v", receipt, bindings, request)
+			}
+			return dataframeexecution.TableShapeExclusionResult{
+				Status: dataframeexecution.TableShapeExclusionIncomplete,
+				Exclusions: []dataframeexecution.TableShapeExclusion{
+					{SourceIdentity: &dataframeexecution.TableShapeSourceIdentity{ResourceType: "Observation", ResourceID: "obs-false"}, Category: dataframeexecution.CategoryValue{Present: true, Value: false}, CategoryType: "BOOLEAN", OutputRowID: "row-false", Reason: "UNLISTED_CATEGORY"},
+					{SourceIdentity: &dataframeexecution.TableShapeSourceIdentity{ResourceType: "Observation", ResourceID: "obs-zero"}, Category: dataframeexecution.CategoryValue{Present: true, Value: int64(0)}, CategoryType: "INTEGER", OutputRowID: "row-zero", Reason: "UNLISTED_CATEGORY"},
+					{SourceIdentity: &dataframeexecution.TableShapeSourceIdentity{ResourceType: "Observation", ResourceID: "obs-empty"}, Category: dataframeexecution.CategoryValue{Present: true, Value: ""}, CategoryType: "STRING", OutputRowID: "row-empty", Reason: "UNLISTED_CATEGORY"},
+					{Category: dataframeexecution.CategoryValue{Present: false, Value: nil}, CategoryType: "STRING", OutputRowID: "row-omitted", Reason: "UNLISTED_CATEGORY", OmissionCode: "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE"},
+					{SourceIdentity: &dataframeexecution.TableShapeSourceIdentity{ResourceType: "Observation", ResourceID: "obs-null"}, Category: dataframeexecution.CategoryValue{Present: true, Value: nil}, CategoryType: "NULL", OutputRowID: "row-null", Reason: "UNLISTED_CATEGORY"},
+				},
+				Complete: false, HasMore: true, NextOffset: 25,
+			}, nil
+		},
 	}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
@@ -329,8 +345,26 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 	if changedCell.Trace.State != "AVAILABLE" || changedCell.Trace.CellStatus == nil || *changedCell.Trace.CellStatus != "VALUE" || !changedCell.Trace.Complete || changedCell.Trace.Sampled || len(traceContributors) != 1 || traceContributors[0].ResourceType != "Observation" || traceContributors[0].ResourceId != "obs-1" || traceContributors[0].Value != 2.5 {
 		t.Fatalf("proposal cell trace=%#v", changedCell.Trace)
 	}
-	if len(comparison.Contributors) != 1 || comparison.Contributors[0].ResourceType != "Observation" || comparison.Contributors[0].ResourceId != "obs-1" || comparison.ContributorsSampled || len(comparison.EvidenceLimitations) == 0 || comparison.Notices == nil {
+	if len(comparison.Contributors) != 1 || comparison.Contributors[0].ResourceType != "Observation" || comparison.Contributors[0].ResourceId != "obs-1" || comparison.ContributorsSampled || len(comparison.EvidenceLimitations) != 2 || comparison.Notices == nil {
 		t.Fatalf("proposal contributor and limitation evidence=%#v", comparison)
+	}
+	if comparison.Exclusions.Status != "INCOMPLETE" || comparison.Exclusions.Complete || !comparison.Exclusions.Sampled || len(comparison.Exclusions.Records) != 5 {
+		t.Fatalf("proposal exclusion evidence=%#v", comparison.Exclusions)
+	}
+	if comparison.Exclusions.Records[0].Category.Value != false || comparison.Exclusions.Records[1].Category.Value != float64(0) || comparison.Exclusions.Records[2].Category.Value != "" {
+		t.Fatalf("proposal exclusion category values lost false, zero, or empty string: %#v", comparison.Exclusions.Records)
+	}
+	if comparison.Exclusions.Records[3].Category.Present || comparison.Exclusions.Records[3].SourceIdentity != nil || comparison.Exclusions.Records[3].OmissionCode == nil || *comparison.Exclusions.Records[3].OmissionCode != "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE" || !comparison.Exclusions.Records[4].Category.Present || comparison.Exclusions.Records[4].Category.Value != nil {
+		t.Fatalf("proposal exclusion omission evidence=%#v", comparison.Exclusions.Records[3])
+	}
+	if comparison.Exclusions.Records[0].SourceIdentity == nil || comparison.Exclusions.Records[0].SourceIdentity.ResourceType != "Observation" || comparison.Exclusions.Records[0].SourceIdentity.ResourceId != "obs-false" || comparison.Exclusions.Records[0].CategoryType != "BOOLEAN" || comparison.Exclusions.Records[0].OutputRowId != "row-false" || comparison.Exclusions.Records[0].Reason != "UNLISTED_CATEGORY" {
+		t.Fatalf("proposal exact exclusion fields=%#v", comparison.Exclusions.Records[0])
+	}
+	if comparison.DeclaredInformationLoss.Status != "COMPLETE" || len(comparison.DeclaredInformationLoss.Items) != 1 || comparison.DeclaredInformationLoss.Items[0].Code != "GROUPED_PIVOT_DROPS_NON_GROUP_OUTPUT_COLUMNS" {
+		t.Fatalf("proposal declared information loss=%#v", comparison.DeclaredInformationLoss)
+	}
+	if comparison.EvidenceLimitations[0].Code != "TABLE_SHAPE_EXCLUSIONS_SAMPLED" || comparison.EvidenceLimitations[1].Code != "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE" {
+		t.Fatalf("proposal evidence limitations=%#v", comparison.EvidenceLimitations)
 	}
 	for _, forbidden := range []string{"tableShape", "constructionId", "columnKey", "query", "sourcePath", "FHIRType", "schemaPath", "__loom_"} {
 		if strings.Contains(proposalHTTP.Body, forbidden) {

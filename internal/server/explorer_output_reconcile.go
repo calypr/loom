@@ -373,7 +373,10 @@ func derivedOutputQuality(operation string) (constructedOutputQuality, error) {
 }
 
 func pivotOutputQuality(pivot *authoringv2.PivotConstruction) (constructedOutputQuality, error) {
-	quality := constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
+	quality := constructedOutputQuality{
+		Lossless: false, StructuralSuitability: "requires-review",
+		LossReasons: []string{"TABLE_SHAPE_PIVOT_BASE_COLUMNS_DROPPED"},
+	}
 	switch pivot.DuplicatePolicy {
 	case "ERROR":
 	case "SUM", "MIN", "MAX":

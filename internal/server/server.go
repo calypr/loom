@@ -481,6 +481,17 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.CellTrace(ctx, resolved, request)
 		},
+		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
+			if receipt == nil {
+				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer receipt table-shape exclusion resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.TableShapeExclusionResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
+			}
+			return recipeEngine.TableShapeExclusions(ctx, resolved, request)
+		},
 		MaterializeReceipt: explorerReceiptMaterializer(
 			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
 			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
