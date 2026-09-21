@@ -67,6 +67,9 @@ func v2ReceiptResponse(receipt *explorer.CompilationReceipt, workspace authoring
 				Nullable: pointerTo(column.Nullable), Shape: pointerTo(column.Shape),
 				Lossless: pointerTo(column.Lossless), MlReady: pointerTo(column.MLReady),
 			}
+			if column.ResultUnit != nil {
+				wire.ResultUnit = &loomapi.UnitIdentity{System: column.ResultUnit.System, Code: column.ResultUnit.Code}
+			}
 			if column.StructuralSuitability != "" {
 				wire.StructuralSuitability = pointerTo(loomapi.ContractColumnStructuralSuitability(column.StructuralSuitability))
 			}

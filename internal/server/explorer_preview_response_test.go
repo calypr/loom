@@ -9,12 +9,19 @@ import (
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 )
 
 func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	receipt := &explorer.CompilationReceipt{ID: "same-id"}
-	columns := []explorer.EmittedColumn{{EmissionID: "emission", OutputID: "same-id", AuthoredColumns: []string{"given"}, PublicColumn: "given__0", LogicalType: "string"}}
+	aggregateUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
+	derivedUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg/m2"}
+	columns := []explorer.EmittedColumn{
+		{EmissionID: "mean-weight", OutputID: "same-id", AuthoredColumns: []string{"weight"}, PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: aggregateUnit},
+		{EmissionID: "bmi", OutputID: "same-id", AuthoredColumns: []string{"weight", "height"}, PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
+		{EmissionID: "patient-id", OutputID: "same-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"},
+	}
 	encoder, err := newPreviewResponseEncoder(receipt, "same-id", columns, 4096)
 	if err != nil {
 		t.Fatal(err)
@@ -36,11 +43,38 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode response %s: %v", raw, err)
 	}
-	if decoded.ReceiptID != receipt.ID || decoded.OutputID != "same-id" || decoded.RowCount != 1 || len(decoded.Rows) != 1 || len(decoded.Columns) != 1 {
+	if decoded.ReceiptID != receipt.ID || decoded.OutputID != "same-id" || decoded.RowCount != 1 || len(decoded.Rows) != 1 || len(decoded.Columns) != 3 {
 		t.Fatalf("response = %#v", decoded)
 	}
-	if len(decoded.Columns[0].AuthoredColumns) != 1 || decoded.Columns[0].AuthoredColumns[0] != "given" {
+	if len(decoded.Columns[0].AuthoredColumns) != 1 || decoded.Columns[0].AuthoredColumns[0] != "weight" {
 		t.Fatalf("authored columns = %#v", decoded.Columns[0].AuthoredColumns)
+	}
+	if got := decoded.Columns[0].ResultUnit; got == nil || got.System != aggregateUnit.System || got.Code != aggregateUnit.Code {
+		t.Fatalf("aggregate result unit = %#v, want %#v", got, aggregateUnit)
+	}
+	if got := decoded.Columns[1].ResultUnit; got == nil || got.System != derivedUnit.System || got.Code != derivedUnit.Code {
+		t.Fatalf("derived result unit = %#v, want %#v", got, derivedUnit)
+	}
+	var wire struct {
+		Columns []map[string]json.RawMessage `json:"columns"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("decode preview column JSON: %v", err)
+	}
+	assertResultUnit := func(raw json.RawMessage, code string) {
+		t.Helper()
+		var got map[string]string
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("decode resultUnit %s: %v", raw, err)
+		}
+		if len(got) != 2 || got["system"] != "http://unitsofmeasure.org" || got["code"] != code {
+			t.Fatalf("resultUnit JSON = %#v, want {system: UCUM, code: %q}", got, code)
+		}
+	}
+	assertResultUnit(wire.Columns[0]["resultUnit"], "kg")
+	assertResultUnit(wire.Columns[1]["resultUnit"], "kg/m2")
+	if _, exists := wire.Columns[2]["resultUnit"]; exists {
+		t.Fatalf("unitless preview column contains resultUnit: %s", wire.Columns[2]["resultUnit"])
 	}
 }
 

@@ -15,6 +15,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 const (
@@ -56,21 +58,22 @@ type ArtifactIdentity struct {
 // ArtifactColumn supplies the stable exported feature order and its declared
 // shape. The encoder does not infer a second schema from row values.
 type ArtifactColumn struct {
-	Name               string   `json:"name"`
-	OutputKey          string   `json:"outputKey,omitempty"`
-	LogicalType        string   `json:"logicalType,omitempty"`
-	Shape              string   `json:"shape,omitempty"`
-	Nullable           bool     `json:"nullable,omitempty"`
-	Repeated           bool     `json:"repeated,omitempty"`
-	EmissionID         string   `json:"emissionId,omitempty"`
-	CandidateID        string   `json:"candidateId,omitempty"`
-	OccurrenceID       string   `json:"occurrenceId,omitempty"`
-	Construction       string   `json:"construction,omitempty"`
-	ReductionPolicy    string   `json:"reductionPolicy,omitempty"`
-	SourceResourceType string   `json:"sourceResourceType,omitempty"`
-	SourcePath         string   `json:"sourcePath,omitempty"`
-	ChoiceArm          string   `json:"choiceArm,omitempty"`
-	AuthoredColumns    []string `json:"authoredColumns,omitempty"`
+	Name               string             `json:"name"`
+	OutputKey          string             `json:"outputKey,omitempty"`
+	LogicalType        string             `json:"logicalType,omitempty"`
+	ResultUnit         *unit.UnitIdentity `json:"resultUnit,omitempty"`
+	Shape              string             `json:"shape,omitempty"`
+	Nullable           bool               `json:"nullable,omitempty"`
+	Repeated           bool               `json:"repeated,omitempty"`
+	EmissionID         string             `json:"emissionId,omitempty"`
+	CandidateID        string             `json:"candidateId,omitempty"`
+	OccurrenceID       string             `json:"occurrenceId,omitempty"`
+	Construction       string             `json:"construction,omitempty"`
+	ReductionPolicy    string             `json:"reductionPolicy,omitempty"`
+	SourceResourceType string             `json:"sourceResourceType,omitempty"`
+	SourcePath         string             `json:"sourcePath,omitempty"`
+	ChoiceArm          string             `json:"choiceArm,omitempty"`
+	AuthoredColumns    []string           `json:"authoredColumns,omitempty"`
 }
 
 type ArtifactDescriptor struct {

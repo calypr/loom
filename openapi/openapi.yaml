@@ -4172,6 +4172,7 @@ components:
           items: {type: string, minLength: 1}
         label: {type: string}
         logicalType: {type: string, minLength: 1}
+        resultUnit: {$ref: '#/components/schemas/UnitIdentity'}
         filterable: {type: boolean}
         chartable: {type: boolean}
         nullable: {type: boolean}

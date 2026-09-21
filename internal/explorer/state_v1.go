@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/dataset"
 )
 
@@ -104,18 +105,19 @@ type ExplorerRuntimeOutputV1 struct {
 }
 
 type ExplorerRuntimeColumnV1 struct {
-	Column       string `json:"column"`
-	EmissionID   string `json:"-"`
-	Name         string `json:"-"`
-	Label        string `json:"label"`
-	LogicalType  string `json:"logicalType"`
-	Visible      bool   `json:"visible"`
-	Order        int    `json:"order"`
-	Repeated     bool   `json:"repeated,omitempty"`
-	Filterable   bool   `json:"filterable"`
-	Sortable     bool   `json:"sortable,omitempty"`
-	Chartable    bool   `json:"chartable"`
-	Aggregatable bool   `json:"aggregatable,omitempty"`
+	Column       string             `json:"column"`
+	EmissionID   string             `json:"-"`
+	Name         string             `json:"-"`
+	Label        string             `json:"label"`
+	LogicalType  string             `json:"logicalType"`
+	ResultUnit   *unit.UnitIdentity `json:"resultUnit,omitempty"`
+	Visible      bool               `json:"visible"`
+	Order        int                `json:"order"`
+	Repeated     bool               `json:"repeated,omitempty"`
+	Filterable   bool               `json:"filterable"`
+	Sortable     bool               `json:"sortable,omitempty"`
+	Chartable    bool               `json:"chartable"`
+	Aggregatable bool               `json:"aggregatable,omitempty"`
 }
 
 type ExplorerRuntimeTableV1 struct {

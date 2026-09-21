@@ -120,6 +120,9 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 			Filterable: column.Filterable, Chartable: column.Chartable,
 			AuthoredColumns: stringSlicePointer(column.AuthoredColumns),
 		}
+		if column.ResultUnit != nil {
+			wire.ResultUnit = &explorerv2api.UnitIdentity{System: column.ResultUnit.System, Code: column.ResultUnit.Code}
+		}
 		if column.UnitNormalization != nil {
 			rules := make([]explorerv2api.UnitRuleReference, 0, len(column.UnitNormalization.Rules))
 			for _, rule := range column.UnitNormalization.Rules {

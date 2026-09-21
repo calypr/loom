@@ -133,7 +133,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	}
 	// Labels are frozen by the public output contract. They are indexed by the
 	// authored physical column, never reconstructed from compiler identities.
-	contractLabels := map[string]map[string]string{}
+	contractColumns := map[string]map[string]PublicOutputColumn{}
 	if len(revision.PublicOutputContract) > 0 {
 		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
 		if contractErr != nil {
@@ -143,9 +143,9 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			return nil, viewerProjectionIntegrity("publicOutputContract", contractErr)
 		}
 		for _, output := range contracts.Outputs {
-			contractLabels[output.OutputID] = map[string]string{}
+			contractColumns[output.OutputID] = map[string]PublicOutputColumn{}
 			for _, column := range output.Columns {
-				contractLabels[output.OutputID][column.Column] = column.Label
+				contractColumns[output.OutputID][column.Column] = column
 			}
 		}
 	}
@@ -195,7 +195,8 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 				return ExplorerRuntimeColumnV1{}, false
 			}
 			filterable, chartable := emission.Filterable, emission.Chartable
-			label := contractLabels[view.Output][name]
+			public := contractColumns[view.Output][name]
+			label := public.Label
 			if strings.TrimSpace(label) == "" {
 				return ExplorerRuntimeColumnV1{}, false
 			}
@@ -205,6 +206,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 				Name:         name,
 				Label:        label,
 				LogicalType:  firstNonEmptyString(emission.LogicalType, published.LogicalType, published.ClickHouse, "string"),
+				ResultUnit:   public.ResultUnit,
 				Repeated:     published.Repeated,
 				Filterable:   filterable,
 				Sortable:     !published.Repeated,

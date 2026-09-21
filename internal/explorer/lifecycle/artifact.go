@@ -404,7 +404,8 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 		}
 		columns = append(columns, dataframepublished.ArtifactColumn{
 			Name: name, OutputKey: public.Column, LogicalType: public.LogicalType, Shape: public.Shape,
-			Nullable: public.Nullable, Repeated: column.Repeated || public.Shape == "array" || public.Shape == "record_list",
+			ResultUnit: public.ResultUnit,
+			Nullable:   public.Nullable, Repeated: column.Repeated || public.Shape == "array" || public.Shape == "record_list",
 			EmissionID: emission.EmissionID, CandidateID: emission.CandidateID,
 			OccurrenceID: emission.OccurrenceID, Construction: emission.ProjectionMode,
 			ReductionPolicy: emission.ProjectionMode, SourceResourceType: emission.SourceResourceType,
@@ -446,6 +447,10 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 }
 
 func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materialization dataframepublished.Materialization, outputID string, contract explorer.PublicOutputContract) (dataframepublished.ArtifactDescriptor, []dataframepublished.ArtifactColumn, error) {
+	contractColumns := make(map[string]explorer.PublicOutputColumn, len(contract.Columns))
+	for _, public := range contract.Columns {
+		contractColumns[strings.TrimSpace(public.Column)] = public
+	}
 	columns := make([]dataframepublished.ArtifactColumn, 0, len(materialization.Columns))
 	for _, column := range materialization.Columns {
 		name := strings.TrimSpace(column.Name)
@@ -460,9 +465,11 @@ func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materializati
 				shape = "record_list"
 			}
 		}
+		public := contractColumns[name]
 		columns = append(columns, dataframepublished.ArtifactColumn{
 			Name: name, OutputKey: name, LogicalType: column.LogicalType, Shape: shape,
-			Nullable: column.Nullable, Repeated: column.Repeated,
+			ResultUnit: public.ResultUnit,
+			Nullable:   column.Nullable, Repeated: column.Repeated,
 		})
 	}
 	if len(columns) == 0 {

@@ -228,13 +228,14 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 	receipt := &explorer.CompilationReceipt{
 		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
-		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"groups","rowGrain":"groups","rowMultiplication":"none","columns":[{"column":"patient_id","label":"Root ID","logicalType":"string"}]}]}`),
+		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"groups","rowGrain":"groups","rowMultiplication":"none","columns":[{"column":"patient_id","label":"Root ID","logicalType":"string"},{"column":"group_mean_weight","label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}}]}]}`),
 	}
 	materialization := dataframepublished.Materialization{
 		SchemaDigest: "published-schema", Columns: []dataframepublished.Column{
 			{Name: "group_revision_id", SemanticPath: "groups.revision_id", LogicalType: "string", LoomOwned: true},
 			{Name: "group_id", SemanticPath: "groups.group_id", LogicalType: "string"},
 			{Name: "group_label", SemanticPath: "groups.label", LogicalType: "string"},
+			{Name: "group_mean_weight", SemanticPath: "groups.mean_weight", LogicalType: "decimal"},
 			{Name: "group_ordinal", SemanticPath: "groups.ordinal", LogicalType: "integer"},
 			{Name: "members", SemanticPath: "groups.members", LogicalType: "object", Repeated: true},
 			{Name: "__loom_row_id", SemanticPath: "groups.identity", LogicalType: "object", LoomOwned: true},
@@ -249,12 +250,15 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 	if descriptor.RowGrain != string(spec.RowGrainGroups) || descriptor.RowIdentity.Key != "__loom_row_id" || descriptor.RowIdentity.SourceIDColumn != "" || descriptor.RowIdentity.SourceResourceType != "" {
 		t.Fatalf("group row identity descriptor = %#v, want synthetic GROUPS identity only", descriptor)
 	}
-	wantNames := []string{"group_id", "group_label", "group_ordinal", "members"}
+	wantNames := []string{"group_id", "group_label", "group_mean_weight", "group_ordinal", "members"}
 	if got := artifactColumnNames(columns); !slices.Equal(got, wantNames) {
 		t.Fatalf("group artifact columns = %v, want %v", got, wantNames)
 	}
 	if got := columns[len(columns)-1]; got.LogicalType != "object" || got.Shape != "record_list" || !got.Repeated {
 		t.Fatalf("membership artifact column = %#v, want repeated object records", got)
+	}
+	if got := columns[2].ResultUnit; got == nil || got.System != "http://unitsofmeasure.org" || got.Code != "kg" {
+		t.Fatalf("group aggregate result unit = %#v, want UCUM kg", got)
 	}
 	wantIdentity := map[string]string{"group_revision_id": "grouprev-a", "group_id": "group-a"}
 	wantMembers := []any{
@@ -271,7 +275,7 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 		InterpretationMetadata: json.RawMessage(`[]`), Provenance: json.RawMessage(`{}`), Quality: json.RawMessage(`[]`),
 	}, func(visit dataframepublished.ArtifactRowVisitor) error {
 		return visit(map[string]any{
-			"__loom_row_id": wantIdentity, "group_id": "group-a", "group_label": "Group A", "group_ordinal": int64(0), "members": wantMembers,
+			"__loom_row_id": wantIdentity, "group_id": "group-a", "group_label": "Group A", "group_mean_weight": 71.5, "group_ordinal": int64(0), "members": wantMembers,
 		})
 	})
 	if err != nil {
@@ -312,6 +316,93 @@ func TestGroupArtifactDescriptorKeepsSyntheticMembershipWithoutSourceRow(t *test
 	}
 	if !reflect.DeepEqual(exportedMembers, wantMembers) {
 		t.Fatalf("exported nested member tuples = %#v, want %#v", exportedMembers, wantMembers)
+	}
+}
+
+func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
+	receipt := &explorer.CompilationReceipt{
+		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
+		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
+		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","rowGrain":"patient","rowMultiplication":"none","columns":[{"column":"mean_weight","label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}},{"column":"bmi","label":"BMI","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg/m2"}},{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
+		EmittedColumns: []explorer.EmittedColumn{
+			{OutputID: "patients", EmissionID: "emit-mean-weight", PublicColumn: "mean_weight"},
+			{OutputID: "patients", EmissionID: "emit-bmi", PublicColumn: "bmi"},
+			{OutputID: "patients", EmissionID: "emit-patient-id", PublicColumn: "patient_id"},
+		},
+	}
+	materialization := dataframepublished.Materialization{
+		SchemaDigest: "published-schema",
+		Columns: []dataframepublished.Column{
+			{Name: "mean_weight", LogicalType: "decimal"},
+			{Name: "bmi", LogicalType: "decimal"},
+			{Name: "patient_id", LogicalType: "string"},
+		},
+	}
+	descriptor, columns, err := artifactDescriptor(receipt, materialization, "patients")
+	if err != nil {
+		t.Fatalf("build artifact descriptor: %v", err)
+	}
+	if len(columns) != 3 || columns[0].ResultUnit == nil || columns[0].ResultUnit.System != "http://unitsofmeasure.org" || columns[0].ResultUnit.Code != "kg" || columns[1].ResultUnit == nil || columns[1].ResultUnit.Code != "kg/m2" || columns[2].ResultUnit != nil {
+		t.Fatalf("artifact column result units = %#v", columns)
+	}
+
+	var archive bytes.Buffer
+	_, err = dataframepublished.WriteArtifact(context.Background(), &archive, dataframepublished.ArtifactRequest{
+		Identity: dataframepublished.ArtifactIdentity{
+			Project: "project-a", DatasetGeneration: "generation-a", ReceiptID: "receipt-a", ExecutionID: "execution-a",
+			OutputID: "patients", RevisionID: "revision-a", SchemaDigest: "published-schema", OutputContractDigest: "contract-digest",
+		},
+		Descriptor: descriptor, Columns: columns, Format: dataframepublished.ArtifactFormatJSONL,
+		SelectionMetadata: json.RawMessage(`{}`), InterpretationMetadata: json.RawMessage(`[]`), Provenance: json.RawMessage(`{}`), Quality: json.RawMessage(`[]`),
+	}, func(visit dataframepublished.ArtifactRowVisitor) error {
+		return visit(map[string]any{"__loom_row_id": "row-1", "mean_weight": 71.5, "bmi": 22.4, "patient_id": "patient-1"})
+	})
+	if err != nil {
+		t.Fatalf("write artifact ZIP: %v", err)
+	}
+	archiveReader, err := zip.NewReader(bytes.NewReader(archive.Bytes()), int64(archive.Len()))
+	if err != nil {
+		t.Fatalf("read artifact ZIP: %v", err)
+	}
+	var manifestBytes []byte
+	for _, member := range archiveReader.File {
+		if member.Name != "manifest.json" {
+			continue
+		}
+		contents, openErr := member.Open()
+		if openErr != nil {
+			t.Fatalf("open artifact manifest: %v", openErr)
+		}
+		manifestBytes, err = io.ReadAll(contents)
+		_ = contents.Close()
+		if err != nil {
+			t.Fatalf("read artifact manifest: %v", err)
+		}
+		break
+	}
+	var manifest struct {
+		Version    int                                   `json:"version"`
+		Descriptor dataframepublished.ArtifactDescriptor `json:"descriptor"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode artifact manifest: %v", err)
+	}
+	if manifest.Version != 2 || len(manifest.Descriptor.Columns) != 3 {
+		t.Fatalf("artifact manifest = %#v", manifest)
+	}
+	if got := manifest.Descriptor.Columns; got[0].ResultUnit == nil || got[0].ResultUnit.System != "http://unitsofmeasure.org" || got[0].ResultUnit.Code != "kg" || got[1].ResultUnit == nil || got[1].ResultUnit.Code != "kg/m2" || got[2].ResultUnit != nil {
+		t.Fatalf("manifest column result units = %#v", got)
+	}
+	var manifestWire struct {
+		Descriptor struct {
+			Columns []map[string]json.RawMessage `json:"columns"`
+		} `json:"descriptor"`
+	}
+	if err := json.Unmarshal(manifestBytes, &manifestWire); err != nil {
+		t.Fatalf("decode artifact manifest JSON shape: %v", err)
+	}
+	if _, exists := manifestWire.Descriptor.Columns[2]["resultUnit"]; exists {
+		t.Fatalf("unitless artifact column includes resultUnit: %s", manifestWire.Descriptor.Columns[2]["resultUnit"])
 	}
 }
 
