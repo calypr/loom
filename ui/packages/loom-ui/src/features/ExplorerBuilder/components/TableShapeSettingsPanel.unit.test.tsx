@@ -7,6 +7,7 @@ import type { LoomClient } from '../../../api';
 import type {
   TableShapeCapabilities,
   TableShapeCategoryDiscovery,
+  TableShapeComparison,
   TableShapeProposal,
   TableShapeProposalIntent as WireTableShapeProposalIntent,
 } from '../../../types';
@@ -103,7 +104,7 @@ const discovery: TableShapeCategoryDiscovery = {
   categories: [category],
 };
 
-const comparison = {
+const comparison: TableShapeComparison = {
   status: 'AVAILABLE' as const,
   base: { rowCount: 2, sampled: false },
   candidate: { rowCount: 2, sampled: false },
@@ -124,7 +125,9 @@ const comparison = {
   }],
   contributors: [{ resourceType: 'Observation', resourceId: 'obs-1' }],
   contributorsSampled: false,
-  evidenceLimitations: ['Trace values are returned only for changed cells.'],
+  exclusions: { status: 'COMPLETE', records: [], complete: true, sampled: false },
+  declaredInformationLoss: { status: 'COMPLETE', items: [] },
+  evidenceLimitations: [{ code: 'CHANGED_CELLS_ONLY', message: 'Trace values are returned only for changed cells.' }],
   notices: ['One missing value was preserved.'],
 };
 

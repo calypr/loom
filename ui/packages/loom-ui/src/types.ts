@@ -851,6 +851,41 @@ const tableShapePreviewSummarySchema = z.object({
   rowCount: z.number().int().nonnegative(),
   sampled: z.boolean(),
 }).strict();
+const tableShapeExcludedRecordSchema = z.object({
+  sourceIdentity: z.object({
+    resourceId: z.string(),
+    resourceType: z.string(),
+  }).strict().optional(),
+  category: z.object({
+    present: z.boolean(),
+    value: tableShapeJSONValueSchema,
+  }).strict(),
+  categoryType: z.string(),
+  outputRowId: z.string(),
+  reason: z.string(),
+  omissionCode: z.string().optional(),
+}).strict();
+const tableShapeExclusionsSchema = z.object({
+  status: z.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
+  records: z.array(tableShapeExcludedRecordSchema),
+  complete: z.boolean(),
+  sampled: z.boolean(),
+  failureCode: z.string().optional(),
+}).strict();
+const tableShapeDeclaredInformationLossSchema = z.object({
+  status: z.enum(['COMPLETE', 'UNAVAILABLE']),
+  items: z.array(z.object({
+    code: z.string(),
+    label: z.string(),
+    detail: z.string(),
+    affectedColumns: z.array(z.string()).optional(),
+  }).strict()),
+  failureCode: z.string().optional(),
+}).strict();
+const tableShapeEvidenceLimitationSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+}).strict();
 const tableShapeComparisonCommonSchema = z.object({
   changedColumns: z.array(opaqueIdSchema),
   changedRowCount: z.number().int().nonnegative(),
@@ -858,7 +893,9 @@ const tableShapeComparisonCommonSchema = z.object({
   changedRowsSampled: z.boolean(),
   contributors: z.array(tableShapeContributorSchema),
   contributorsSampled: z.boolean(),
-  evidenceLimitations: z.array(z.string()),
+  exclusions: tableShapeExclusionsSchema,
+  declaredInformationLoss: tableShapeDeclaredInformationLossSchema,
+  evidenceLimitations: z.array(tableShapeEvidenceLimitationSchema),
   notices: z.array(z.string()),
 });
 export const tableShapeComparisonSchema = z.discriminatedUnion('status', [

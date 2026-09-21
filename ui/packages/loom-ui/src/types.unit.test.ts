@@ -632,16 +632,76 @@ describe('explorerBuilderCommandSchema', () => {
       }],
       contributors: [{ resourceType: 'Observation', resourceId: 'obs-1' }],
       contributorsSampled: false,
-      evidenceLimitations: [], notices: [],
+      exclusions: {
+        status: 'INCOMPLETE',
+        records: [
+          {
+            sourceIdentity: { resourceType: 'Patient', resourceId: 'patient-1' },
+            category: { present: false, value: null }, categoryType: 'string',
+            outputRowId: 'row-missing', reason: 'The category value was missing.', omissionCode: 'MISSING_CATEGORY',
+          },
+          {
+            category: { present: true, value: null }, categoryType: 'null', outputRowId: 'row-null', reason: 'Null category.',
+          },
+          {
+            category: { present: true, value: false }, categoryType: 'boolean', outputRowId: 'row-false', reason: 'False category.',
+          },
+          {
+            category: { present: true, value: 0 }, categoryType: 'number', outputRowId: 'row-zero', reason: 'Zero category.',
+          },
+          {
+            category: { present: true, value: '' }, categoryType: 'string', outputRowId: 'row-empty', reason: 'Empty category.',
+          },
+        ],
+        complete: false,
+        sampled: true,
+      },
+      declaredInformationLoss: {
+        status: 'COMPLETE',
+        items: [{
+          code: 'DROPPED_COLUMNS', label: 'Dropped columns', detail: 'Columns were removed by the transformation.',
+          affectedColumns: ['legacy_measure', 'old_status'],
+        }],
+      },
+      evidenceLimitations: [{ code: 'SAMPLED_ROWS', message: 'Only sampled rows were compared.' }],
+      notices: [],
     };
     expect(tableShapeComparisonSchema.parse(comparison)).toEqual(comparison);
     expect(tableShapeComparisonSchema.safeParse({ ...comparison, debug: true }).success).toBe(false);
+    expect(tableShapeComparisonSchema.safeParse({
+      ...comparison, evidenceLimitations: ['Only sampled rows were compared.'],
+    }).success).toBe(false);
+    expect(tableShapeComparisonSchema.safeParse({
+      ...comparison,
+      exclusions: { ...comparison.exclusions, records: [{ ...comparison.exclusions.records[0], debug: true }] },
+    }).success).toBe(false);
+    expect(tableShapeComparisonSchema.safeParse({
+      ...comparison,
+      declaredInformationLoss: {
+        ...comparison.declaredInformationLoss,
+        items: [{ ...comparison.declaredInformationLoss.items[0], affectedColumns: ['legacy_measure'], debug: true }],
+      },
+    }).success).toBe(false);
     expect(tableShapeComparisonSchema.safeParse({
       ...comparison,
       changedRows: [{ ...comparison.changedRows[0], changedCells: [{
         ...comparison.changedRows[0].changedCells[0], after: { present: true },
       }] }],
     }).success).toBe(false);
+
+    const unavailable = {
+      status: 'UNAVAILABLE',
+      reason: 'The comparison could not be produced.',
+      reasonCode: 'COMPARE_UNAVAILABLE',
+      changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
+      contributors: [], contributorsSampled: false,
+      exclusions: { status: 'UNAVAILABLE', records: [], complete: false, sampled: false },
+      declaredInformationLoss: { status: 'UNAVAILABLE', items: [] },
+      evidenceLimitations: [{ code: 'NO_COMPARISON', message: 'No preview was returned.' }],
+      notices: [],
+    };
+    expect(tableShapeComparisonSchema.parse(unavailable)).toEqual(unavailable);
+    expect(tableShapeComparisonSchema.safeParse({ ...unavailable, exclusions: undefined }).success).toBe(false);
   });
 
   it('accepts only the opaque proposal receipt in the atomic Builder apply command', () => {

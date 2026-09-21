@@ -4,6 +4,8 @@ import type { TableShapeComparison as TableShapeComparisonResult } from '../../.
 const MAX_VISIBLE_ROWS = 5;
 const MAX_VISIBLE_COLUMNS = 8;
 const MAX_VISIBLE_CONTRIBUTORS = 8;
+const MAX_VISIBLE_EXCLUSIONS = 5;
+const MAX_VISIBLE_INFORMATION_LOSS_ITEMS = 5;
 
 const jsonText = (value: unknown): string => {
   if (value === null) return 'null';
@@ -57,6 +59,141 @@ const InformationList = ({
   </section>
 );
 
+const ExclusionEvidence = ({
+  exclusions,
+}: {
+  readonly exclusions: TableShapeComparisonResult['exclusions'];
+}) => {
+  const visibleRecords = exclusions.records.slice(0, MAX_VISIBLE_EXCLUSIONS);
+
+  return (
+    <section aria-label="Excluded records" data-testid="ui04-comparison-exclusions" className="grid gap-2">
+      <h3 className="text-sm font-medium text-slate-800">Excluded records</h3>
+      <div className="text-sm text-slate-700" data-testid="ui04-comparison-exclusion-summary">
+        <p>Status: {exclusions.status}.</p>
+        <p>Records complete: {exclusions.complete ? 'yes' : 'no'}. Sampled: {exclusions.sampled ? 'yes' : 'no'}.</p>
+        {exclusions.failureCode ? <p>Failure code: {exclusions.failureCode}</p> : null}
+      </div>
+      {visibleRecords.length > 0 ? (
+        <ol className="grid gap-2">
+          {visibleRecords.map((record, index) => (
+            <li
+              key={`${record.outputRowId}:${index}`}
+              data-testid={`ui04-comparison-exclusion-${index + 1}`}
+              className="grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700"
+            >
+              <p><span className="font-medium">Output row:</span> {record.outputRowId}</p>
+              {record.sourceIdentity ? (
+                <>
+                  <p><span className="font-medium">Source resource type:</span> {record.sourceIdentity.resourceType}</p>
+                  <p><span className="font-medium">Source resource ID:</span> {record.sourceIdentity.resourceId}</p>
+                </>
+              ) : <p><span className="font-medium">Source identity:</span> Not provided</p>}
+              <p>
+                <span className="font-medium">Category:</span>{' '}
+                {record.category.present ? 'present' : 'missing'} ({record.categoryType}), value {jsonText(record.category.value)}
+              </p>
+              <p><span className="font-medium">Reason:</span> {record.reason}</p>
+              {record.omissionCode ? <p><span className="font-medium">Omission code:</span> {record.omissionCode}</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : <p className="text-sm text-slate-600">No excluded record details were returned.</p>}
+      {exclusions.records.length > visibleRecords.length ? (
+        <p className="text-xs text-slate-600">Showing {visibleRecords.length} of {exclusions.records.length} excluded records.</p>
+      ) : null}
+    </section>
+  );
+};
+
+const DeclaredInformationLoss = ({
+  informationLoss,
+  columnLabels,
+}: {
+  readonly informationLoss: TableShapeComparisonResult['declaredInformationLoss'];
+  readonly columnLabels: Readonly<Record<string, string>>;
+}) => {
+  const visibleItems = informationLoss.items.slice(0, MAX_VISIBLE_INFORMATION_LOSS_ITEMS);
+
+  return (
+    <section aria-label="Declared information loss" data-testid="ui04-comparison-information-loss" className="grid gap-2">
+      <h3 className="text-sm font-medium text-slate-800">Declared information loss</h3>
+      <div className="text-sm text-slate-700" data-testid="ui04-comparison-information-loss-summary">
+        <p>Status: {informationLoss.status}.</p>
+        {informationLoss.failureCode ? <p>Failure code: {informationLoss.failureCode}</p> : null}
+      </div>
+      {visibleItems.length > 0 ? (
+        <ul className="grid gap-2">
+          {visibleItems.map((item, index) => (
+            <li
+              key={`${item.code}:${index}`}
+              data-testid={`ui04-comparison-information-loss-${index + 1}`}
+              className="grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm text-slate-700"
+            >
+              <p className="font-medium">{item.label} ({item.code})</p>
+              <p>{item.detail}</p>
+              {item.affectedColumns !== undefined ? (
+                <div>
+                  <span className="font-medium">Affected columns:</span>
+                  {item.affectedColumns.length > 0 ? (
+                    <>
+                      <ul className="list-inside list-disc">
+                        {item.affectedColumns.slice(0, MAX_VISIBLE_COLUMNS).map((column, columnIndex) => (
+                          <li key={`${column}:${columnIndex}`}>
+                            {columnLabels[column] && columnLabels[column] !== column
+                              ? `${column} (${columnLabels[column]})`
+                              : column}
+                          </li>
+                        ))}
+                      </ul>
+                      {item.affectedColumns.length > MAX_VISIBLE_COLUMNS ? (
+                        <p className="text-xs text-slate-600">
+                          Showing {MAX_VISIBLE_COLUMNS} of {item.affectedColumns.length} affected columns.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : <span> None specified.</span>}
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-600">
+          {informationLoss.status === 'COMPLETE'
+            ? 'No information loss was declared.'
+            : 'No information loss details were returned.'}
+        </p>
+      )}
+      {informationLoss.items.length > visibleItems.length ? (
+        <p className="text-xs text-slate-600">
+          Showing {visibleItems.length} of {informationLoss.items.length} information loss items.
+        </p>
+      ) : null}
+    </section>
+  );
+};
+
+const EvidenceLimitations = ({
+  items,
+}: {
+  readonly items: TableShapeComparisonResult['evidenceLimitations'];
+}) => (
+  <section aria-label="Evidence limitations" data-testid="ui04-comparison-limitations" className="grid gap-1">
+    <h3 className="text-sm font-medium text-slate-800">Evidence limitations</h3>
+    {items.length > 0 ? (
+      <ul className="list-inside list-disc text-sm text-slate-700">
+        {items.slice(0, MAX_VISIBLE_CONTRIBUTORS).map((item, index) => (
+          <li key={`${item.code}:${index}`}>{item.code}: {item.message}</li>
+        ))}
+      </ul>
+    ) : <p className="text-sm text-slate-600">None reported.</p>}
+    {items.length > MAX_VISIBLE_CONTRIBUTORS ? (
+      <p className="text-xs text-slate-600">Showing {MAX_VISIBLE_CONTRIBUTORS} of {items.length} limitations.</p>
+    ) : null}
+  </section>
+);
+
 export const TableShapeComparison = ({ comparison, columnLabels }: TableShapeComparisonProps) => {
   if (comparison.status === 'UNAVAILABLE') {
     return (
@@ -69,11 +206,9 @@ export const TableShapeComparison = ({ comparison, columnLabels }: TableShapeCom
         <p role="alert" data-testid="ui04-comparison-unavailable-reason">
           {comparison.reasonCode}: {comparison.reason}
         </p>
-        <InformationList
-          label="Evidence limitations"
-          testId="ui04-comparison-limitations"
-          items={comparison.evidenceLimitations}
-        />
+        <ExclusionEvidence exclusions={comparison.exclusions} />
+        <DeclaredInformationLoss informationLoss={comparison.declaredInformationLoss} columnLabels={columnLabels} />
+        <EvidenceLimitations items={comparison.evidenceLimitations} />
         <InformationList label="Notices" testId="ui04-comparison-notices" items={comparison.notices} />
       </section>
     );
@@ -198,7 +333,9 @@ export const TableShapeComparison = ({ comparison, columnLabels }: TableShapeCom
 
       <EvidenceList label="Contributing resources" testId="ui04-comparison-contributors" items={contributors} />
       {comparison.contributorsSampled ? <p className="text-xs text-amber-800">The contributing resource list is sampled.</p> : null}
-      <InformationList label="Evidence limitations" testId="ui04-comparison-limitations" items={comparison.evidenceLimitations} />
+      <ExclusionEvidence exclusions={comparison.exclusions} />
+      <DeclaredInformationLoss informationLoss={comparison.declaredInformationLoss} columnLabels={columnLabels} />
+      <EvidenceLimitations items={comparison.evidenceLimitations} />
       <InformationList label="Notices" testId="ui04-comparison-notices" items={comparison.notices} />
     </section>
   );
