@@ -332,7 +332,7 @@ func semanticBindingID(observation SemanticObservation) string {
 	return catalogIdentityDigest(parts...)
 }
 
-func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID string, limit int) string {
+func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID string) string {
 	paths := append([]string(nil), opts.AuthResourcePaths...)
 	sort.Strings(paths)
 	paths = compactStrings(paths)
@@ -345,17 +345,15 @@ func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID stri
 		strconv.FormatBool(unrestricted),
 		opts.ResourceType,
 		opts.Query,
-		strconv.Itoa(limit),
 	}
 	parts = append(parts, paths...)
 	return catalogIdentityDigest(parts...)
 }
 
 func EncodeSemanticInventoryCursor(opts SemanticInventoryPageOptions, buildID, bindingID, conceptID string) string {
-	limit := semanticInventoryLimit(opts.Limit)
 	cursor := semanticInventoryCursor{
-		Version:       1,
-		RequestDigest: SemanticInventoryPageDigest(opts, buildID, limit),
+		Version:       2,
+		RequestDigest: SemanticInventoryPageDigest(opts, buildID),
 		BindingID:     bindingID,
 		ConceptID:     conceptID,
 	}
@@ -372,11 +370,10 @@ func DecodeSemanticInventoryCursor(raw string, opts SemanticInventoryPageOptions
 		return "", "", ErrSemanticInventoryCursorMismatch
 	}
 	var cursor semanticInventoryCursor
-	if err := json.Unmarshal(encoded, &cursor); err != nil || cursor.Version != 1 {
+	if err := json.Unmarshal(encoded, &cursor); err != nil || cursor.Version != 2 {
 		return "", "", ErrSemanticInventoryCursorMismatch
 	}
-	limit := semanticInventoryLimit(opts.Limit)
-	if cursor.RequestDigest != SemanticInventoryPageDigest(opts, buildID, limit) || cursor.BindingID == "" || cursor.ConceptID == "" {
+	if cursor.RequestDigest != SemanticInventoryPageDigest(opts, buildID) || cursor.BindingID == "" || cursor.ConceptID == "" {
 		return "", "", ErrSemanticInventoryCursorMismatch
 	}
 	return cursor.BindingID, cursor.ConceptID, nil

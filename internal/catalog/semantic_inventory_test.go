@@ -151,7 +151,7 @@ func TestSemanticInventoryReplayIdentityIgnoresMapConstructionOrder(t *testing.T
 	}
 }
 
-func TestSemanticInventoryCursorBindsAuthorizedScopeAndClampsPageLimit(t *testing.T) {
+func TestSemanticInventoryCursorBindsAuthorizedScopeAndAllowsPageSizeChange(t *testing.T) {
 	options := SemanticInventoryPageOptions{
 		Project:                       "project",
 		DatasetGeneration:             "generation",
@@ -161,9 +161,9 @@ func TestSemanticInventoryCursorBindsAuthorizedScopeAndClampsPageLimit(t *testin
 	}
 	cursor := EncodeSemanticInventoryCursor(options, "build", "binding", "concept")
 	options.AuthResourcePaths = []string{"scope-a", "scope-b"}
-	options.Limit = SemanticInventoryPageLimit
+	options.Limit = 1
 	if _, _, err := DecodeSemanticInventoryCursor(cursor, options, "build"); err != nil {
-		t.Fatalf("equivalent scope and clamped limit rejected cursor: %v", err)
+		t.Fatalf("equivalent scope with a smaller next page rejected cursor: %v", err)
 	}
 	options.AuthResourcePaths = []string{"scope-a"}
 	if _, _, err := DecodeSemanticInventoryCursor(cursor, options, "build"); err != ErrSemanticInventoryCursorMismatch {

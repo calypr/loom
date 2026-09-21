@@ -45,25 +45,35 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventoryDocs) != 1 || result.SemanticInventoryBatches != 1 {
+	if len(inventoryDocs) != 2 || result.SemanticInventoryBatches != 2 {
 		message := "no row error sample"
 		if len(result.RowErrors) > 0 {
 			message = result.RowErrors[0].Message
 		}
 		t.Fatalf("inventory docs=%d batches=%d rows=%d validation=%d sample=%s", len(inventoryDocs), result.SemanticInventoryBatches, result.Rows, result.ValidationErrors, message)
 	}
-	if len(inventoryOverwrite) != 1 || !inventoryOverwrite[0] {
+	if len(inventoryOverwrite) != 2 || !inventoryOverwrite[0] || !inventoryOverwrite[1] {
 		t.Fatalf("inventory overwrite modes = %v, want source-key replacement", inventoryOverwrite)
 	}
-	var contribution catalog.SemanticInventoryContribution
-	if err := json.Unmarshal(inventoryDocs[0], &contribution); err != nil {
-		t.Fatal(err)
+	observations := make(map[string]catalog.SemanticObservation, len(inventoryDocs))
+	for _, document := range inventoryDocs {
+		var contribution catalog.SemanticInventoryContribution
+		if err := json.Unmarshal(document, &contribution); err != nil {
+			t.Fatal(err)
+		}
+		if contribution.SourceID != "Observation.ndjson#1" || contribution.AuthResourcePath != "" {
+			t.Fatalf("inventory source/scope = %q/%q, want stable relative source locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
+		}
+		if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
+			t.Fatalf("inventory identity/observation = %+v", contribution)
+		}
+		observations[contribution.Observation.Key.Code] = contribution.Observation
 	}
-	if contribution.SourceID != "Observation.ndjson#1" || contribution.AuthResourcePath != "" {
-		t.Fatalf("inventory source/scope = %q/%q, want stable relative source locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
+	if panel := observations["panel"]; panel.RuleHint != catalog.SemanticRuleHintCategoricalCodeV1 || panel.Value.Selector != "code.coding[].code" {
+		t.Fatalf("standalone panel observation = %+v", panel)
 	}
-	if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
-		t.Fatalf("inventory identity/observation = %+v", contribution)
+	if glucose := observations["glucose"]; glucose.RuleHint != catalog.SemanticRuleHintCodedValueV1 || glucose.Value.Selector != "valueQuantity.value" || glucose.ObservedUnits[0] != "mg" {
+		t.Fatalf("paired glucose observation = %+v", glucose)
 	}
 }
 

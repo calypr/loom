@@ -114,6 +114,18 @@ func TestLoadAndQueryFixture(t *testing.T) {
 			if len(fields) == 0 {
 				t.Fatalf("discover populated fields returned no rows")
 			}
+			inventory, err := catalogStore.PageSemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
+				Project:                       generation.Project,
+				DatasetGeneration:             generation.Generation,
+				AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+				Limit:                         1,
+			})
+			if err != nil {
+				t.Fatalf("read completed semantic inventory: %v", err)
+			}
+			if got, want := inventory.Build.SourceAvailability, catalog.SemanticInventorySourceAvailabilityVerified; got != want {
+				t.Fatalf("semantic inventory source availability = %q, want %q", got, want)
+			}
 		})
 	}
 }

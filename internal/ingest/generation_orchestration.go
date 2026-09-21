@@ -327,6 +327,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	inventoryBuild.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}

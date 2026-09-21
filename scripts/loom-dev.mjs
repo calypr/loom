@@ -564,7 +564,6 @@ const featureCatalogFact = (entry, label) => entry?.sourceDetails?.find((fact) =
 export const collectJ01FeatureConceptPages = async (readPage, request, fixture) => {
   const seenCursors = new Set();
   const seenCodes = new Set();
-  const allowedSourceAvailability = new Set(['unknown', 'verified', 'unproven']);
   const pages = [];
   const expectedCodes = new Set(Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`));
   let cursor;
@@ -577,8 +576,8 @@ export const collectJ01FeatureConceptPages = async (readPage, request, fixture) 
     const { response, value } = await readPage(body);
     if (!response?.ok) throw new Error(`J01 feature catalog returned HTTP ${response?.status ?? 'unknown'}`);
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 feature catalog response is not an object');
-    if (value.state !== 'complete' || !allowedSourceAvailability.has(value.sourceAvailability)) {
-      throw new Error(`J01 feature catalog is not complete or has invalid source availability: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
+    if (value.state !== 'complete' || value.sourceAvailability !== 'verified') {
+      throw new Error(`J01 feature catalog is not complete with verified sources: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
     }
     if (value.section !== 'CONCEPTS') throw new Error(`J01 feature catalog returned section ${value.section ?? 'missing'}`);
     if (Object.keys(value).some((key) => /example|total.?count/i.test(key))) {

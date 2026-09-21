@@ -110,6 +110,66 @@ func TestBrowseFeatureCatalogPartitionsReadyConceptsFromNeedsReview(t *testing.T
 	}
 }
 
+func TestBrowseFeatureCatalogPagesAcrossMixedReadinessWithoutInvalidatingItsCursor(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
+	snapshot.Nodes = []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}}
+	snapshot.Candidates = []capability.Candidate{{
+		ID: "observation-value", NodeID: "observation", ResourceType: "Observation", FieldPath: "valueQuantity.value",
+		LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}}
+	readyOne := semanticAuthoringEntry("height", "height-binding", "http://loinc.org", "8302-2", "")
+	readyTwo := semanticAuthoringEntry("weight", "weight-binding", "http://loinc.org", "29463-7", "")
+	needsReview := catalog.SemanticInventoryEntry{
+		ConceptID: "unpaired", BindingID: "unpaired-binding",
+		Observation: catalog.SemanticObservation{
+			Source: catalog.SemanticObservationSource{Type: "Observation", Path: "component[]"},
+			Key:    catalog.SemanticObservationKey{System: "urn:study", Code: "unpaired"},
+		},
+	}
+	const buildID = "build-a"
+	service := &Service{config: Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+		SemanticInventory: func(_ context.Context, options catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			afterBinding, _, err := catalog.DecodeSemanticInventoryCursor(options.Cursor, options, buildID)
+			if err != nil {
+				return catalog.SemanticInventoryPage{}, err
+			}
+			page := catalog.SemanticInventoryPage{
+				State: catalog.SemanticInventoryComplete,
+				Build: catalog.SemanticInventoryBuild{BuildID: buildID, State: catalog.SemanticInventoryComplete, SourceAvailability: catalog.SemanticInventorySourceAvailabilityVerified},
+			}
+			if afterBinding == "" {
+				page.Entries = []catalog.SemanticInventoryEntry{needsReview, *readyOne}
+				page.NextCursor = catalog.EncodeSemanticInventoryCursor(options, buildID, readyOne.BindingID, readyOne.ConceptID)
+				return page, nil
+			}
+			page.Entries = []catalog.SemanticInventoryEntry{*readyTwo}
+			return page, nil
+		},
+	}}
+	request := BrowseFeatureCatalogRequest{
+		Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Section: FeatureCatalogConcepts, Limit: 2,
+	}
+	concepts, err := service.BrowseFeatureCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(concepts.Entries) != 2 || concepts.Entries[0].FeatureID != "semantic:height:height-binding" || concepts.Entries[1].FeatureID != "semantic:weight:weight-binding" {
+		t.Fatalf("concepts = %#v", concepts.Entries)
+	}
+	request.Section = FeatureCatalogNeedsReview
+	review, err := service.BrowseFeatureCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.Entries) != 1 || review.Entries[0].FeatureID != "semantic:unpaired:unpaired-binding" {
+		t.Fatalf("needs review = %#v", review.Entries)
+	}
+}
+
 func TestBrowseFeatureCatalogOmitsTrailingCursorForExactSemanticPage(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)

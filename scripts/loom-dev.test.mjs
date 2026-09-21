@@ -915,7 +915,7 @@ test('J01 feature catalog pagination retains one context identity and finds each
         contextToken: 'ctx-1',
         buildId: 'build-1',
         state: 'complete',
-        sourceAvailability: 'unknown',
+        sourceAvailability: 'verified',
         section: 'CONCEPTS',
         entries: pages[pageIndex].map((suffix) => ({
           kind: 'SEMANTIC_FEATURE',
@@ -943,7 +943,7 @@ test('J01 feature catalog pagination retains one context identity and finds each
   assert.equal(inventory.pages.length, 3);
   assert.equal(inventory.contextToken, 'ctx-1');
   assert.equal(inventory.buildId, 'build-1');
-  assert.equal(inventory.sourceAvailability, 'unknown');
+  assert.equal(inventory.sourceAvailability, 'verified');
   assert.deepEqual(requests.map((request) => request.cursor), [undefined, 'cursor-1', 'cursor-2']);
   assert.deepEqual(inventory.entries.map((entry) => entry.code).sort(), [
     'concept-0000', 'concept-0001', 'concept-0002', 'concept-0003', 'concept-0004',
@@ -982,6 +982,12 @@ test('J01 feature catalog pagination rejects failure, identity drift, duplicate 
   await t.test('HTTP failure', async () => {
     await assert.rejects(collectJ01FeatureConceptPages(async () => ({ response: { ok: false, status: 503 }, value: {} }), request, fixture), /HTTP 503/);
   });
+  await t.test('completed catalog has unverified sources', async () => {
+    await assert.rejects(
+      collectJ01FeatureConceptPages(async () => response([entry('0000'), entry('0001')], undefined, { sourceAvailability: 'unknown' }), request, fixture),
+      /not complete with verified sources: complete\/unknown/,
+    );
+  });
   await t.test('catalog context changes between pages', async () => {
     let page = 0;
     await assert.rejects(collectJ01FeatureConceptPages(async () => {
@@ -991,14 +997,14 @@ test('J01 feature catalog pagination rejects failure, identity drift, duplicate 
         : response([entry('0001')], undefined, { contextToken: 'ctx-2' });
     }, request, fixture), /changed its context, build identity, or source availability/);
   });
-  await t.test('source availability changes between pages', async () => {
+  await t.test('later page becomes unverified', async () => {
     let page = 0;
     await assert.rejects(collectJ01FeatureConceptPages(async () => {
       page += 1;
       return page === 1
         ? response([entry('0000')], 'cursor-1')
         : response([entry('0001')], undefined, { sourceAvailability: 'unproven' });
-    }, request, fixture), /changed its context, build identity, or source availability/);
+    }, request, fixture), /not complete with verified sources: complete\/unproven/);
   });
   await t.test('cursor repeats', async () => {
     let page = 0;
