@@ -4631,6 +4631,19 @@ export const expectedFixtureRelatedValue = (project, generation) => {
   return key('dev-observation-001') < key('dev-observation-003') ? 172.5 : 180;
 };
 
+// Normal resource rows use [project, _key] as their compiler identity. The
+// generation loader qualifies each physical document key before the cell-trace
+// endpoint hashes those identity parts as JSON.
+export const j04DefaultRecordCellTraceRowID = (project, generation, resourceType, sourceID) => {
+  const parts = [project, generation, resourceType, sourceID];
+  if (parts.some((part) => typeof part !== 'string' || !part.trim())) {
+    throw new Error('J04 default cell-trace identity requires project, generation, resource type, and source ID');
+  }
+  const documentKey = `g_${createHash('sha256')
+    .update(['vertex', project, generation, resourceType, sourceID, ''].join('\0')).digest('hex')}`;
+  return createHash('sha256').update(JSON.stringify([project, documentKey])).digest('hex');
+};
+
 const verifyBrowserScenario = async (target, report, full, entryTarget = target) => {
   const relatedValue = expectedFixtureRelatedValue(target.fixtureProject, target.fixtureGeneration);
   const maximumRelatedValue = 180;
@@ -5952,8 +5965,8 @@ const j04UnprovenAssertions = [
   'j04-exact-recoding-honors-case-and-unknown-policy',
   'j04-pivot-source-columns-come-from-the-saved-catalog',
   'j04-pivot-freezes-category-names-and-policies',
-  'j04-observation-source-preview-preserves-missing-null-false-zero-and-blank',
-  'j04-scalar-evidence-preserves-missing-null-false-zero-and-blank',
+  'j04-observation-preview-materializes-missing-and-null-as-null-cells',
+  'j04-observation-cell-trace-proves-literals-and-exact-source-row-identities',
   'j04-pivot-derived-alpha-plus-beta-matches-literals-with-null-propagation',
   'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
   'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
@@ -6442,12 +6455,102 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const expected = controlPlan.observation.presenceCases.map((item) => ({
         sourceRecordId: item.sourceRecordId,
         fieldPath: item.fieldPath,
-        presence: item.presence,
-        ...(Object.hasOwn(item, 'value') ? { value: item.value } : {}),
+        presence: item.presence === 'missing' || item.presence === 'null' ? 'null' : item.presence,
+        value: item.presence === 'missing' ? null : item.value,
       }));
-      recordAssertion(report, 'j04-observation-source-preview-preserves-missing-null-false-zero-and-blank', expected, actual);
-      recordAssertion(report, 'j04-scalar-evidence-preserves-missing-null-false-zero-and-blank', expected, actual);
-      report.target.sourcePresenceEvidence = { previewReceiptId: preview.receiptId, values: actual };
+      recordAssertion(report, 'j04-observation-preview-materializes-missing-and-null-as-null-cells', expected, actual);
+
+      const previewOutputId = preview.outputId ?? outputId;
+      if (!preview.receiptId || previewOutputId !== outputId) {
+        throw new Error(`J04 source-presence Preview returned an invalid receipt/output identity: ${JSON.stringify({ receiptId: preview.receiptId, previewOutputId, outputId })}`);
+      }
+      const requestCellTrace = async (rowId, column) => {
+        const result = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/cell-trace`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ receiptId: preview.receiptId, outputId: previewOutputId, rowId, column, limit: 10 }),
+          timeout: 30000,
+        });
+        if (result.response.status !== 200 || !result.value?.trace) {
+          throw new Error(`J04 receipt-bound CellTrace failed for row ${rowId}, column ${column}: HTTP ${result.response.status} ${JSON.stringify(result.value).slice(0, 1200)}`);
+        }
+        return result.value;
+      };
+      const cellTraces = [];
+      for (const item of controlPlan.observation.presenceCases) {
+        const authoredColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === item.fieldPath);
+        const previewColumn = authoredColumn && previewColumnForAuthored(authoredColumn);
+        if (!previewColumn) throw new Error(`J04 source-presence Preview omitted ${item.fieldPath} public column identity`);
+        const rowId = j04DefaultRecordCellTraceRowID(target.fixtureProject, target.fixtureGeneration, 'Observation', item.sourceRecordId);
+        const traceResponseJSON = await requestCellTrace(rowId, previewColumn.column);
+        const trace = traceResponseJSON.trace;
+        const identityTraceResponse = await requestCellTrace(rowId, previewID.column);
+        const identityTrace = identityTraceResponse.trace;
+        const identityEvidence = {
+          rowId: identityTrace.rowId,
+          status: identityTrace.status,
+          value: identityTrace.value,
+          contributors: (identityTrace.contributions ?? []).map(({ resourceType, resourceId, value }) => ({ resourceType, resourceId, value })),
+        };
+        if (identityEvidence.rowId !== rowId || identityEvidence.status !== 'VALUE'
+          || identityEvidence.value !== item.sourceRecordId || identityEvidence.contributors.length !== 1
+          || identityEvidence.contributors[0].resourceType !== 'Observation'
+          || identityEvidence.contributors[0].resourceId !== item.sourceRecordId
+          || identityEvidence.contributors[0].value !== item.sourceRecordId) {
+          throw new Error(`J04 CellTrace row identity did not resolve to source Observation/${item.sourceRecordId}: ${JSON.stringify(identityEvidence)}`);
+        }
+        cellTraces.push({
+          sourceRecordId: item.sourceRecordId,
+          fieldPath: item.fieldPath,
+          rowId,
+          traceRowId: trace.rowId,
+          column: previewColumn.column,
+          outputId: previewOutputId,
+          receiptId: preview.receiptId,
+          binding: traceResponseJSON.binding,
+          feature: traceResponseJSON.feature,
+          status: trace.status,
+          value: trace.value,
+          contributors: (trace.contributions ?? []).map(({ resourceType, resourceId, value }) => ({ resourceType, resourceId, value })),
+          complete: trace.complete,
+          identityTrace: identityEvidence,
+        });
+      }
+      const expectedTraces = controlPlan.observation.presenceCases.map((item) => {
+        const cell = cellTraces.find((candidate) => candidate.sourceRecordId === item.sourceRecordId);
+        const common = {
+          sourceRecordId: item.sourceRecordId,
+          fieldPath: item.fieldPath,
+          rowId: cell?.rowId,
+          traceRowId: cell?.rowId,
+          column: cell?.column,
+          outputId: previewOutputId,
+          receiptId: preview.receiptId,
+        };
+        const identityTrace = {
+          rowId: cell?.rowId,
+          status: 'VALUE',
+          value: item.sourceRecordId,
+          contributors: [{ resourceType: 'Observation', resourceId: item.sourceRecordId, value: item.sourceRecordId }],
+        };
+        if (item.presence === 'missing' || item.presence === 'null') {
+          return { ...common, status: 'NO_MATCH', value: null, contributors: [], complete: true, identityTrace };
+        }
+        return {
+          ...common,
+          status: 'VALUE',
+          value: item.value,
+          contributors: [{ resourceType: 'Observation', resourceId: item.sourceRecordId, value: item.value }],
+          complete: true,
+          identityTrace,
+        };
+      });
+      const actualTraces = cellTraces.map(({ sourceRecordId, fieldPath, rowId, traceRowId, column, outputId: traceOutputId, receiptId, status, value, contributors, complete, identityTrace }) => ({
+        sourceRecordId, fieldPath, rowId, traceRowId, column, outputId: traceOutputId, receiptId, status, value, contributors, complete, identityTrace,
+      }));
+      recordAssertion(report, 'j04-observation-cell-trace-proves-literals-and-exact-source-row-identities', expectedTraces, actualTraces);
+      report.target.fixtureExplicitNullCellTrace = 'NO_MATCH; exact source row is independently confirmed by its id-column VALUE trace';
+      report.target.sourcePresenceEvidence = { previewReceiptId: preview.receiptId, previewOutputId, previewValues: actual, cellTraces };
       await captureDOM('j04-observation-source-preview-presence');
       await navigate(cdp, builderURL);
       await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]'))`, 60000);

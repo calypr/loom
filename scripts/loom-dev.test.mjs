@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -338,6 +338,18 @@ test('development commands use the current Go authoring semantics version', () =
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4ctgo1-4a680895', 'fixture-v1'), 172.5);
   assert.equal(expectedFixtureRelatedValue('loom_dev_verify_mu4d6n33-4abffd57', 'fixture-v1'), 180);
+});
+
+test('J04 cell-trace identity matches the generation-qualified default row key contract', () => {
+  assert.equal(
+    j04DefaultRecordCellTraceRowID('loom_dev_verify_sample-12345678', 'fixture-v1', 'Observation', 'j04-scalar-null'),
+    'fa57df4194a5b84dba53099505ef7bab8904aefbdf473f2bb27619b7dcec1bda',
+  );
+  assert.notEqual(
+    j04DefaultRecordCellTraceRowID('loom_dev_verify_sample-12345678', 'fixture-v1', 'Observation', 'j04-scalar-null'),
+    j04DefaultRecordCellTraceRowID('loom_dev_verify_sample-12345678', 'fixture-v1', 'Observation', 'j04-scalar-missing'),
+  );
+  assert.throws(() => j04DefaultRecordCellTraceRowID('project', '', 'Observation', 'record'), /requires project, generation/);
 });
 
 test('development session defaults to isolated names, ports, and fixture', () => {
