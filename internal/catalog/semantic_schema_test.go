@@ -44,7 +44,7 @@ func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *tes
 		}},
 		{Name: "Extension", Elements: []schema.Element{
 			{Name: "url", JSONType: "string"},
-			{Name: "valueString", JSONType: "string", ChoiceGroup: "extension-value"},
+			{Name: "valueString", JSONType: "string", ChoiceGroup: "value"},
 		}},
 	})
 	if err != nil {
@@ -97,6 +97,84 @@ func TestSchemaSemanticDiscoveryUsesResolvedDatatypesUnderUnfamiliarNames(t *tes
 	}
 	if fmt.Sprint(extension.observation.ExtensionURLPath) != "[urn:addon]" {
 		t.Fatalf("extension ancestry = %#v", extension.observation.ExtensionURLPath)
+	}
+}
+
+func TestSchemaSemanticDiscoveryEmitsStandaloneCategoricalDatatypes(t *testing.T) {
+	index, err := schema.NewIndex([]schema.Definition{
+		{
+			Name: "SignalEnvelope",
+			Elements: []schema.Element{
+				{Name: "unusualTerms", JSONType: schema.JSONTypeArray, ArrayElementType: "CodeableConcept"},
+				{Name: "observations", JSONType: schema.JSONTypeArray, ArrayElementType: "SignalReading"},
+				{Name: "unusualCoding", JSONType: schema.JSONTypeObject, ReferencedType: "Coding"},
+			},
+		},
+		{
+			Name: "SignalReading",
+			Elements: []schema.Element{
+				{Name: "measuredValue", JSONType: schema.JSONTypeObject, ReferencedType: "Quantity", ChoiceGroup: "reading"},
+			},
+		},
+		{Name: "CodeableConcept", Elements: []schema.Element{
+			{Name: "coding", JSONType: schema.JSONTypeArray, ArrayElementType: "Coding"},
+			{Name: "text", JSONType: "string"},
+		}},
+		{Name: "Coding", Elements: []schema.Element{
+			{Name: "system", JSONType: "string"},
+			{Name: "version", JSONType: "string"},
+			{Name: "code", JSONType: "string"},
+			{Name: "display", JSONType: "string"},
+		}},
+		{Name: "Quantity", Elements: []schema.Element{
+			{Name: "value", JSONType: "number"},
+			{Name: "unit", JSONType: "string"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	p := NewProfilerForGeneration("project", "generation", "scope", "SignalEnvelope", nil)
+	payload := map[string]any{
+		"unusualTerms": []any{
+			map[string]any{"coding": []any{map[string]any{"system": "urn:custom", "version": "r7", "code": "alpha", "display": "Alpha"}}},
+			map[string]any{"text": "Plain label"},
+		},
+		"observations":  []any{map[string]any{"measuredValue": map[string]any{"value": 7.0, "unit": "mg"}}},
+		"unusualCoding": map[string]any{"system": "urn:direct", "version": "d2", "code": "beta", "display": "Beta"},
+	}
+	var observations []schemaSemanticEmission
+	if err := p.observeSchemaSemantics(index, payload, "", func(observation SemanticObservation, examples []any) {
+		observations = append(observations, schemaSemanticEmission{observation: observation, examples: examples})
+	}); err != nil {
+		t.Fatalf("observeSchemaSemantics: %v", err)
+	}
+
+	var concept, direct, textOnly int
+	for _, emission := range observations {
+		observation := emission.observation
+		switch observation.RuleHint {
+		case SemanticRuleHintCategoricalCodeV1:
+			switch observation.Source.Path {
+			case "unusualTerms[]":
+				if observation.Key.System == "urn:custom" && observation.Key.Version == "r7" && observation.Key.Code == "alpha" && observation.Key.Display == "Alpha" && observation.Key.Selector == "unusualTerms[].coding[]" && observation.Value.Selector == "unusualTerms[].coding[].code" {
+					concept++
+				}
+			case "unusualCoding":
+				if observation.Key.System == "urn:direct" && observation.Key.Version == "d2" && observation.Key.Code == "beta" && observation.Key.Display == "Beta" && observation.Key.Selector == "unusualCoding" && observation.Value.Selector == "unusualCoding.code" {
+					direct++
+				}
+			}
+		case SemanticRuleHintCategoricalTextV1:
+			if observation.Source.Path == "unusualTerms[]" && observation.Key.Display == "Plain label" && observation.Value.Selector == "unusualTerms[].text" {
+				textOnly++
+			}
+		case SemanticRuleHintCodedValueV1:
+			t.Fatalf("unrelated repeated category and value were paired: %#v", observation)
+		}
+	}
+	if concept != 1 || direct != 1 || textOnly != 1 {
+		t.Fatalf("standalone category counts concept/direct/text = %d/%d/%d, want 1 each; observations=%#v", concept, direct, textOnly, observations)
 	}
 }
 

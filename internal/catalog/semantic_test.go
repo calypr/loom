@@ -68,7 +68,7 @@ func TestSemanticObservationsUseGeneratedDatePrimitive(t *testing.T) {
 	}, map[string]float64{})
 	for _, document := range p.Documents() {
 		for _, observation := range document.SemanticObservations {
-			if observation.Key.Code != "observed-at" {
+			if observation.RuleHint != SemanticRuleHintCodedValueV1 || observation.Key.Code != "observed-at" {
 				continue
 			}
 			if observation.Value.Selector != "valueDateTime" || observation.Value.Type != "date_time" || observation.LogicalType != "date_time" {

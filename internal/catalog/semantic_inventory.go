@@ -16,7 +16,7 @@ const (
 	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
 	SemanticInventorySchemaVersion     = 1
 	SemanticInventoryEntryIndexVersion = 2
-	SemanticObservationRuleVersion     = 4
+	SemanticObservationRuleVersion     = 5
 	SemanticInventoryPageLimit         = 50
 	SemanticInventorySourceFile        = "file"
 	SemanticInventorySourceRetained    = "retained_vertex"

@@ -17,15 +17,22 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 		contributions = append(contributions, contribution)
 	})
 
-	if len(contributions) != 1000 {
-		t.Fatalf("inventory contributions = %d, want all 1000 concepts", len(contributions))
+	if len(contributions) != 2000 {
+		t.Fatalf("inventory contributions = %d, want 1000 standalone categories plus 1000 coded values", len(contributions))
 	}
 	conceptIDs := make(map[string]struct{}, len(contributions))
 	bindingIDs := make(map[string]struct{}, len(contributions))
 	keys := make(map[string]struct{}, len(contributions))
+	categoryCount, codedValueCount := 0, 0
 	for _, contribution := range contributions {
 		conceptIDs[contribution.ConceptID] = struct{}{}
 		bindingIDs[contribution.BindingID] = struct{}{}
+		switch contribution.Observation.RuleHint {
+		case SemanticRuleHintCategoricalCodeV1:
+			categoryCount++
+		case SemanticRuleHintCodedValueV1:
+			codedValueCount++
+		}
 		if _, duplicate := keys[contribution.Key]; duplicate {
 			t.Fatalf("duplicate contribution key %q", contribution.Key)
 		}
@@ -37,8 +44,11 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 	if len(conceptIDs) != 1000 {
 		t.Fatalf("unique concept IDs = %d, want 1000", len(conceptIDs))
 	}
-	if len(bindingIDs) != 1 {
-		t.Fatalf("unique binding IDs = %d, want one structural binding", len(bindingIDs))
+	if categoryCount != 1000 || codedValueCount != 1000 {
+		t.Fatalf("standalone category/coded-value contributions = %d/%d, want 1000 each", categoryCount, codedValueCount)
+	}
+	if len(bindingIDs) != 2 {
+		t.Fatalf("unique binding IDs = %d, want one structural binding per semantic rule", len(bindingIDs))
 	}
 
 	var legacyObservations int
@@ -67,8 +77,8 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution SemanticInventoryContribution) {
 		contributions = append(contributions, contribution)
 	})
-	if len(contributions) != 1000 {
-		t.Fatalf("retained emitter events = %d, want 1000 concepts", len(contributions))
+	if len(contributions) != 2000 {
+		t.Fatalf("retained emitter events = %d, want both standalone category and coded-value observations", len(contributions))
 	}
 	concepts := map[string]struct{}{}
 	for _, contribution := range contributions {
