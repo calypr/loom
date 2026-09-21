@@ -1923,7 +1923,7 @@ components:
       additionalProperties: false
       required: [operation]
       properties:
-        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, EXISTS, CONTAINS_ALL, REQUIRE_ONE, COLLECT, FIRST_ORDERED]}
+        operation: {type: string, enum: [COUNT, COUNT_DISTINCT, DISTINCT_VALUES, MIN, MAX, SUM, MEAN, EXISTS, CONTAINS_ALL, REQUIRE_ONE, COLLECT, FIRST_ORDERED]}
         path: {type: string}
         requiredValues:
           type: array

@@ -32,6 +32,14 @@ func TestGeneratedColumnSourceKindHasOnlySupportedGenericSources(t *testing.T) {
 	}
 }
 
+func TestGeneratedAggregateSourceOperationIncludesNumericAggregates(t *testing.T) {
+	for _, operation := range []loomapi.AggregateSourceOperation{"SUM", "MEAN"} {
+		if !operation.Valid() {
+			t.Errorf("generated API enum does not recognize %q", operation)
+		}
+	}
+}
+
 func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
 	digest := sha256.Sum256([]byte(string(scope.Mode) + "\x00/allowed"))
