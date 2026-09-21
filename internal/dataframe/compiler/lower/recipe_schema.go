@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
@@ -23,7 +24,7 @@ import (
 // identity and bounded dynamic projections have been appended. Semantic
 // metadata is used only to enrich those already-finalized projections with
 // logical type/cardinality information.
-func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]expression.Type) ([]CompiledOutputColumn, error) {
+func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]derivedColumnMetadata) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
 		return []CompiledOutputColumn{
 			{Name: "group_revision_id", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
@@ -42,20 +43,20 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: string(expression.OptionalOne), Nullable: true, Discovered: dynamic.Discovered}
 	}
-	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool) {
+	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		if strings.TrimSpace(name) == "" {
 			return
 		}
 		if existing, exists := logical[name]; exists {
 			// Explicit declarations win collisions under overwrite policies.
 			if existing.Discovered && !discovered {
-				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: false}
+				logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: false}
 			}
 			return
 		}
-		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: discovered}
+		logical[name] = CompiledOutputColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, NormalizedUnit: cloneUnitIdentity(normalizedUnit), Discovered: discovered}
 	}
-	addType := func(name, semanticPath string, typ expression.Type, discovered bool) {
+	addType := func(name, semanticPath string, typ expression.Type, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		kind := string(typ.Kind)
 		if kind == "" {
 			kind = string(expression.KindString)
@@ -64,13 +65,13 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		if cardinality == "" {
 			cardinality = string(expression.RequiredOne)
 		}
-		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered)
+		addLogical(name, semanticPath, kind, cardinality, typ.Cardinality.Optional(), discovered, normalizedUnit)
 	}
 	var addNode func(semantic.SemanticNode, string)
 	addNode = func(node semantic.SemanticNode, prefix string) {
 		for _, field := range node.Fields {
 			name := prefix + field.Name
-			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered)
+			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered, nil)
 		}
 		for _, aggregate := range node.Aggregates {
 			name := aggregate.Name
@@ -90,7 +91,12 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if aggregate.Operation == string(recipe.AggregateMin) || aggregate.Operation == string(recipe.AggregateMax) || aggregate.Operation == string(recipe.AggregateSum) || aggregate.Operation == string(recipe.AggregateMean) {
 				cardinality = expression.OptionalOne
 			}
-			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false)
+			var normalizedUnit *unit.UnitIdentity
+			if aggregate.UnitNormalization != nil {
+				target := aggregate.UnitNormalization.Target
+				normalizedUnit = &target
+			}
+			addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, aggregate.FieldRef, expression.Expression{}), string(kind), string(cardinality), true, false, normalizedUnit)
 		}
 		for _, pivot := range node.Pivots {
 			kind := pivot.ValueKind
@@ -102,14 +108,14 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				if alias, ok := pivot.ColumnAliases[column]; ok {
 					name = prefix + alias
 				}
-				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered)
+				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered, nil)
 			}
 		}
 		for _, ownerRecords := range node.OwnerRecords {
-			addLogical(prefix+ownerRecords.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, ownerRecords.FieldRef, expression.Expression{}), string(expression.KindObject), string(expression.Many), true, false)
+			addLogical(prefix+ownerRecords.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, ownerRecords.FieldRef, expression.Expression{}), string(expression.KindObject), string(expression.Many), true, false, nil)
 		}
 		for _, slice := range node.Slices {
-			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false)
+			addLogical(prefix+slice.Name, recipeSemanticPath(output.RootResourceType, node.ResourceType, "", expression.Expression{})+"."+slice.Name, string(expression.KindObject), string(expression.RequiredOne), true, false, nil)
 		}
 		for _, child := range node.Children {
 			childPrefix := traversalColumnPrefix(output.TraversalColumnNaming, prefix, child.Alias)
@@ -119,7 +125,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 	addNode(output.Root, "")
 	for _, derived := range output.DerivedColumns {
 		if typ, ok := derivedTypes[derived.Name]; ok {
-			addType(derived.Name, "derived:"+derived.ConstructionID, typ, false)
+			addType(derived.Name, "derived:"+derived.ConstructionID, typ.Type, false, typ.NormalizedUnit)
 		}
 	}
 

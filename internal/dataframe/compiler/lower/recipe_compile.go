@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 // CompiledRecipe is orchestration metadata around one canonical physical plan
@@ -71,9 +72,29 @@ type CompiledOutputColumn struct {
 	Kind         string
 	Cardinality  string
 	Nullable     bool
-	Internal     bool
-	Identity     bool
-	Discovered   bool
+	// NormalizedUnit is the compiler-resolved identity of the value in this
+	// column. It does not describe source conversion rules or selectors.
+	NormalizedUnit *unit.UnitIdentity
+	Internal       bool
+	Identity       bool
+	Discovered     bool
+}
+
+// CloneCompiledOutputSchema copies output metadata, including optional unit identities.
+func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputColumn {
+	cloned := append([]CompiledOutputColumn(nil), columns...)
+	for index := range cloned {
+		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+	}
+	return cloned
+}
+
+func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
+	if identity == nil {
+		return nil
+	}
+	cloned := *identity
+	return &cloned
 }
 
 type DynamicColumnMetadata struct {

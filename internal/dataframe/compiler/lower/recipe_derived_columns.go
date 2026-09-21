@@ -6,9 +6,21 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
-func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedColumn, baseSchema []CompiledOutputColumn) (map[string]expression.Type, error) {
+type derivedColumnMetadata struct {
+	Type           expression.Type
+	NormalizedUnit *unit.UnitIdentity
+}
+
+type derivedOperandValue struct {
+	Expression ir.PhysicalExpression
+	Type       expression.Type
+	Unit       unit.ArithmeticOperand
+}
+
+func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedColumn, baseSchema []CompiledOutputColumn) (map[string]derivedColumnMetadata, error) {
 	if len(columns) == 0 {
 		return nil, nil
 	}
@@ -56,59 +68,72 @@ func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedC
 	}
 	baseVariables := make(map[string]string)
 	derivedVariables := make(map[string]string, len(columns))
-	derivedTypes := make(map[string]expression.Type, len(columns))
+	derivedTypes := make(map[string]derivedColumnMetadata, len(columns))
 	state := make(map[string]uint8, len(columns))
 	lets := make([]ir.PhysicalOperation, 0, len(columns)*2)
 
 	var compileDerived func(string) error
-	var compileOperand func(recipe.DerivedOperand, string) (ir.PhysicalExpression, expression.Type, error)
-	compileOperand = func(operand recipe.DerivedOperand, owner string) (ir.PhysicalExpression, expression.Type, error) {
+	var compileOperand func(recipe.DerivedOperand, string) (derivedOperandValue, error)
+	compileOperand = func(operand recipe.DerivedOperand, owner string) (derivedOperandValue, error) {
 		switch operand.Kind {
 		case recipe.DerivedColumnOperand:
 			if derived, exists := derivedByName[operand.Column]; exists {
 				if err := compileDerived(derived.Name); err != nil {
-					return ir.PhysicalExpression{}, expression.Type{}, err
+					return derivedOperandValue{}, err
 				}
-				return derivedVariableExpression(derivedVariables[derived.Name]), derivedTypes[derived.Name], nil
+				metadata := derivedTypes[derived.Name]
+				return derivedOperandValue{
+					Expression: derivedVariableExpression(derivedVariables[derived.Name]),
+					Type:       metadata.Type,
+					Unit:       unit.ColumnArithmeticOperand(metadata.NormalizedUnit),
+				}, nil
 			}
 			metadata, exists := baseTypes[operand.Column]
 			if !exists || metadata.Internal {
-				return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q references unknown public output column %q", owner, operand.Column)
+				return derivedOperandValue{}, fmt.Errorf("derived column %q references unknown public output column %q", owner, operand.Column)
 			}
 			if metadata.Cardinality == string(expression.Many) {
-				return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q input %q is repeated", owner, operand.Column)
+				return derivedOperandValue{}, fmt.Errorf("derived column %q input %q is repeated", owner, operand.Column)
 			}
 			kind := expression.ValueKind(metadata.Kind)
 			if kind != expression.KindInteger && kind != expression.KindDecimal {
-				return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q input %q must be integer or decimal, got %s", owner, operand.Column, kind)
+				return derivedOperandValue{}, fmt.Errorf("derived column %q input %q must be integer or decimal, got %s", owner, operand.Column, kind)
 			}
 			cardinality := expression.Cardinality(metadata.Cardinality)
 			if cardinality != expression.RequiredOne && cardinality != expression.OptionalOne {
-				return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q input %q has unsupported cardinality %q", owner, operand.Column, metadata.Cardinality)
+				return derivedOperandValue{}, fmt.Errorf("derived column %q input %q has unsupported cardinality %q", owner, operand.Column, metadata.Cardinality)
 			}
 			variable, exists := baseVariables[operand.Column]
 			if !exists {
 				projectionIndex, found := projectionIndexes[operand.Column]
 				if !found {
-					return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q input %q has no physical projection", owner, operand.Column)
+					return derivedOperandValue{}, fmt.Errorf("derived column %q input %q has no physical projection", owner, operand.Column)
 				}
 				projection := plan.Operations[returnIndex].Return.Projections[projectionIndex]
 				if projection.Hidden {
-					return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q input %q is hidden", owner, operand.Column)
+					return derivedOperandValue{}, fmt.Errorf("derived column %q input %q is hidden", owner, operand.Column)
 				}
 				input := physicalProjectionExpression(projection)
 				variable = allocateVariable()
 				baseVariables[operand.Column] = variable
 				lets = append(lets, recipeDerivedLet(variable, input))
 			}
-			return derivedVariableExpression(variable), expression.Type{Kind: kind, Cardinality: cardinality}, nil
+			return derivedOperandValue{
+				Expression: derivedVariableExpression(variable),
+				Type:       expression.Type{Kind: kind, Cardinality: cardinality},
+				Unit:       unit.ColumnArithmeticOperand(metadata.NormalizedUnit),
+			}, nil
 		case recipe.DerivedLiteralOperand:
 			if operand.Literal == nil {
-				return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q has no literal payload", owner)
+				return derivedOperandValue{}, fmt.Errorf("derived column %q has no literal payload", owner)
 			}
-			return derivedLiteralExpression(plan.BindVars, *operand.Literal)
+			value, typ, err := derivedLiteralExpression(plan.BindVars, *operand.Literal)
+			if err != nil {
+				return derivedOperandValue{}, err
+			}
+			return derivedOperandValue{Expression: value, Type: typ, Unit: unit.LiteralArithmeticOperand()}, nil
 		default:
-			return ir.PhysicalExpression{}, expression.Type{}, fmt.Errorf("derived column %q has unsupported operand kind %q", owner, operand.Kind)
+			return derivedOperandValue{}, fmt.Errorf("derived column %q has unsupported operand kind %q", owner, operand.Kind)
 		}
 	}
 	compileDerived = func(name string) error {
@@ -123,33 +148,37 @@ func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedC
 			return fmt.Errorf("unknown derived column %q", name)
 		}
 		state[name] = 1
-		left, leftType, err := compileOperand(column.Left, name)
+		left, err := compileOperand(column.Left, name)
 		if err != nil {
 			return fmt.Errorf("derived column %q left: %w", name, err)
 		}
-		right, rightType, err := compileOperand(column.Right, name)
+		right, err := compileOperand(column.Right, name)
 		if err != nil {
 			return fmt.Errorf("derived column %q right: %w", name, err)
 		}
-		if leftType.Kind != expression.KindInteger && leftType.Kind != expression.KindDecimal {
-			return fmt.Errorf("derived column %q left operand must be numeric, got %s", name, leftType.Kind)
+		if left.Type.Kind != expression.KindInteger && left.Type.Kind != expression.KindDecimal {
+			return fmt.Errorf("derived column %q left operand must be numeric, got %s", name, left.Type.Kind)
 		}
-		if rightType.Kind != expression.KindInteger && rightType.Kind != expression.KindDecimal {
-			return fmt.Errorf("derived column %q right operand must be numeric, got %s", name, rightType.Kind)
+		if right.Type.Kind != expression.KindInteger && right.Type.Kind != expression.KindDecimal {
+			return fmt.Errorf("derived column %q right operand must be numeric, got %s", name, right.Type.Kind)
+		}
+		resultUnit, err := unit.ResolveArithmeticUnit(derivedArithmeticOperation(column.Operation), left.Unit, right.Unit)
+		if err != nil {
+			return fmt.Errorf("derived column %q unit compatibility: %w", name, err)
 		}
 		resultKind := expression.KindDecimal
-		if column.Operation != recipe.DerivedDivide && leftType.Kind == expression.KindInteger && rightType.Kind == expression.KindInteger {
+		if column.Operation != recipe.DerivedDivide && left.Type.Kind == expression.KindInteger && right.Type.Kind == expression.KindInteger {
 			resultKind = expression.KindInteger
 		}
 		cardinality := expression.RequiredOne
 		if column.MissingInputPolicy == recipe.MissingInputPropagateNull || column.Operation == recipe.DerivedDivide && column.DivisionByZeroPolicy == recipe.DivisionByZeroNull {
 			cardinality = expression.OptionalOne
 		}
-		value := derivedArithmeticExpression(plan.BindVars, column, left, right)
+		value := derivedArithmeticExpression(plan.BindVars, column, left.Expression, right.Expression)
 		variable := allocateVariable()
 		lets = append(lets, recipeDerivedLet(variable, value))
 		derivedVariables[name] = variable
-		derivedTypes[name] = expression.Type{Kind: resultKind, Cardinality: cardinality}
+		derivedTypes[name] = derivedColumnMetadata{Type: expression.Type{Kind: resultKind, Cardinality: cardinality}, NormalizedUnit: resultUnit}
 		state[name] = 2
 		return nil
 	}
@@ -171,6 +200,21 @@ func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedC
 	operations = append(operations, plan.Operations[returnIndex:]...)
 	plan.Operations = operations
 	return derivedTypes, nil
+}
+
+func derivedArithmeticOperation(operation recipe.DerivedOperation) unit.ArithmeticOperation {
+	switch operation {
+	case recipe.DerivedAdd:
+		return unit.ArithmeticAdd
+	case recipe.DerivedSubtract:
+		return unit.ArithmeticSubtract
+	case recipe.DerivedMultiply:
+		return unit.ArithmeticMultiply
+	case recipe.DerivedDivide:
+		return unit.ArithmeticDivide
+	default:
+		return 0
+	}
 }
 
 func physicalProjectionExpression(projection ir.PhysicalProjection) ir.PhysicalExpression {

@@ -65,7 +65,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if len(output.Columns) != 0 {
 		columns = append([]string(nil), output.Columns...)
 	}
-	outputSchema := append([]lower.CompiledOutputColumn(nil), output.OutputSchema...)
+	outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
 	publicColumns := publicOutputColumns(outputSchema)
 	if len(publicColumns) == 0 {
 		for _, column := range columns {

@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/unit"
 )
 
 func TestCompileResolvedRecipePlanLowersTypedDerivedColumnsAfterTransforms(t *testing.T) {
@@ -103,6 +104,85 @@ func TestCompileResolvedRecipePlanRejectsNonNumericAndUnknownDerivedInputs(t *te
 				t.Fatalf("compile error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestCompileResolvedRecipePlanCarriesNormalizedUnitsThroughChainedDerivedColumns(t *testing.T) {
+	target := unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}
+	output := recipe.Output{
+		Name: "observations", RootResourceType: "Observation", RowGrain: "observation",
+		Aggregates: []recipe.Aggregate{{
+			Name: "height", Operation: recipe.AggregateMax,
+			Expr: &recipe.Expression{Select: "root.valueQuantity.value"},
+			UnitNormalization: &recipe.UnitNormalizationPolicy{
+				SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code", Target: target,
+				Rules: []unit.UnitRuleReference{{ID: "ucum:m-to-cm", Version: "1"}, {ID: "identity-v1", Version: "1"}},
+			},
+		}},
+		DerivedColumns: []recipe.DerivedColumn{
+			{
+				ConstructionID: "calc_scaled", Name: "scaled_height", Label: "Scaled height", Operation: recipe.DerivedMultiply,
+				Left: recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "height"}, Right: integerDerivedOperand(2),
+				MissingInputPolicy: recipe.MissingInputError,
+			},
+			{
+				ConstructionID: "calc_total", Name: "total_height", Label: "Total height", Operation: recipe.DerivedAdd,
+				Left: recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "scaled_height"}, Right: recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "height"},
+				MissingInputPolicy: recipe.MissingInputError,
+			},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	for _, name := range []string{"height", "scaled_height", "total_height"} {
+		column, found := outputSchemaColumn(compiled.OutputSchema, name)
+		if !found {
+			t.Fatalf("output schema is missing %q: %#v", name, compiled.OutputSchema)
+		}
+		if column.NormalizedUnit == nil || !column.NormalizedUnit.Equal(target) {
+			t.Fatalf("normalized unit for %q = %#v, want %#v", name, column.NormalizedUnit, target)
+		}
+	}
+}
+
+func TestCompileResolvedRecipePlanRejectsMismatchedAggregateUnits(t *testing.T) {
+	policy := func(target unit.UnitIdentity, rule string) *recipe.UnitNormalizationPolicy {
+		rules := []unit.UnitRuleReference{{ID: "identity-v1", Version: "1"}}
+		if rule != "" {
+			rules = append(rules, unit.UnitRuleReference{ID: rule, Version: "1"})
+		}
+		return &recipe.UnitNormalizationPolicy{
+			SystemPath: "valueQuantity.system", CodePath: "valueQuantity.code", Target: target,
+			Rules: rules,
+		}
+	}
+	output := recipe.Output{
+		Name: "observations", RootResourceType: "Observation", RowGrain: "observation",
+		Aggregates: []recipe.Aggregate{
+			{Name: "height", Operation: recipe.AggregateMax, Expr: &recipe.Expression{Select: "root.valueQuantity.value"}, UnitNormalization: policy(unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}, "ucum:m-to-cm")},
+			{Name: "mass", Operation: recipe.AggregateMax, Expr: &recipe.Expression{Select: "root.valueQuantity.value"}, UnitNormalization: policy(unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}, "")},
+		},
+		DerivedColumns: []recipe.DerivedColumn{{
+			ConstructionID: "calc_sum", Name: "sum", Label: "Sum", Operation: recipe.DerivedAdd,
+			Left: recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "height"}, Right: recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "mass"},
+			MissingInputPolicy: recipe.MissingInputError,
+		}},
+	}
+	if _, err := compileDerivedTestBundle(t, output); err == nil || !strings.Contains(err.Error(), "INCOMPATIBLE_UNITS") {
+		t.Fatalf("compile error = %v, want unit identity incompatibility", err)
+	}
+}
+
+func TestCloneCompiledOutputSchemaCopiesNormalizedUnitIdentity(t *testing.T) {
+	identity := unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "cm"}
+	source := []CompiledOutputColumn{{Name: "height", NormalizedUnit: &identity}}
+	cloned := CloneCompiledOutputSchema(source)
+	if cloned[0].NormalizedUnit == source[0].NormalizedUnit {
+		t.Fatal("cloned schema shares its normalized unit pointer")
+	}
+	source[0].NormalizedUnit.Code = "m"
+	if cloned[0].NormalizedUnit.Code != "cm" {
+		t.Fatalf("cloned unit identity changed with source: %#v", cloned[0].NormalizedUnit)
 	}
 }
 
