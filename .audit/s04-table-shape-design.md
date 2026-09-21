@@ -98,22 +98,38 @@ Pivot evidence records the category and value contributors selected by the dupli
 
 ## Proposal lifecycle
 
-The capability read is scoped to the project, Explorer, output, snapshot token, draft version, and draft digest. It returns opaque choices, complete frozen categories, valid policies, compatible operands, and exact refusal reasons.
+The capability flow uses immutable, content-addressed capability receipts. It does not use a mutable editor session. Each receipt is tenant-scoped and binds the project, Explorer, output, snapshot token, authorization scope, source generation, draft version, draft digest, base document digest, base compilation receipt, output fingerprint, and compiler schema digest.
 
-The proposal endpoint accepts an `ADD`, `REPLACE`, or `REMOVE` change. The server resolves the choice IDs, clones the workspace, changes only `Document.TableShape`, compiles a candidate receipt, and executes bounded before-and-after previews. The response labels sampled evidence.
+The first read returns one catalog capability receipt. It exposes public columns, reshape roles, operators, policies, and exact refusal reasons through opaque choice IDs. It does not return pivot categories. The server derives all choices from the compiler-owned final output schema.
+
+Selections that depend on other selections require an advance request. Each successful advance creates an immutable child resolution receipt:
+
+- A pivot resolution binds ordered group columns, one category column, one value column, the complete typed category set, and the valid policies.
+- An unpivot resolution binds the ordered compatible inputs, the result types, and the valid null-row policies.
+- A derived resolution binds the operator, two typed operands, the compiler-resolved result type and unit, and the valid missing-input and division-by-zero policies.
+
+A derived operand may reference a base-column choice or an earlier derived resolution receipt. This structure supports nested calculations without asking the browser to infer types or units.
+
+Pivot category discovery executes the exact compiled output. The query groups distinct states before applying the `maxPivotCategories + 1` bound. The compiler preserves property presence separately from value, so `0`, `false`, an empty string, recorded null, and missing remain distinct. A timeout, incomplete scan, lost presence bit, unsupported type, or 257th category returns a refusal and no selectable partial set.
+
+Capability and resolution receipt IDs are short store-backed references. The server does not put compiler payloads or category sets into browser-authored tokens. The records are create-once and content-addressed. A later garbage collector may remove stale records because every read and proposal revalidates the live draft, snapshot, authorization scope, output fingerprint, and schema digest.
+
+The browser authors public output names and labels for pivot categories, unpivot outputs, and derived outputs. The server suggests defaults but does not turn output names into closed choices. The server validates names, collisions, reserved names, and lengths when it resolves the proposal.
+
+The proposal endpoint accepts an `ADD`, `REPLACE`, or `REMOVE` change. `ADD` and `REPLACE` refer to the catalog and child resolution receipts plus user-authored output descriptors. They never carry `authoringv2.TableShape`. The server reauthorizes every receipt, assigns construction IDs, reconstructs the durable table shape, clones the workspace, changes only `Document.TableShape`, compiles a candidate receipt, and executes bounded before-and-after previews. The response labels sampled evidence.
 
 Apply sends only `APPLY_TABLE_SHAPE_PROPOSAL`, the output ID, and the proposal receipt ID. The command must be alone in its batch. The candidate receipt binds the draft version, draft digest, snapshot token, output ID, base document digest, and candidate workspace digest. Apply rejects stale or unrelated receipts and verifies that the candidate changed only the requested table shape.
 
 ## Implementation order
 
 1. Add strict authoring types, server construction IDs, clone and digest coverage, migration, and graph validation.
-2. Add server-owned capabilities and exact refusal codes.
+2. Add the compiler-owned complete category scanner and immutable capability receipt domain.
 3. Adapt the existing row-definition receipt proposal and apply flow.
 4. Add a distinct grouped-pivot semantic node and physical operation.
 5. Add flat derived definitions through semantic checking, physical validation, lowering, and AQL rendering.
 6. Add terminal unpivot as a distinct physical row operation.
 7. Extend output metadata, receipt contracts, and executed cell evidence.
-8. Update OpenAPI, generated Go, strict Zod schemas, and Builder controls.
+8. Update OpenAPI, generated Go, strict Zod schemas, and Builder controls. Keep the browser contract FHIR-agnostic and free of durable table-shape fields.
 9. Run J04 through the real controls, then compare Preview, Viewer, and the downloaded typed artifact.
 
 Each unit ends with focused executable checks. J04 must prove exact values, contributors, row identities, saved reload, an unrelated unchanged column, time and unit reduction, recoding, grouped pivot, and a derived column.
