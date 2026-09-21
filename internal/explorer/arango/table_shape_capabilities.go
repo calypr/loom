@@ -40,6 +40,9 @@ func (r *TableShapeCapabilityRepository) PutCatalog(ctx context.Context, receipt
 	}
 	var stored *tableshapecap.CatalogReceipt
 	err = r.client.QueryRows(ctx, tableShapeCapabilityInsertAQL, 1, map[string]interface{}{"@c": TableShapeCapabilitiesCollection, "doc": doc}, func(row map[string]interface{}) error {
+		if len(row) == 0 {
+			return nil
+		}
 		existing, decodeErr := decodeTableShapeCapabilityDocument(row)
 		if decodeErr != nil {
 			return fmt.Errorf("%w: %s: %v", tableshapecap.ErrIdentityClash, receipt.ID, decodeErr)
@@ -118,6 +121,9 @@ func (r *TableShapeCapabilityRepository) PutCategoryScan(ctx context.Context, re
 	}
 	var stored *tableshapecap.CategoryScanReceipt
 	err = r.client.QueryRows(ctx, tableShapeCapabilityInsertAQL, 1, map[string]interface{}{"@c": TableShapeCapabilitiesCollection, "doc": doc}, func(row map[string]interface{}) error {
+		if len(row) == 0 {
+			return nil
+		}
 		existing, decodeErr := decodeTableShapeCapabilityDocument(row)
 		if decodeErr != nil {
 			return fmt.Errorf("%w: %s: %v", tableshapecap.ErrIdentityClash, receipt.ID, decodeErr)
@@ -214,6 +220,9 @@ func (r *TableShapeCapabilityRepository) PutResolution(ctx context.Context, rece
 	}
 	var stored *tableshapecap.ResolutionReceipt
 	err = r.client.QueryRows(ctx, tableShapeCapabilityInsertAQL, 1, map[string]interface{}{"@c": TableShapeCapabilitiesCollection, "doc": doc}, func(row map[string]interface{}) error {
+		if len(row) == 0 {
+			return nil
+		}
 		existing, decodeErr := decodeTableShapeCapabilityDocument(row)
 		if decodeErr != nil {
 			return fmt.Errorf("%w: %s: %v", tableshapecap.ErrIdentityClash, receipt.ID, decodeErr)
