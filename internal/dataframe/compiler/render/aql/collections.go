@@ -528,6 +528,15 @@ func (r *physicalPlanRenderer) renderAggregateItems(aggregate *ir.PhysicalAggreg
 }
 
 func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.PhysicalAggregate, items string) (string, error) {
+	selection, err := r.renderFirstOrderedSelection(aggregate, items)
+	if err != nil {
+		return "", err
+	}
+	selected := r.newInternalVariable("temporal_selected_result")
+	return "FIRST(FOR " + selected + " IN [" + selection + "] RETURN " + selected + " == null ? null : " + selected + ".value)", nil
+}
+
+func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.PhysicalAggregate, items string) (string, error) {
 	if aggregate.Temporal == nil || aggregate.Value == nil {
 		return "", fmt.Errorf("FIRST_ORDERED requires value and temporal policy")
 	}
@@ -572,12 +581,12 @@ func (r *physicalPlanRenderer) renderFirstOrderedAggregate(aggregate *ir.Physica
 		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + lowerOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + lowerKey + ", \"second\"))" +
 		" FILTER DATE_TIMESTAMP(__loom_temporal_timestamp) " + upperOperator + " DATE_TIMESTAMP(DATE_ADD(" + anchorVariable + ", @" + upperKey + ", \"second\"))" +
 		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction + ", " + item + "._key ASC" +
-		" RETURN { value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
-	result := selectedVariable + " == null ? null : " + selectedVariable + ".value"
+		" RETURN { resourceType: " + item + ".resourceType, resourceId: " + item + ".id, value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
+	result := selectedVariable
 	if aggregate.Temporal.TiePolicy == "REQUIRE_UNIQUE" {
 		tie := r.newInternalVariable("temporal_tie")
 		ties := "LENGTH(FOR " + tie + " IN " + candidatesVariable + " FILTER DATE_TIMESTAMP(" + tie + ".timestamp) == DATE_TIMESTAMP(" + selectedVariable + ".timestamp) LIMIT 2 RETURN 1)"
-		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + ".value : null)"
+		result = selectedVariable + " == null ? null : (ASSERT(" + ties + " <= 1, \"TEMPORAL_TIE_AMBIGUOUS\") ? " + selectedVariable + " : null)"
 	}
 	return "FIRST(FOR " + scopeVariable + " IN [1]" +
 		" LET " + anchorVariable + " = " + anchor +

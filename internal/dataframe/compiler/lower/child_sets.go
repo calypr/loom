@@ -325,7 +325,7 @@ func prepareRichChildSet(set *ir.PhysicalSet, resourceType string, projections [
 			return
 		}
 		annotateExtract := func(extract *ir.PhysicalExtract) {
-			if extract == nil || extract.Source.Variable != set.Variable {
+			if extract == nil || extract.Source.Variable != set.Variable || extract.UnitNormalization != nil {
 				return
 			}
 			// Fallback selectors are an ordered fallback chain. A prepared
@@ -415,6 +415,10 @@ func projectPhysicalChildSet(set *ir.PhysicalSet, resourceType string, projectio
 		switch expression.Kind {
 		case ir.PhysicalExtractExpression:
 			if expression.Extract == nil || expression.Extract.Source.Variable != set.Variable {
+				return
+			}
+			if expression.Extract.UnitNormalization != nil {
+				fallback = true
 				return
 			}
 			if len(expression.Extract.Fallbacks) != 0 {
