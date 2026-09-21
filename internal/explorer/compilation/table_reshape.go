@@ -26,7 +26,7 @@ func recipeTableReshape(shape *authoringv2.TableShape) (*recipe.TableReshape, er
 			Categories:             make([]recipe.GroupedPivotCategory, 0, len(authored.Categories)),
 		}
 		for _, category := range authored.Categories {
-			key, err := recipeTableScalar(category.Key)
+			key, err := recipeTableScalar(category.Key, tableScalarPivotCategoryKey)
 			if err != nil {
 				return nil, fmt.Errorf("pivot category %q: %w", category.Output.Column, err)
 			}
@@ -46,7 +46,7 @@ func recipeTableReshape(shape *authoringv2.TableShape) (*recipe.TableReshape, er
 			Inputs:        make([]recipe.UnpivotInput, 0, len(authored.Inputs)),
 		}
 		for _, input := range authored.Inputs {
-			key, err := recipeTableScalar(input.Key)
+			key, err := recipeTableScalar(input.Key, tableScalarUnpivotKey)
 			if err != nil {
 				return nil, fmt.Errorf("unpivot input %q: %w", input.Column, err)
 			}
@@ -58,8 +58,24 @@ func recipeTableReshape(shape *authoringv2.TableShape) (*recipe.TableReshape, er
 	}
 }
 
-func recipeTableScalar(value authoringv2.TableScalar) (recipe.TableScalar, error) {
-	if err := value.Validate(); err != nil {
+type tableScalarContext uint8
+
+const (
+	tableScalarPivotCategoryKey tableScalarContext = iota
+	tableScalarUnpivotKey
+)
+
+func recipeTableScalar(value authoringv2.TableScalar, context tableScalarContext) (recipe.TableScalar, error) {
+	var err error
+	switch context {
+	case tableScalarPivotCategoryKey:
+		err = value.ValidatePivotCategoryKey()
+	case tableScalarUnpivotKey:
+		err = value.ValidateConcreteValue()
+	default:
+		return recipe.TableScalar{}, fmt.Errorf("unsupported table scalar context %d", context)
+	}
+	if err != nil {
 		return recipe.TableScalar{}, err
 	}
 	return recipe.TableScalar{

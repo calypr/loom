@@ -1032,6 +1032,11 @@ func validatePhysicalProjection(projection PhysicalProjection, defined map[strin
 	if hasValue == hasExpression {
 		return fmt.Errorf("projection requires exactly one value or expression")
 	}
+	if projection.Presence != nil {
+		if err := validatePhysicalProjectionPresence(*projection.Presence, defined, bindVars); err != nil {
+			return fmt.Errorf("projection presence: %w", err)
+		}
+	}
 	if hasExpression {
 		return validatePhysicalExpression(*projection.Expression, defined, bindVars)
 	}

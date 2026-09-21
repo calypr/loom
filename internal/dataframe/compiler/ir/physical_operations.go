@@ -367,6 +367,19 @@ type PhysicalProjection struct {
 	Hidden     bool
 	Value      PhysicalValue
 	Expression *PhysicalExpression
+	// Presence preserves whether a source property existed before projection.
+	// It is metadata for row operations such as grouped pivot and is not itself
+	// emitted in the ordinary public projection.
+	Presence *PhysicalProjectionPresence
+}
+
+// PhysicalProjectionPresence is a closed property-presence proof for one or
+// more concrete selector paths rooted at the same physical value. Any path
+// being present makes the projected value present (for example, a selector
+// fallback that supplies the final value).
+type PhysicalProjectionPresence struct {
+	Source PhysicalValue
+	Paths  [][]string
 }
 
 type PhysicalReturn struct {
@@ -384,6 +397,8 @@ type PhysicalGroupedPivot struct {
 	InputProjections       []PhysicalProjection
 	GroupKeys              []PhysicalGroupedPivotKey
 	CategoryColumn         string
+	CategoryPresenceColumn string
+	CategoryPresence       *PhysicalProjectionPresence
 	CategoryType           string
 	ValueColumn            string
 	ValueType              string
@@ -402,10 +417,19 @@ type PhysicalGroupedPivotKey struct {
 }
 
 type PhysicalGroupedPivotCategory struct {
-	Output     string
-	KeyBindKey string
-	KeyKind    string
+	Output       string
+	MatchKind    PhysicalPivotCategoryMatchKind
+	ValueBindKey string
+	ValueKind    string
 }
+
+type PhysicalPivotCategoryMatchKind string
+
+const (
+	PhysicalPivotCategoryValueMatch   PhysicalPivotCategoryMatchKind = "VALUE"
+	PhysicalPivotCategoryNullMatch    PhysicalPivotCategoryMatchKind = "NULL"
+	PhysicalPivotCategoryMissingMatch PhysicalPivotCategoryMatchKind = "MISSING"
+)
 
 // PhysicalUnpivot is a terminal cardinality-changing row operation. Input
 // order defines emitted key/value rows; identity columns are copied from the

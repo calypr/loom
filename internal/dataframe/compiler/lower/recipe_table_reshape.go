@@ -119,6 +119,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = pivot.ConstructionID
 	usedVariables := physicalPlanVariables(plan.Operations)
+	categoryProjection := projections[pivot.CategoryColumn]
 	physical := ir.PhysicalGroupedPivot{
 		ConstructionID: pivot.ConstructionID, InputRowVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_input"),
 		GroupRowsVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_group_rows"), OutputRowVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_output"),
@@ -126,6 +127,10 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		CategoryColumn:   pivot.CategoryColumn, CategoryType: categoryType, ValueColumn: pivot.ValueColumn, ValueType: valueType,
 		ConstructionIDBindKey: constructionBind, DuplicatePolicy: string(pivot.DuplicatePolicy),
 		MissingCellPolicy: string(pivot.MissingCellPolicy), UnlistedCategoryPolicy: string(pivot.UnlistedCategoryPolicy),
+	}
+	if categoryProjection.Presence != nil {
+		physical.CategoryPresenceColumn = "__loom_reshape_category_present"
+		physical.CategoryPresence = categoryProjection.Presence
 	}
 	for _, name := range pivot.GroupKeys {
 		column, err := requireTableScalarColumn(name, schema, projections)
@@ -136,16 +141,36 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		physical.GroupKeys = append(physical.GroupKeys, ir.PhysicalGroupedPivotKey{Column: name, Variable: allocateRecipeReshapeVariable(usedVariables, "pivot_group"), Kind: kind})
 	}
 	for index, category := range pivot.Categories {
-		if string(category.Key.Kind) != categoryType {
-			return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d type %q does not match category column type %q", index, category.Key.Kind, categoryColumn.Kind)
+		physicalCategory := ir.PhysicalGroupedPivotCategory{Output: category.Output}
+		switch category.Key.Kind {
+		case recipe.TableScalarNull:
+			if err := category.Key.ValidatePivotCategoryKey(); err != nil {
+				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d: %w", index, err)
+			}
+			physicalCategory.MatchKind = ir.PhysicalPivotCategoryNullMatch
+		case recipe.TableScalarMissing:
+			if err := category.Key.ValidatePivotCategoryKey(); err != nil {
+				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d: %w", index, err)
+			}
+			if physical.CategoryPresence == nil {
+				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d MISSING requires a simple scalar selector with preserved property presence", index)
+			}
+			physicalCategory.MatchKind = ir.PhysicalPivotCategoryMissingMatch
+		default:
+			if string(category.Key.Kind) != categoryType {
+				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d type %q does not match category column type %q", index, category.Key.Kind, categoryColumn.Kind)
+			}
+			key, err := recipeTableScalarValue(category.Key)
+			if err != nil {
+				return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d: %w", index, err)
+			}
+			keyBind := nextTableReshapeBindKey(plan.BindVars, fmt.Sprintf("reshape_category_%d", index))
+			plan.BindVars[keyBind] = key
+			physicalCategory.MatchKind = ir.PhysicalPivotCategoryValueMatch
+			physicalCategory.ValueBindKey = keyBind
+			physicalCategory.ValueKind = string(category.Key.Kind)
 		}
-		key, err := recipeTableScalarValue(category.Key)
-		if err != nil {
-			return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category key %d: %w", index, err)
-		}
-		keyBind := nextTableReshapeBindKey(plan.BindVars, fmt.Sprintf("reshape_category_%d", index))
-		plan.BindVars[keyBind] = key
-		physical.Categories = append(physical.Categories, ir.PhysicalGroupedPivotCategory{Output: category.Output, KeyBindKey: keyBind, KeyKind: string(category.Key.Kind)})
+		physical.Categories = append(physical.Categories, physicalCategory)
 	}
 	if pivot.UnlistedCategoryPolicy == recipe.PivotUnlistedCategoryExcludeWithEvidence {
 		physical.UnlistedEvidenceColumn = "__loom_reshape_unlisted_count"
@@ -321,7 +346,7 @@ func tableReshapeScalarKind(kind string) (string, bool) {
 }
 
 func recipeTableScalarValue(scalar recipe.TableScalar) (any, error) {
-	if err := scalar.Validate(); err != nil {
+	if err := scalar.ValidateConcreteValue(); err != nil {
 		return nil, err
 	}
 	switch scalar.Kind {

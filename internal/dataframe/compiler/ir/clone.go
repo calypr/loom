@@ -390,6 +390,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		pivotCopy.InputProjections = clonePhysicalProjections(operation.GroupedPivot.InputProjections)
 		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
 		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
+		if operation.GroupedPivot.CategoryPresence != nil {
+			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)
+			pivotCopy.CategoryPresence = &presence
+		}
 		copy.GroupedPivot = &pivotCopy
 	}
 	if operation.Unpivot != nil {
@@ -417,8 +421,30 @@ func clonePhysicalProjections(projections []PhysicalProjection) []PhysicalProjec
 			expression := clonePhysicalExpression(*projection.Expression)
 			out[index].Expression = &expression
 		}
+		if projection.Presence != nil {
+			presence := clonePhysicalProjectionPresence(*projection.Presence)
+			out[index].Presence = &presence
+		}
 	}
 	return out
+}
+
+func clonePhysicalProjectionPresence(presence PhysicalProjectionPresence) PhysicalProjectionPresence {
+	return PhysicalProjectionPresence{
+		Source: clonePhysicalValue(presence.Source),
+		Paths:  cloneNestedStrings(presence.Paths),
+	}
+}
+
+func cloneNestedStrings(values [][]string) [][]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make([][]string, len(values))
+	for index, value := range values {
+		cloned[index] = append([]string(nil), value...)
+	}
+	return cloned
 }
 
 func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {

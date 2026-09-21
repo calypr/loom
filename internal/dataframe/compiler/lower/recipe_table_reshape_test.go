@@ -97,6 +97,177 @@ func TestCompileGroupedTablePivotRendersDuplicateAndMissingErrors(t *testing.T) 
 	}
 }
 
+func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *testing.T) {
+	output := tableReshapeTestOutput(&recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "shape_pivot_sentinels", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
+			Categories: []recipe.GroupedPivotCategory{
+				{Key: tableScalarInteger(0), Output: "zero", Label: "Zero"},
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Recorded null"},
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
+			},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	compiled := compileDerivedTestOutput(t, output)
+	pivot := compiledGroupedPivot(t, compiled.Plan)
+	if pivot.CategoryPresence == nil || pivot.CategoryPresenceColumn == "" {
+		t.Fatalf("pivot lost its source-property presence contract: %#v", pivot)
+	}
+	for _, name := range compiledSchemaNames(compiled.OutputSchema) {
+		if name == pivot.CategoryPresenceColumn {
+			t.Fatalf("internal presence sidecar %q leaked into output schema %#v", name, compiledSchemaNames(compiled.OutputSchema))
+		}
+	}
+	if !reflect.DeepEqual(pivot.CategoryPresence.Paths, [][]string{{"multipleBirthInteger"}}) {
+		t.Fatalf("category presence paths = %#v", pivot.CategoryPresence.Paths)
+	}
+	if pivot.Categories[0].MatchKind != ir.PhysicalPivotCategoryValueMatch || pivot.Categories[0].ValueBindKey == "" {
+		t.Fatalf("ordinary category did not lower to a typed value match: %#v", pivot.Categories[0])
+	}
+	for index, want := range []ir.PhysicalPivotCategoryMatchKind{ir.PhysicalPivotCategoryNullMatch, ir.PhysicalPivotCategoryMissingMatch} {
+		category := pivot.Categories[index+1]
+		if category.MatchKind != want || category.ValueBindKey != "" || category.ValueKind != "" {
+			t.Fatalf("sentinel category %d has bind-bearing or incorrect identity: %#v", index, category)
+		}
+	}
+	if err := compiled.Plan.Validate(); err != nil {
+		t.Fatalf("lowered sentinel plan failed physical validation: %v", err)
+	}
+	for _, test := range []struct {
+		name string
+		edit func(*ir.PhysicalPlan, *ir.PhysicalGroupedPivot)
+		want string
+	}{
+		{
+			name: "ordinary match requires value bind",
+			edit: func(_ *ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot) { pivot.Categories[0].ValueBindKey = "" },
+			want: "ordinary match requires a value bind",
+		},
+		{
+			name: "sentinel match forbids value bind",
+			edit: func(plan *ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot) {
+				pivot.Categories[1].ValueBindKey = "sentinel_value"
+				plan.BindVars["sentinel_value"] = nil
+			},
+			want: "sentinel match cannot carry a value bind",
+		},
+		{
+			name: "physical duplicate values use canonical identity",
+			edit: func(plan *ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot) {
+				plan.BindVars["duplicate_zero"] = int(0)
+				pivot.Categories[1].MatchKind = ir.PhysicalPivotCategoryValueMatch
+				pivot.Categories[1].ValueKind = "INTEGER"
+				pivot.Categories[1].ValueBindKey = "duplicate_zero"
+			},
+			want: "duplicates a frozen category key",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := ir.ClonePhysicalPlan(compiled.Plan)
+			pivot := compiledGroupedPivot(t, plan)
+			test.edit(&plan, pivot)
+			if err := plan.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("physical plan validation error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"IS_OBJECT(root.payload)", "HAS(root.payload, @", "MERGE({", "== null)", "NOT (", "TYPENAME("} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("sentinel pivot query missing presence/match expression %q: %s", expected, rendered.Query)
+		}
+	}
+	if !bindContainsExactValue(rendered.BindVars, pivot.CategoryPresenceColumn) {
+		t.Fatalf("presence sidecar %q is not carried through a bound property name: %#v", pivot.CategoryPresenceColumn, rendered.BindVars)
+	}
+	if !bindContainsExactValue(rendered.BindVars, "multipleBirthInteger") {
+		t.Fatalf("source category property name was not kept in a bind: %#v", rendered.BindVars)
+	}
+	if bindContainsExactValue(rendered.BindVars, nil) {
+		t.Fatalf("sentinel keys were encoded as null value binds: %#v", rendered.BindVars)
+	}
+	assertUnlistedCategoryScope(t, rendered.Query, pivot)
+
+	var nullCellMatch, missingCellMatch, unlistedFilter string
+	for _, line := range strings.Split(rendered.Query, "\n") {
+		switch {
+		case strings.Contains(line, " == null)") && strings.Contains(line, "reshape_cell_"):
+			nullCellMatch = line
+		case strings.Contains(line, "NOT (") && strings.Contains(line, "reshape_cell_"):
+			missingCellMatch = line
+		case strings.Contains(line, "FILTER NOT") && strings.Contains(line, "reshape_unlisted_item"):
+			unlistedFilter = line
+		}
+	}
+	if nullCellMatch == "" || missingCellMatch == "" || unlistedFilter == "" {
+		t.Fatalf("could not find cell and unlisted matcher lines: null=%q missing=%q unlisted=%q", nullCellMatch, missingCellMatch, unlistedFilter)
+	}
+	if !strings.Contains(nullCellMatch, " == true") || !strings.Contains(nullCellMatch, " == null") {
+		t.Fatalf("NULL must require a present source property and a recorded null: %s", nullCellMatch)
+	}
+	if !strings.Contains(missingCellMatch, "NOT (") || !strings.Contains(missingCellMatch, " == true") {
+		t.Fatalf("MISSING must match only absent source properties: %s", missingCellMatch)
+	}
+	for _, term := range []string{" == true", " == null", "NOT ("} {
+		if !strings.Contains(unlistedFilter, term) {
+			t.Fatalf("unlisted-category predicate does not share sentinel match semantics %q: %s", term, unlistedFilter)
+		}
+	}
+}
+
+func TestCompileGroupedPivotOrdinaryFalseZeroAndEmptyStringUseTypedBinds(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		column   string
+		key      recipe.TableScalar
+		wantBind any
+	}{
+		{name: "zero", column: "multipleBirthInteger", key: tableScalarInteger(0), wantBind: int64(0)},
+		{name: "false", column: "active", key: recipe.TableScalar{Kind: recipe.TableScalarBoolean, Boolean: boolPointer(false)}, wantBind: false},
+		{name: "empty string", column: "gender", key: recipe.TableScalar{Kind: recipe.TableScalarString, String: stringPointer("")}, wantBind: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := tableReshapeTestOutput(&recipe.TableReshape{
+				Kind: recipe.TableReshapeGroupedPivot,
+				GroupedPivot: &recipe.GroupedPivot{
+					ConstructionID: "shape_ordinary_" + strings.ReplaceAll(test.name, " ", "_"),
+					GroupKeys:      []string{"group"}, CategoryColumn: "category", ValueColumn: "value",
+					Categories:      []recipe.GroupedPivotCategory{{Key: test.key, Output: "out", Label: "Output"}},
+					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				},
+			})
+			output.Fields[1].Expr = recipe.Expression{Select: test.column}
+			compiled := compileDerivedTestOutput(t, output)
+			pivot := compiledGroupedPivot(t, compiled.Plan)
+			category := pivot.Categories[0]
+			if category.MatchKind != ir.PhysicalPivotCategoryValueMatch || category.ValueBindKey == "" {
+				t.Fatalf("ordinary key did not lower to a value match: %#v", category)
+			}
+			if got := compiled.Plan.BindVars[category.ValueBindKey]; !reflect.DeepEqual(got, test.wantBind) {
+				t.Fatalf("ordinary value bind = %#v, want %#v", got, test.wantBind)
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(rendered.Query, "TYPENAME(") || !strings.Contains(rendered.Query, " == @"+category.ValueBindKey) {
+				t.Fatalf("ordinary key is not matched with typed bind equality: %s", rendered.Query)
+			}
+			if !bindContainsExactValue(rendered.BindVars, test.wantBind) {
+				t.Fatalf("rendered binds lost ordinary key %#v: %#v", test.wantBind, rendered.BindVars)
+			}
+		})
+	}
+}
+
 func TestCompileUnpivotPreservesColumnOrderNullPolicyAndIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name         string
@@ -179,6 +350,11 @@ func TestCompileTableReshapeRejectsInvalidCombinationsAndTypes(t *testing.T) {
 	}{
 		{name: "category type mismatch", output: tableReshapeTestOutput(pivot("category", "value", recipe.PivotDuplicateError, tableScalarString("zero"))), want: "category key 0 type"},
 		{name: "nonnumeric reducer", output: tableReshapeTestOutput(pivot("category", "keep", recipe.PivotDuplicateSum, tableScalarInteger(0))), want: "requires a numeric value column"},
+		{name: "missing category without simple source presence", output: func() recipe.Output {
+			result := tableReshapeTestOutput(pivot("category", "value", recipe.PivotDuplicateError, recipe.TableScalar{Kind: recipe.TableScalarMissing}))
+			result.Fields[1].Expr = recipe.Expression{Call: "concat", Args: []recipe.Expression{{Select: "gender"}}}
+			return result
+		}(), want: "MISSING requires a simple scalar selector with preserved property presence"},
 		{name: "incompatible unpivot inputs", output: tableReshapeTestOutput(&recipe.TableReshape{
 			Kind: recipe.TableReshapeUnpivot,
 			Unpivot: &recipe.Unpivot{ConstructionID: "shape_invalid", Inputs: []recipe.UnpivotInput{
@@ -226,6 +402,10 @@ func tableScalarInteger(value int64) recipe.TableScalar {
 	return recipe.TableScalar{Kind: recipe.TableScalarInteger, Integer: &value}
 }
 
+func boolPointer(value bool) *bool { return &value }
+
+func stringPointer(value string) *string { return &value }
+
 func int64Pointer(value int64) *int64 { return &value }
 
 func compiledSchemaNames(schema []CompiledOutputColumn) []string {
@@ -271,6 +451,18 @@ func compiledUnpivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalUnpivot {
 	return nil
 }
 
+func compiledGroupedPivot(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalGroupedPivot {
+	t.Helper()
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
+			return operation.GroupedPivot
+		}
+	}
+	t.Fatal("physical plan has no GROUPED_PIVOT operation")
+	return nil
+}
+
 func bindContainsExactValue(bindVars map[string]any, want any) bool {
 	for _, value := range bindVars {
 		if reflect.DeepEqual(value, want) {
@@ -294,15 +486,15 @@ func assertUnlistedCategoryScope(t *testing.T, query string, pivot *ir.PhysicalG
 	}
 	forPosition := strings.Index(line, "FOR ")
 	iterator := strings.Fields(line[forPosition+len("FOR "):])[0]
-	categoryReferences := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.` + regexp.QuoteMeta(pivot.CategoryColumn))
+	categoryReferences := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\[@__loom_physical_reshape_category_column(?:_[0-9]+)?\]`)
 	for _, reference := range categoryReferences.FindAllStringSubmatch(line, -1) {
 		if reference[1] != iterator {
 			t.Fatalf("unlisted-category predicate references %q instead of its iterator %q: %s", reference[1], iterator, line)
 		}
 	}
 	for _, category := range pivot.Categories {
-		if !strings.Contains(line, "@"+category.KeyBindKey) {
-			t.Fatalf("unlisted-category predicate omits frozen bind %q: %s", category.KeyBindKey, line)
+		if category.MatchKind == ir.PhysicalPivotCategoryValueMatch && !strings.Contains(line, "@"+category.ValueBindKey) {
+			t.Fatalf("unlisted-category predicate omits frozen value bind %q: %s", category.ValueBindKey, line)
 		}
 	}
 	if strings.Contains(line, "reshape_cell_") {

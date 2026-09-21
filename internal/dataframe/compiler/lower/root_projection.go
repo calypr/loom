@@ -75,7 +75,29 @@ func lowerSemanticFieldProjection(physical *ir.PhysicalPlan, node semantic.Seman
 	if cardinality == ir.PhysicalArrayCardinality {
 		expression.NullBehavior = ir.PhysicalEmptyOnNull
 	}
-	return ir.PhysicalProjection{Name: field.Name, Expression: &expression}, nil
+	presenceSelectors := append([]spec.Selector{selection.Selector}, fallbacks...)
+	return ir.PhysicalProjection{Name: field.Name, Expression: &expression, Presence: physicalProjectionPresence(source, presenceSelectors...)}, nil
+}
+
+func physicalProjectionPresence(source ir.PhysicalValue, selectors ...spec.Selector) *ir.PhysicalProjectionPresence {
+	paths := make([][]string, 0, len(selectors))
+	for _, selector := range selectors {
+		if selector.Filter != nil || len(selector.Steps) == 0 {
+			return nil
+		}
+		path := make([]string, 0, len(selector.Steps))
+		for _, step := range selector.Steps {
+			if step.Iterate || step.Index != nil || step.Field == "" {
+				return nil
+			}
+			path = append(path, step.Field)
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return &ir.PhysicalProjectionPresence{Source: source, Paths: paths}
 }
 
 func lowerSemanticFieldProjections(physical *ir.PhysicalPlan, node semantic.SemanticNode, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding, lowerer semanticFieldProjectionLowerer) ([]ir.PhysicalProjection, error) {

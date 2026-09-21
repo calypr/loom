@@ -2,6 +2,8 @@ package ir
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -66,6 +68,23 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 			return fmt.Errorf("input projection %q is missing", column)
 		}
 	}
+	var categoryProjectionPresence *PhysicalProjectionPresence
+	for _, projection := range pivot.InputProjections {
+		if projection.Name == pivot.CategoryColumn {
+			categoryProjectionPresence = projection.Presence
+			break
+		}
+	}
+	if !sameProjectionPresence(categoryProjectionPresence, pivot.CategoryPresence) {
+		return fmt.Errorf("grouped pivot category presence does not match its input projection")
+	}
+	if pivot.CategoryPresence != nil {
+		if !physicalPathPartPattern.MatchString(pivot.CategoryPresenceColumn) || projectionNames[pivot.CategoryPresenceColumn] {
+			return fmt.Errorf("grouped pivot category presence column is unsafe or collides with an input projection")
+		}
+	} else if pivot.CategoryPresenceColumn != "" {
+		return fmt.Errorf("grouped pivot category presence column requires a presence contract")
+	}
 	groupColumns := make(map[string]bool, len(pivot.GroupKeys))
 	groupVariables := make(map[string]bool, len(pivot.GroupKeys))
 	for _, key := range pivot.GroupKeys {
@@ -86,24 +105,50 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	}
 	outputs := make(map[string]bool, len(pivot.Categories))
 	binds := make(map[string]bool, len(pivot.Categories))
+	identities := make(map[string]bool, len(pivot.Categories))
 	for _, category := range pivot.Categories {
 		if !physicalPathPartPattern.MatchString(category.Output) || outputs[category.Output] || projectionNames[category.Output] {
 			return fmt.Errorf("category output %q is empty, unsafe, or duplicated", category.Output)
 		}
-		if err := requireBind(bindVars, category.KeyBindKey); err != nil {
-			return fmt.Errorf("category %q: %w", category.Output, err)
+		identity := string(category.MatchKind)
+		switch category.MatchKind {
+		case PhysicalPivotCategoryValueMatch:
+			if category.ValueBindKey == "" {
+				return fmt.Errorf("category %q ordinary match requires a value bind", category.Output)
+			}
+			if category.ValueKind != pivot.CategoryType {
+				return fmt.Errorf("category %q key type %q does not match category column type %q", category.Output, category.ValueKind, pivot.CategoryType)
+			}
+			if err := requireBind(bindVars, category.ValueBindKey); err != nil {
+				return fmt.Errorf("category %q: %w", category.Output, err)
+			}
+			if err := validateTableScalarBind(bindVars[category.ValueBindKey], category.ValueKind); err != nil {
+				return fmt.Errorf("category %q key: %w", category.Output, err)
+			}
+			if binds[category.ValueBindKey] {
+				return fmt.Errorf("category value bind %q is duplicated", category.ValueBindKey)
+			}
+			canonical, err := canonicalTableScalarBind(bindVars[category.ValueBindKey], category.ValueKind)
+			if err != nil {
+				return fmt.Errorf("category %q key: %w", category.Output, err)
+			}
+			identity += "\x00" + category.ValueKind + "\x00" + canonical
+			binds[category.ValueBindKey] = true
+		case PhysicalPivotCategoryNullMatch, PhysicalPivotCategoryMissingMatch:
+			if category.ValueBindKey != "" || category.ValueKind != "" {
+				return fmt.Errorf("category %q sentinel match cannot carry a value bind or value kind", category.Output)
+			}
+			if category.MatchKind == PhysicalPivotCategoryMissingMatch && pivot.CategoryPresence == nil {
+				return fmt.Errorf("category %q MISSING match requires a preserved category presence contract", category.Output)
+			}
+		default:
+			return fmt.Errorf("category %q has unsupported match kind %q", category.Output, category.MatchKind)
 		}
-		if category.KeyKind != pivot.CategoryType {
-			return fmt.Errorf("category %q key type %q does not match category column type %q", category.Output, category.KeyKind, pivot.CategoryType)
+		if identities[identity] {
+			return fmt.Errorf("category %q duplicates a frozen category key", category.Output)
 		}
-		if err := validateTableScalarBind(bindVars[category.KeyBindKey], category.KeyKind); err != nil {
-			return fmt.Errorf("category %q key: %w", category.Output, err)
-		}
-		if binds[category.KeyBindKey] {
-			return fmt.Errorf("category key bind %q is duplicated", category.KeyBindKey)
-		}
+		identities[identity] = true
 		outputs[category.Output] = true
-		binds[category.KeyBindKey] = true
 	}
 	for column := range groupColumns {
 		if outputs[column] {
@@ -230,9 +275,11 @@ func validateTableScalarBind(value any, kind string) error {
 			valid = true
 		}
 	case "DECIMAL":
-		switch value.(type) {
-		case float32, float64:
-			valid = true
+		switch number := value.(type) {
+		case float32:
+			valid = !math.IsNaN(float64(number)) && !math.IsInf(float64(number), 0)
+		case float64:
+			valid = !math.IsNaN(number) && !math.IsInf(number, 0)
 		}
 	case "BOOLEAN":
 		_, valid = value.(bool)
@@ -241,6 +288,103 @@ func validateTableScalarBind(value any, kind string) error {
 		return fmt.Errorf("bind value type %T does not match %s", value, kind)
 	}
 	return nil
+}
+
+func validatePhysicalProjectionPresence(presence PhysicalProjectionPresence, defined map[string]bool, bindVars map[string]any) error {
+	if err := validatePhysicalValue(presence.Source, defined, bindVars); err != nil {
+		return fmt.Errorf("presence source: %w", err)
+	}
+	if len(presence.Paths) == 0 {
+		return fmt.Errorf("presence paths are required")
+	}
+	for pathIndex, path := range presence.Paths {
+		if len(path) == 0 {
+			return fmt.Errorf("presence path %d is empty", pathIndex)
+		}
+		for _, part := range path {
+			if !physicalPathPartPattern.MatchString(part) {
+				return fmt.Errorf("presence path %d contains unsafe part %q", pathIndex, part)
+			}
+		}
+	}
+	return nil
+}
+
+func sameProjectionPresence(left, right *PhysicalProjectionPresence) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	if left.Source.Variable != right.Source.Variable || left.Source.BindKey != right.Source.BindKey || !equalStrings(left.Source.Path, right.Source.Path) || len(left.Paths) != len(right.Paths) {
+		return false
+	}
+	for index := range left.Paths {
+		if len(left.Paths[index]) != len(right.Paths[index]) {
+			return false
+		}
+		for partIndex := range left.Paths[index] {
+			if left.Paths[index][partIndex] != right.Paths[index][partIndex] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalTableScalarBind(value any, kind string) (string, error) {
+	switch kind {
+	case "STRING":
+		return strconv.Quote(value.(string)), nil
+	case "INTEGER":
+		switch number := value.(type) {
+		case int:
+			return strconv.FormatInt(int64(number), 10), nil
+		case int8:
+			return strconv.FormatInt(int64(number), 10), nil
+		case int16:
+			return strconv.FormatInt(int64(number), 10), nil
+		case int32:
+			return strconv.FormatInt(int64(number), 10), nil
+		case int64:
+			return strconv.FormatInt(number, 10), nil
+		case uint:
+			return strconv.FormatUint(uint64(number), 10), nil
+		case uint8:
+			return strconv.FormatUint(uint64(number), 10), nil
+		case uint16:
+			return strconv.FormatUint(uint64(number), 10), nil
+		case uint32:
+			return strconv.FormatUint(uint64(number), 10), nil
+		case uint64:
+			return strconv.FormatUint(number, 10), nil
+		}
+	case "DECIMAL":
+		var number float64
+		switch typed := value.(type) {
+		case float32:
+			number = float64(typed)
+		case float64:
+			number = typed
+		}
+		if number == 0 {
+			number = 0
+		}
+		return strconv.FormatFloat(number, 'g', -1, 64), nil
+	case "BOOLEAN":
+		return strconv.FormatBool(value.(bool)), nil
+	}
+	return "", fmt.Errorf("unsupported scalar type %q", kind)
 }
 
 func tableScalarKindsCompatible(output, input string) bool {

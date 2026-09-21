@@ -29,11 +29,28 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if err != nil {
 		return nil, err
 	}
+	categoryColumnBind := r.newInternalBindKey("reshape_category_column")
+	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
+	valueColumnBind := r.newInternalBindKey("reshape_value_column")
+	r.bindVars[valueColumnBind] = pivot.ValueColumn
+	categoryPresenceBind := ""
+	if pivot.CategoryPresence != nil {
+		presence, err := r.renderGroupedPivotPresence(*pivot.CategoryPresence)
+		if err != nil {
+			return nil, fmt.Errorf("category presence: %w", err)
+		}
+		presenceNameBind := r.newInternalBindKey("reshape_category_presence_column")
+		r.bindVars[presenceNameBind] = pivot.CategoryPresenceColumn
+		categoryPresenceBind = presenceNameBind
+		input = fmt.Sprintf("MERGE(%s, {[@%s]: %s})", input, presenceNameBind, presence)
+	}
 	lines := []string{fmt.Sprintf("  LET %s = %s", pivot.InputRowVariable, input)}
 	collect := make([]string, 0, len(pivot.GroupKeys))
 	sort := make([]string, 0, len(pivot.GroupKeys))
-	for _, key := range pivot.GroupKeys {
-		collect = append(collect, fmt.Sprintf("%s = %s.%s", key.Variable, pivot.InputRowVariable, key.Column))
+	for index, key := range pivot.GroupKeys {
+		columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_group_column_%d", index))
+		r.bindVars[columnBind] = key.Column
+		collect = append(collect, fmt.Sprintf("%s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
 		sort = append(sort, key.Variable+" ASC")
 	}
 	collectClause := fmt.Sprintf(
@@ -65,8 +82,11 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		valueVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_value_%d", index))
 		valuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_values_%d", index))
 		typedValuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_typed_values_%d", index))
-		match := fmt.Sprintf("TYPENAME(%s.%s) == @%s AND %s.%s == @%s", cellVariable, pivot.CategoryColumn, categoryTypeBind, cellVariable, pivot.CategoryColumn, category.KeyBindKey)
-		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s RETURN %s.%s)", valuesVariable, cellVariable, pivot.GroupRowsVariable, match, cellVariable, pivot.ValueColumn))
+		match, err := groupedPivotCategoryMatchPredicate(category, cellVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+		if err != nil {
+			return nil, fmt.Errorf("category %q: %w", category.Output, err)
+		}
+		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s RETURN %s[@%s])", valuesVariable, cellVariable, pivot.GroupRowsVariable, match, cellVariable, valueColumnBind))
 		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN %s)",
 			typedValuesVariable, valueVariable, valuesVariable, valueVariable, valueVariable, valueTypeBind, valueVariable))
 		cellValue := "null"
@@ -96,14 +116,20 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" {
 		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
 		itemVariable := r.newInternalVariable("reshape_unlisted_item")
-		listed := groupedPivotListedPredicate(pivot, itemVariable, categoryTypeBind)
+		listed, err := groupedPivotListedPredicate(pivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+		if err != nil {
+			return nil, err
+		}
 		lines = append(lines, fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))",
 			unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed))
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: pivot.UnlistedEvidenceColumn, Value: ir.PhysicalValue{Variable: unlistedVariable}})
 	} else if pivot.UnlistedCategoryPolicy == "ERROR" {
 		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
 		itemVariable := r.newInternalVariable("reshape_unlisted_item")
-		listed := groupedPivotListedPredicate(pivot, itemVariable, categoryTypeBind)
+		listed, err := groupedPivotListedPredicate(pivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+		if err != nil {
+			return nil, err
+		}
 		lines = append(lines,
 			fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))", unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed),
 			fmt.Sprintf("  FILTER ASSERT(%s == 0, \"TABLE_PIVOT_UNLISTED_CATEGORY\")", unlistedVariable),
@@ -130,13 +156,78 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	return lines, nil
 }
 
-func groupedPivotListedPredicate(pivot ir.PhysicalGroupedPivot, itemVariable, categoryTypeBind string) string {
+func groupedPivotListedPredicate(pivot ir.PhysicalGroupedPivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind string) (string, error) {
 	matches := make([]string, 0, len(pivot.Categories))
 	for _, category := range pivot.Categories {
-		matches = append(matches, fmt.Sprintf("(TYPENAME(%s.%s) == @%s AND %s.%s == @%s)",
-			itemVariable, pivot.CategoryColumn, categoryTypeBind, itemVariable, pivot.CategoryColumn, category.KeyBindKey))
+		match, err := groupedPivotCategoryMatchPredicate(category, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+		if err != nil {
+			return "", fmt.Errorf("category %q: %w", category.Output, err)
+		}
+		matches = append(matches, match)
 	}
-	return "(" + strings.Join(matches, " OR ") + ")"
+	return "(" + strings.Join(matches, " OR ") + ")", nil
+}
+
+func groupedPivotCategoryMatchPredicate(category ir.PhysicalGroupedPivotCategory, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind string) (string, error) {
+	column := fmt.Sprintf("%s[@%s]", itemVariable, categoryColumnBind)
+	present := fmt.Sprintf("HAS(%s, @%s)", itemVariable, categoryColumnBind)
+	if categoryPresenceBind != "" {
+		present = fmt.Sprintf("%s[@%s] == true", itemVariable, categoryPresenceBind)
+	}
+	switch category.MatchKind {
+	case ir.PhysicalPivotCategoryValueMatch:
+		if category.ValueBindKey == "" || categoryTypeBind == "" {
+			return "", fmt.Errorf("ordinary category requires value and type binds")
+		}
+		return fmt.Sprintf("(%s AND TYPENAME(%s) == @%s AND %s == @%s)", present, column, categoryTypeBind, column, category.ValueBindKey), nil
+	case ir.PhysicalPivotCategoryNullMatch:
+		return fmt.Sprintf("(%s AND %s == null)", present, column), nil
+	case ir.PhysicalPivotCategoryMissingMatch:
+		if categoryPresenceBind == "" {
+			return "", fmt.Errorf("MISSING category requires a preserved category presence contract")
+		}
+		return "NOT (" + present + ")", nil
+	default:
+		return "", fmt.Errorf("unsupported category match kind %q", category.MatchKind)
+	}
+}
+
+func (r *physicalPlanRenderer) renderGroupedPivotPresence(presence ir.PhysicalProjectionPresence) (string, error) {
+	source, err := r.renderValue(presence.Source)
+	if err != nil {
+		return "", err
+	}
+	paths := make([]string, 0, len(presence.Paths))
+	for _, path := range presence.Paths {
+		pathExpression, err := r.renderPropertyPathPresence(source, path)
+		if err != nil {
+			return "", err
+		}
+		paths = append(paths, pathExpression)
+	}
+	if len(paths) == 1 {
+		return paths[0], nil
+	}
+	return "(" + strings.Join(paths, " OR ") + ")", nil
+}
+
+func (r *physicalPlanRenderer) renderPropertyPathPresence(source string, path []string) (string, error) {
+	if len(path) == 0 {
+		return "", fmt.Errorf("property-presence path is empty")
+	}
+	key := r.newInternalBindKey("reshape_presence_path")
+	r.bindVars[key] = path[0]
+	object := "IS_OBJECT(" + source + ")"
+	has := fmt.Sprintf("HAS(%s, @%s)", source, key)
+	present := "(" + object + " ? " + has + " : false)"
+	if len(path) == 1 {
+		return present, nil
+	}
+	remaining, err := r.renderPropertyPathPresence(source+"[@"+key+"]", path[1:])
+	if err != nil {
+		return "", err
+	}
+	return "(" + object + " ? (" + has + " ? " + remaining + " : false) : false)", nil
 }
 
 func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([]string, error) {
@@ -146,8 +237,10 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	}
 	lines := []string{fmt.Sprintf("  LET %s = %s", unpivot.InputRowVariable, input)}
 	slots := make([]string, 0, len(unpivot.Inputs))
-	for _, selected := range unpivot.Inputs {
-		slots = append(slots, fmt.Sprintf("{key: @%s, value: %s.%s}", selected.KeyBindKey, unpivot.InputRowVariable, selected.Column))
+	for index, selected := range unpivot.Inputs {
+		columnBind := r.newInternalBindKey(fmt.Sprintf("reshape_unpivot_column_%d", index))
+		r.bindVars[columnBind] = selected.Column
+		slots = append(slots, fmt.Sprintf("{key: @%s, value: %s[@%s]}", selected.KeyBindKey, unpivot.InputRowVariable, columnBind))
 	}
 	lines = append(lines, fmt.Sprintf("  FOR %s IN [%s]", unpivot.SlotVariable, strings.Join(slots, ", ")))
 	valueType, err := aqlTableScalarType(unpivot.ValueType)
@@ -188,7 +281,11 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 		if selected[projection.Name] || projection.Name == "__loom_row_id" {
 			continue
 		}
-		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: projection.Name, Hidden: projection.Hidden, Value: ir.PhysicalValue{Variable: unpivot.InputRowVariable, Path: []string{projection.Name}}})
+		columnBind := r.newInternalBindKey("reshape_unpivot_preserved_column")
+		r.bindVars[columnBind] = projection.Name
+		lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: unpivot.InputRowVariable, KeyBindKey: columnBind}}
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: projection.Name, Hidden: projection.Hidden, Expression: &lookup})
 	}
 	outputProjections = append(outputProjections,
 		ir.PhysicalProjection{Name: unpivot.KeyOutput, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"key"}}},
