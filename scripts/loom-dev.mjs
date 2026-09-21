@@ -502,6 +502,30 @@ export const j01JSONValuesEquivalent = (left, right) => {
   }
   return Object.is(left, right);
 };
+
+export const j01ViewerValuesAgree = ({ viewerTable, columns, previewByID, artifactByID, idColumn, structuredColumn }) => {
+  const idLabel = columns.find((column) => column.column === idColumn)?.label;
+  const idIndex = viewerTable.headers.indexOf(idLabel);
+  if (idIndex < 0 || viewerTable.rows.length === 0) return false;
+  let previewOverlap = 0;
+  for (const row of viewerTable.rows) {
+    const id = row[idIndex];
+    const artifactRow = artifactByID.get(id);
+    if (!artifactRow) return false;
+    const previewRow = previewByID.get(id);
+    if (previewRow) previewOverlap += 1;
+    for (const [index, label] of viewerTable.headers.entries()) {
+      const column = columns.find((candidate) => candidate.label === label);
+      if (!column) return false;
+      if (column.column === structuredColumn) continue;
+      const artifactValue = artifactRow[column.column] ?? null;
+      const displayed = artifactValue == null ? '—' : String(artifactValue);
+      if (row[index] !== displayed) return false;
+      if (previewRow && !j01JSONValuesEquivalent(artifactValue, previewRow[column.column] ?? null)) return false;
+    }
+  }
+  return previewOverlap > 0;
+};
 export const j01SemanticInventoryRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
   if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 inventory request requires a catalog snapshot');
   if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 inventory request requires a row root');
@@ -3531,18 +3555,9 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
           j01JSONValuesEquivalent(artifactRow[column], previewRow[column] ?? null)));
       });
       recordAssertion(report, 'j01-typed-artifact-values-match-live-preview', true, previewMatchesArtifact);
-      const viewerIDIndex = viewerTable.headers.indexOf('Observation identifier');
-      const viewerMatchesPublishedArtifact = viewerTable.rows.length > 0 && viewerTable.rows.every((row) => {
-        const id = row[viewerIDIndex];
-        const previewRow = previewByID.get(id);
-        const artifactRow = exportedByID.get(id);
-        if (!previewRow || !artifactRow) return false;
-        return viewerTable.headers.every((label, index) => {
-          const column = runtime.columns.find((candidate) => candidate.label === label);
-          if (!column || column.column === report.target.columnIds.ownerRecords) return Boolean(column);
-          const expected = previewRow[column.column] == null ? '—' : String(previewRow[column.column]);
-          return row[index] === expected && j01JSONValuesEquivalent(artifactRow[column.column], previewRow[column.column] ?? null);
-        });
+      const viewerMatchesPublishedArtifact = j01ViewerValuesAgree({
+        viewerTable, columns: runtime.columns, previewByID, artifactByID: exportedByID,
+        idColumn: report.target.columnIds.id, structuredColumn: report.target.columnIds.ownerRecords,
       });
       recordAssertion(report, 'j01-viewer-values-agree-with-preview-and-typed-artifact', true, viewerMatchesPublishedArtifact);
       const zeroExportRow = exportedByID.get('dev-j01-concept-0000');

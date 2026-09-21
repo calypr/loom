@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, createDevSession, createVerificationReport, expectedFixtureRelatedValue, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j05ArtifactIdentityIsCurrent, normalizeJ05LogicalValue, selectExternalJ01Manifest, sourceMountMatches, summarizeTimingSamples } from './loom-dev.mjs';
 
 const j05Identity = {
   project: 'loom_dev_j05',
@@ -245,6 +245,27 @@ test('J01 typed artifact values treat omitted nullable fields as null', () => {
   ), true);
   assert.equal(j01JSONValuesEquivalent({ value: 0 }, { value: null }), false);
   assert.equal(j01JSONValuesEquivalent([1, 2], [2, 1]), false);
+});
+
+test('J01 Viewer comparison accepts rows outside the bounded Preview only when the complete artifact agrees', () => {
+  const columns = [
+    { column: 'value', label: 'Value' },
+    { column: 'owners', label: 'Owners' },
+    { column: 'id', label: 'Identifier' },
+  ];
+  const viewerTable = {
+    headers: ['Value', 'Owners', 'Identifier'],
+    rows: [['1', '—', 'previewed'], ['999', '—', 'outside-preview']],
+  };
+  const previewByID = new Map([['previewed', { id: 'previewed', value: 1, owners: [] }]]);
+  const artifactByID = new Map([
+    ['previewed', { id: 'previewed', value: 1, owners: [] }],
+    ['outside-preview', { id: 'outside-preview', value: 999, owners: [] }],
+  ]);
+  const input = { viewerTable, columns, previewByID, artifactByID, idColumn: 'id', structuredColumn: 'owners' };
+  assert.equal(j01ViewerValuesAgree(input), true);
+  assert.equal(j01ViewerValuesAgree({ ...input, artifactByID: new Map([['previewed', artifactByID.get('previewed')]]) }), false);
+  assert.equal(j01ViewerValuesAgree({ ...input, previewByID: new Map() }), false);
 });
 
 test('generation load polling distinguishes durable completion from failure', () => {
