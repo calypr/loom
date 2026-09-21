@@ -85,6 +85,9 @@ func (b Bundle) Validate() error {
 				return validationError("invalid_column_transformation", transformationPath+".transformation", err.Error())
 			}
 		}
+		if err := validateDerivedColumns(output.DerivedColumns, path+".derivedColumns"); err != nil {
+			return err
+		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
 			return err
 		}

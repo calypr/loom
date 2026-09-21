@@ -234,6 +234,7 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		"if": true, "case": true, "not": true, "and": true, "or": true,
 		"eq": true, "neq": true, "gt": true, "gte": true, "lt": true, "lte": true,
 		"contains": true, "assert": true,
+		"add": true, "subtract": true, "multiply": true, "divide": true,
 	}
 	if !known[name] {
 		return fmt.Errorf("unsupported call %q", call.Name)
@@ -249,6 +250,8 @@ func validatePhysicalCall(call PhysicalCall, defined map[string]bool, bindVars m
 		}
 	} else if name == "assert" && len(call.Args) != 2 {
 		return fmt.Errorf("assert requires a condition and message")
+	} else if (name == "add" || name == "subtract" || name == "multiply" || name == "divide") && len(call.Args) != 2 {
+		return fmt.Errorf("%s requires two arguments", name)
 	} else if call.TargetKind != "" {
 		return fmt.Errorf("target kind is only valid for cast")
 	}

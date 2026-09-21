@@ -196,6 +196,12 @@ func (r *physicalPlanRenderer) renderCall(expression ir.PhysicalExpression) (str
 		}
 		operator := map[string]string{"eq": "==", "neq": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[name]
 		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
+	case "add", "subtract", "multiply", "divide":
+		if err := require(2); err != nil {
+			return "", err
+		}
+		operator := map[string]string{"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[name]
+		return "(" + args[0] + " " + operator + " " + args[1] + ")", nil
 	case "contains":
 		if err := require(2); err != nil {
 			return "", err

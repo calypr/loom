@@ -217,6 +217,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projection
 		plan.CatalogProjections = append(plan.CatalogProjections, projection.Name)
 	}
 	plan.ColumnTransformations = append([]recipe.ColumnTransformation(nil), output.ColumnTransformations...)
+	plan.DerivedColumns = append([]recipe.DerivedColumn(nil), output.DerivedColumns...)
 	plan.Root = SemanticNode{OccurrenceID: output.RootOccurrenceID, Alias: "root", ResourceType: output.RootResourceType, Fields: make([]SemanticField, 0, len(output.Fields))}
 	rootFilters, err := LowerRecipeFilters(output.RootResourceType, output.Filters)
 	if err != nil {

@@ -34,6 +34,27 @@ func TestRecipePlanStoresRootProjectionOrderOnlyOnRootNode(t *testing.T) {
 	}
 }
 
+func TestRecipePlanCarriesPersistenceNeutralDerivedColumns(t *testing.T) {
+	integer := int64(3)
+	definition := recipe.DerivedColumn{
+		ConstructionID: "calc_double", Name: "double_value", Label: "Double value", Operation: recipe.DerivedMultiply,
+		Left:               recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: "value"},
+		Right:              recipe.DerivedOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &integer}},
+		MissingInputPolicy: recipe.MissingInputPropagateNull,
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1, Name: "derived-columns", TranslationVersion: "test",
+		Outputs: []recipe.Output{{Name: "Patient", RootResourceType: "Patient", RowGrain: "patient", DerivedColumns: []recipe.DerivedColumn{definition}}},
+	}
+	plan, err := BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Outputs[0].DerivedColumns; len(got) != 1 || !reflect.DeepEqual(got[0], definition) {
+		t.Fatalf("semantic derived columns = %#v, want %#v", got, definition)
+	}
+}
+
 func TestRecipePlanPinsExplicitGroupRowsToGroupIdentity(t *testing.T) {
 	output := recipe.Output{
 		Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups",

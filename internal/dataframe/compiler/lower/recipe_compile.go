@@ -192,13 +192,21 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := appendRecipeColumnTransformations(&physical, output.ColumnTransformations); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	baseOutputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata, nil)
+	if err != nil {
+		return CompiledRecipeOutput{}, err
+	}
+	derivedTypes, err := appendRecipeDerivedColumns(&physical, output.DerivedColumns, baseOutputSchema)
+	if err != nil {
+		return CompiledRecipeOutput{}, err
+	}
 	if err := validatePublicProjectionNames(physical, output.Name); err != nil {
 		return CompiledRecipeOutput{}, err
 	}
 	if err := physical.Validate(); err != nil {
 		return CompiledRecipeOutput{}, fmt.Errorf("validate canonical physical plan: %w", err)
 	}
-	outputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata)
+	outputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata, derivedTypes)
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}

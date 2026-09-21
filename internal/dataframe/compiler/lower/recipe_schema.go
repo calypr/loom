@@ -23,7 +23,7 @@ import (
 // identity and bounded dynamic projections have been appended. Semantic
 // metadata is used only to enrich those already-finalized projections with
 // logical type/cardinality information.
-func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata) ([]CompiledOutputColumn, error) {
+func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynamicMetadata []DynamicColumnMetadata, derivedTypes map[string]expression.Type) ([]CompiledOutputColumn, error) {
 	if output.GroupRows != nil {
 		return []CompiledOutputColumn{
 			{Name: "group_revision_id", SemanticPath: "groups.revision_id", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: false, Internal: true, Identity: true},
@@ -117,6 +117,11 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}
 	}
 	addNode(output.Root, "")
+	for _, derived := range output.DerivedColumns {
+		if typ, ok := derivedTypes[derived.Name]; ok {
+			addType(derived.Name, "derived:"+derived.ConstructionID, typ, false)
+		}
+	}
 
 	for _, operation := range plan.Operations {
 		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {

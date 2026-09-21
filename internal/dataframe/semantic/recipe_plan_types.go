@@ -43,6 +43,7 @@ type OutputPlan struct {
 	DynamicMaps           []SemanticDynamicMap
 	CatalogProjections    []string
 	ColumnTransformations []recipe.ColumnTransformation
+	DerivedColumns        []recipe.DerivedColumn
 	Collision             string
 	Population            *SemanticPopulation
 }

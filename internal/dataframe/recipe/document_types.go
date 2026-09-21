@@ -55,6 +55,7 @@ type Output struct {
 	ExtensionColumns      []ExtensionColumn       `json:"extensionColumns,omitempty"`
 	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
 	ColumnTransformations []ColumnTransformation  `json:"columnTransformations,omitempty"`
+	DerivedColumns        []DerivedColumn         `json:"derivedColumns,omitempty"`
 	Population            *PopulationConstraint   `json:"population,omitempty"`
 	CollisionPolicy       string                  `json:"collisionPolicy,omitempty"`
 }
