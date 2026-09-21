@@ -95,3 +95,30 @@
 - [ ] S03-03a-preview. Execute and compare before/after rows, memberships, counts, and affected columns.
 - [ ] S03-03b. Add generic Records, Groups, and Expand repeated values controls without FHIR resource-specific branches.
 - [ ] S03-04. Add two schema-shape fixtures and J03 live verification for memberships, cancel, apply, reload, export, and non-Cartesian expansion.
+
+### Autonomous S04/UI04 closure
+
+1. State the exit condition as a checkable predicate before the first iteration.
+   - Exit when `verify-j04-patient` and `verify-j04` pass with no failed or unproven assertions, and Preview, Viewer, traces, reload, and the typed artifact agree.
+2. Pick the wake mechanism.
+   - No external event is pending. Run each local check directly and poll only long-running commands.
+3. Make the smallest evidence-backed change, verify it, and keep only changes that advance the predicate.
+4. Own and fix mid-run defects, then return to the main predicate.
+5. Append one decision-trail row for every iteration.
+6. Stop only when the predicate is met.
+
+### Current S04/UI04 units
+
+- [x] Clear stale population-selection loading state when switching to a table without an attached selection; add a focused UI regression.
+- [x] Rerun the focused Patient operator browser journey and fix only evidence-backed failures.
+- [x] Resolve cell-trace row identity from the actual Preview contract.
+- [x] Run the full J04 journey through pivot, publish, Viewer, reload, and typed artifact download.
+- [x] Update the S04/UI04 ledger and evidence with literal results.
+- [x] Run focused Go, Node, UI, OpenAPI, build, diff, and GitNexus checks once on the final integrated state.
+
+### Throughput checkpoint for S04/UI04 closure
+
+- Blocking first steps. Fix the reproduced selection-loading lifecycle defect before another browser run.
+- Independent workstreams. None remain. The browser flow and production fixes share the same integration tree and must stay serialized.
+- Shared mutable state. This root session owns the integration worktree. No delegated writer may edit it.
+- Smallest safe decomposition. One root owner is fastest because each browser result determines the next production or verifier correction.

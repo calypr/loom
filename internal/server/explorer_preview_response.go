@@ -119,6 +119,7 @@ func v2EmissionColumns(columns []explorer.EmittedColumn) []v2EmissionWire {
 			Column: column.PublicColumn, Label: label, LogicalType: column.LogicalType,
 			Filterable: column.Filterable, Chartable: column.Chartable,
 			AuthoredColumns: stringSlicePointer(column.AuthoredColumns),
+			Nullable:        pointerTo(column.Nullable), Shape: pointerTo(column.Shape),
 		}
 		if column.ResultUnit != nil {
 			wire.ResultUnit = &explorerv2api.UnitIdentity{System: column.ResultUnit.System, Code: column.ResultUnit.Code}

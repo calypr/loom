@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
@@ -77,6 +78,41 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 		if !strings.Contains(compiled.Query, want) {
 			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, compiled.Query)
 		}
+	}
+}
+
+func TestCompileCellTracePreservesAggregateContributorsThroughCategoryRecode(t *testing.T) {
+	value := recipe.Expression{Select: "valueString"}
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
+			Aggregates: []recipe.Aggregate{{Name: "category", Operation: recipe.AggregateMin, Expr: &value}},
+		}},
+		ColumnTransformations: []recipe.ColumnTransformation{{
+			Column: "category",
+			Transformation: columntransform.ValueTransformation{
+				Kind: columntransform.KindExactCategoryRecode,
+				ExactCategoryRecode: &columntransform.ExactCategoryRecode{
+					Mappings:      []columntransform.CategoryMapping{{From: "A", To: "Positive"}},
+					UnknownPolicy: columntransform.UnknownKeepOriginal,
+				},
+			},
+		}},
+	})
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "category", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", ".payload.valueString", "resourceType:", "resourceId:"} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("recoded aggregate trace is missing contributor evidence %q:\n%s", want, compiled.Query)
+		}
+	}
+	if containsBindValue(compiled.BindVars, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("recoded aggregate trace unexpectedly reports unavailable contributors: %#v", compiled.BindVars)
 	}
 }
 

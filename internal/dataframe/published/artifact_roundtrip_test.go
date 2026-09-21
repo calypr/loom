@@ -30,7 +30,7 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 		Columns: []ArtifactColumn{
 			{Name: "observation_id", OutputKey: "observation", LogicalType: "string", Shape: "scalar"},
 			{Name: "count", OutputKey: "count", LogicalType: "integer", Shape: "scalar"},
-			{Name: "code_value", OutputKey: "codedValue", LogicalType: "code", Shape: "record", EmissionID: "emit-coded", CandidateID: "candidate-coded", OccurrenceID: "occ-coded", Construction: "VALUE", ReductionPolicy: "FIRST"},
+			{Name: "code_value", OutputKey: "codedValue", Label: "Coded value", LogicalType: "code", Shape: "record", EmissionID: "emit-coded", CandidateID: "candidate-coded", OccurrenceID: "occ-coded", Construction: "VALUE", ReductionPolicy: "FIRST", AuthoredColumns: []string{"code"}},
 			{Name: "detail", OutputKey: "detail", LogicalType: "json", Shape: "record"},
 			{Name: "items", OutputKey: "items", LogicalType: "string", Shape: "array", Repeated: true},
 			{Name: "present_null", OutputKey: "presentNull", LogicalType: "string", Shape: "scalar", Nullable: true},
@@ -106,7 +106,7 @@ func TestArtifactJSONLRoundTripPreservesTypesMembershipAndIdentity(t *testing.T)
 	if manifest.Version != artifactManifestVersion || manifest.Format != ArtifactFormatJSONL || manifest.Descriptor.SourceGeneration != "generation-7" || manifest.Descriptor.PublishedSchemaDigest != "schema-7" || manifest.Descriptor.OutputKey != "observations" || manifest.Descriptor.RowIdentity.Key != artifactRowIdentityKey || len(manifest.Descriptor.Columns) != len(request.Columns) {
 		t.Fatalf("typed manifest descriptor = %#v", manifest)
 	}
-	if column := manifest.Descriptor.Columns[2]; column.OutputKey != "codedValue" || column.EmissionID != "emit-coded" || column.OccurrenceID != "occ-coded" || column.ReductionPolicy != "FIRST" {
+	if column := manifest.Descriptor.Columns[2]; column.OutputKey != "codedValue" || column.Label != "Coded value" || column.EmissionID != "emit-coded" || column.OccurrenceID != "occ-coded" || column.ReductionPolicy != "FIRST" || !reflect.DeepEqual(column.AuthoredColumns, []string{"code"}) {
 		t.Fatalf("column construction descriptor = %#v", column)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(jsonl))

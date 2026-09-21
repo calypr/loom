@@ -4,6 +4,33 @@ import type { SelectionRevision } from './selection';
 import BuilderWorkspace from './features/ExplorerBuilder/BuilderWorkspace';
 import { LoomProvider } from './react';
 
+type PopulationSelectionLoadState =
+  | { readonly requestId?: undefined; readonly status: 'idle' }
+  | { readonly requestId: string; readonly status: 'loading' }
+  | {
+      readonly requestId: string;
+      readonly status: 'ready';
+      readonly selection: SelectionRevision;
+    }
+  | {
+      readonly requestId: string;
+      readonly status: 'error';
+      readonly message: string;
+    };
+
+const idlePopulationSelection: PopulationSelectionLoadState = {
+  status: 'idle',
+};
+
+const populationSelectionForRequest = (
+  state: PopulationSelectionLoadState,
+  requestId: string | undefined,
+): PopulationSelectionLoadState => {
+  if (!requestId) return idlePopulationSelection;
+  if (state.requestId === requestId) return state;
+  return { requestId, status: 'loading' };
+};
+
 export interface LoomExplorerBuilderProps {
   readonly project: string;
   readonly explorerId?: string;
@@ -35,19 +62,26 @@ export const LoomExplorerBuilder = ({
   featureFocus,
 }: LoomExplorerBuilderProps) => {
   const ownedClient = useMemo(() => client ?? createLoomClient(), [client]);
-  const [populationSelection, setPopulationSelection] = useState<SelectionRevision>();
-  const [populationSelectionError, setPopulationSelectionError] = useState<string>();
-  const [populationSelectionLoading, setPopulationSelectionLoading] = useState(false);
+  const [populationSelectionLoad, setPopulationSelectionLoad] =
+    useState<PopulationSelectionLoadState>(() =>
+      selectionRevisionId
+        ? { requestId: selectionRevisionId, status: 'loading' }
+        : idlePopulationSelection,
+    );
+  const currentPopulationSelection = populationSelectionForRequest(
+    populationSelectionLoad,
+    selectionRevisionId,
+  );
   useEffect(() => {
     if (!selectionRevisionId) {
-      setPopulationSelection(undefined);
-      setPopulationSelectionError(undefined);
+      setPopulationSelectionLoad(idlePopulationSelection);
       return;
     }
     const controller = new AbortController();
-    setPopulationSelection(undefined);
-    setPopulationSelectionLoading(true);
-    setPopulationSelectionError(undefined);
+    setPopulationSelectionLoad({
+      requestId: selectionRevisionId,
+      status: 'loading',
+    });
     const projectId = organization ? `${organization}/${project}` : project;
     void ownedClient.getSelection({
       project: projectId,
@@ -56,13 +90,27 @@ export const LoomExplorerBuilder = ({
       limit: 1,
       authResourcePath: organization ? `/programs/${organization}/projects/${project}` : undefined,
     }, controller.signal).then(
-      (page) => setPopulationSelection(page.revision),
-      (error: unknown) => {
-        if (!controller.signal.aborted) setPopulationSelectionError(error instanceof Error ? error.message : 'Loom could not load the saved selection.');
+      (page) => {
+        if (!controller.signal.aborted) {
+          setPopulationSelectionLoad({
+            requestId: selectionRevisionId,
+            status: 'ready',
+            selection: page.revision,
+          });
+        }
       },
-    ).finally(() => {
-      if (!controller.signal.aborted) setPopulationSelectionLoading(false);
-    });
+      (error: unknown) => {
+        if (!controller.signal.aborted) {
+          setPopulationSelectionLoad({
+            requestId: selectionRevisionId,
+            status: 'error',
+            message: error instanceof Error
+              ? error.message
+              : 'Loom could not load the saved selection.',
+          });
+        }
+      },
+    );
     return () => controller.abort();
   }, [explorerId, organization, ownedClient, project, selectionRevisionId]);
   return (
@@ -72,9 +120,19 @@ export const LoomExplorerBuilder = ({
           organization={organization}
           project={project}
           explorerId={explorerId}
-          populationSelection={populationSelection}
-          populationSelectionLoading={populationSelectionLoading}
-          populationSelectionError={populationSelectionError}
+          populationSelection={
+            currentPopulationSelection.status === 'ready'
+              ? currentPopulationSelection.selection
+              : undefined
+          }
+          populationSelectionLoading={
+            currentPopulationSelection.status === 'loading'
+          }
+          populationSelectionError={
+            currentPopulationSelection.status === 'error'
+              ? currentPopulationSelection.message
+              : undefined
+          }
           onExplorerChange={onExplorerChange}
           featureFocus={featureFocus}
         />

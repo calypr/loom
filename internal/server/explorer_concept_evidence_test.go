@@ -95,6 +95,17 @@ func TestCapabilityConceptsSurviveBuilderProofOnScalarValuePath(t *testing.T) {
 	if len(snapshot.Candidates[0].ConceptCandidates) != 3 {
 		t.Fatalf("proven scalar concepts = %#v", snapshot.Candidates[0].ConceptCandidates)
 	}
+	var ordered *capability.AggregateOperationCapability
+	for index := range snapshot.Candidates[0].AggregateOperations {
+		choice := &snapshot.Candidates[0].AggregateOperations[index]
+		if choice.Operation == capability.AggregateFirstOrdered && choice.RowContext == capability.AggregateRowsRecords {
+			ordered = choice
+			break
+		}
+	}
+	if ordered == nil || !ordered.Supported {
+		t.Fatalf("generic candidate omitted related-occurrence ordered selection: %#v", snapshot.Candidates[0].AggregateOperations)
+	}
 	statusBySystem := map[string]string{}
 	for _, candidate := range snapshot.Candidates[0].ConceptCandidates {
 		if candidate.OwningScope != "component[]" || candidate.ValueSelector != "valueQuantity.value" {

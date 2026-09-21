@@ -492,10 +492,15 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if len(proof.ChartAggregations) > 0 {
 		proof.SupportedOperations = append(proof.SupportedOperations, capability.OperationChart, capability.OperationAggregate)
 	}
+	// Catalog candidates are route-independent. Advertise operations that the
+	// field can support when placed on a related occurrence; command validation
+	// derives the same contract again from the selected occurrence and rejects
+	// related-only operations at the row root.
 	input := capability.AggregateInput{
-		LogicalType: string(result.Candidate.Primitive),
-		Cardinality: string(result.Candidate.Cardinality),
-		HasField:    true,
+		LogicalType:     string(result.Candidate.Primitive),
+		Cardinality:     string(result.Candidate.Cardinality),
+		HasField:        true,
+		RelatedResource: true,
 	}
 	valueOperations := make([]capability.AggregateOperationCapability, 0, len(result.Candidate.ValueAggregateOperations)*3)
 	for _, rows := range []capability.AggregateRowContext{capability.AggregateRowsRecords, capability.AggregateRowsGroups, capability.AggregateRowsExpanded} {

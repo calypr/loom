@@ -323,7 +323,7 @@ func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
 	receipt := &explorer.CompilationReceipt{
 		ReceiptFormatVersion: 2, CompilerContractVersion: "test", SourceGeneration: "generation-a",
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: "contract-digest",
-		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","rowGrain":"patient","rowMultiplication":"none","columns":[{"column":"mean_weight","label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}},{"column":"bmi","label":"BMI","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg/m2"}},{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
+		PublicOutputContract: json.RawMessage(`{"outputs":[{"outputId":"patients","rowGrain":"patient","rowMultiplication":"none","columns":[{"column":"mean_weight","authoredColumns":["weight"],"label":"Mean weight","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg"}},{"column":"bmi","label":"BMI","logicalType":"decimal","filterable":false,"chartable":false,"resultUnit":{"system":"http://unitsofmeasure.org","code":"kg/m2"}},{"column":"patient_id","label":"Patient ID","logicalType":"string","filterable":false,"chartable":false}]}]}`),
 		EmittedColumns: []explorer.EmittedColumn{
 			{OutputID: "patients", EmissionID: "emit-mean-weight", PublicColumn: "mean_weight"},
 			{OutputID: "patients", EmissionID: "emit-bmi", PublicColumn: "bmi"},
@@ -344,6 +344,9 @@ func TestArtifactDescriptorCarriesResultUnitIntoZipManifest(t *testing.T) {
 	}
 	if len(columns) != 3 || columns[0].ResultUnit == nil || columns[0].ResultUnit.System != "http://unitsofmeasure.org" || columns[0].ResultUnit.Code != "kg" || columns[1].ResultUnit == nil || columns[1].ResultUnit.Code != "kg/m2" || columns[2].ResultUnit != nil {
 		t.Fatalf("artifact column result units = %#v", columns)
+	}
+	if columns[0].Name != "mean_weight" || columns[0].OutputKey != "mean_weight" || columns[0].Label != "Mean weight" || !reflect.DeepEqual(columns[0].AuthoredColumns, []string{"weight"}) {
+		t.Fatalf("artifact column identity and presentation metadata = %#v", columns[0])
 	}
 
 	var archive bytes.Buffer

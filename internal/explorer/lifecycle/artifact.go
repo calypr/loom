@@ -403,7 +403,7 @@ func artifactDescriptor(receipt *explorer.CompilationReceipt, materialization da
 			return dataframepublished.ArtifactDescriptor{}, nil, fmt.Errorf("contract column %q has no construction identity", name)
 		}
 		columns = append(columns, dataframepublished.ArtifactColumn{
-			Name: name, OutputKey: public.Column, LogicalType: public.LogicalType, Shape: public.Shape,
+			Name: name, OutputKey: public.Column, Label: public.Label, LogicalType: public.LogicalType, Shape: public.Shape,
 			ResultUnit: public.ResultUnit,
 			Nullable:   public.Nullable, Repeated: column.Repeated || public.Shape == "array" || public.Shape == "record_list",
 			EmissionID: emission.EmissionID, CandidateID: emission.CandidateID,
@@ -467,7 +467,7 @@ func groupArtifactDescriptor(receipt *explorer.CompilationReceipt, materializati
 		}
 		public := contractColumns[name]
 		columns = append(columns, dataframepublished.ArtifactColumn{
-			Name: name, OutputKey: name, LogicalType: column.LogicalType, Shape: shape,
+			Name: name, OutputKey: name, Label: public.Label, LogicalType: column.LogicalType, Shape: shape,
 			ResultUnit: public.ResultUnit,
 			Nullable:   column.Nullable, Repeated: column.Repeated,
 		})

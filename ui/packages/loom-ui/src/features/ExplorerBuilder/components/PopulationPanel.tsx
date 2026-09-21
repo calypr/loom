@@ -153,7 +153,12 @@ export const PopulationPanel = ({
     });
   };
   return (
-    <section aria-label="Starting collection" className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-slate-800">
+    <section
+      aria-label="Starting collection"
+      data-selection-revision-id={selectionRevisionId}
+      data-attached-selection-revision-id={attached?.selectionRevisionId}
+      className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-slate-800"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900">Starting collection</h2>

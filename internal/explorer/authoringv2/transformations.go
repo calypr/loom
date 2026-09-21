@@ -184,11 +184,11 @@ func unitNormalizationCapabilities(candidate aggregateTransformCandidate) UnitNo
 		} else {
 			for _, policy := range unit.ApprovedUnitPolicies() {
 				choice := UnitNormalizationPresetCapability{PolicyID: policy.PolicyID, Version: policy.Version, Target: policy.Target}
-				if policy.SupportsSources(sources) {
+				if policySupportsAnySource(policy, sources) {
 					choice.Available = true
 				} else {
 					choice.ReasonCode = "UNIT_PRESET_INCOMPATIBLE"
-					choice.Reason = "the approved preset does not cover every observed source unit with a matching dimension"
+					choice.Reason = "the approved preset does not cover any observed source unit with a matching dimension"
 				}
 				result.Presets = append(result.Presets, choice)
 				result.Available = result.Available || choice.Available
@@ -218,9 +218,6 @@ func observedUnitSources(candidate aggregateTransformCandidate) ([]unit.UnitIden
 			continue
 		}
 		matched = true
-		if concept.truncated {
-			return nil, "SOURCE_UNITS_INCOMPLETE", "observed source unit evidence was truncated"
-		}
 		for _, value := range concept.units {
 			value = strings.TrimSpace(value)
 			if value == "" || strings.Contains(value, ":") {
@@ -228,7 +225,7 @@ func observedUnitSources(candidate aggregateTransformCandidate) ([]unit.UnitIden
 			}
 			identity := unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: value}
 			if _, ok := unit.UnitDimensionFor(identity); !ok {
-				return nil, "SOURCE_UNIT_UNRESOLVED", "observed source unit evidence contains a value outside the approved unit registry"
+				continue
 			}
 			sources[identity.Code] = identity
 		}
@@ -242,6 +239,15 @@ func observedUnitSources(candidate aggregateTransformCandidate) ([]unit.UnitIden
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Code < result[j].Code })
 	return result, "", ""
+}
+
+func policySupportsAnySource(policy unit.ApprovedUnitPolicy, sources []unit.UnitIdentity) bool {
+	for _, source := range sources {
+		if policy.SupportsSources([]unit.UnitIdentity{source}) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateTransformCandidateByID(candidates []aggregateTransformCandidate, candidateID string) (aggregateTransformCandidate, bool) {

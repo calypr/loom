@@ -87,3 +87,25 @@ func TestUnitNormalizationRequiresAnAdvertisedCompatiblePreset(t *testing.T) {
 		t.Fatalf("compatible unit preset rejected: %v", err)
 	}
 }
+
+func TestUnitNormalizationPresetsAreNotPoisonedByOtherPopulationUnits(t *testing.T) {
+	catalog := CatalogSnapshot{
+		Nodes: []CatalogNode{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+		Candidates: []CatalogCandidate{{
+			ID: "observation-value", NodeID: "observation", FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one",
+			ConceptCandidates: []ConceptCandidate{{
+				SourceResourceType: "Observation", ValueSelector: "valueQuantity.value",
+				ObservedUnits: []string{"cm", "kg", "furlong"}, ObservedUnitsTruncated: true,
+			}},
+		}},
+	}
+
+	choices := AggregateTransformationCapabilitiesForCatalog(catalog, "observation-value").UnitNormalization
+	available := map[string]bool{}
+	for _, preset := range choices.Presets {
+		available[preset.PolicyID] = preset.Available
+	}
+	if !available["to-centimeters"] || !available["to-kilograms"] {
+		t.Fatalf("population-applicable presets were globally poisoned: %#v", choices)
+	}
+}

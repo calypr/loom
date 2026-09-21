@@ -17,9 +17,11 @@ import {
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
+import type { SelectionRevision } from '../../selection';
 
 const mockLoomClient = vi.hoisted(() => ({
   getSelection: vi.fn(),
+  searchPopulationRoutes: vi.fn(),
   createSelection: vi.fn(),
   resolveConfiguredColumnContexts: vi.fn(),
   getTableShapeCapabilities: vi.fn(),
@@ -48,6 +50,8 @@ vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({
     onPreview,
     onPublish,
+    onSelectTable,
+    tables,
     previewDisabled,
     publishDisabled,
     publishing,
@@ -55,6 +59,8 @@ vi.mock('./components/BuilderToolbar', () => ({
   }: {
     readonly onPreview: () => void;
     readonly onPublish: () => void;
+    readonly onSelectTable: (outputId: string) => void;
+    readonly tables: ReadonlyArray<{ readonly outputId: string }>;
     readonly previewDisabled: boolean;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
@@ -76,6 +82,11 @@ vi.mock('./components/BuilderToolbar', () => ({
       >
         {publishing ? 'Publishing…' : 'Publish'}
       </button>
+      {tables[1] ? (
+        <button type="button" onClick={() => onSelectTable(tables[1].outputId)}>
+          Select second table
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -295,6 +306,8 @@ const tableShapeComparison = {
   status: 'AVAILABLE', base: { rowCount: 1, sampled: false }, candidate: { rowCount: 1, sampled: false },
   changedColumns: [], changedRowCount: 0, changedRowsSampled: false, changedRows: [],
   contributors: [], contributorsSampled: false, evidenceLimitations: [], notices: [],
+  exclusions: { status: 'COMPLETE', records: [], complete: true, sampled: false },
+  declaredInformationLoss: { status: 'COMPLETE', items: [] },
 };
 
 const resolvedRequest = <T,>(value: T) => ({
@@ -336,6 +349,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
   let publish: Mock;
 
   beforeEach(() => {
+    mockLoomClient.getSelection.mockReset();
     resolveContext = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string }) => ({
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
@@ -574,6 +588,109 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+  });
+
+  it('clears an interrupted attached-selection load when switching tables', async () => {
+    const attachedWorkspace = {
+      ...workspace,
+      documents: [
+        {
+          ...workspace.documents[0],
+          population: { selectionRevisionId: 'selection-1', route: [] },
+        },
+        {
+          ...workspace.documents[0],
+          output: { id: 'patients', title: 'Patients' },
+          rootResourceType: 'Patient',
+          route: { occurrenceId: 'base', resourceType: 'Patient' },
+          columns: [],
+        },
+      ],
+      tabs: [
+        ...workspace.tabs,
+        {
+          id: 'patients-tab',
+          title: 'Patients',
+          outputId: 'patients',
+          order: 1,
+          visible: true,
+        },
+      ],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: attachedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.getSelection.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    expect(await screen.findByText('Loading the saved selection…')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText('Loading the saved selection…')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps a handed-off selection active when the current table has another collection attached', async () => {
+    const attachedWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        population: { selectionRevisionId: 'selection-1', route: [] },
+      }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: attachedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.searchPopulationRoutes.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'specimens',
+      selectionRevisionId: 'selection-2',
+      choices: [],
+      truncated: false,
+    });
+    const handedOffSelection: SelectionRevision = {
+      id: 'selection-2',
+      project: 'HTAN_INT/BForePC',
+      generation: 'generation-1',
+      resourceType: 'Specimen',
+      rule: { kind: 'EXPLICIT' },
+      source: { kind: 'EXPLICIT_REFS', generation: 'generation-1' },
+      scopeDigest: 'scope-2',
+      ruleDigest: 'rule-2',
+      membershipDigest: 'members-2',
+      memberCount: 1,
+      memberBytes: 32,
+      complete: true,
+      createdAt: '2026-09-21T00:00:00Z',
+    };
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+        populationSelection={handedOffSelection}
+      />,
+    );
+
+    const panel = await screen.findByRole('region', { name: 'Starting collection' });
+    expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2');
+    expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
+    expect(mockLoomClient.getSelection).not.toHaveBeenCalled();
   });
 
   it('assesses and applies a row change without destructive reset', async () => {

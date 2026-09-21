@@ -1100,7 +1100,8 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 }
 
 func setPopulationRoute(document *Document, selectionRevisionID string, route []PopulationRouteStep) {
-	steps := append([]PopulationRouteStep(nil), route...)
+	steps := make([]PopulationRouteStep, len(route))
+	copy(steps, route)
 	document.Population = &Population{SelectionRevisionID: strings.TrimSpace(selectionRevisionID), Route: steps}
 }
 

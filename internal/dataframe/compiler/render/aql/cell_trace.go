@@ -271,7 +271,7 @@ func (r *physicalPlanRenderer) categoryRecodeTraceSource(expression ir.PhysicalE
 		return ir.PhysicalExpression{}, false
 	}
 	source, nullValue, ok := r.traceEquality(call.Args[0])
-	if !ok || source.Kind != ir.PhysicalExtractExpression || source.Extract == nil || nullValue != nil {
+	if !ok || !traceableCategoryRecodeSource(source) || nullValue != nil {
 		return ir.PhysicalExpression{}, false
 	}
 	firstMappedValue, exists := r.traceLiteralValue(call.Args[1])
@@ -296,6 +296,17 @@ func (r *physicalPlanRenderer) categoryRecodeTraceSource(expression ir.PhysicalE
 		return source, true
 	}
 	return ir.PhysicalExpression{}, false
+}
+
+func traceableCategoryRecodeSource(source ir.PhysicalExpression) bool {
+	switch source.Kind {
+	case ir.PhysicalExtractExpression:
+		return source.Extract != nil
+	case ir.PhysicalAggregateExpression:
+		return source.Aggregate != nil
+	default:
+		return false
+	}
 }
 
 func (r *physicalPlanRenderer) traceEquality(expression ir.PhysicalExpression) (ir.PhysicalExpression, any, bool) {

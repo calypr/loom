@@ -75,6 +75,7 @@
     "excludedRecordIds": ["j04-window-excluded"]
   },
   "normalizationPolicy": {
+    "targetSystem": "http://unitsofmeasure.org",
     "targetUnit": "cm",
     "factorByUnit": { "cm": 1, "m": 100 }
   },

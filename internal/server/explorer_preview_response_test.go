@@ -18,7 +18,7 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	aggregateUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
 	derivedUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg/m2"}
 	columns := []explorer.EmittedColumn{
-		{EmissionID: "mean-weight", OutputID: "same-id", AuthoredColumns: []string{"weight"}, PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", ResultUnit: aggregateUnit},
+		{EmissionID: "mean-weight", OutputID: "same-id", AuthoredColumns: []string{"weight"}, PublicColumn: "mean_weight", Label: "Mean weight", LogicalType: "decimal", Shape: "scalar", Nullable: true, ResultUnit: aggregateUnit},
 		{EmissionID: "bmi", OutputID: "same-id", AuthoredColumns: []string{"weight", "height"}, PublicColumn: "bmi", Label: "BMI", LogicalType: "decimal", ResultUnit: derivedUnit},
 		{EmissionID: "patient-id", OutputID: "same-id", AuthoredColumns: []string{"patient_id"}, PublicColumn: "patient_id", Label: "Patient ID", LogicalType: "string"},
 	}
@@ -48,6 +48,9 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	}
 	if len(decoded.Columns[0].AuthoredColumns) != 1 || decoded.Columns[0].AuthoredColumns[0] != "weight" {
 		t.Fatalf("authored columns = %#v", decoded.Columns[0].AuthoredColumns)
+	}
+	if decoded.Columns[0].Shape != "scalar" || !decoded.Columns[0].Nullable {
+		t.Fatalf("preview shape/nullability = %q/%t, want scalar/true", decoded.Columns[0].Shape, decoded.Columns[0].Nullable)
 	}
 	if got := decoded.Columns[0].ResultUnit; got == nil || got.System != aggregateUnit.System || got.Code != aggregateUnit.Code {
 		t.Fatalf("aggregate result unit = %#v, want %#v", got, aggregateUnit)

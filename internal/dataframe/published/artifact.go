@@ -60,6 +60,7 @@ type ArtifactIdentity struct {
 type ArtifactColumn struct {
 	Name               string             `json:"name"`
 	OutputKey          string             `json:"outputKey,omitempty"`
+	Label              string             `json:"label,omitempty"`
 	LogicalType        string             `json:"logicalType,omitempty"`
 	ResultUnit         *unit.UnitIdentity `json:"resultUnit,omitempty"`
 	Shape              string             `json:"shape,omitempty"`

@@ -201,6 +201,7 @@ test('J04 Patient DOM plan includes visible selection, contributor-window, opera
     assert.ok(plan.visibleActions.includes(control), `missing visible contributor-window control: ${control}`);
   }
   assert.equal(plan.unitNormalization.targetUnit, 'cm');
+  assert.equal(plan.unitNormalization.targetSystem, 'http://unitsofmeasure.org');
   assert.equal(plan.unitNormalization.refusal.reason, 'UNIT_IDENTITY_UNKNOWN');
   assert.ok(plan.visibleActions.includes('Apply normalization'));
   assert.deepEqual(j04PatientOperatorSourceIDs(contract, 'MIN'), ['j04-measure-003']);

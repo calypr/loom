@@ -553,7 +553,14 @@ const BuilderWorkspaceContent = ({
   }, [handedOffPopulationSelectionID]);
   useEffect(() => {
     const attachedSelectionID = table?.document.population?.selectionRevisionId;
-    if (!attachedSelectionID || activePopulationSelection?.id === attachedSelectionID) return;
+    if (
+      handedOffPopulationSelectionID ||
+      !attachedSelectionID ||
+      activePopulationSelection?.id === attachedSelectionID
+    ) {
+      setActivePopulationSelectionLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setActivePopulationSelectionLoading(true);
     setPopulationVariantError(undefined);
@@ -572,7 +579,7 @@ const BuilderWorkspaceContent = ({
       if (!controller.signal.aborted) setActivePopulationSelectionLoading(false);
     });
     return () => controller.abort();
-  }, [activePopulationSelection?.id, authResourcePath, loomClient, projectId, state.explorerId, table?.document.population?.selectionRevisionId]);
+  }, [activePopulationSelection?.id, authResourcePath, handedOffPopulationSelectionID, loomClient, projectId, state.explorerId, table?.document.population?.selectionRevisionId]);
   const occurrences = useMemo(
     () => derivedOccurrences(table, state.catalog),
     [state.catalog, table],

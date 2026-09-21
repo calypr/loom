@@ -106,12 +106,16 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	}
 
 	emitted := make(map[string]map[string]EmittedColumn)
+	emittedOrder := make(map[string][]string)
 	for _, column := range revision.EmittedColumns {
 		if column.OutputID == "" || column.PublicColumn == "" {
 			continue
 		}
 		if emitted[column.OutputID] == nil {
 			emitted[column.OutputID] = map[string]EmittedColumn{}
+		}
+		if _, exists := emitted[column.OutputID][column.PublicColumn]; !exists {
+			emittedOrder[column.OutputID] = append(emittedOrder[column.OutputID], column.PublicColumn)
 		}
 		emitted[column.OutputID][column.PublicColumn] = column
 		// Emissions are a compatibility fallback for outputs whose publication
@@ -134,6 +138,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	// Labels are frozen by the public output contract. They are indexed by the
 	// authored physical column, never reconstructed from compiler identities.
 	contractColumns := map[string]map[string]PublicOutputColumn{}
+	contractOrder := map[string][]string{}
 	if len(revision.PublicOutputContract) > 0 {
 		contracts, contractErr := DecodePublicOutputContracts(revision.PublicOutputContract)
 		if contractErr != nil {
@@ -146,6 +151,7 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			contractColumns[output.OutputID] = map[string]PublicOutputColumn{}
 			for _, column := range output.Columns {
 				contractColumns[output.OutputID][column.Column] = column
+				contractOrder[output.OutputID] = append(contractOrder[output.OutputID], column.Column)
 			}
 		}
 	}
@@ -229,8 +235,14 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 			seen[name] = true
 			ordered = append(ordered, name)
 		}
+		for _, name := range contractOrder[view.Output] {
+			appendColumn(name)
+		}
 		for _, binding := range view.Table.Columns {
 			appendColumn(binding.Column)
+		}
+		for _, name := range emittedOrder[view.Output] {
+			appendColumn(name)
 		}
 		remaining := make([]string, 0, len(physicalColumns[view.Output]))
 		for name := range physicalColumns[view.Output] {
@@ -244,20 +256,47 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 		}
 
 		table := ExplorerRuntimeTableV1{Columns: []ExplorerRuntimeTableColumnV1{}}
-		for index, binding := range view.Table.Columns {
-			column, ok := ensureColumn(binding.Column)
-			if !ok {
-				continue
+		configuredBindings := make(map[string]ConfigColumn, len(view.Table.Columns))
+		for _, binding := range view.Table.Columns {
+			configuredBindings[binding.Column] = binding
+		}
+		_, hasPublicContract := contractColumns[view.Output]
+		if hasPublicContract {
+			// Compilation owns the public schema and its order. Legacy Viewer
+			// configuration may still supply presentation choices for matching
+			// columns, but it cannot hide or reorder columns created by a later
+			// table-shape compilation.
+			for index, name := range ordered {
+				column, ok := ensureColumn(name)
+				if !ok {
+					continue
+				}
+				binding, configured := configuredBindings[name]
+				visible := !runtimeColumnIsInternal(name)
+				if configured {
+					column.Label = firstNonEmptyString(binding.Label, column.Label)
+					visible = binding.Visible
+				}
+				column.Visible, column.Order = visible, index
+				columnsByName[name] = column
+				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: name, EmissionID: name, Visible: visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
 			}
-			column.Label = firstNonEmptyString(binding.Label, column.Label)
-			column.Visible, column.Order = binding.Visible, index
-			columnsByName[binding.Column] = column
-			table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: binding.Visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
+		} else {
+			for index, binding := range view.Table.Columns {
+				column, ok := ensureColumn(binding.Column)
+				if !ok {
+					continue
+				}
+				column.Label = firstNonEmptyString(binding.Label, column.Label)
+				column.Visible, column.Order = binding.Visible, index
+				columnsByName[binding.Column] = column
+				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: binding.Visible, Pinned: binding.Pinned, CellRenderer: binding.CellRenderer})
+			}
 		}
 		columns := make([]ExplorerRuntimeColumnV1, 0, len(ordered))
 		for index, name := range ordered {
 			column := columnsByName[name]
-			if len(view.Table.Columns) == 0 && !runtimeColumnIsInternal(name) {
+			if !hasPublicContract && len(view.Table.Columns) == 0 && !runtimeColumnIsInternal(name) {
 				column.Visible, column.Order = true, index
 				table.Columns = append(table.Columns, ExplorerRuntimeTableColumnV1{Column: column.Column, EmissionID: column.Column, Visible: true})
 			}

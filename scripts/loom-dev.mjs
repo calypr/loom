@@ -1449,8 +1449,16 @@ const launchBrowser = async (downloadDir, { promptText } = {}) => {
 };
 
 const navigate = async (cdp, url) => {
-  await cdp.send('Page.navigate', { url });
-  await waitForBrowser(cdp, `document.readyState === 'complete'`, 30000);
+  const expectedURL = new URL(url).href;
+  const navigation = await cdp.send('Page.navigate', { url });
+  if (navigation.errorText) {
+    throw new Error(`browser navigation failed: ${navigation.errorText}`);
+  }
+  await waitForBrowser(
+    cdp,
+    `window.location.href === ${JSON.stringify(expectedURL)} && document.readyState === 'complete'`,
+    30000,
+  );
 };
 
 export const parseCSV = (text) => {
@@ -1641,7 +1649,7 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
   const aggregateWindow = j04WindowBounds(scope.window, 'aggregate time window');
   if (!Array.isArray(contract.expectedAggregates) || !contract.expectedAggregates.length) throw new Error('J04 fixture contract must list exact aggregate outcomes');
   const normalization = contract.normalizationPolicy;
-  if (normalization?.targetUnit !== scope.normalizedUnit || !normalization.factorByUnit || typeof normalization.factorByUnit !== 'object') throw new Error('J04 normalization policy must define the aggregate target unit and supported conversion factors');
+  if (normalization?.targetSystem !== 'http://unitsofmeasure.org' || normalization.targetUnit !== scope.normalizedUnit || !normalization.factorByUnit || typeof normalization.factorByUnit !== 'object') throw new Error('J04 normalization policy must define the UCUM system, aggregate target unit, and supported conversion factors');
   for (const [unit, factor] of Object.entries(normalization.factorByUnit)) {
     if (!unit || !Number.isFinite(factor) || factor <= 0) throw new Error(`J04 unit conversion factor for ${unit || '(empty)'} is invalid`);
   }
@@ -5693,7 +5701,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const select = document.querySelector('select[aria-label="New row definition"]');
     const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('EXPANDED') && candidate.textContent.includes(${JSON.stringify(policy)}));
     if (!select || !option) throw new Error('server offered no EXPANDED row choice with policy ' + ${JSON.stringify(policy)});
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return option.textContent.trim();
     })()`);
@@ -5704,7 +5712,7 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const select = document.querySelector('select[aria-label="New row definition"]');
     const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('Explicit group') && candidate.textContent.includes(${JSON.stringify(revisionId.slice(0, 12))}) && candidate.textContent.includes(${JSON.stringify(policy)}));
     if (!select || !option) throw new Error('server offered no explicit group row choice with policy ' + ${JSON.stringify(policy)});
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return option.textContent.trim();
     })()`);
@@ -6236,16 +6244,24 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     }
     throw new Error(`J04 Patient Builder did not reach ${label}: ${JSON.stringify(state?.workspace?.documents?.map((doc) => ({ id: doc.output?.id, rows: doc.rootResourceType, columns: doc.columns?.length })))}`);
   };
+  const candidatePath = (candidate) => String(candidate?.fieldPath ?? '').replace(/^root\./, '');
   const recordLiteral = (name, expected, actual, details = {}) => {
     const passed = j04ExactEqual(expected, actual);
-    report.assertions.push({ name, status: passed ? 'passed' : 'failed', expected, actual, ...details });
+    report.assertions.push({ name, expected, actual, ...details, status: passed ? 'passed' : 'failed' });
     return passed;
   };
   const readCellTrace = async (receiptId, column, rowIdentity, rawRow) => {
+    const patientID = rowIdentity?.replace(/^Patient\//, '');
     const candidates = [
       rawRow?.__loom_row_id,
       rawRow?.rowId,
-      rowIdentity?.replace(/^Patient\//, ''),
+      patientID && j04DefaultRecordCellTraceRowID(
+        target.fixtureProject,
+        target.fixtureGeneration,
+        'Patient',
+        patientID,
+      ),
+      patientID,
       rowIdentity,
     ].filter((value, index, values) => typeof value === 'string' && value.length > 0 && values.indexOf(value) === index);
     const url = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/cell-trace`;
@@ -6260,7 +6276,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     }
     return { unavailable: true, attempts };
   };
-  const readVisiblePreview = async (label, expected, expectedContributorIDs = []) => {
+  const readVisiblePreview = async (label, expected, expectedContributorIDs = [], requestStart = 0) => {
     await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
     const visible = await evaluate(cdp, `(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
@@ -6271,10 +6287,19 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     const state = await fetchBuilderState(target, explorerId);
     const receiptId = state.receipt?.receiptId ?? null;
     const visibleRow = visible.find((row) => row['Patient ID'] === 'j04-patient-001');
-    const actual = visibleRow?.[label] ?? null;
+    const visibleLabel = Object.keys(visibleRow ?? {}).find((header) => header === label || header.startsWith(`${label} (`));
+    const actual = visibleLabel ? visibleRow?.[visibleLabel] ?? null : null;
     const literal = typeof expected === 'number' && actual !== null ? Number(actual) : typeof expected === 'boolean' ? actual === 'true' : actual;
-    const response = [...network].reverse().find((item) => item.path.endsWith('/preview')
-      && item.status >= 200 && item.status < 300 && item.responseJSON);
+    let response;
+    const responseDeadline = Date.now() + 60000;
+    while (Date.now() < responseDeadline) {
+      await Promise.allSettled([...pendingNetworkBodies]);
+      response = network.slice(requestStart).reverse().find((item) => item.path.endsWith('/preview')
+        && item.status >= 200 && item.status < 300 && item.responseJSON?.rows);
+      if (response) break;
+      await sleep(150);
+    }
+    if (!response) throw new Error(`J04 Patient Preview returned no receipt-backed row response for ${label}`);
     const authoredColumns = state.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns ?? [];
     const patientIDColumn = authoredColumns.find((column) => column.label === 'Patient ID');
     const authoredColumn = authoredColumns.find((column) => column.label === label);
@@ -6315,14 +6340,22 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     return { ...preview, visible, state, receiptId, actual: literal };
   };
   const previewNow = async (label, expected, expectedContributorIDs = []) => {
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+    const requestStart = network.length;
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Preview')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
-    return readVisiblePreview(label, expected, expectedContributorIDs);
+    await waitForBrowser(cdp, `(() => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+      const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
+      const index = headers.findIndex((header) => header === ${JSON.stringify(label)} || header.startsWith(${JSON.stringify(`${label} (`)}));
+      return index >= 0 && rows.slice(1).some((row) => row.querySelectorAll('[role="cell"]')[index]?.textContent.trim() === ${JSON.stringify(String(expected))});
+    })()`, 60000);
+    return readVisiblePreview(label, expected, expectedContributorIDs, requestStart);
   };
   const previewForRefusal = async (expectedCode) => {
     const firstRequestIndex = network.length;
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Preview')`);
     const deadline = Date.now() + 60000;
     let response;
@@ -6342,7 +6375,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       }
       return undefined;
     };
-    const alertText = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter(visible).map((item) => norm(item.innerText)).join(' | '))()`);
+    const alertText = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter((item) => item.getClientRects().length > 0).map((item) => item.innerText.trim()).join(' | '))()`);
     const refusal = {
       requestId: response.requestId,
       status: response.status,
@@ -6351,9 +6384,9 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       visibleAlert: alertText,
     };
     journey.refusalTable.preview = refusal;
-    await waitForBrowser(cdp, `[...document.querySelectorAll('[role="alert"]')].some((item) => visible(item) && norm(item.innerText).includes(${JSON.stringify(expectedCode)}))`, 15000);
-    refusal.visibleAlert = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter(visible).map((item) => norm(item.innerText)).join(' | '))()`);
-    recordLiteral('j04-unsupported-unit-preview-returns-exact-refusal-code', expectedCode, refusal.code, { requestId: refusal.requestId, status: refusal.status });
+    await waitForBrowser(cdp, `[...document.querySelectorAll('[role="alert"]')].some((item) => item.textContent.includes(${JSON.stringify(expectedCode)}))`, 15000);
+    refusal.visibleAlert = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter((item) => item.getClientRects().length > 0).map((item) => item.innerText.trim()).join(' | '))()`);
+    recordLiteral('j04-unsupported-unit-preview-returns-exact-refusal-code', expectedCode, refusal.code, { requestId: refusal.requestId, httpStatus: refusal.status });
     recordLiteral('j04-unsupported-unit-refusal-is-visible-in-builder', true, alertText.includes(expectedCode), { visibleAlert: alertText, requestId: refusal.requestId });
     await captureDOM('patient-unsupported-unit-refusal');
     return refusal;
@@ -6362,7 +6395,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
     const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(value)});
     if (!select || !option || option.disabled) throw new Error('J04 Patient visible option is unavailable: ' + ${JSON.stringify(label)} + '=' + ${JSON.stringify(value)});
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return norm(option.textContent);
@@ -6371,7 +6404,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
     const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(value)});
     if (!select || !option || option.disabled) throw new Error('J04 Patient accessible choice is unavailable: ' + ${JSON.stringify(label)} + '=' + ${JSON.stringify(value)});
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return norm(option.textContent);
@@ -6386,7 +6419,8 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
   const applyCmNormalization = async (column, targetOutputId = outputId, capability = journey.capabilities?.unitNormalization) => {
     const preset = capability?.presets?.find((item) => item.available && item.target?.code === controlPlan.unitNormalization.targetUnit);
     if (!preset) throw new Error(`J04 Patient Builder did not offer an available ${controlPlan.unitNormalization.targetUnit} unit-normalization preset`);
-    const button = await evaluate(cdp, `(() => [...document.querySelectorAll('button')].find((item) => ['Normalize units', 'Edit unit normalization'].includes(norm(item.textContent)))?.textContent.trim())()`);
+    await waitForBrowser(cdp, `[...document.querySelectorAll('button')].some((item) => ['Normalize units', 'Edit unit normalization'].includes(item.textContent.trim()))`, 30000);
+    const button = await evaluate(cdp, `(() => [...document.querySelectorAll('button')].find((item) => ['Normalize units', 'Edit unit normalization'].includes(item.textContent.trim()))?.textContent.trim())()`);
     if (button === 'Normalize units') await browserEval(cdp, `clickButton('Normalize units')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Unit conversion preset"]'))`, 20000);
     await setAccessibleSelect('Unit conversion preset', JSON.stringify([preset.policyId, preset.version]));
@@ -6450,6 +6484,90 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     }, `${operation} contributor window`);
     const saved = persisted.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === column.column);
     return { saved, expectedWindow, ordering: direction ? saved.source.aggregate.ordering : undefined };
+  };
+  const applyFirstOrderedSelection = async (column, direction) => {
+    const editingSavedSelection = column.source?.kind === 'aggregate'
+      && column.source.aggregate.operation === 'FIRST_ORDERED';
+    await setSelectValue(`Across related Observation records for ${column.label}`, 'FIRST_ORDERED');
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Record date"]')) && Boolean(document.querySelector('select[aria-label="Compare with row date"]')) && Boolean(document.querySelector('input[aria-label="Look back days"]'))`, 20000);
+    const windowPlan = controlPlan.contributorWindow;
+    if (!editingSavedSelection) {
+      await setAccessibleSelect('Record date', windowPlan.recordDatePath);
+      await setAccessibleSelect('Compare with row date', windowPlan.anchorPath);
+      await setInputValue('Look back days', String(windowPlan.lookbackDays));
+      await setCheckboxByLabel('Include start boundary', true);
+      await setCheckboxByLabel('Include end boundary', false);
+    }
+    const chooseNativeSelectValue = async (label, value, referenceName) => {
+      await browserEval(cdp, `(() => {
+        const select = [...document.querySelectorAll('select[aria-label]')]
+          .find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
+        if (!select || select.disabled) throw new Error('J04 Patient native select is unavailable: ' + ${JSON.stringify(label)});
+        window[${JSON.stringify(referenceName)}] = select;
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, ${JSON.stringify(value)});
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await evaluate(cdp, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    };
+    const currentOrdering = column.source?.kind === 'aggregate' && column.source.aggregate.operation === 'FIRST_ORDERED'
+      ? column.source.aggregate.ordering
+      : undefined;
+    const currentDirection = currentOrdering?.direction ?? 'DESC';
+    const currentTiePolicy = currentOrdering?.tiePolicy ?? 'REQUIRE_UNIQUE';
+    if (currentDirection !== direction) {
+      await chooseNativeSelectValue('Date selection direction', direction, '__loomJ04TemporalDirectionSelect');
+    }
+    if (currentTiePolicy !== windowPlan.tiePolicy) {
+      await chooseNativeSelectValue('Equal date handling', windowPlan.tiePolicy, '__loomJ04TemporalTieSelect');
+    }
+    const temporalSelection = await evaluate(cdp, `(() => {
+      const directionSelect = document.querySelector('select[aria-label="Date selection direction"]');
+      const tieSelect = document.querySelector('select[aria-label="Equal date handling"]');
+      const summary = directionSelect?.closest('fieldset')?.innerText || '';
+      const savedDirection = window.__loomJ04TemporalDirectionSelect;
+      return {
+        direction: directionSelect?.value,
+        tiePolicy: tieSelect?.value,
+        summary,
+        savedDirectionConnected: savedDirection?.isConnected ?? null,
+        savedDirectionIsCurrent: savedDirection ? savedDirection === directionSelect : null,
+      };
+    })()`);
+    const expectedSummary = `${direction === 'DESC' ? 'Latest' : 'Earliest'} ${column.source?.kind === 'aggregate' ? column.source.aggregate.path : column.label}`;
+    if (temporalSelection.direction !== direction || temporalSelection.tiePolicy !== windowPlan.tiePolicy
+      || !temporalSelection.summary.includes(expectedSummary)) {
+      throw new Error(`J04 Patient temporal controls did not reach React state before Apply: ${JSON.stringify({ expected: { direction, tiePolicy: windowPlan.tiePolicy, summary: expectedSummary }, actual: temporalSelection })}`);
+    }
+    const expectedWindow = {
+      timestampPath: windowPlan.recordDatePath,
+      anchorPath: windowPlan.anchorPath,
+      lowerOffsetSeconds: -windowPlan.lookbackDays * 86_400,
+      upperOffsetSeconds: 0,
+      lowerInclusive: true,
+      upperInclusive: false,
+      precision: 'INSTANT',
+    };
+    await browserEval(cdp, `(() => {
+      const directionSelect = document.querySelector('select[aria-label="Date selection direction"]');
+      const fieldset = directionSelect?.closest('fieldset');
+      const button = [...(fieldset?.querySelectorAll('button') || [])]
+        .find((item) => norm(item.textContent) === 'Apply date selection');
+      if (!button || button.disabled) throw new Error('J04 Patient scoped Apply date selection is unavailable');
+      button.click();
+    })()`);
+    const persisted = await waitForState((value) => {
+      const saved = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === column.column);
+      return saved?.source?.kind === 'aggregate' && saved.source.aggregate.operation === 'FIRST_ORDERED'
+        && j04ExactEqual(saved.source.aggregate.contributorWindow, expectedWindow)
+        && j04ExactEqual(saved.source.aggregate.ordering, {
+          timestampPath: windowPlan.recordDatePath,
+          direction,
+          tiePolicy: windowPlan.tiePolicy,
+        });
+    }, 'FIRST_ORDERED value selection');
+    const saved = persisted.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === column.column);
+    return { saved, expectedWindow, ordering: saved.source.aggregate.ordering };
   };
 
   try {
@@ -6520,7 +6638,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]'))`, 30000);
       await browserEval(cdp, `clickButton('Choose Patient rows')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Starting collection"]'))`, 30000);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => norm(button.textContent) === 'Use selected resources' && !button.disabled))`, 60000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`, 60000);
       await captureDOM('patient-table-before-selection-attachment');
       await browserEval(cdp, `clickButton('Use selected resources')`);
       const state = await waitForState((value) => {
@@ -6532,6 +6650,7 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       journey.outputId = outputId;
       journey.rowDefinition = { rootResourceType: document.rootResourceType, selectionRevisionId: document.population.selectionRevisionId, route: document.population.route };
       recordAssertion(report, 'j04-patient-table-attaches-exact-selection-through-visible-starting-collection', selectionFixture.selection.id, document.population.selectionRevisionId);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => button.textContent.trim() === 'Use all authorized rows' && !button.disabled))`, 30000);
     });
 
     let state = await fetchBuilderState(target, explorerId);
@@ -6556,7 +6675,9 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       await browserEval(cdp, `clickCandidate('id', 'to table')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]'))`, 30000);
       await browserEval(cdp, `setInput('Display name for configured id', 'Patient ID')`);
-      await browserEval(cdp, `inputByLabel('Display name for configured id').blur()`);
+      await browserEval(cdp, `inputByLabel('Display name for configured id').focus()`);
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter' });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
       state = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.some((column) => column.label === 'Patient ID'), 'Patient ID source column');
       const rootOccurrence = state.workspace.documents.find((item) => item.output?.id === outputId).route.occurrenceId;
       await browserEval(cdp, `(() => { const button = [...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].find((item) => item.dataset.occurrenceId === ${JSON.stringify(rootOccurrence)}); if (!button) throw new Error('J04 Patient root occurrence is not visible'); button.click(); })()`);
@@ -6621,6 +6742,14 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
         capability: recodingCapability,
         expectedCases: recodingContract.cases,
       };
+      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`select[aria-label="Repeated values for ${recodingColumn.label}"]`)}))`, 30000);
+      await setAccessibleSelect(`Repeated values for ${recodingColumn.label}`, 'FIRST');
+      state = await waitForState((value) => {
+        const column = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === recodingColumn.column);
+        return column?.source?.kind === 'field' && column.source.field.projectionMode === 'FIRST';
+      }, 'scalar exact-recoding source');
+      recodingColumn = state.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === recodingColumn.column);
+      await waitForBrowser(cdp, `[...document.querySelectorAll('summary')].some((item) => item.textContent.trim() === 'Recode exact category values')`, 30000);
       await browserEval(cdp, `clickText('summary', 'Recode exact category values')`);
       const mappings = Object.entries(recodingContract.mapping);
       for (let index = 0; index < mappings.length; index += 1) {
@@ -6657,10 +6786,10 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
         recodingColumn = live.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === recodingColumn.column);
         if (!recodingColumn.contributor) {
           await browserEval(cdp, `(() => {
-            const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(recodingColumn.label)}) + ']);
+            const select = inputByLabel('Contributors for ' + ${JSON.stringify(recodingColumn.label)});
             const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(recodingCandidate.candidateId)});
             if (!select || !option) throw new Error('J04 recoding field is unavailable as its own contributor filter');
-            select.value = option.value;
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
             select.dispatchEvent(new Event('input', { bubbles: true }));
             select.dispatchEvent(new Event('change', { bubbles: true }));
           })()`);
@@ -6683,6 +6812,8 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
 
     const metricLabel = journey.metricColumn.label;
     const operationControl = `Across related Observation records for ${metricLabel}`;
+    await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(metricPath)})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`select[aria-label="${operationControl}"]`)}))`, 30000);
     const observedOperations = [];
     for (const item of controlPlan.aggregateOperations) {
       await action(`preview-${item.operation.toLowerCase()}-on-patient-row`, async () => {
@@ -6691,16 +6822,17 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
         if (currentColumn?.source?.kind === 'field') {
           await browserEval(cdp, `(() => {
             const details = [...document.querySelectorAll('details')].find((item) => norm(item.innerText).includes('Time and units'));
-            const select = document.querySelector('select[aria-label=' + JSON.stringify('Across related Observation records for ' + ${JSON.stringify(metricLabel)}) + ']);
+            const select = inputByLabel('Across related Observation records for ' + ${JSON.stringify(metricLabel)});
             if (!select) throw new Error('J04 aggregate operation selector is missing');
             const option = [...select.options].find((candidate) => candidate.value === ${JSON.stringify(item.operation)});
             if (!option || option.disabled) throw new Error('J04 aggregate operation is not offered: ' + ${JSON.stringify(item.operation)} + '; options=' + [...select.options].map((candidate) => norm(candidate.textContent)).join(' | '));
-            select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true }));
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
+            select.dispatchEvent(new Event('change', { bubbles: true }));
           })()`);
         } else {
           await setSelectValue(operationControl, item.operation);
         }
-        const persisted = await waitForState((value) => {
+        let persisted = await waitForState((value) => {
           const column = value.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.columns?.find((candidate) => candidate.column === journey.metricColumn.column);
           return column?.source?.kind === 'aggregate' && column.source.aggregate.operation === item.operation;
         }, `${item.operation} persisted`);
@@ -6708,10 +6840,10 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
         if (item.operation === 'COUNT' && !savedColumn.contributor) {
           const categoryCandidateID = journey.capabilities.categoryCandidateId;
           await browserEval(cdp, `(() => {
-            const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(savedColumn.label)}) + ']);
+            const select = inputByLabel('Contributors for ' + ${JSON.stringify(savedColumn.label)});
             const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(categoryCandidateID)});
             if (!select || !option) throw new Error('J04 category candidate is absent from the visible contributor filter');
-            select.value = option.value;
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
             select.dispatchEvent(new Event('input', { bubbles: true }));
             select.dispatchEvent(new Event('change', { bubbles: true }));
           })()`);
@@ -6804,13 +6936,9 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     }, { receiptId: normalizedMinimum?.receiptId, sourceIdentities: normalizedMinimum?.sourceIdentities });
 
     const configureDateSelection = async (direction, expectedValue, expectedRecordId) => {
-      await setSelectValue(operationControl, 'FIRST_ORDERED');
-      const ordered = await waitForState((value) => {
-        const saved = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === journey.metricColumn.column);
-        return saved?.source?.kind === 'aggregate' && saved.source.aggregate.operation === 'FIRST_ORDERED';
-      }, 'FIRST_ORDERED value selection');
-      const current = ordered.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === journey.metricColumn.column);
-      const windowed = await applyContributorWindow(current, 'FIRST_ORDERED', direction);
+      const live = await fetchBuilderState(target, explorerId);
+      const current = live.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === journey.metricColumn.column);
+      const windowed = await applyFirstOrderedSelection(current, direction);
       let saved = windowed.saved;
       const normalized = await applyCmNormalization(saved);
       saved = normalized.saved;
@@ -6854,25 +6982,29 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       recordLiteral('j04-refusal-selection-is-exactly-patient-002', [
         { project: canonicalProjectID(target.fixtureProject), generation: target.fixtureGeneration, resourceType: 'Patient', id: 'j04-patient-002' },
       ], refusalSelection.members);
-      await navigate(cdp, `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(refusalSelection.selection.id)}&mode=builder`);
+      const refusalBuilderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(refusalSelection.selection.id)}&mode=builder`;
+      await navigate(cdp, refusalBuilderURL);
+      await cdp.send('Page.reload', { ignoreCache: true });
+      await waitForBrowser(cdp, `window.location.href === ${JSON.stringify(new URL(refusalBuilderURL).href)} && document.readyState === 'complete'`, 30000);
       await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Explorer"]'))`, 30000);
+      await waitForBrowser(cdp, `document.querySelector('[aria-label="Starting collection"]')?.dataset.selectionRevisionId === ${JSON.stringify(refusalSelection.selection.id)}`, 60000);
 
       await browserEval(cdp, `(() => {
         const selector = document.querySelector('[aria-label="Table selector"]');
         if (!selector) throw new Error('J04 table selector is missing');
         selector.click();
       })()`);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'New table' && visible(button)))`, 15000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'New table' && button.getClientRects().length > 0))`, 15000);
       await browserEval(cdp, `clickButton('New table')`);
       const p2Title = 'J04 unsupported-unit refusal';
-      let createdState = await waitForState((value) => value.workspace?.documents?.some((item) => item.output?.title === p2Title), 'separate Patient-002 refusal table');
+      await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]'))`, 30000);
+      await browserEval(cdp, `clickButton('Choose Patient rows')`);
+      let createdState = await waitForState((value) => value.workspace?.documents?.some((item) => item.output?.title === p2Title && item.rootResourceType === 'Patient'), 'separate Patient-002 refusal table');
       const p2Document = createdState.workspace.documents.find((item) => item.output?.title === p2Title);
       const p2OutputId = p2Document.output.id;
       journey.refusalTable.outputId = p2OutputId;
-      await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]'))`, 30000);
-      await browserEval(cdp, `clickButton('Choose Patient rows')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Starting collection"]'))`, 30000);
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => norm(button.textContent) === 'Use selected resources' && !button.disabled))`, 60000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => button.textContent.trim() === 'Use selected resources' && !button.disabled))`, 60000);
       await browserEval(cdp, `clickButton('Use selected resources')`);
       createdState = await waitForState((value) => {
         const item = value.workspace?.documents?.find((doc) => doc.output?.id === p2OutputId);
@@ -6917,15 +7049,28 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
       journey.refusalTable.metricColumn = { id: p2Column.column, label: p2Column.label, candidateId: metricCandidate.candidateId };
       journey.refusalTable.sourceIdentity = `Observation/${controlPlan.refusalTable.sourceRecordId}`;
       journey.refusalTable.unitNormalizationCapability = p2Capability;
+      await waitForBrowser(cdp, `(() => {
+        const select = [...document.querySelectorAll('select[aria-label]')]
+          .find((item) => item.getAttribute('aria-label') === ${JSON.stringify(`Across related Observation records for ${p2Column.label}`)});
+        const option = [...(select?.options || [])].find((item) => item.value === 'SUM');
+        return Boolean(option && !option.disabled);
+      })()`, 30000);
       await setSelectValue(`Across related Observation records for ${p2Column.label}`, 'SUM');
       p2State = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === p2OutputId)?.columns?.find((column) => column.column === p2Column.column)?.source?.aggregate?.operation === 'SUM', 'Patient-002 SUM aggregate');
       p2Column = p2State.workspace.documents.find((item) => item.output?.id === p2OutputId).columns.find((item) => item.column === p2Column.column);
       await browserEval(cdp, `(() => {
-        const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(p2Column.label)}) + ']);
+        const select = inputByLabel('Contributors for ' + ${JSON.stringify(p2Column.label)});
         const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(categoryCandidate.candidateId)});
         if (!select || !option) throw new Error('J04 Patient-002 code contributor is not visible');
-        select.value = option.value; select.dispatchEvent(new Event('input', { bubbles: true })); select.dispatchEvent(new Event('change', { bubbles: true }));
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
+        select.dispatchEvent(new Event('input', { bubbles: true })); select.dispatchEvent(new Event('change', { bubbles: true }));
       })()`);
+      await waitForBrowser(cdp, `(() => {
+        const select = [...document.querySelectorAll('select[aria-label]')]
+          .find((item) => item.getAttribute('aria-label') === ${JSON.stringify(`Contributor condition for ${p2Column.label}`)});
+        const option = [...(select?.options || [])].find((item) => item.value === 'EQUALS');
+        return Boolean(option && !option.disabled);
+      })()`, 30000);
       await setAccessibleSelect(`Contributor condition for ${p2Column.label}`, 'EQUALS');
       await setInputValue(`Contributor value for ${p2Column.label}`, fixture.contract.aggregateScope.categoryCode);
       await browserEval(cdp, `clickButton('Apply condition')`);
@@ -6963,11 +7108,11 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     });
 
     recordLiteral('j04-earliest-latest-tie-and-window-exclusion-match-literal-oracle', {
-      earliest: 'Observation/j04-measure-001', latestTieWinner: 'Observation/j04-measure-002', excluded: ['Observation/j04-window-excluded'],
+      earliest: 'Observation/j04-measure-001', latestTieWinner: 'Observation/j04-measure-002', windowExcluded: true,
     }, {
       earliest: journey.windowedSelections?.find((item) => item.direction === 'ASC')?.preview?.sourceIdentities?.[0],
       latestTieWinner: journey.windowedSelections?.find((item) => item.direction === 'DESC')?.preview?.sourceIdentities?.[0],
-      excluded: journey.windowedSelections?.flatMap((item) => item.preview?.sourceIdentities ?? []).includes('Observation/j04-window-excluded') ? ['Observation/j04-window-excluded'] : [],
+      windowExcluded: !journey.windowedSelections?.flatMap((item) => item.preview?.sourceIdentities ?? []).includes('Observation/j04-window-excluded'),
     });
     recordLiteral('j04-unsupported-unit-preview-refuses-without-applying', {
       code: controlPlan.refusalTable.expectedCode, applied: false, published: false,
@@ -6982,12 +7127,14 @@ const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fix
     });
 
     journey.status = 'completed';
-    recordAssertion(report, 'j04-patient-visible-explorer-selection-and-graph-actions-ran', [
+    const requiredVisibleActions = [
       'create-blank-explorer-through-visible-controls',
       'create-patient-table-and-attach-selection-in-builder',
       'add-observation-source-through-advanced-graph',
       'add-patient-metric-through-visible-column-selector',
-    ], journey.actions.map((item) => item.name));
+    ];
+    recordAssertion(report, 'j04-patient-visible-explorer-selection-and-graph-actions-ran', requiredVisibleActions,
+      journey.actions.map((item) => item.name).filter((name) => requiredVisibleActions.includes(name)));
   } catch (error) {
     failure = error;
     journey.status = 'failed';
@@ -7163,7 +7310,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     const option = [...(select?.options || [])].find((item) => norm(item.textContent).toLocaleLowerCase().includes(wanted));
     if (!select || !visible(select)) throw new Error('J04 visible test select is missing: ' + ${JSON.stringify(testId)});
     if (!option || option.disabled) throw new Error('J04 test option is unavailable: ' + ${JSON.stringify(textNeedle)} + '; choices=' + [...select.options].map((item) => norm(item.textContent)).join(' | '));
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return { value: option.value, label: norm(option.textContent) };
@@ -7180,7 +7327,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     if (!select) throw new Error('J04 visible select is missing: ' + ${JSON.stringify(label)});
     const option = [...select.options].find((item) => item.value === ${JSON.stringify(value)});
     if (!option || option.disabled) throw new Error('J04 accessible option is unavailable: ' + ${JSON.stringify(value)} + ' for ' + ${JSON.stringify(label)});
-    select.value = option.value;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('input', { bubbles: true }));
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return option.textContent.trim();
@@ -7530,15 +7677,31 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === field.path);
       return { path: field.path, column: column?.column, label: column?.label };
     });
-    const policyRegions = await evaluate(cdp, `({ values: document.querySelectorAll('[data-testid="feature-policy-values"]').length, timeUnits: document.querySelectorAll('[data-testid="feature-policy-time-units"]').length })`);
-    recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns', authoredObservation.columns.length, policyRegions.values);
+    const policyRegionColumns = [];
+    for (const column of authoredObservation.columns) {
+      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(column.column)})`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Display name for configured ${column.label}"]`)}))`, 10000);
+      const regions = await evaluate(cdp, `(() => {
+        const input = document.querySelector(${JSON.stringify(`input[aria-label="Display name for configured ${column.label}"]`)});
+        const row = input?.closest('div.grid');
+        return {
+          values: row?.querySelectorAll('[data-testid="feature-policy-values"]').length ?? 0,
+          timeUnits: row?.querySelectorAll('[data-testid="feature-policy-time-units"]').length ?? 0,
+        };
+      })()`);
+      if (regions.values === 1 && regions.timeUnits === 1) policyRegionColumns.push(column.column);
+    }
+    await browserEval(cdp, `setInput('Search columns', '')`);
+    const policyRegions = { authored: authoredObservation.columns.length, verifiedColumns: policyRegionColumns };
+    recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns',
+      authoredObservation.columns.map((column) => column.column).sort(), [...policyRegionColumns].sort());
     report.target.observationPolicyRegions = policyRegions;
     await saveWorkspaceSnapshot('after-pivot-and-values-authoring', explorerId);
     await captureDOM('j04-builder-pivot-and-values-authored');
 
     await action('preview-recorded-fhir-absence-before-reshape', async () => {
       const requestStart = network.length;
-      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`, 60000);
       await browserEval(cdp, `clickButton('Preview')`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
       let previewResponse;
@@ -7569,15 +7732,31 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         absenceDisplay: getCell(displayColumn),
       };
       await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${rowIndex})`);
+      const codePreviewColumnIndex = previewResponse.responseJSON.columns.findIndex((column) =>
+        column.column === codeColumn.column || column.authoredColumns?.includes(codeColumn.column));
+      if (codePreviewColumnIndex < 0) throw new Error('J04 recorded-absence code has no emitted Preview column');
+      await browserEval(cdp, `(() => {
+        const scroll = document.querySelector('[data-testid="preview-table-scroll"]');
+        if (!scroll) throw new Error('J04 Preview scroll viewport is unavailable');
+        scroll.scrollLeft = ${codePreviewColumnIndex} * 180;
+        scroll.dispatchEvent(new Event('scroll'));
+      })()`);
+      await waitForBrowser(cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some((cell) => cell.textContent.trim() === ${JSON.stringify(codeColumn.label)})`, 10000);
       const visibleRow = await evaluate(cdp, `(() => {
         const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
         const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
         const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
-        const found = rows.slice(1).find((candidate) => [...candidate.querySelectorAll('[role="cell"]')].some((cell) => cell.textContent.trim() === ${JSON.stringify(sourceRecordID)}));
+        const found = rows.slice(1).find((candidate) => Number.parseFloat(candidate.style.top) === 42 + ${rowIndex} * 44);
         return found ? Object.fromEntries([...found.querySelectorAll('[role="cell"]')].map((cell, index) => [headers[index], cell.textContent.trim()])) : null;
       })()`);
       const cellTraceURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/cell-trace`;
-      const traceRowIDs = [row.__loom_row_id, row.rowId, sourceRecordID, `Observation/${sourceRecordID}`]
+      const traceRowIDs = [
+        j04DefaultRecordCellTraceRowID(target.fixtureProject, target.fixtureGeneration, 'Observation', sourceRecordID),
+        row.__loom_row_id,
+        row.rowId,
+        sourceRecordID,
+        `Observation/${sourceRecordID}`,
+      ]
         .filter((value, index, values) => typeof value === 'string' && value && values.indexOf(value) === index);
       const traceAttempts = [];
       for (const rowId of traceRowIDs) {
@@ -8074,13 +8253,14 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         const artifactSurface = normalizeJ04Surface({
           columns: artifact.schema.columns.map((column) => ({
             id: column.outputKey,
-            name: column.name,
+            name: column.label ?? column.name,
             rowKey: column.name,
             logicalType: column.logicalType,
             ...(column.resultUnit ? { resultUnit: column.resultUnit } : {}),
             ...(column.shape ? { shape: column.shape } : {}),
             ...(column.nullable !== undefined ? { nullable: column.nullable } : {}),
             ...(column.repeated !== undefined ? { repeated: column.repeated } : {}),
+            ...(column.authoredColumns ? { authoredColumns: column.authoredColumns } : {}),
           })),
           rows: artifact.rows.map((row) => row.values),
           identityColumns: report.target.expectedObservationSurface.columns.slice(0, 2).map((column) => column.id),

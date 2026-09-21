@@ -84,6 +84,19 @@ func TestApplyCommandsSetsAndClearsPopulationUsingSemanticRoute(t *testing.T) {
 	}
 }
 
+func TestSetPopulationRouteEncodesZeroHopRouteAsArray(t *testing.T) {
+	document := Document{}
+	setPopulationRoute(&document, "selection-1", nil)
+
+	encoded, err := json.Marshal(document.Population)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"selectionRevisionId":"selection-1","route":[]}` {
+		t.Fatalf("zero-hop population route must remain an array on the wire: %s", encoded)
+	}
+}
+
 func TestApplyCommandsSetsAndClearsContributorExplicitly(t *testing.T) {
 	catalog := commandCatalog()
 	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalog, "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})

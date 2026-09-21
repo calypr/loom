@@ -78,6 +78,10 @@ beforeEach(() => {
 it('attaches a selected file collection through a server-issued route choice', async () => {
   const onAttach = vi.fn();
   render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+  expect(screen.getByRole('region', { name: 'Starting collection' })).toHaveAttribute(
+    'data-selection-revision-id',
+    'selection-1',
+  );
   expect(screen.getByText(/2 selected DocumentReference resources/)).toBeTruthy();
   expect(await screen.findByText(/Specimen → DocumentReference via subject_Specimen/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
@@ -92,6 +96,13 @@ it('attaches a selected file collection through a server-issued route choice', a
 it('keeps an unselected table as an all-authorized-resource workflow', () => {
   render(<PopulationPanel table={table} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
   expect(screen.getByText(/uses every authorized Specimen resource/)).toBeTruthy();
+});
+
+it('exposes active and attached revision identities at the collection boundary', () => {
+  render(<PopulationPanel table={attachedTable()} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+  const panel = screen.getByRole('region', { name: 'Starting collection' });
+  expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-1');
+  expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
 });
 
 it('ignores a deferred report after the receipt and selection change', async () => {

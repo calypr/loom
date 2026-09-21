@@ -38,6 +38,7 @@ type operatorOracleFixture struct {
 	category    string
 	rootAnchor  string
 	sourceID    string
+	storageKey  string
 	state       operatorOracleRawState
 	integer     *int64
 	boolean     *bool
@@ -127,6 +128,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		{project: "main", patientID: "patient-states", category: "Female", sourceID: "obs-state-missing", state: operatorOracleMissing},
 		{project: "main", patientID: "patient-states", category: "Female", sourceID: "obs-state-absence", state: operatorOracleAbsent, absenceText: "unknown"},
 		{project: "main", patientID: "patient-unknown-category", category: "mystery", sourceID: "obs-unknown-category", state: operatorOracleInteger, integer: operatorOracleInt(4), timestamp: anchor},
+		{project: "main", patientID: "patient-logical-tie", category: "female", sourceID: "obs-logical-a", storageKey: "zz-logical-a", state: operatorOracleInteger, integer: operatorOracleInt(3), timestamp: anchor},
+		{project: "main", patientID: "patient-logical-tie", category: "female", sourceID: "obs-logical-b", storageKey: "aa-logical-b", state: operatorOracleInteger, integer: operatorOracleInt(5), timestamp: anchor},
 		{project: "unsupported", patientID: "patient-unsupported-unit", category: "female ", sourceID: "obs-unsupported-unit", state: operatorOracleQuantity, quantity: operatorOracleFloat(7), unitSystem: "http://unitsofmeasure.org", unitCode: "furlong"},
 		{project: "missing-time", patientID: "patient-missing-time", category: "female", sourceID: "obs-missing-time", state: operatorOracleInteger, integer: operatorOracleInt(1)},
 		{project: "window-missing-time", patientID: "patient-window-missing-time", category: "female", rootAnchor: "2025-01-03T00:00:00Z", sourceID: "obs-window-valid", state: operatorOracleQuantity, quantity: operatorOracleFloat(25), unitSystem: "http://unitsofmeasure.org", unitCode: "cm", timestamp: "2025-01-02T00:00:00Z"},
@@ -182,7 +185,11 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		if fixture.absenceText != "" {
 			payload["dataAbsentReason"] = map[string]any{"text": fixture.absenceText}
 		}
-		observationKey := project + "_" + fixture.sourceID
+		observationKeyPart := fixture.storageKey
+		if observationKeyPart == "" {
+			observationKeyPart = fixture.sourceID
+		}
+		observationKey := project + "_" + observationKeyPart
 		observationRaw, marshalErr := json.Marshal(map[string]any{
 			"_key": observationKey, "id": fixture.sourceID, "project": project, "project_id": project,
 			"dataset_generation": generation, "resourceType": "Observation", "payload": payload,
@@ -336,6 +343,7 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		{patientID: "patient-units", category: "woman", count: float64(0), exists: false, minimum: nil, maximum: nil, mean: nil, sum: nil, earliest: nil, latest: nil, unitSum: float64(1260)},
 		{patientID: "patient-states", category: "Female", count: float64(1), exists: true, minimum: float64(0), maximum: float64(0), mean: float64(0), sum: float64(0), earliest: float64(0), latest: float64(0), unitSum: nil},
 		{patientID: "patient-unknown-category", category: "mystery", count: float64(1), exists: true, minimum: float64(4), maximum: float64(4), mean: float64(4), sum: float64(4), earliest: float64(4), latest: float64(4), unitSum: nil},
+		{patientID: "patient-logical-tie", category: "woman", count: float64(2), exists: true, minimum: float64(3), maximum: float64(5), mean: float64(4), sum: float64(8), earliest: float64(3), latest: float64(3), unitSum: nil},
 	}
 	windowedRows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[3])
 	var windowedRow map[string]any
@@ -460,6 +468,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 		}},
 		{patientID: "patient-numeric", column: "earliest", want: []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-early", value: float64(2)}}},
 		{patientID: "patient-numeric", column: "latest", want: []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-tie-a", value: float64(3)}}},
+		{patientID: "patient-logical-tie", column: "earliest", want: []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-logical-a", value: float64(3)}}},
+		{patientID: "patient-logical-tie", column: "latest", want: []operatorOracleContributor{{resourceType: "Observation", resourceID: "obs-logical-a", value: float64(3)}}},
 		{patientID: "patient-units", column: "unit_sum", want: []operatorOracleContributor{
 			{resourceType: "Observation", resourceID: "obs-height-cm", value: float64(180)},
 			{resourceType: "Observation", resourceID: "obs-height-m", value: float64(180)},

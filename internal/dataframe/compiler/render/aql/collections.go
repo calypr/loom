@@ -614,7 +614,8 @@ func (r *physicalPlanRenderer) renderFirstOrderedSelection(aggregate *ir.Physica
 		" FILTER __loom_temporal_value != null" +
 		" FILTER __loom_temporal_timestamp != null" +
 		" FILTER ASSERT(REGEX_TEST(TO_STRING(__loom_temporal_timestamp), @" + patternKey + "), \"TEMPORAL_PRECISION_UNSUPPORTED\")" +
-		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction + ", " + item + "._key ASC" +
+		" SORT DATE_TIMESTAMP(__loom_temporal_timestamp) " + direction +
+		", TO_STRING(" + item + ".resourceType) ASC, TO_STRING(" + item + ".id) ASC, " + item + "._key ASC" +
 		" RETURN { resourceType: " + item + ".resourceType, resourceId: " + item + ".id, value: __loom_temporal_value, timestamp: __loom_temporal_timestamp })"
 	result := selectedVariable
 	if aggregate.Ordering.TiePolicy == "REQUIRE_UNIQUE" {
