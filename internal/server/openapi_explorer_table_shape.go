@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -141,6 +142,32 @@ func lifecycleOperandSelection(value loomapi.TableShapeOperandSelection) lifecyc
 	return result
 }
 
+func (h *explorerHTTPHandlers) proposeTableShapeDirect(ctx context.Context, project, explorerID string, body *loomapi.TableShapeProposalRequest) (loomapi.TableShapeProposal, error) {
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return loomapi.TableShapeProposal{}, err
+	}
+	if body == nil {
+		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", nil)
+	}
+	raw, err := json.Marshal(struct {
+		Project    string `json:"project"`
+		ExplorerID string `json:"explorerId"`
+		*loomapi.TableShapeProposalRequest
+	}{Project: project, ExplorerID: explorerID, TableShapeProposalRequest: body})
+	if err != nil {
+		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", err)
+	}
+	var input lifecycle.TableShapeProposalRequest
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", err)
+	}
+	proposal, err := h.application.ProposeTableShape(ctx, input)
+	if err != nil {
+		return loomapi.TableShapeProposal{}, err
+	}
+	return directAuthoringJSON[loomapi.TableShapeProposal](proposal)
+}
+
 func (r *HTTPRoutes) GetExplorerTableShapeCapabilities(ctx context.Context, request loomapi.GetExplorerTableShapeCapabilitiesRequestObject) (loomapi.GetExplorerTableShapeCapabilitiesResponseObject, error) {
 	if r == nil || r.explorer == nil {
 		_, failure := authoringErrorForOpenAPI(ctx, "getExplorerTableShapeCapabilities", explorerUnavailable("table-shape-capabilities", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
@@ -234,6 +261,38 @@ func (r *HTTPRoutes) ResolveExplorerTableShape(ctx context.Context, request loom
 		return loomapi.ResolveExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("resolveExplorerTableShape", status)
+	}
+}
+
+func (r *HTTPRoutes) ProposeExplorerTableShape(ctx context.Context, request loomapi.ProposeExplorerTableShapeRequestObject) (loomapi.ProposeExplorerTableShapeResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerTableShape", explorerUnavailable("table-shape-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.ProposeExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.proposeTableShapeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.ProposeExplorerTableShape200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerTableShape", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.ProposeExplorerTableShape400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.ProposeExplorerTableShape401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.ProposeExplorerTableShape403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.ProposeExplorerTableShape404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.ProposeExplorerTableShape409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.ProposeExplorerTableShape422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.ProposeExplorerTableShape500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.ProposeExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("proposeExplorerTableShape", status)
 	}
 }
 

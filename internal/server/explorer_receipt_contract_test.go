@@ -958,9 +958,9 @@ func persistTestNativeReceipt(ctx context.Context, t *testing.T, service *explor
 		SourceGeneration: snapshot.Identity.Generation, RecipeDigest: bundleDigest, ResolvedRecipeDigest: bundleDigest,
 		ResolvedSchemaDigest: "resolved-schema", OutputContractDigest: contractDigest,
 		NormalizedBundle: normalized, Bundle: bundle, CompiledConfig: json.RawMessage(`{"apiVersion":"` + explorer.ConfigV2APIVersion + `","kind":"ExplorerConfig"}`), PublicOutputContract: contract,
-		RowDefinitionProposal: request.RowDefinitionProposal,
-		EmittedColumns:        []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
-		OutputFingerprints:    map[string]string{"patients": "fingerprint"}, OutputColumnProvenance: map[string]map[string]string{"patients": {"c_patient": "EXPLICIT"}}, CreatedAt: time.Now().UTC(),
+		RowDefinitionProposal: request.RowDefinitionProposal, TableShapeProposal: request.TableShapeProposal,
+		EmittedColumns:     []explorer.EmittedColumn{{EmissionID: "em_patient", OutputID: "patients", CandidateID: "c_patient_id", OccurrenceID: authoringv2.RootOccurrenceID, ProjectionMode: "FIRST", PublicColumn: "c_patient", Label: "Patient ID", LogicalType: "string", Filterable: true, Chartable: true}},
+		OutputFingerprints: map[string]string{"patients": "fingerprint"}, OutputColumnProvenance: map[string]map[string]string{"patients": {"c_patient": "EXPLICIT"}}, CreatedAt: time.Now().UTC(),
 	}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {

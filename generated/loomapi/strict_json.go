@@ -212,6 +212,16 @@ func (value *TableShapeResolutionRequest) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+func (value *TableShapeProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire TableShapeProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = TableShapeProposalRequest(decoded)
+	return nil
+}
+
 func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
 	type wire TableShapeOperandSelection
 	var decoded wire

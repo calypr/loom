@@ -98,6 +98,11 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: column.name, ProjectionMode: "VALUE"}},
 		})
 	}
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
 	draft, err := workspace.CanonicalJSON()
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +125,9 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: scopeMode}}, nil
 			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: scopeMode}}, nil
+			},
 			Catalog: authoringV2Catalog,
 		},
 		TableShapeCapabilities: newTableShapeRouteRepository(),
@@ -138,6 +146,32 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 				Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "active"}, {Present: true, Value: "inactive"}},
 				Complete: true,
 				Proof:    compiler.CategoryScanProof{Version: 1, Output: "patients", Column: "status", Kind: "STRING", Cardinality: "optional_one", MaxValues: request.MaxValues, OutputSchemaDigest: "schema-proof", PlanFingerprint: "plan-proof", QueryFingerprint: "query-proof", Fingerprint: "scan-proof"},
+			}, nil
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			workspace, err := authoringv2.DecodeWorkspace(receipt.NormalizedBundle)
+			if err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			if workspace.Documents[0].TableShape == nil {
+				if err := visit(map[string]any{"__loom_row_id": "row-1", "patient_id": "patient-1", "group_number": int64(7), "status": "active", "measure": 2.5, "measure_alt": 4.5}); err != nil {
+					return dataframeexecution.PreviewSummary{}, err
+				}
+				return dataframeexecution.PreviewSummary{Columns: []string{"patient_id", "group_number", "status", "measure", "measure_alt"}, RowCount: 1, Complete: true}, nil
+			}
+			if err := visit(map[string]any{"__loom_row_id": "row-1", "group_number": int64(7), "active_measure": 2.5}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Columns: []string{"group_number", "active_measure"}, RowCount: 1, Complete: true}, nil
+		},
+		CellTrace: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+			if receipt.TableShapeProposal == nil || request.RowID != "row-1" || request.Column != "active_measure" {
+				t.Fatalf("unexpected table-shape cell trace request: receipt=%#v request=%#v", receipt.TableShapeProposal, request)
+			}
+			return dataframeexecution.CellTraceResult{
+				RowID: request.RowID, Column: request.Column, Status: dataframeexecution.CellTraceValue,
+				Contributions: []dataframeexecution.CellTraceContribution{{ResourceType: "Observation", ResourceID: "obs-1", Value: 2.5}},
+				Complete:      true,
 			}, nil
 		},
 	}
@@ -257,6 +291,79 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 	if !operandIDs[*groupDescriptor.OperandChoiceId] || !operandIDs[*categoryDescriptor.OperandChoiceId] {
 		t.Fatalf("output descriptor operand IDs do not resolve to the returned post-pivot operands: %#v / %#v", resolved.OutputDescriptors, resolved.PostPivotOperands)
 	}
+	proposalBody := fmt.Sprintf(`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","mode":"ADD","catalogId":%q,"reshapeResolutionId":%q,"limit":25}`,
+		snapshot.Token, before.DraftVersion, before.DraftDigest, catalog.CatalogId, resolved.ResolutionId)
+	proposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", proposalBody)
+	if proposalHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("table-shape proposal status=%d body=%s", proposalHTTP.StatusCode, proposalHTTP.Body)
+	}
+	var proposal loomapi.TableShapeProposal
+	if err := json.Unmarshal([]byte(proposalHTTP.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalId == "" || proposal.BaseReceiptId == "" || proposal.OutputId != "patients" || proposal.Mode != "ADD" {
+		t.Fatalf("proposal identity is incomplete: %#v", proposal)
+	}
+	comparisonKind, err := proposal.Comparison.Discriminator()
+	if err != nil || comparisonKind != "AVAILABLE" {
+		t.Fatalf("proposal comparison discriminator=%q err=%v; want AVAILABLE", comparisonKind, err)
+	}
+	comparison, err := proposal.Comparison.AsTableShapeComparisonAvailable()
+	if err != nil || comparison.Base.RowCount != 1 || comparison.Candidate.RowCount != 1 || comparison.Base.Sampled || comparison.Candidate.Sampled || comparison.ChangedRowCount != 1 || comparison.ChangedRowsSampled {
+		t.Fatalf("proposal comparison summaries=%#v err=%v", comparison, err)
+	}
+	if len(comparison.ChangedRows) != 1 || comparison.ChangedRows[0].RowIdentity != "row-1" || !comparison.ChangedRows[0].BasePresent || !comparison.ChangedRows[0].CandidatePresent {
+		t.Fatalf("proposal changed-row evidence=%#v", comparison.ChangedRows)
+	}
+	var changedCell *loomapi.TableShapeChangedCell
+	for index := range comparison.ChangedRows[0].ChangedCells {
+		if comparison.ChangedRows[0].ChangedCells[index].Column == "active_measure" {
+			changedCell = &comparison.ChangedRows[0].ChangedCells[index]
+			break
+		}
+	}
+	if changedCell == nil || changedCell.Before.Present || changedCell.Before.Value != nil || !changedCell.After.Present || changedCell.After.Value != 2.5 {
+		t.Fatalf("proposal cell evidence=%#v; want missing before and present 2.5 after", changedCell)
+	}
+	traceContributors := changedCell.Trace.Contributors
+	if changedCell.Trace.State != "AVAILABLE" || changedCell.Trace.CellStatus == nil || *changedCell.Trace.CellStatus != "VALUE" || !changedCell.Trace.Complete || changedCell.Trace.Sampled || len(traceContributors) != 1 || traceContributors[0].ResourceType != "Observation" || traceContributors[0].ResourceId != "obs-1" || traceContributors[0].Value != 2.5 {
+		t.Fatalf("proposal cell trace=%#v", changedCell.Trace)
+	}
+	if len(comparison.Contributors) != 1 || comparison.Contributors[0].ResourceType != "Observation" || comparison.Contributors[0].ResourceId != "obs-1" || comparison.ContributorsSampled || len(comparison.EvidenceLimitations) == 0 || comparison.Notices == nil {
+		t.Fatalf("proposal contributor and limitation evidence=%#v", comparison)
+	}
+	for _, forbidden := range []string{"tableShape", "constructionId", "columnKey", "query", "sourcePath", "FHIRType", "schemaPath", "__loom_"} {
+		if strings.Contains(proposalHTTP.Body, forbidden) {
+			t.Fatalf("proposal response leaked durable or compiler detail %q: %s", forbidden, proposalHTTP.Body)
+		}
+	}
+	proposalUnknown := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", strings.TrimSuffix(proposalBody, "}")+`,"extra":true}`)
+	if proposalUnknown.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown proposal field status=%d body=%s", proposalUnknown.StatusCode, proposalUnknown.Body)
+	}
+	proposalRawShape := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", strings.TrimSuffix(proposalBody, "}")+`,"tableShape":{"derived":[]}}`)
+	if proposalRawShape.StatusCode != http.StatusBadRequest {
+		t.Fatalf("raw durable tableShape status=%d body=%s", proposalRawShape.StatusCode, proposalRawShape.Body)
+	}
+	staleCatalogBody := strings.Replace(proposalBody, catalog.CatalogId, "tsc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1)
+	staleCatalog := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", staleCatalogBody)
+	if staleCatalog.StatusCode != http.StatusConflict {
+		t.Fatalf("stale catalog status=%d body=%s", staleCatalog.StatusCode, staleCatalog.Body)
+	}
+	staleResolutionID := resolved.ResolutionId[:len(resolved.ResolutionId)-1] + "0"
+	if strings.HasSuffix(resolved.ResolutionId, "0") {
+		staleResolutionID = resolved.ResolutionId[:len(resolved.ResolutionId)-1] + "1"
+	}
+	staleResolutionBody := strings.Replace(proposalBody, resolved.ResolutionId, staleResolutionID, 1)
+	staleResolution := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", staleResolutionBody)
+	if staleResolution.StatusCode != http.StatusConflict {
+		t.Fatalf("stale resolution status=%d body=%s", staleResolution.StatusCode, staleResolution.Body)
+	}
+	modeMismatchBody := strings.Replace(proposalBody, `"mode":"ADD"`, `"mode":"REPLACE"`, 1)
+	modeMismatch := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-proposals", modeMismatchBody)
+	if modeMismatch.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("mode mismatch status=%d body=%s", modeMismatch.StatusCode, modeMismatch.Body)
+	}
 	for name, body := range map[string]string{"catalog": catalogHTTP.Body, "discovery": discoveryHTTP.Body, "resolution": resolutionHTTP.Body} {
 		for _, forbidden := range []string{"columnKey", "constructionId", "query", "resourceType", "sourcePath", "FHIRType", "schemaPath"} {
 			if strings.Contains(body, forbidden) {
@@ -269,7 +376,7 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after.DraftVersion != before.DraftVersion || after.DraftDigest != before.DraftDigest || string(after.DraftConfig) != string(before.DraftConfig) {
-		t.Fatalf("catalog/discovery/resolution mutated the draft: before=%#v after=%#v", before, after)
+		t.Fatalf("catalog/discovery/resolution/proposal mutated the draft: before=%#v after=%#v", before, after)
 	}
 	scopeMode = authscope.ReadScopeRestricted
 	wrongScope := requestJSON(t, app, http.MethodPost, basePath+"/table-shape-capabilities", catalogRequest)
@@ -277,9 +384,9 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 		t.Fatalf("wrong-scope capability request status=%d body=%s", wrongScope.StatusCode, wrongScope.Body)
 	}
 	scopeMode = authscope.ReadScopeUnrestricted
-	staleResolution := resolution
-	staleResolution.SnapshotToken = "stale-snapshot-token"
-	staleBody, err := json.Marshal(staleResolution)
+	staleResolutionRequest := resolution
+	staleResolutionRequest.SnapshotToken = "stale-snapshot-token"
+	staleBody, err := json.Marshal(staleResolutionRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +428,27 @@ func tableShapeRouteReceipt(t *testing.T, service *explorer.Service, receipt *ex
 			Label: column.label, LogicalType: column.logical, Cardinality: "optional_one", Nullable: column.nullable, Shape: "scalar",
 		})
 		provenance[column.name] = "EXPLICIT"
+	}
+	var workspace authoringv2.Workspace
+	if err := json.Unmarshal(receipt.NormalizedBundle, &workspace); err != nil {
+		return nil, err
+	}
+	for _, document := range workspace.Documents {
+		if document.Output.ID != "patients" || document.TableShape == nil || document.TableShape.Reshape == nil || document.TableShape.Reshape.Pivot == nil {
+			continue
+		}
+		for _, category := range document.TableShape.Reshape.Pivot.Categories {
+			column := explorer.PublicOutputColumn{
+				Column: category.Output.Column, Label: category.Output.Label, LogicalType: "decimal",
+				Cardinality: "optional_one", Nullable: true, Shape: "scalar",
+			}
+			contract.Columns = append(contract.Columns, column)
+			receipt.EmittedColumns = append(receipt.EmittedColumns, explorer.EmittedColumn{
+				EmissionID: "table_shape_" + category.Output.Column, OutputID: "patients", PublicColumn: column.Column,
+				Label: column.Label, LogicalType: column.LogicalType, Cardinality: column.Cardinality, Nullable: column.Nullable, Shape: column.Shape,
+			})
+			provenance[column.Column] = "EXPLICIT"
+		}
 	}
 	contractJSON, err := json.Marshal(explorer.PublicOutputContracts{Outputs: []explorer.PublicOutputContract{contract}})
 	if err != nil {

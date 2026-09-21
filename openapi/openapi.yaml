@@ -369,6 +369,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/table-shape-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerTableShape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TableShapeProposalRequest'}
+      responses:
+        '200':
+          description: A nonmutating receipt-backed table-shape proposal with bounded before-and-after cell values and contributor evidence.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TableShapeProposal'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3568,6 +3593,167 @@ components:
         pivot: {$ref: '#/components/schemas/TableShapePivotSelection'}
         unpivot: {$ref: '#/components/schemas/TableShapeUnpivotSelection'}
         derived: {$ref: '#/components/schemas/TableShapeDerivedSelection'}
+    TableShapeProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, mode, catalogId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        mode: {type: string, enum: [ADD, REPLACE, REMOVE]}
+        catalogId: {type: string, minLength: 1}
+        reshapeResolutionId: {type: string, minLength: 1}
+        derivedResolutionIds:
+          type: array
+          maxItems: 64
+          items: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 0, maximum: 1000}
+    TableShapeProposal:
+      type: object
+      additionalProperties: false
+      required: [proposalId, baseReceiptId, outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, mode, comparison]
+      properties:
+        proposalId: {type: string, minLength: 1}
+        baseReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        mode: {type: string, enum: [ADD, REPLACE, REMOVE]}
+        comparison: {$ref: '#/components/schemas/TableShapeComparison'}
+    TableShapeComparison:
+      oneOf:
+        - {$ref: '#/components/schemas/TableShapeComparisonAvailable'}
+        - {$ref: '#/components/schemas/TableShapeComparisonUnavailable'}
+      discriminator:
+        propertyName: status
+        mapping:
+          AVAILABLE: '#/components/schemas/TableShapeComparisonAvailable'
+          UNAVAILABLE: '#/components/schemas/TableShapeComparisonUnavailable'
+    TableShapeComparisonAvailable:
+      type: object
+      additionalProperties: false
+      required: [status, base, candidate, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, evidenceLimitations, notices]
+      properties:
+        status: {type: string, enum: [AVAILABLE]}
+        base: {$ref: '#/components/schemas/TableShapePreviewSummary'}
+        candidate: {$ref: '#/components/schemas/TableShapePreviewSummary'}
+        changedColumns:
+          type: array
+          items: {type: string}
+        changedRowCount: {type: integer, minimum: 0}
+        changedRowsSampled: {type: boolean}
+        changedRows:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeChangedRow'}
+        contributors:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeContributor'}
+        contributorsSampled: {type: boolean}
+        evidenceLimitations:
+          type: array
+          items: {type: string}
+        notices:
+          type: array
+          items: {type: string}
+    TableShapeComparisonUnavailable:
+      type: object
+      additionalProperties: false
+      required: [status, reasonCode, reason, changedColumns, changedRowCount, changedRowsSampled, changedRows, contributors, contributorsSampled, evidenceLimitations, notices]
+      properties:
+        status: {type: string, enum: [UNAVAILABLE]}
+        reasonCode: {type: string}
+        reason: {type: string}
+        base: {$ref: '#/components/schemas/TableShapePreviewSummary'}
+        candidate: {$ref: '#/components/schemas/TableShapePreviewSummary'}
+        changedColumns:
+          type: array
+          items: {type: string}
+        changedRowCount: {type: integer, minimum: 0}
+        changedRowsSampled: {type: boolean}
+        changedRows:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeChangedRow'}
+        contributors:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeContributor'}
+        contributorsSampled: {type: boolean}
+        evidenceLimitations:
+          type: array
+          items: {type: string}
+        notices:
+          type: array
+          items: {type: string}
+    TableShapePreviewSummary:
+      type: object
+      additionalProperties: false
+      required: [rowCount, sampled]
+      properties:
+        rowCount: {type: integer, minimum: 0}
+        sampled: {type: boolean}
+    TableShapeChangedRow:
+      type: object
+      additionalProperties: false
+      required: [rowIdentity, basePresent, candidatePresent, changedColumns, changedCells]
+      properties:
+        rowIdentity: {type: string, minLength: 1}
+        basePresent: {type: boolean}
+        candidatePresent: {type: boolean}
+        changedColumns:
+          type: array
+          items: {type: string}
+        changedCells:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeChangedCell'}
+    TableShapeChangedCell:
+      type: object
+      additionalProperties: false
+      required: [column, before, after, trace]
+      properties:
+        column: {type: string, minLength: 1}
+        before: {$ref: '#/components/schemas/TableShapeCellValue'}
+        after: {$ref: '#/components/schemas/TableShapeCellValue'}
+        trace: {$ref: '#/components/schemas/TableShapeCellTrace'}
+    TableShapeCellValue:
+      type: object
+      additionalProperties: false
+      required: [present, value]
+      properties:
+        present: {type: boolean}
+        value: {}
+    TableShapeCellTrace:
+      type: object
+      additionalProperties: false
+      required: [state, contributors, complete, sampled]
+      properties:
+        state: {type: string, enum: [NOT_APPLICABLE, NOT_REQUESTED, UNAVAILABLE, FAILED, AVAILABLE]}
+        cellStatus: {type: string}
+        contributors:
+          type: array
+          items: {$ref: '#/components/schemas/TableShapeCellContributor'}
+        complete: {type: boolean}
+        sampled: {type: boolean}
+        omissionCode: {type: string}
+        failureCode: {type: string}
+    TableShapeCellContributor:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId, value]
+      properties:
+        resourceType: {type: string}
+        resourceId: {type: string}
+        value: {}
+    TableShapeContributor:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId]
+      properties:
+        resourceType: {type: string}
+        resourceId: {type: string}
     TableShapePivotSelection:
       type: object
       additionalProperties: false
