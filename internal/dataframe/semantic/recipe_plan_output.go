@@ -38,6 +38,13 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 	scope := newRootScope(output.RootResourceType)
 	projectionScope := scope
 	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
+	if output.TableReshape != nil {
+		reshape, err := semanticTableReshape(*output.TableReshape)
+		if err != nil {
+			return OutputPlan{}, fmt.Errorf("table reshape: %w", err)
+		}
+		plan.TableReshape = reshape
+	}
 	if output.GroupRows != nil {
 		plan.GroupRows = &SemanticGroupRows{RevisionID: output.GroupRows.RevisionID, UnassignedMemberPolicy: output.GroupRows.UnassignedMemberPolicy}
 	}
@@ -86,6 +93,42 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 		}
 	}
 	return finishRecipeOutput(plan, output, scope, projectionScope)
+}
+
+func semanticTableReshape(input recipe.TableReshape) (*SemanticTableReshape, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	result := &SemanticTableReshape{Kind: input.Kind}
+	switch input.Kind {
+	case recipe.TableReshapeGroupedPivot:
+		pivot := input.GroupedPivot
+		semanticPivot := &SemanticGroupedPivot{
+			ConstructionID: pivot.ConstructionID, GroupKeys: append([]string(nil), pivot.GroupKeys...),
+			CategoryColumn: pivot.CategoryColumn, ValueColumn: pivot.ValueColumn,
+			DuplicatePolicy: pivot.DuplicatePolicy, MissingCellPolicy: pivot.MissingCellPolicy,
+			UnlistedCategoryPolicy: pivot.UnlistedCategoryPolicy,
+			Categories:             make([]SemanticGroupedPivotCategory, 0, len(pivot.Categories)),
+		}
+		for _, category := range pivot.Categories {
+			semanticPivot.Categories = append(semanticPivot.Categories, SemanticGroupedPivotCategory{Key: category.Key, Output: category.Output, Label: category.Label})
+		}
+		result.GroupedPivot = semanticPivot
+	case recipe.TableReshapeUnpivot:
+		unpivot := input.Unpivot
+		semanticUnpivot := &SemanticUnpivot{
+			ConstructionID: unpivot.ConstructionID, KeyOutput: unpivot.KeyOutput, KeyLabel: unpivot.KeyLabel,
+			ValueOutput: unpivot.ValueOutput, ValueLabel: unpivot.ValueLabel, NullRowPolicy: unpivot.NullRowPolicy,
+			Inputs: make([]SemanticUnpivotInput, 0, len(unpivot.Inputs)),
+		}
+		for _, selected := range unpivot.Inputs {
+			semanticUnpivot.Inputs = append(semanticUnpivot.Inputs, SemanticUnpivotInput{Column: selected.Column, Key: selected.Key})
+		}
+		result.Unpivot = semanticUnpivot
+	default:
+		return nil, fmt.Errorf("unsupported table reshape kind %q", input.Kind)
+	}
+	return result, nil
 }
 
 type recipeOccurrenceBinding struct {

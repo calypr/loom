@@ -88,6 +88,30 @@ func (b Bundle) Validate() error {
 		if err := validateDerivedColumns(output.DerivedColumns, path+".derivedColumns"); err != nil {
 			return err
 		}
+		if output.TableReshape != nil {
+			if err := output.TableReshape.Validate(); err != nil {
+				return validationError("invalid_table_reshape", path+".tableReshape", err.Error())
+			}
+			if output.TableReshape.Kind == TableReshapeUnpivot && len(output.DerivedColumns) != 0 {
+				return validationError("invalid_table_reshape", path+".tableReshape", "unpivot cannot be combined with derived columns")
+			}
+			reshapeID := output.TableReshape.GroupedPivot
+			if reshapeID != nil {
+				for _, derived := range output.DerivedColumns {
+					if derived.ConstructionID == reshapeID.ConstructionID {
+						return validationError("duplicate_construction_id", path+".tableReshape.groupedPivot.constructionId", "constructionId must be unique across table-shape constructions")
+					}
+				}
+			}
+			unpivotID := output.TableReshape.Unpivot
+			if unpivotID != nil {
+				for _, derived := range output.DerivedColumns {
+					if derived.ConstructionID == unpivotID.ConstructionID {
+						return validationError("duplicate_construction_id", path+".tableReshape.unpivot.constructionId", "constructionId must be unique across table-shape constructions")
+					}
+				}
+			}
+		}
 		if err := validateTraversals(output.Traversals, path+".traversals", 0); err != nil {
 			return err
 		}

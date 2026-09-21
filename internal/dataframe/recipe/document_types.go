@@ -48,6 +48,7 @@ type Output struct {
 	Aggregates            []Aggregate             `json:"aggregates,omitempty"`
 	Slices                []RepresentativeSlice   `json:"slices,omitempty"`
 	Traversals            []Traversal             `json:"traversals,omitempty"`
+	TableReshape          *TableReshape           `json:"tableReshape,omitempty"`
 	Expand                *Expansion              `json:"expand,omitempty"`
 	GroupRows             *GroupRows              `json:"groupRows,omitempty"`
 	Identity              *Identity               `json:"identity,omitempty"`
