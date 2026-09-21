@@ -831,118 +831,131 @@ export const FeaturePolicyEditor = ({
       : [];
 
     return (
-      <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-        {related && source.field.relatedSelection ? (
-          <label className="flex items-center gap-1.5 font-medium text-slate-700">
-            <span>Across records</span>
-            <select
-              aria-label={`Across related ${resourceLabel} records for ${column.label}`}
-              className="max-w-64 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
-              value="FIRST_BY_RESOURCE_KEY"
-              disabled={disabled}
-              onChange={(event) => {
-                const option = relatedOptions.find(
-                  (candidateOption) => candidateOption.operation === event.currentTarget.value,
-                );
-                if (!option || option.kind === 'relatedSelection') return;
-                if (option.operation === 'FIRST_ORDERED') {
-                  setDraftTemporalPath(source.field.path);
-                  return;
-                }
-                if (optionIsDisabled(option)) return;
-                onSourceChange({
-                  kind: 'aggregate',
-                  aggregate: {
-                    operation: option.operation,
-                    path: source.field.path,
-                  },
-                });
-              }}
-            >
-              {relatedOptions.map((option) => (
-                <option
-                  key={option.operation}
-                  value={option.operation}
-                  disabled={optionIsDisabled(option)}
+      <div className="col-span-full space-y-2">
+        <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-values">
+          <legend className="px-1 text-xs font-semibold text-slate-800">Values</legend>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+            {related && source.field.relatedSelection ? (
+              <label className="flex items-center gap-1.5 font-medium text-slate-700">
+                <span>Across records</span>
+                <select
+                  aria-label={`Across related ${resourceLabel} records for ${column.label}`}
+                  className="max-w-64 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
+                  value="FIRST_BY_RESOURCE_KEY"
+                  disabled={disabled}
+                  onChange={(event) => {
+                    const option = relatedOptions.find(
+                      (candidateOption) => candidateOption.operation === event.currentTarget.value,
+                    );
+                    if (!option || option.kind === 'relatedSelection') return;
+                    if (option.operation === 'FIRST_ORDERED') {
+                      setDraftTemporalPath(source.field.path);
+                      return;
+                    }
+                    if (optionIsDisabled(option)) return;
+                    onSourceChange({
+                      kind: 'aggregate',
+                      aggregate: {
+                        operation: option.operation,
+                        path: source.field.path,
+                      },
+                    });
+                  }}
                 >
-                  {optionLabel(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {uniqueModes.length > 1 ? (
-          <label className="flex items-center gap-1.5 font-medium text-slate-700">
-            <span>Repeated values</span>
-            <select
-              aria-label={`Repeated values for ${column.label}`}
-              className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
-              value={currentMode}
+                  {relatedOptions.map((option) => (
+                    <option
+                      key={option.operation}
+                      value={option.operation}
+                      disabled={optionIsDisabled(option)}
+                    >
+                      {optionLabel(option)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {uniqueModes.length > 1 ? (
+              <label className="flex items-center gap-1.5 font-medium text-slate-700">
+                <span>Repeated values</span>
+                <select
+                  aria-label={`Repeated values for ${column.label}`}
+                  className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
+                  value={currentMode}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    onSourceChange({
+                      ...source,
+                      field: {
+                        ...source.field,
+                        projectionMode: event.currentTarget.value as keyof typeof nestedValueLabels,
+                      },
+                    })
+                  }
+                >
+                  {uniqueModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {nestedValueLabels[mode]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <span>{projectionExplanation(currentMode, resourceLabel)}</span>
+            {source.field.relatedSelection ? (
+              <label className="flex items-start gap-1 text-amber-800">
+                <input
+                  type="checkbox"
+                  aria-label={`Allow first related value for ${column.label}`}
+                  checked={source.field.relatedSelection.acknowledged}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    onSourceChange({
+                      ...source,
+                      field: {
+                        ...source.field,
+                        relatedSelection: {
+                          kind: 'first-by-resource-key',
+                          acknowledged: event.currentTarget.checked,
+                        },
+                      },
+                    })
+                  }
+                />
+                Keep only the first related record by resource key. Other records are omitted.
+              </label>
+            ) : null}
+            <ExactCategoryRecodeEditor
+              column={column}
+              candidate={candidate}
               disabled={disabled}
-              onChange={(event) =>
-                onSourceChange({
-                  ...source,
-                  field: {
-                    ...source.field,
-                    projectionMode: event.currentTarget.value as keyof typeof nestedValueLabels,
-                  },
-                })
-              }
-            >
-              {uniqueModes.map((mode) => (
-                <option key={mode} value={mode}>
-                  {nestedValueLabels[mode]}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <span>{projectionExplanation(currentMode, resourceLabel)}</span>
-        {source.field.relatedSelection ? (
-          <label className="flex items-start gap-1 text-amber-800">
-            <input
-              type="checkbox"
-              aria-label={`Allow first related value for ${column.label}`}
-              checked={source.field.relatedSelection.acknowledged}
-              disabled={disabled}
-              onChange={(event) =>
-                onSourceChange({
-                  ...source,
-                  field: {
-                    ...source.field,
-                    relatedSelection: {
-                      kind: 'first-by-resource-key',
-                      acknowledged: event.currentTarget.checked,
-                    },
-                  },
-                })
-              }
+              onChange={onTransformationChange}
             />
-            Keep only the first related record by resource key. Other records are omitted.
-          </label>
-        ) : null}
-        {draftTemporalPath === source.field.path && candidate ? (
-          <TemporalReductionEditor
-            path={source.field.path}
-            capability={candidate.transformations.temporalReduction}
-            disabled={disabled}
-            onApply={(nextSource) => {
-              setDraftTemporalPath(undefined);
-              onSourceChange(nextSource);
-            }}
-          />
-        ) : null}
-        {draftTemporalPath === source.field.path && !candidate ? (
-          <p role="status" className="text-amber-800">
-            Temporal choices are unavailable until the server resolves this candidate.
-          </p>
-        ) : null}
-        <ExactCategoryRecodeEditor
-          column={column}
-          candidate={candidate}
-          disabled={disabled}
-          onChange={onTransformationChange}
-        />
+          </div>
+        </fieldset>
+        <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-time-units">
+          <legend className="px-1 text-xs font-semibold text-slate-800">Time and units</legend>
+          {draftTemporalPath === source.field.path && candidate ? (
+            <TemporalReductionEditor
+              path={source.field.path}
+              capability={candidate.transformations.temporalReduction}
+              disabled={disabled}
+              onApply={(nextSource) => {
+                setDraftTemporalPath(undefined);
+                onSourceChange(nextSource);
+              }}
+            />
+          ) : null}
+          {draftTemporalPath === source.field.path && !candidate ? (
+            <p role="status" className="text-amber-800">
+              Temporal choices are unavailable until the server resolves this candidate.
+            </p>
+          ) : null}
+          {draftTemporalPath !== source.field.path ? (
+            <p className="text-[11px] text-slate-600">
+              Choose a date-aware value selection to configure its time window here.
+            </p>
+          ) : null}
+        </fieldset>
       </div>
     );
   }
@@ -964,129 +977,149 @@ export const FeaturePolicyEditor = ({
         : `${operation === 'COUNT' ? 'Counts' : 'Checks for'} matching ${resourceLabel} resources.`;
 
     return (
-      <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-        <label className="flex items-center gap-1.5 font-medium text-slate-700">
-          <span>{path && related ? 'Across records' : 'Calculation'}</span>
-          <select
-            aria-label={path && related
-              ? `Across related ${resourceLabel} records for ${column.label}`
-              : `Calculation for ${column.label}`}
-            className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
-            value={operation}
-            disabled={disabled}
-            onChange={(event) => {
-              const selectedOption = options.find(
-                (option) => option.operation === event.currentTarget.value,
-              );
-              if (!selectedOption || optionIsDisabled(selectedOption, aggregateSource.aggregate)) return;
-              if (selectedOption.kind === 'relatedSelection') {
-                if (!path) return;
-                onSourceChange({
-                  kind: 'field',
-                  field: {
-                    path,
-                    projectionMode: candidate?.defaultProjectionMode ?? 'VALUE',
-                    relatedSelection: {
-                      kind: 'first-by-resource-key',
-                      acknowledged: false,
-                    },
-                  },
-                });
-                return;
-              }
-              const nextOperation = selectedOption.operation;
-              if (nextOperation === 'FIRST_ORDERED') {
-                if (path) setDraftTemporalPath(path);
-                return;
-              }
-              setDraftTemporalPath(undefined);
-              onSourceChange({
-                kind: 'aggregate',
-                aggregate: path
-                  ? { operation: nextOperation, path }
-                  : { operation: nextOperation },
-              });
-            }}
-          >
-            {options.map((option) => (
-              <option
-                key={option.operation}
-                value={option.operation}
-                disabled={optionIsDisabled(option, aggregateSource.aggregate)}
+      <div className="col-span-full space-y-2">
+        <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-values">
+          <legend className="px-1 text-xs font-semibold text-slate-800">Values</legend>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+            <label className="flex items-center gap-1.5 font-medium text-slate-700">
+              <span>{path && related ? 'Across records' : 'Calculation'}</span>
+              <select
+                aria-label={path && related
+                  ? `Across related ${resourceLabel} records for ${column.label}`
+                  : `Calculation for ${column.label}`}
+                className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs font-normal"
+                value={operation}
+                disabled={disabled}
+                onChange={(event) => {
+                  const selectedOption = options.find(
+                    (option) => option.operation === event.currentTarget.value,
+                  );
+                  if (!selectedOption || optionIsDisabled(selectedOption, aggregateSource.aggregate)) return;
+                  if (selectedOption.kind === 'relatedSelection') {
+                    if (!path) return;
+                    onSourceChange({
+                      kind: 'field',
+                      field: {
+                        path,
+                        projectionMode: candidate?.defaultProjectionMode ?? 'VALUE',
+                        relatedSelection: {
+                          kind: 'first-by-resource-key',
+                          acknowledged: false,
+                        },
+                      },
+                    });
+                    return;
+                  }
+                  const nextOperation = selectedOption.operation;
+                  if (nextOperation === 'FIRST_ORDERED') {
+                    if (path) setDraftTemporalPath(path);
+                    return;
+                  }
+                  setDraftTemporalPath(undefined);
+                  onSourceChange({
+                    kind: 'aggregate',
+                    aggregate: path
+                      ? { operation: nextOperation, path }
+                      : { operation: nextOperation },
+                  });
+                }}
               >
-                {optionLabel(option, aggregateSource.aggregate)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {operationCapability ? capabilityDetails(operationCapability) : summary ? <span>{summary}</span> : null}
-        {unitCapability ? (
-          <button
-            type="button"
-            className="rounded border border-violet-300 bg-white px-2 py-0.5 font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
-            disabled={disabled}
-            onClick={() => setEditingUnitNormalization((value) => !value)}
-          >
-            {unitNormalization ? 'Edit unit normalization' : 'Normalize units'}
-          </button>
-        ) : null}
-        {unitCapability && (editingUnitNormalization || unitNormalization) ? (
-          <UnitNormalizationEditor
-            capability={unitCapability}
-            current={unitNormalization}
-            disabled={disabled}
-            onApply={(nextUnitNormalization) => {
-              setEditingUnitNormalization(false);
-              onSourceChange({
-                kind: 'aggregate',
-                aggregate: { ...aggregateSource.aggregate, unitNormalization: nextUnitNormalization },
-              } as ExplorerColumnSource);
-            }}
-          />
-        ) : null}
-        {editingTemporal && path && temporalCapability ? (
-          <TemporalReductionEditor
-            path={path}
-            current={operation === 'FIRST_ORDERED' ? aggregateSource.aggregate as TemporalAggregateSource : undefined}
-            capability={temporalCapability}
-            disabled={disabled}
-            onApply={(source) => {
-              setDraftTemporalPath(undefined);
-              onSourceChange(source);
-            }}
-          />
-        ) : null}
-        {editingTemporal && path && !temporalCapability ? (
-          <p role="status" className="text-amber-800">
-            Temporal choices are unavailable until the server resolves this candidate.
-          </p>
-        ) : null}
-        <ContributorEditor
-          current={column.contributor}
-          candidates={candidates}
-          featureLabel={column.label}
-          resourceLabel={resourceLabel}
-          disabled={disabled}
-          onApply={onContributorChange}
-        />
+                {options.map((option) => (
+                  <option
+                    key={option.operation}
+                    value={option.operation}
+                    disabled={optionIsDisabled(option, aggregateSource.aggregate)}
+                  >
+                    {optionLabel(option, aggregateSource.aggregate)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {operationCapability ? capabilityDetails(operationCapability) : summary ? <span>{summary}</span> : null}
+            <ContributorEditor
+              current={column.contributor}
+              candidates={candidates}
+              featureLabel={column.label}
+              resourceLabel={resourceLabel}
+              disabled={disabled}
+              onApply={onContributorChange}
+            />
+            <ExactCategoryRecodeEditor
+              column={column}
+              candidate={candidate}
+              disabled={disabled}
+              onChange={onTransformationChange}
+            />
+          </div>
+        </fieldset>
+        <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-time-units">
+          <legend className="px-1 text-xs font-semibold text-slate-800">Time and units</legend>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+            {unitCapability ? (
+              <button
+                type="button"
+                className="rounded border border-violet-300 bg-white px-2 py-0.5 font-semibold text-violet-800 hover:bg-violet-50 disabled:opacity-40"
+                disabled={disabled}
+                onClick={() => setEditingUnitNormalization((value) => !value)}
+              >
+                {unitNormalization ? 'Edit unit normalization' : 'Normalize units'}
+              </button>
+            ) : null}
+            {unitCapability && (editingUnitNormalization || unitNormalization) ? (
+              <UnitNormalizationEditor
+                capability={unitCapability}
+                current={unitNormalization}
+                disabled={disabled}
+                onApply={(nextUnitNormalization) => {
+                  setEditingUnitNormalization(false);
+                  onSourceChange({
+                    kind: 'aggregate',
+                    aggregate: { ...aggregateSource.aggregate, unitNormalization: nextUnitNormalization },
+                  } as ExplorerColumnSource);
+                }}
+              />
+            ) : null}
+            {editingTemporal && path && temporalCapability ? (
+              <TemporalReductionEditor
+                path={path}
+                current={operation === 'FIRST_ORDERED' ? aggregateSource.aggregate as TemporalAggregateSource : undefined}
+                capability={temporalCapability}
+                disabled={disabled}
+                onApply={(source) => {
+                  setDraftTemporalPath(undefined);
+                  onSourceChange(source);
+                }}
+              />
+            ) : null}
+            {editingTemporal && path && !temporalCapability ? (
+              <p role="status" className="text-amber-800">
+                Temporal choices are unavailable until the server resolves this candidate.
+              </p>
+            ) : null}
+            {!unitCapability && !editingTemporal ? (
+              <p className="text-[11px] text-slate-600">No time or unit choice is available for this value selection.</p>
+            ) : null}
+          </div>
+        </fieldset>
+      </div>
+    );
+  }
+
+  return (
+    <div className="col-span-full space-y-2">
+      <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-values">
+        <legend className="px-1 text-xs font-semibold text-slate-800">Values</legend>
         <ExactCategoryRecodeEditor
           column={column}
           candidate={candidate}
           disabled={disabled}
           onChange={onTransformationChange}
         />
-      </div>
-    );
-  }
-
-  return (
-    <div className="col-span-full">
-      <ExactCategoryRecodeEditor
-        column={column}
-        candidate={candidate}
-        disabled={disabled}
-        onChange={onTransformationChange}
-      />
+      </fieldset>
+      <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-time-units">
+        <legend className="px-1 text-xs font-semibold text-slate-800">Time and units</legend>
+        <p className="text-[11px] text-slate-600">No time or unit choice is available for this value source.</p>
+      </fieldset>
     </div>
   );
 };
