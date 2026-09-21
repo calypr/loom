@@ -33,18 +33,27 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	}
 	visible, order := true, 1
 	two := int64(2)
+	one := int64(1)
 	document := &workspace.Documents[0]
 	document.Columns = append(document.Columns, authoringv2.Column{
 		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
 		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
 		Table:  &authoringv2.TablePresentation{Visible: &visible, Order: &order},
 	})
-	document.TableShape = &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{{
-		ConstructionID: "scale_patient_count", Output: authoringv2.ColumnOutput{Column: "scaled_patient_count", Label: "Scaled patient count"},
-		Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"},
-		Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &two}},
-		MissingInputPolicy: "ERROR",
-	}}}
+	document.TableShape = &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{
+		{
+			ConstructionID: "scale_patient_count", Output: authoringv2.ColumnOutput{Column: "scaled_patient_count", Label: "Scaled patient count"},
+			Operation: "MULTIPLY", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"},
+			Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &two}},
+			MissingInputPolicy: "ERROR",
+		},
+		{
+			ConstructionID: "add_one", Output: authoringv2.ColumnOutput{Column: "doubled_patient_count", Label: "Doubled patient count"},
+			Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "scaled_patient_count"},
+			Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &one}},
+			MissingInputPolicy: "ERROR",
+		},
+	}}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:  compilerTestRegistry{},
 		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
@@ -71,16 +80,28 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
 		t.Fatalf("validate reconciled public output contract: %v", err)
 	}
-	wantColumns := []string{"c_patient", "patient_count", "scaled_patient_count"}
+	wantColumns := []string{"c_patient", "patient_count", "scaled_patient_count", "doubled_patient_count"}
 	if got := emittedPublicColumnNames(receipt.EmittedColumns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("receipt public columns = %#v, want %#v", got, wantColumns)
 	}
-	derived := receipt.EmittedColumns[2]
-	if derived.Label != "Scaled patient count" || derived.ConstructionID != "scale_patient_count" || !reflect.DeepEqual(derived.AuthoredColumns, []string{"patient_count"}) {
-		t.Fatalf("derived authored metadata = %#v", derived)
+	scaled := receipt.EmittedColumns[2]
+	doubled := receipt.EmittedColumns[3]
+	if !reflect.DeepEqual(scaled.InputColumns, []string{"patient_count"}) || !reflect.DeepEqual(scaled.AuthoredColumns, []string{"patient_count"}) {
+		t.Fatalf("first derived direct inputs/roots = %#v/%#v, emission=%#v", scaled.InputColumns, scaled.AuthoredColumns, scaled)
 	}
-	if derived.SourcePath != "" || derived.SourceResourceType != "" || derived.Filterable || derived.Chartable {
-		t.Fatalf("derived column fabricated source or browser metadata: %#v", derived)
+	if !reflect.DeepEqual(doubled.InputColumns, []string{"scaled_patient_count"}) || !reflect.DeepEqual(doubled.AuthoredColumns, []string{"patient_count"}) {
+		t.Fatalf("chained derived direct inputs/roots = %#v/%#v", doubled.InputColumns, doubled.AuthoredColumns)
+	}
+	wantConstructed := []explorer.EmittedColumn{
+		{EmissionID: "construction:scale_patient_count:scaled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"patient_count"}, ConstructionID: "scale_patient_count", PublicColumn: "scaled_patient_count", Label: "Scaled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:add_one:doubled_patient_count", OutputID: "patients", AuthoredColumns: []string{"patient_count"}, InputColumns: []string{"scaled_patient_count"}, ConstructionID: "add_one", PublicColumn: "doubled_patient_count", Label: "Doubled patient count", LogicalType: "integer", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+	}
+	if !reflect.DeepEqual([]explorer.EmittedColumn{scaled, doubled}, wantConstructed) {
+		t.Fatalf("constructed output metadata = %#v, want %#v", []explorer.EmittedColumn{scaled, doubled}, wantConstructed)
+	}
+	contract := contracts.Outputs[0]
+	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"AGGREGATE_REDUCTION", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED", "TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS"}) {
+		t.Fatalf("derived receipt contract aggregation = %#v", contract)
 	}
 	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
 	if err != nil {
@@ -127,13 +148,13 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.
 		t.Fatalf("source unit normalization policy changed: %#v", score.UnitNormalization)
 	}
 	derived := reconciled.EmittedColumns[2]
-	if derived.Label != "Scaled score" || derived.ConstructionID != "scale_score" || !reflect.DeepEqual(derived.AuthoredColumns, []string{"score"}) {
+	if derived.Label != "Scaled score" || derived.ConstructionID != "scale_score" || !reflect.DeepEqual(derived.InputColumns, []string{"score"}) || !reflect.DeepEqual(derived.AuthoredColumns, []string{"score"}) {
 		t.Fatalf("derived table-shape metadata = %#v", derived)
 	}
 	if derived.LogicalType != "decimal" || derived.Cardinality != "optional_one" || !derived.Nullable || !reflect.DeepEqual(derived.ResultUnit, wantUnit) {
 		t.Fatalf("compiler metadata for derived column = %#v", derived)
 	}
-	if derived.SourcePath != "" || derived.SourceResourceType != "" || derived.CandidateID != "" || derived.Filterable || derived.Chartable || derived.UnitNormalization != nil {
+	if derived.Shape != "scalar" || derived.Lossless || derived.MLReady || derived.StructuralSuitability != "requires-review" || !reflect.DeepEqual(derived.LossReasons, []string{"TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) || derived.SourcePath != "" || derived.SourceResourceType != "" || derived.CandidateID != "" || !derived.Filterable || !derived.Chartable || derived.UnitNormalization != nil {
 		t.Fatalf("derived column fabricated source or browser metadata: %#v", derived)
 	}
 
@@ -141,7 +162,7 @@ func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.
 	if got := publicContractColumnNames(contract.Columns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("contract columns = %#v, want %#v", got, wantColumns)
 	}
-	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss"}) {
+	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) {
 		t.Fatalf("aggregate contract quality = %#v", contract)
 	}
 	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {
@@ -157,6 +178,22 @@ func TestReconcileFinalOutputMetadataRejectsMissingOutputIdentity(t *testing.T) 
 	}
 }
 
+func TestReconcileFinalOutputMetadataRejectsMissingConstructedDependency(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	translated.Workspace.Documents[0].TableShape.Derived[0].Left.Column = "missing"
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "missing dependency") {
+		t.Fatalf("missing constructed dependency error = %v", err)
+	}
+}
+
+func TestReconcileFinalOutputMetadataRejectsConstructedDependencyCycle(t *testing.T) {
+	translated, resolved := reconciliationFixture()
+	translated.Workspace.Documents[0].TableShape.Derived[0].Left.Column = "scaled_score"
+	if _, err := reconcileFinalOutputMetadata(translated, resolved); err == nil || !strings.Contains(err.Error(), "dependency cycle") {
+		t.Fatalf("constructed dependency cycle error = %v", err)
+	}
+}
+
 func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	translated.EmittedColumns[2].EmissionID = constructedEmissionID("scale_score", "scaled_score")
@@ -165,57 +202,118 @@ func TestReconcileFinalOutputMetadataRejectsConstructedEmissionCollision(t *test
 	}
 }
 
+func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testing.T) {
+	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{{
+		Output: authoringv2.Output{ID: "patients"},
+		TableShape: &authoringv2.TableShape{Derived: []authoringv2.DerivedConstruction{
+			{
+				ConstructionID: "same_input", Output: authoringv2.ColumnOutput{Column: "same_result", Label: "Same result"},
+				Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
+				Right: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"}, MissingInputPolicy: "ERROR",
+			},
+			{
+				ConstructionID: "ordered_inputs", Output: authoringv2.ColumnOutput{Column: "ordered_result", Label: "Ordered result"},
+				Operation: "SUBTRACT", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "score"},
+				Right: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "patient_count"}, MissingInputPolicy: "ERROR",
+			},
+		}},
+	}}}
+	_, columns, err := authoredOutputColumns(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := columns["patients"]["same_result"].InputColumns; !reflect.DeepEqual(got, []string{"score"}) {
+		t.Errorf("repeated direct inputs = %#v, want one occurrence", got)
+	}
+	if got := columns["patients"]["ordered_result"].InputColumns; !reflect.DeepEqual(got, []string{"score", "patient_count"}) {
+		t.Errorf("direct inputs = %#v, want authoring order", got)
+	}
+}
+
 func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
+	one := int64(1)
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}
 	workspace := authoringv2.Workspace{Documents: []authoringv2.Document{
-		{Output: authoringv2.Output{ID: "pivoted"}, TableShape: &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{
-			Kind: "PIVOT",
-			Pivot: &authoringv2.PivotConstruction{
-				ConstructionID: "pivot_vitals", GroupKeys: []string{"patient_id"}, CategoryColumn: "kind", ValueColumn: "value",
-				Categories: []authoringv2.PivotCategory{{Output: authoringv2.ColumnOutput{Column: "systolic", Label: "Systolic"}}},
+		{Output: authoringv2.Output{ID: "pivoted"}, TableShape: &authoringv2.TableShape{
+			Reshape: &authoringv2.TableReshape{
+				Kind: "PIVOT",
+				Pivot: &authoringv2.PivotConstruction{
+					ConstructionID: "pivot_vitals", GroupKeys: []string{"patient_id"}, CategoryColumn: "kind", ValueColumn: "value",
+					Categories:      []authoringv2.PivotCategory{{Output: authoringv2.ColumnOutput{Column: "systolic", Label: "Systolic"}}},
+					DuplicatePolicy: "ERROR", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "ERROR",
+				},
 			},
-		}}},
+			Derived: []authoringv2.DerivedConstruction{{
+				ConstructionID: "adjust_systolic", Output: authoringv2.ColumnOutput{Column: "adjusted_systolic", Label: "Adjusted systolic"},
+				Operation: "ADD", Left: authoringv2.ArithmeticOperand{Kind: "COLUMN", Column: "systolic"},
+				Right:              authoringv2.ArithmeticOperand{Kind: "LITERAL", Literal: &authoringv2.TableScalar{Kind: "INTEGER", Integer: &one}},
+				MissingInputPolicy: "ERROR",
+			}},
+		}},
 		{Output: authoringv2.Output{ID: "unpivoted"}, TableShape: &authoringv2.TableShape{Reshape: &authoringv2.TableReshape{
 			Kind: "UNPIVOT",
 			Unpivot: &authoringv2.UnpivotConstruction{
 				ConstructionID: "unpivot_vitals", Inputs: []authoringv2.UnpivotInput{{Column: "height"}, {Column: "weight"}},
-				KeyOutput:   authoringv2.ColumnOutput{Column: "measure_name", Label: "Measure"},
-				ValueOutput: authoringv2.ColumnOutput{Column: "measure_value", Label: "Value"},
+				KeyOutput:     authoringv2.ColumnOutput{Column: "measure_name", Label: "Measure"},
+				ValueOutput:   authoringv2.ColumnOutput{Column: "measure_value", Label: "Value"},
+				NullRowPolicy: "DROP",
 			},
 		}}},
 	}}
+	emitted := []explorer.EmittedColumn{
+		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+		{EmissionID: "emit_kind", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "shared_root"}, PublicColumn: "kind", Label: "Kind", LogicalType: "string", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+		{EmissionID: "emit_value", OutputID: "pivoted", AuthoredColumns: []string{"result_root"}, PublicColumn: "value", Label: "Value", LogicalType: "decimal", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+		{EmissionID: "emit_height", OutputID: "unpivoted", AuthoredColumns: []string{"height_root"}, PublicColumn: "height", Label: "Height", LogicalType: "decimal", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+		{EmissionID: "emit_weight", OutputID: "unpivoted", AuthoredColumns: []string{"weight_root", "shared_root"}, PublicColumn: "weight", Label: "Weight", LogicalType: "decimal", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+	}
 	translated := explorercompilation.WorkspaceResult{
-		Bundle: bundle, Workspace: workspace,
-		OutputContracts: []explorer.PublicOutputContract{{OutputID: "pivoted", Lossless: true, MLReady: true}, {OutputID: "unpivoted", Lossless: true, MLReady: true}},
-		Presentations:   []explorercompilation.PresentationConfig{{OutputID: "pivoted", Title: "Pivoted"}, {OutputID: "unpivoted", Title: "Unpivoted"}},
+		Bundle: bundle, Workspace: workspace, EmittedColumns: emitted,
+		OutputContracts: []explorer.PublicOutputContract{
+			{OutputID: "pivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []explorer.PublicOutputColumn{receiptTestPublicColumn(emitted[0]), receiptTestPublicColumn(emitted[1]), receiptTestPublicColumn(emitted[2])}},
+			{OutputID: "unpivoted", Lossless: true, MLReady: true, StructuralSuitability: "scalar", Columns: []explorer.PublicOutputColumn{receiptTestPublicColumn(emitted[3]), receiptTestPublicColumn(emitted[4])}},
+		},
+		Presentations: []explorercompilation.PresentationConfig{
+			{OutputID: "pivoted", Title: "Pivoted", Columns: []explorercompilation.PresentationColumn{
+				{EmissionID: "emit_patient_id", PublicColumn: "patient_id", Label: "Patient", Visible: true, Order: 0},
+				{EmissionID: "emit_kind", PublicColumn: "kind", Label: "Kind", Visible: true, Order: 1},
+				{EmissionID: "emit_value", PublicColumn: "value", Label: "Value", Visible: true, Order: 2},
+			}},
+			{OutputID: "unpivoted", Title: "Unpivoted", Columns: []explorercompilation.PresentationColumn{
+				{EmissionID: "emit_height", PublicColumn: "height", Label: "Height", Visible: true, Order: 0},
+				{EmissionID: "emit_weight", PublicColumn: "weight", Label: "Weight", Visible: true, Order: 1},
+			}},
+		},
 	}
 	resolved := dataframeexecution.Resolved{Bundle: bundle, Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{
-		{Name: "pivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
+		{Name: "pivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "patient_id", Kind: "string", Cardinality: "required_one"}, {Name: "systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}, {Name: "adjusted_systolic", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
 		{Name: "unpivoted", OutputSchema: []lower.CompiledOutputColumn{{Name: "measure_name", Kind: "string", Cardinality: "required_one"}, {Name: "measure_value", Kind: "decimal", Cardinality: "optional_one", Nullable: true}}},
 	}}}
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []struct {
-		column, construction string
-		dependencies         []string
-	}{
-		{column: "systolic", construction: "pivot_vitals", dependencies: []string{"patient_id", "kind", "value"}},
-		{column: "measure_name", construction: "unpivot_vitals", dependencies: []string{"height", "weight"}},
-		{column: "measure_value", construction: "unpivot_vitals", dependencies: []string{"height", "weight"}},
+	want := []explorer.EmittedColumn{
+		{EmissionID: "emit_patient_id", OutputID: "pivoted", AuthoredColumns: []string{"person_root", "shared_root"}, PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Cardinality: "required_one", Shape: "scalar", Lossless: true, MLReady: true, StructuralSuitability: "scalar"},
+		{EmissionID: "construction:pivot_vitals:systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"patient_id", "kind", "value"}, ConstructionID: "pivot_vitals", PublicColumn: "systolic", Label: "Systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: true, MLReady: false, StructuralSuitability: "scalar", LossReasons: []string{"TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:adjust_systolic:adjusted_systolic", OutputID: "pivoted", AuthoredColumns: []string{"category_root", "person_root", "result_root", "shared_root"}, InputColumns: []string{"systolic"}, ConstructionID: "adjust_systolic", PublicColumn: "adjusted_systolic", Label: "Adjusted systolic", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:unpivot_vitals:measure_name", OutputID: "unpivoted", AuthoredColumns: []string{"height_root", "shared_root", "weight_root"}, InputColumns: []string{"height", "weight"}, ConstructionID: "unpivot_vitals", PublicColumn: "measure_name", Label: "Measure", LogicalType: "string", Cardinality: "required_one", Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
+		{EmissionID: "construction:unpivot_vitals:measure_value", OutputID: "unpivoted", AuthoredColumns: []string{"height_root", "shared_root", "weight_root"}, InputColumns: []string{"height", "weight"}, ConstructionID: "unpivot_vitals", PublicColumn: "measure_value", Label: "Value", LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, Shape: "scalar", Lossless: false, MLReady: false, StructuralSuitability: "requires-review", LossReasons: []string{"TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}, Filterable: true, Chartable: true},
 	}
 	if len(reconciled.EmittedColumns) != len(want) {
 		t.Fatalf("reconciled output column count = %d, want %d", len(reconciled.EmittedColumns), len(want))
 	}
 	for index, expected := range want {
 		actual := reconciled.EmittedColumns[index]
-		if actual.PublicColumn != expected.column || actual.ConstructionID != expected.construction || !reflect.DeepEqual(actual.AuthoredColumns, expected.dependencies) {
-			t.Errorf("reshape output %d = %#v, want column/construction/dependencies %q/%q/%#v", index, actual, expected.column, expected.construction, expected.dependencies)
+		if !reflect.DeepEqual(actual, expected) {
+			t.Errorf("reshape output %d = %#v, want %#v", index, actual, expected)
 		}
-		if actual.SourcePath != "" || actual.SourceResourceType != "" || actual.Filterable || actual.Chartable {
-			t.Errorf("reshape output %q fabricated source or browser metadata: %#v", actual.PublicColumn, actual)
-		}
+	}
+	if contract := reconciled.OutputContracts[0]; contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"TABLE_SHAPE_ML_READINESS_UNASSESSED", "TABLE_SHAPE_DERIVED_ADD_NON_LOSSLESS"}) {
+		t.Errorf("pivot plus derived contract aggregation = %#v", contract)
+	}
+	if contract := reconciled.OutputContracts[1]; contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) {
+		t.Errorf("lossy unpivot contract aggregation = %#v", contract)
 	}
 }
 
@@ -262,7 +360,7 @@ func reconciliationFixture() (explorercompilation.WorkspaceResult, dataframeexec
 
 func receiptTestPublicColumn(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
 	return explorer.PublicOutputColumn{
-		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...),
+		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...), InputColumns: append([]string(nil), emitted.InputColumns...),
 		Label: emitted.Label, LogicalType: emitted.LogicalType, Nullable: emitted.Nullable, Shape: emitted.Shape,
 		SourceResourceType: emitted.SourceResourceType, SourcePath: emitted.SourcePath,
 		Lossless: emitted.Lossless, MLReady: emitted.MLReady, StructuralSuitability: emitted.StructuralSuitability,

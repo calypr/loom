@@ -528,7 +528,7 @@ func indexedLabel(label string, coordinates []capability.RepeatedCoordinate) str
 
 func publicColumnContract(column explorer.EmittedColumn) explorer.PublicOutputColumn {
 	return explorer.PublicOutputColumn{
-		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
+		Column: column.PublicColumn, AuthoredColumns: append([]string(nil), column.AuthoredColumns...), InputColumns: append([]string(nil), column.InputColumns...), Label: firstNonEmpty(column.Label, column.PublicColumn), LogicalType: column.LogicalType,
 		Nullable: column.Nullable, Shape: column.Shape, SourceResourceType: column.SourceResourceType, SourcePath: column.SourcePath,
 		ChoiceArm: column.ChoiceArm, Coordinates: append([]capability.RepeatedCoordinate(nil), column.Coordinates...), UnitNormalization: clonePublicUnitNormalization(column.UnitNormalization),
 		Lossless: column.Lossless, MLReady: column.MLReady, StructuralSuitability: column.StructuralSuitability, LossReasons: append([]string(nil), column.LossReasons...), Filterable: column.Filterable, Chartable: column.Chartable,

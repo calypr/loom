@@ -2,10 +2,12 @@ package server
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -14,10 +16,19 @@ import (
 )
 
 type authoredOutputColumn struct {
-	ConstructionID  string
-	Label           string
-	AuthoredColumns []string
+	ConstructionID string
+	Label          string
+	InputColumns   []string
+	Quality        constructedOutputQuality
 }
+
+type constructedOutputQuality struct {
+	Lossless              bool
+	StructuralSuitability string
+	LossReasons           []string
+}
+
+const tableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
 
 func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
 	if len(translated.Bundle.Outputs) != len(resolved.Bundle.Outputs) || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) {
@@ -115,6 +126,10 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 			return explorercompilation.WorkspaceResult{}, fmt.Errorf("translated presentation %q is missing", recipeOutput.Name)
 		}
 		constructed := authoredColumns[recipeOutput.Name]
+		lineage, err := resolveAuthoredOutputLineage(constructed, emittedByOutput[recipeOutput.Name])
+		if err != nil {
+			return explorercompilation.WorkspaceResult{}, fmt.Errorf("resolve authored lineage for output %q: %w", recipeOutput.Name, err)
+		}
 		finalNames := make(map[string]struct{}, len(compiledOutput.OutputSchema))
 		contract := translatedContract
 		contract.Columns = make([]explorer.PublicOutputColumn, 0, len(compiledOutput.OutputSchema))
@@ -162,13 +177,25 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				if strings.TrimSpace(metadata.ConstructionID) == "" || strings.TrimSpace(metadata.Label) == "" {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("authored table-shape output %q column %q is missing its construction identity or label", recipeOutput.Name, schemaColumn.Name)
 				}
+				profile, err := constructedOutputProfileFor(metadata.Quality, schemaColumn)
+				if err != nil {
+					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
+				}
 				emitted = explorer.EmittedColumn{
-					EmissionID:      constructedEmissionID(metadata.ConstructionID, schemaColumn.Name),
-					OutputID:        recipeOutput.Name,
-					AuthoredColumns: append([]string(nil), metadata.AuthoredColumns...),
-					ConstructionID:  metadata.ConstructionID,
-					PublicColumn:    schemaColumn.Name,
-					Label:           metadata.Label,
+					EmissionID:            constructedEmissionID(metadata.ConstructionID, schemaColumn.Name),
+					OutputID:              recipeOutput.Name,
+					AuthoredColumns:       append([]string(nil), lineage[schemaColumn.Name]...),
+					InputColumns:          append([]string(nil), metadata.InputColumns...),
+					ConstructionID:        metadata.ConstructionID,
+					PublicColumn:          schemaColumn.Name,
+					Label:                 metadata.Label,
+					Shape:                 profile.Shape,
+					Lossless:              profile.Lossless,
+					MLReady:               profile.MLReady,
+					StructuralSuitability: profile.StructuralSuitability,
+					LossReasons:           append([]string(nil), profile.LossReasons...),
+					Filterable:            profile.Filterable,
+					Chartable:             profile.Chartable,
 				}
 				if err := applyCompiledColumnMetadata(&emitted, schemaColumn); err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
@@ -245,17 +272,22 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 		if document.TableShape == nil {
 			continue
 		}
-		add := func(output authoringv2.ColumnOutput, constructionID authoringv2.ConstructionID, dependencies []string) error {
+		add := func(output authoringv2.ColumnOutput, constructionID authoringv2.ConstructionID, inputColumns []string, quality constructedOutputQuality) error {
 			if strings.TrimSpace(output.Column) == "" || strings.TrimSpace(output.Label) == "" || strings.TrimSpace(string(constructionID)) == "" {
 				return fmt.Errorf("table-shape output in document %q is missing its column, label, or construction identity", outputID)
 			}
 			if _, duplicate := columns[outputID][output.Column]; duplicate {
 				return fmt.Errorf("duplicate table-shape output %q for document %q", output.Column, outputID)
 			}
+			inputs, err := uniqueColumnsInOrder(inputColumns)
+			if err != nil {
+				return fmt.Errorf("table-shape output %q in document %q: %w", output.Column, outputID, err)
+			}
 			columns[outputID][output.Column] = authoredOutputColumn{
-				ConstructionID:  string(constructionID),
-				Label:           output.Label,
-				AuthoredColumns: append([]string(nil), dependencies...),
+				ConstructionID: string(constructionID),
+				Label:          output.Label,
+				InputColumns:   inputs,
+				Quality:        quality,
 			}
 			return nil
 		}
@@ -267,10 +299,14 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 					return nil, nil, fmt.Errorf("pivot construction for document %q is missing", outputID)
 				}
 				pivot := shape.Reshape.Pivot
-				dependencies := append([]string(nil), pivot.GroupKeys...)
-				dependencies = append(dependencies, pivot.CategoryColumn, pivot.ValueColumn)
+				inputs := append([]string(nil), pivot.GroupKeys...)
+				inputs = append(inputs, pivot.CategoryColumn, pivot.ValueColumn)
+				quality, err := pivotOutputQuality(pivot)
+				if err != nil {
+					return nil, nil, fmt.Errorf("pivot construction for document %q: %w", outputID, err)
+				}
 				for _, category := range pivot.Categories {
-					if err := add(category.Output, pivot.ConstructionID, dependencies); err != nil {
+					if err := add(category.Output, pivot.ConstructionID, inputs, quality); err != nil {
 						return nil, nil, err
 					}
 				}
@@ -283,10 +319,14 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 				for _, input := range unpivot.Inputs {
 					dependencies = append(dependencies, input.Column)
 				}
-				if err := add(unpivot.KeyOutput, unpivot.ConstructionID, dependencies); err != nil {
+				quality, err := unpivotOutputQuality(unpivot)
+				if err != nil {
+					return nil, nil, fmt.Errorf("unpivot construction for document %q: %w", outputID, err)
+				}
+				if err := add(unpivot.KeyOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
 					return nil, nil, err
 				}
-				if err := add(unpivot.ValueOutput, unpivot.ConstructionID, dependencies); err != nil {
+				if err := add(unpivot.ValueOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
 					return nil, nil, err
 				}
 			default:
@@ -307,12 +347,188 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 					return nil, nil, fmt.Errorf("derived output %q in document %q has unsupported operand kind %q", derived.Output.Column, outputID, operand.Kind)
 				}
 			}
-			if err := add(derived.Output, derived.ConstructionID, dependencies); err != nil {
+			quality, err := derivedOutputQuality(derived.Operation)
+			if err != nil {
+				return nil, nil, fmt.Errorf("derived output %q in document %q: %w", derived.Output.Column, outputID, err)
+			}
+			if err := add(derived.Output, derived.ConstructionID, dependencies, quality); err != nil {
 				return nil, nil, err
 			}
 		}
 	}
 	return documents, columns, nil
+}
+
+func derivedOutputQuality(operation string) (constructedOutputQuality, error) {
+	operation = strings.ToUpper(strings.TrimSpace(operation))
+	switch operation {
+	case "ADD", "SUBTRACT", "MULTIPLY", "DIVIDE":
+		return constructedOutputQuality{
+			Lossless: false, StructuralSuitability: "requires-review",
+			LossReasons: []string{"TABLE_SHAPE_DERIVED_" + operation + "_NON_LOSSLESS"},
+		}, nil
+	default:
+		return constructedOutputQuality{}, fmt.Errorf("unsupported derived operation %q", operation)
+	}
+}
+
+func pivotOutputQuality(pivot *authoringv2.PivotConstruction) (constructedOutputQuality, error) {
+	quality := constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
+	switch pivot.DuplicatePolicy {
+	case "ERROR":
+	case "SUM", "MIN", "MAX":
+		quality.Lossless = false
+		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_DUPLICATES_AGGREGATED")
+	default:
+		return constructedOutputQuality{}, fmt.Errorf("unsupported duplicate policy %q", pivot.DuplicatePolicy)
+	}
+	switch pivot.MissingCellPolicy {
+	case "NULL", "ERROR":
+	default:
+		return constructedOutputQuality{}, fmt.Errorf("unsupported missing-cell policy %q", pivot.MissingCellPolicy)
+	}
+	switch pivot.UnlistedCategoryPolicy {
+	case "ERROR":
+	case "EXCLUDE_WITH_EVIDENCE":
+		quality.Lossless = false
+		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_UNLISTED_CATEGORIES_EXCLUDED")
+	default:
+		return constructedOutputQuality{}, fmt.Errorf("unsupported unlisted-category policy %q", pivot.UnlistedCategoryPolicy)
+	}
+	if !quality.Lossless {
+		quality.StructuralSuitability = "requires-review"
+	}
+	return quality, nil
+}
+
+func unpivotOutputQuality(unpivot *authoringv2.UnpivotConstruction) (constructedOutputQuality, error) {
+	quality := constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"}
+	switch unpivot.NullRowPolicy {
+	case "PRESERVE":
+	case "DROP":
+		quality.Lossless = false
+		quality.StructuralSuitability = "requires-review"
+		quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_UNPIVOT_NULL_ROWS_DROPPED")
+	default:
+		return constructedOutputQuality{}, fmt.Errorf("unsupported null-row policy %q", unpivot.NullRowPolicy)
+	}
+	return quality, nil
+}
+
+type constructedColumnProfile struct {
+	Shape                 string
+	Lossless              bool
+	MLReady               bool
+	StructuralSuitability string
+	LossReasons           []string
+	Filterable            bool
+	Chartable             bool
+}
+
+func constructedOutputProfileFor(quality constructedOutputQuality, column lower.CompiledOutputColumn) (constructedColumnProfile, error) {
+	cardinality := expression.Cardinality(column.Cardinality)
+	if cardinality != expression.RequiredOne && cardinality != expression.OptionalOne {
+		return constructedColumnProfile{}, fmt.Errorf("constructed output cardinality %q is not scalar", column.Cardinality)
+	}
+	switch expression.ValueKind(column.Kind) {
+	case expression.KindBoolean, expression.KindInteger, expression.KindDecimal, expression.KindString,
+		expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
+	default:
+		return constructedColumnProfile{}, fmt.Errorf("constructed output kind %q is not a supported scalar type", column.Kind)
+	}
+	if quality.StructuralSuitability == "" {
+		return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy is missing structural suitability")
+	}
+	reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), tableShapeMLReadinessUnassessed))
+	if err != nil {
+		return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy has an invalid reason: %w", err)
+	}
+	return constructedColumnProfile{
+		Shape: "scalar", Lossless: quality.Lossless, MLReady: false,
+		StructuralSuitability: quality.StructuralSuitability, LossReasons: reasons,
+		Filterable: true, Chartable: true,
+	}, nil
+}
+
+func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn) (map[string][]string, error) {
+	states := make(map[string]uint8, len(constructed))
+	resolved := make(map[string][]string, len(constructed))
+	var visit func(string) ([]string, error)
+	visit = func(column string) ([]string, error) {
+		if authored, ok := constructed[column]; ok {
+			switch states[column] {
+			case 1:
+				return nil, fmt.Errorf("constructed dependency cycle includes %q", column)
+			case 2:
+				return append([]string(nil), resolved[column]...), nil
+			}
+			states[column] = 1
+			roots := make([]string, 0)
+			for _, input := range authored.InputColumns {
+				lineage, err := visit(input)
+				if err != nil {
+					return nil, err
+				}
+				roots = append(roots, lineage...)
+			}
+			lineage, err := sortedUniqueColumns(roots)
+			if err != nil {
+				return nil, err
+			}
+			states[column] = 2
+			resolved[column] = lineage
+			return append([]string(nil), lineage...), nil
+		}
+		emission, ok := emitted[column]
+		if !ok {
+			return nil, fmt.Errorf("missing dependency %q", column)
+		}
+		roots, err := sortedUniqueColumns(emission.AuthoredColumns)
+		if err != nil {
+			return nil, fmt.Errorf("base dependency %q: %w", column, err)
+		}
+		if len(roots) == 0 {
+			return nil, fmt.Errorf("base dependency %q has no authored lineage", column)
+		}
+		return roots, nil
+	}
+
+	columns := make([]string, 0, len(constructed))
+	for column := range constructed {
+		columns = append(columns, column)
+	}
+	sort.Strings(columns)
+	for _, column := range columns {
+		if _, err := visit(column); err != nil {
+			return nil, fmt.Errorf("constructed output %q: %w", column, err)
+		}
+	}
+	return resolved, nil
+}
+
+func uniqueColumnsInOrder(columns []string) ([]string, error) {
+	result := make([]string, 0, len(columns))
+	seen := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if strings.TrimSpace(column) == "" {
+			return nil, fmt.Errorf("column dependency is empty")
+		}
+		if _, duplicate := seen[column]; duplicate {
+			continue
+		}
+		seen[column] = struct{}{}
+		result = append(result, column)
+	}
+	return result, nil
+}
+
+func sortedUniqueColumns(columns []string) ([]string, error) {
+	result, err := uniqueColumnsInOrder(columns)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(result)
+	return result, nil
 }
 
 func indexPresentations(values []explorercompilation.PresentationConfig, outputs map[string]lower.CompiledRecipeOutput) (map[string]explorercompilation.PresentationConfig, error) {
@@ -361,6 +577,7 @@ func applyCompiledColumnMetadata(emitted *explorer.EmittedColumn, column lower.C
 
 func cloneEmittedColumn(value explorer.EmittedColumn) explorer.EmittedColumn {
 	value.AuthoredColumns = append([]string(nil), value.AuthoredColumns...)
+	value.InputColumns = append([]string(nil), value.InputColumns...)
 	value.Coordinates = append([]capability.RepeatedCoordinate(nil), value.Coordinates...)
 	value.LossReasons = append([]string(nil), value.LossReasons...)
 	if value.UnitNormalization != nil {
@@ -382,7 +599,7 @@ func cloneResultUnit(value *unit.UnitIdentity) *unit.UnitIdentity {
 
 func publicOutputColumnFromEmission(emitted explorer.EmittedColumn) explorer.PublicOutputColumn {
 	return explorer.PublicOutputColumn{
-		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...),
+		Column: emitted.PublicColumn, AuthoredColumns: append([]string(nil), emitted.AuthoredColumns...), InputColumns: append([]string(nil), emitted.InputColumns...),
 		ConstructionID: emitted.ConstructionID, Label: emitted.Label,
 		LogicalType: emitted.LogicalType, Cardinality: emitted.Cardinality, Nullable: emitted.Nullable,
 		ResultUnit: cloneResultUnit(emitted.ResultUnit), Shape: emitted.Shape,

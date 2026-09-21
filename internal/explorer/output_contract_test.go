@@ -132,10 +132,12 @@ func TestPublicOutputContractPinsCompilerColumnMetadata(t *testing.T) {
 	resultUnit := &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"}
 	emitted := []EmittedColumn{{
 		OutputID: "out", PublicColumn: "weight", Label: "Weight", ConstructionID: "derive_weight",
+		AuthoredColumns: []string{"weight_root"}, InputColumns: []string{"weight_input"},
 		LogicalType: "decimal", Cardinality: "optional_one", Nullable: true, ResultUnit: resultUnit,
 	}}
 	contract := PublicOutputContracts{Outputs: []PublicOutputContract{{OutputID: "out", Columns: []PublicOutputColumn{{
 		Column: "weight", Label: "Weight", ConstructionID: "derive_weight", LogicalType: "decimal",
+		AuthoredColumns: []string{"weight_root"}, InputColumns: []string{"weight_input"},
 		Cardinality: "optional_one", Nullable: true, ResultUnit: &unit.UnitIdentity{System: "http://unitsofmeasure.org", Code: "kg"},
 	}}}}}
 	if err := contract.ValidateAgainst(bundle, emitted); err != nil {
@@ -143,6 +145,7 @@ func TestPublicOutputContractPinsCompilerColumnMetadata(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(*PublicOutputContracts){
 		"construction identity": func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ConstructionID = "forged" },
+		"direct inputs":         func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].InputColumns = []string{"forged"} },
 		"cardinality":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].Cardinality = "required_one" },
 		"result unit":           func(c *PublicOutputContracts) { c.Outputs[0].Columns[0].ResultUnit.Code = "g" },
 	} {

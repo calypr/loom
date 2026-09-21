@@ -14,6 +14,7 @@ type EmittedColumn struct {
 	OccurrenceID          string                          `json:"occurrenceId,omitempty"`
 	ProjectionMode        string                          `json:"projectionMode,omitempty"`
 	AuthoredColumns       []string                        `json:"authoredColumns,omitempty"`
+	InputColumns          []string                        `json:"inputColumns,omitempty"`
 	ConstructionID        string                          `json:"constructionId,omitempty"`
 	PublicColumn          string                          `json:"publicColumn"`
 	Label                 string                          `json:"label,omitempty"`
