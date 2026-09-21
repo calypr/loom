@@ -3,6 +3,7 @@ package tableshapecap
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -58,6 +59,11 @@ func testCatalog(t *testing.T, binding Binding, createdAt string) CatalogReceipt
 }
 
 func testPivot(t *testing.T, catalog CatalogReceipt) ResolutionReceipt {
+	resolution, _ := testPivotAndScan(t, catalog)
+	return resolution
+}
+
+func testPivotAndScan(t *testing.T, catalog CatalogReceipt) (ResolutionReceipt, CategoryScanReceipt) {
 	t.Helper()
 	byRole := map[ChoiceRole]string{}
 	for _, choice := range catalog.Choices.Columns {
@@ -69,28 +75,39 @@ func testPivot(t *testing.T, catalog CatalogReceipt) ResolutionReceipt {
 	for _, choice := range catalog.Choices.Policies {
 		policies[choice.Role] = choice.ID
 	}
-	pivot := &PivotResolution{
-		GroupColumnChoiceIDs:    []string{byRole[RolePivotGroup]},
-		CategoryColumnChoiceID:  byRole[RolePivotCategory],
-		ValueColumnChoiceID:     byRole[RolePivotValue],
-		Categories:              []FrozenCategory{{Value: StringScalar("")}, {Value: IntegerScalar(0)}, {Value: NullScalar()}, {Value: MissingScalar()}},
-		DuplicatePolicyChoiceID: policies[RolePolicyDuplicate], MissingPolicyChoiceID: policies[RolePolicyMissing], UnlistedPolicyChoiceID: policies[RolePolicyUnlisted],
-	}
-	values := categoriesAsScalars(pivot.Categories)
+	values := []Scalar{StringScalar(""), IntegerScalar(0), NullScalar(), MissingScalar()}
 	valuesDigest, err := CategoryValuesDigest(values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pivot.CategoryProof = CategoryProof{
+	proof := CategoryProof{
 		Complete: true, DistinctCount: len(values), MaxCategories: 256, ValuesDigest: valuesDigest,
 		SourceGeneration: catalog.Binding.SourceGeneration, OutputFingerprint: catalog.Binding.OutputFingerprint,
 		ScanFingerprint: "scan-fingerprint-v1", QueryProof: "query-proof-v1",
+	}
+	scan, err := NewCategoryScanReceipt(catalog.Binding, catalog.ID, byRole[RolePivotCategory], byRole[RolePivotValue], values, proof, "2026-09-19T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivot := &PivotResolution{
+		GroupColumnChoiceIDs:    []string{byRole[RolePivotGroup]},
+		CategoryColumnChoiceID:  byRole[RolePivotCategory],
+		ValueColumnChoiceID:     byRole[RolePivotValue],
+		CategoryDiscoveryID:     scan.ID,
+		DuplicatePolicyChoiceID: policies[RolePolicyDuplicate], MissingPolicyChoiceID: policies[RolePolicyMissing], UnlistedPolicyChoiceID: policies[RolePolicyUnlisted],
+		CategoryProof: scan.Proof,
+	}
+	for i, category := range scan.Categories {
+		pivot.Categories = append(pivot.Categories, FrozenCategory{
+			ChoiceID: category.ChoiceID, Value: category.Value,
+			OutputColumn: fmt.Sprintf("category_%d", i+1), OutputLabel: fmt.Sprintf("Category %d", i+1),
+		})
 	}
 	resolution, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionPivot, pivot, nil, nil, "2026-09-19T00:00:00Z")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return resolution
+	return resolution, scan
 }
 
 func TestReceiptAndChoiceIdentityIsDeterministicAndExcludesCreatedAt(t *testing.T) {
@@ -105,10 +122,13 @@ func TestReceiptAndChoiceIdentityIsDeterministicAndExcludesCreatedAt(t *testing.
 			t.Fatal("column choice identity is not deterministic")
 		}
 	}
-	resolutionA := testPivot(t, left)
-	resolutionB := testPivot(t, right)
+	resolutionA, scanA := testPivotAndScan(t, left)
+	resolutionB, scanB := testPivotAndScan(t, right)
 	if resolutionA.ID != resolutionB.ID || resolutionA.ContentDigest != resolutionB.ContentDigest {
 		t.Fatal("resolution identity is not deterministic")
+	}
+	if scanA.ID != scanB.ID || scanA.ContentDigest != scanB.ContentDigest {
+		t.Fatal("category scan receipt identity is not deterministic")
 	}
 	for i := range resolutionA.Pivot.Categories {
 		if resolutionA.Pivot.Categories[i].ChoiceID != resolutionB.Pivot.Categories[i].ChoiceID {
@@ -120,7 +140,7 @@ func TestReceiptAndChoiceIdentityIsDeterministicAndExcludesCreatedAt(t *testing.
 func TestEveryBindingFieldChangesCatalogIdentity(t *testing.T) {
 	base := testBinding()
 	original := testCatalog(t, base, "")
-	originalResolution := testPivot(t, original)
+	originalResolution, _ := testPivotAndScan(t, original)
 	cases := map[string]func(*Binding){
 		"project":            func(b *Binding) { b.Project = "project-b" },
 		"explorer":           func(b *Binding) { b.ExplorerID += "-changed" },
@@ -221,7 +241,10 @@ func TestChoiceLookupIsRoleAndParentScoped(t *testing.T) {
 	if _, err := two.FindColumn(RolePivotGroup, groupID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-receipt choice lookup error=%v", err)
 	}
-	resolution := testPivot(t, one)
+	resolution, scan := testPivotAndScan(t, one)
+	if err := ValidateResolutionAgainstCategoryScan(one, scan, resolution); err != nil {
+		t.Fatalf("category scan does not bind pivot: %v", err)
+	}
 	categoryChoiceID := resolution.Pivot.Categories[0].ChoiceID
 	if _, err := resolution.Choice(RolePivotCategoryValue, categoryChoiceID); err != nil {
 		t.Fatalf("child category choice lookup failed: %v", err)
@@ -270,8 +293,11 @@ func TestPolicyChoicesMatchAcceptedCompilerContract(t *testing.T) {
 
 func TestPivotCompleteCategoryMembershipIsContentAddressed(t *testing.T) {
 	catalog := testCatalog(t, testBinding(), "")
-	resolution := testPivot(t, catalog)
+	resolution, scan := testPivotAndScan(t, catalog)
 	if err := ValidateResolutionAgainstCatalog(catalog, resolution); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateResolutionAgainstCategoryScan(catalog, scan, resolution); err != nil {
 		t.Fatal(err)
 	}
 	mutated := resolution
@@ -288,7 +314,7 @@ func TestPivotCompleteCategoryMembershipIsContentAddressed(t *testing.T) {
 
 func TestCategoryProofMustComeFromCompleteBoundedCompilerScan(t *testing.T) {
 	catalog := testCatalog(t, testBinding(), "")
-	base := testPivot(t, catalog)
+	base, scan := testPivotAndScan(t, catalog)
 	changedProof := *base.Pivot
 	changedProof.CategoryProof.ScanFingerprint = "another-scan"
 	withChangedProof, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionPivot, &changedProof, nil, nil, "")
@@ -297,6 +323,9 @@ func TestCategoryProofMustComeFromCompleteBoundedCompilerScan(t *testing.T) {
 	}
 	if withChangedProof.ID == base.ID {
 		t.Fatal("scan fingerprint did not affect resolution identity")
+	}
+	if err := ValidateResolutionAgainstCategoryScan(catalog, scan, withChangedProof); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("pivot with a detached scan proof passed validation: %v", err)
 	}
 
 	cases := map[string]func(*CategoryProof){
@@ -311,7 +340,11 @@ func TestCategoryProofMustComeFromCompleteBoundedCompilerScan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			changed := *base.Pivot
 			mutate(&changed.CategoryProof)
-			if _, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionPivot, &changed, nil, nil, ""); !errors.Is(err, ErrInvalid) {
+			mutatedReceipt, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionPivot, &changed, nil, nil, "")
+			if err == nil {
+				err = ValidateResolutionAgainstCategoryScan(catalog, scan, mutatedReceipt)
+			}
+			if !errors.Is(err, ErrInvalid) {
 				t.Fatalf("invalid proof accepted: %v", err)
 			}
 		})
@@ -344,6 +377,7 @@ func TestDerivedOperandsAreNumericAndNestedRefsRequireEarlierReceipts(t *testing
 	}
 
 	first, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionDerived, nil, nil, &DerivedResolution{
+		Output:           NamedOutput{Name: "first", Label: "First"},
 		OperatorChoiceID: operatorID, Left: ResolvedOperand{Kind: ResolvedOperandCatalogChoice, ChoiceID: baseChoiceID}, Right: validLiteral,
 		Result: TypeFact{LogicalType: LogicalDecimal, UnitIdentity: "mg"}, MissingPolicyChoiceID: missingPolicyID,
 	}, "")
@@ -355,6 +389,7 @@ func TestDerivedOperandsAreNumericAndNestedRefsRequireEarlierReceipts(t *testing
 	}
 	zero := 0
 	second, err := NewResolutionReceipt(catalog.Binding, catalog.ID, ResolutionDerived, nil, nil, &DerivedResolution{
+		Output:           NamedOutput{Name: "second", Label: "Second"},
 		OperatorChoiceID: operatorID, Left: ResolvedOperand{Kind: ResolvedOperandResolution, ResolutionID: first.ID, OutputIndex: &zero}, Right: ResolvedOperand{Kind: ResolvedOperandCatalogChoice, ChoiceID: baseChoiceID},
 		Result: TypeFact{LogicalType: LogicalDecimal, UnitIdentity: "mg"}, MissingPolicyChoiceID: missingPolicyID,
 	}, "")
@@ -370,6 +405,7 @@ func TestDerivedOperandsAreNumericAndNestedRefsRequireEarlierReceipts(t *testing
 	wrongBinding := testBinding()
 	wrongBinding.OutputID = "other-output"
 	wrongPrior, err := NewResolutionReceipt(wrongBinding, catalog.ID, ResolutionDerived, nil, nil, &DerivedResolution{
+		Output:           NamedOutput{Name: "wrong", Label: "Wrong"},
 		OperatorChoiceID: operatorID, Left: ResolvedOperand{Kind: ResolvedOperandCatalogChoice, ChoiceID: baseChoiceID}, Right: validLiteral,
 		Result: TypeFact{LogicalType: LogicalDecimal}, MissingPolicyChoiceID: missingPolicyID,
 	}, "")

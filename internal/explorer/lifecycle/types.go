@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/tableshapecap"
 )
 
 // CapabilityResolver resolves the current or a retained immutable capability
@@ -60,6 +61,11 @@ type CompileReceiptRequest struct {
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
+
+// TableShapeCategoryScanner executes an exact compiler-owned category scan
+// for one already-validated base receipt. The result is persisted only after
+// lifecycle verifies its proof against the receipt and current snapshot.
+type TableShapeCategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
 // ArtifactPublishedReader is the exact-output surface lifecycle needs when
 // materializing a durable artifact. Keeping this contract narrow makes it
@@ -135,6 +141,8 @@ type Config struct {
 
 	CompileReceipt               ReceiptCompiler
 	PreviewReceipt               ReceiptPreviewer
+	TableShapeCapabilities       tableshapecap.Repository
+	ScanTableShapeCategories     TableShapeCategoryScanner
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor

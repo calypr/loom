@@ -101,6 +101,89 @@ func (r *TableShapeCapabilityRepository) GetCatalog(ctx context.Context, binding
 	return *found, nil
 }
 
+func (r *TableShapeCapabilityRepository) PutCategoryScan(ctx context.Context, receipt tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
+	if err := receipt.Validate(); err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	parent, err := r.GetCatalog(ctx, receipt.Binding, receipt.ParentCatalogID)
+	if err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	if err := tableshapecap.ValidateCategoryScanAgainstCatalog(parent, receipt); err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	doc, err := categoryScanDocument(receipt)
+	if err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	var stored *tableshapecap.CategoryScanReceipt
+	err = r.client.QueryRows(ctx, tableShapeCapabilityInsertAQL, 1, map[string]interface{}{"@c": TableShapeCapabilitiesCollection, "doc": doc}, func(row map[string]interface{}) error {
+		existing, decodeErr := decodeTableShapeCapabilityDocument(row)
+		if decodeErr != nil {
+			return fmt.Errorf("%w: %s: %v", tableshapecap.ErrIdentityClash, receipt.ID, decodeErr)
+		}
+		if existing.Kind != "CATEGORY_SCAN" || existing.CategoryScan == nil {
+			return tableshapecap.ErrIdentityClash
+		}
+		if err := sameCategoryScan(*existing.CategoryScan, receipt); err != nil {
+			return err
+		}
+		value := *existing.CategoryScan
+		stored = &value
+		return nil
+	})
+	if err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	if stored != nil {
+		return *stored, nil
+	}
+	got, getErr := r.GetCategoryScan(ctx, receipt.Binding, receipt.ParentCatalogID, receipt.ID)
+	if getErr != nil {
+		return tableshapecap.CategoryScanReceipt{}, fmt.Errorf("%w: %s", tableshapecap.ErrIdentityClash, receipt.ID)
+	}
+	if err := sameCategoryScan(got, receipt); err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	return got, nil
+}
+
+func (r *TableShapeCapabilityRepository) GetCategoryScan(ctx context.Context, binding tableshapecap.Binding, parentCatalogID, id string) (tableshapecap.CategoryScanReceipt, error) {
+	if err := binding.Validate(); err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	var found *tableshapecap.CategoryScanReceipt
+	err := r.client.QueryRows(ctx, tableShapeCapabilityGetAQL, 1, tableShapeCapabilityBinds(binding, id, "CATEGORY_SCAN", parentCatalogID), func(row map[string]interface{}) error {
+		doc, decodeErr := decodeTableShapeCapabilityDocument(row)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if doc.Kind != "CATEGORY_SCAN" || doc.CategoryScan == nil || doc.Catalog != nil || doc.Resolution != nil {
+			return tableshapecap.ErrInvalid
+		}
+		if doc.Binding != binding || doc.CategoryScan.Binding != binding || doc.ID != id || doc.CategoryScan.ID != id || doc.ParentCatalogID != parentCatalogID || doc.CategoryScan.ParentCatalogID != parentCatalogID {
+			return tableshapecap.ErrNotFound
+		}
+		value := *doc.CategoryScan
+		found = &value
+		return nil
+	})
+	if err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	if found == nil {
+		return tableshapecap.CategoryScanReceipt{}, tableshapecap.ErrNotFound
+	}
+	parent, err := r.GetCatalog(ctx, binding, parentCatalogID)
+	if err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	if err := tableshapecap.ValidateCategoryScanAgainstCatalog(parent, *found); err != nil {
+		return tableshapecap.CategoryScanReceipt{}, err
+	}
+	return *found, nil
+}
+
 func (r *TableShapeCapabilityRepository) PutResolution(ctx context.Context, receipt tableshapecap.ResolutionReceipt) (tableshapecap.ResolutionReceipt, error) {
 	if err := receipt.Validate(); err != nil {
 		return tableshapecap.ResolutionReceipt{}, err
@@ -115,6 +198,15 @@ func (r *TableShapeCapabilityRepository) PutResolution(ctx context.Context, rece
 	}
 	if err := tableshapecap.ValidateResolutionAgainstCatalog(parent, receipt, prior...); err != nil {
 		return tableshapecap.ResolutionReceipt{}, err
+	}
+	if receipt.Pivot != nil {
+		scan, err := r.GetCategoryScan(ctx, receipt.Binding, receipt.ParentCatalogID, receipt.Pivot.CategoryDiscoveryID)
+		if err != nil {
+			return tableshapecap.ResolutionReceipt{}, err
+		}
+		if err := tableshapecap.ValidateResolutionAgainstCategoryScan(parent, scan, receipt); err != nil {
+			return tableshapecap.ResolutionReceipt{}, err
+		}
 	}
 	doc, err := resolutionDocument(receipt)
 	if err != nil {
@@ -167,6 +259,15 @@ func (r *TableShapeCapabilityRepository) GetResolution(ctx context.Context, bind
 	}
 	if err := tableshapecap.ValidateResolutionAgainstCatalog(parent, found, prior...); err != nil {
 		return tableshapecap.ResolutionReceipt{}, err
+	}
+	if found.Pivot != nil {
+		scan, err := r.GetCategoryScan(ctx, binding, parentCatalogID, found.Pivot.CategoryDiscoveryID)
+		if err != nil {
+			return tableshapecap.ResolutionReceipt{}, err
+		}
+		if err := tableshapecap.ValidateResolutionAgainstCategoryScan(parent, scan, found); err != nil {
+			return tableshapecap.ResolutionReceipt{}, err
+		}
 	}
 	return found, nil
 }
@@ -243,19 +344,23 @@ func (r *TableShapeCapabilityRepository) resolutionDependencies(ctx context.Cont
 }
 
 type tableShapeCapabilityDocument struct {
-	Key             string                           `json:"_key"`
-	ArangoID        string                           `json:"_id,omitempty"`
-	Revision        string                           `json:"_rev,omitempty"`
-	ID              string                           `json:"id"`
-	Kind            string                           `json:"kind"`
-	ParentCatalogID string                           `json:"parentCatalogId"`
-	Binding         tableshapecap.Binding            `json:"binding"`
-	Catalog         *tableshapecap.CatalogReceipt    `json:"catalog,omitempty"`
-	Resolution      *tableshapecap.ResolutionReceipt `json:"resolution,omitempty"`
+	Key             string                             `json:"_key"`
+	ArangoID        string                             `json:"_id,omitempty"`
+	Revision        string                             `json:"_rev,omitempty"`
+	ID              string                             `json:"id"`
+	Kind            string                             `json:"kind"`
+	ParentCatalogID string                             `json:"parentCatalogId"`
+	Binding         tableshapecap.Binding              `json:"binding"`
+	Catalog         *tableshapecap.CatalogReceipt      `json:"catalog,omitempty"`
+	CategoryScan    *tableshapecap.CategoryScanReceipt `json:"categoryScan,omitempty"`
+	Resolution      *tableshapecap.ResolutionReceipt   `json:"resolution,omitempty"`
 }
 
 func catalogDocument(receipt tableshapecap.CatalogReceipt) (map[string]any, error) {
 	return document(tableShapeCapabilityDocument{Key: receipt.ID, ID: receipt.ID, Kind: "CATALOG", Binding: receipt.Binding, Catalog: &receipt}, receipt.ID)
+}
+func categoryScanDocument(receipt tableshapecap.CategoryScanReceipt) (map[string]any, error) {
+	return document(tableShapeCapabilityDocument{Key: receipt.ID, ID: receipt.ID, Kind: "CATEGORY_SCAN", ParentCatalogID: receipt.ParentCatalogID, Binding: receipt.Binding, CategoryScan: &receipt}, receipt.ID)
 }
 func resolutionDocument(receipt tableshapecap.ResolutionReceipt) (map[string]any, error) {
 	return document(tableShapeCapabilityDocument{Key: receipt.ID, ID: receipt.ID, Kind: "RESOLUTION", ParentCatalogID: receipt.ParentCatalogID, Binding: receipt.Binding, Resolution: &receipt}, receipt.ID)
@@ -274,11 +379,15 @@ func decodeTableShapeCapabilityDocument(row map[string]interface{}) (tableShapeC
 	}
 	switch doc.Kind {
 	case "CATALOG":
-		if doc.Catalog == nil || doc.Resolution != nil || doc.ParentCatalogID != "" || doc.Catalog.ID != doc.ID || doc.Catalog.Binding != doc.Binding {
+		if doc.Catalog == nil || doc.CategoryScan != nil || doc.Resolution != nil || doc.ParentCatalogID != "" || doc.Catalog.ID != doc.ID || doc.Catalog.Binding != doc.Binding {
+			return tableShapeCapabilityDocument{}, tableshapecap.ErrInvalid
+		}
+	case "CATEGORY_SCAN":
+		if doc.CategoryScan == nil || doc.Catalog != nil || doc.Resolution != nil || doc.CategoryScan.ID != doc.ID || doc.CategoryScan.Binding != doc.Binding || doc.CategoryScan.ParentCatalogID != doc.ParentCatalogID {
 			return tableShapeCapabilityDocument{}, tableshapecap.ErrInvalid
 		}
 	case "RESOLUTION":
-		if doc.Resolution == nil || doc.Catalog != nil || doc.Resolution.ID != doc.ID || doc.Resolution.Binding != doc.Binding || doc.Resolution.ParentCatalogID != doc.ParentCatalogID {
+		if doc.Resolution == nil || doc.Catalog != nil || doc.CategoryScan != nil || doc.Resolution.ID != doc.ID || doc.Resolution.Binding != doc.Binding || doc.Resolution.ParentCatalogID != doc.ParentCatalogID {
 			return tableShapeCapabilityDocument{}, tableshapecap.ErrInvalid
 		}
 	default:
@@ -314,6 +423,21 @@ func sameCatalog(existing, want tableshapecap.CatalogReceipt) error {
 	return nil
 }
 func sameResolution(existing, want tableshapecap.ResolutionReceipt) error {
+	left, err := existing.CanonicalContent()
+	if err != nil {
+		return err
+	}
+	right, err := want.CanonicalContent()
+	if err != nil {
+		return err
+	}
+	if existing.ID != want.ID || existing.ContentDigest != want.ContentDigest || string(left) != string(right) {
+		return fmt.Errorf("%w: %s", tableshapecap.ErrIdentityClash, want.ID)
+	}
+	return nil
+}
+
+func sameCategoryScan(existing, want tableshapecap.CategoryScanReceipt) error {
 	left, err := existing.CanonicalContent()
 	if err != nil {
 		return err

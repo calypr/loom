@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	catalogIDPrefix    = "tsc_"
-	resolutionIDPrefix = "tsr_"
-	choiceIDPrefix     = "tsch_"
+	catalogIDPrefix      = "tsc_"
+	categoryScanIDPrefix = "tsd_"
+	resolutionIDPrefix   = "tsr_"
+	choiceIDPrefix       = "tsch_"
 )
 
 type catalogIdentity struct {
@@ -55,15 +56,178 @@ type resolutionIdentity struct {
 	Derived         *DerivedResolution `json:"derived,omitempty"`
 }
 
+type categoryScanIdentity struct {
+	Binding                Binding       `json:"binding"`
+	ParentCatalogID        string        `json:"parentCatalogId"`
+	CategoryColumnChoiceID string        `json:"categoryColumnChoiceId"`
+	ValueColumnChoiceID    string        `json:"valueColumnChoiceId"`
+	Values                 []Scalar      `json:"values"`
+	Proof                  CategoryProof `json:"proof"`
+}
+
 type pivotIdentity struct {
-	GroupColumnChoiceIDs    []string      `json:"groupColumnChoiceIds"`
-	CategoryColumnChoiceID  string        `json:"categoryColumnChoiceId"`
-	ValueColumnChoiceID     string        `json:"valueColumnChoiceId"`
-	Categories              []Scalar      `json:"categories"`
-	CategoryProof           CategoryProof `json:"categoryProof"`
-	DuplicatePolicyChoiceID string        `json:"duplicatePolicyChoiceId"`
-	MissingPolicyChoiceID   string        `json:"missingPolicyChoiceId"`
-	UnlistedPolicyChoiceID  string        `json:"unlistedPolicyChoiceId"`
+	GroupColumnChoiceIDs    []string              `json:"groupColumnChoiceIds"`
+	CategoryColumnChoiceID  string                `json:"categoryColumnChoiceId"`
+	ValueColumnChoiceID     string                `json:"valueColumnChoiceId"`
+	CategoryDiscoveryID     string                `json:"categoryDiscoveryId"`
+	Categories              []FrozenCategory      `json:"categories"`
+	DerivedOperands         []PivotDerivedOperand `json:"derivedOperands,omitempty"`
+	CategoryProof           CategoryProof         `json:"categoryProof"`
+	DuplicatePolicyChoiceID string                `json:"duplicatePolicyChoiceId"`
+	MissingPolicyChoiceID   string                `json:"missingPolicyChoiceId"`
+	UnlistedPolicyChoiceID  string                `json:"unlistedPolicyChoiceId"`
+}
+
+const maxDiscoveredCategories = 256
+
+func NewCategoryScanReceipt(binding Binding, parentCatalogID, categoryColumnChoiceID, valueColumnChoiceID string, values []Scalar, proof CategoryProof, createdAt string) (CategoryScanReceipt, error) {
+	receipt := CategoryScanReceipt{
+		Binding: binding, ParentCatalogID: parentCatalogID,
+		CategoryColumnChoiceID: categoryColumnChoiceID, ValueColumnChoiceID: valueColumnChoiceID,
+		Categories: make([]DiscoveredCategory, len(values)), Proof: proof, CreatedAt: createdAt,
+	}
+	for i, value := range values {
+		receipt.Categories[i].Value = cloneScalar(value)
+	}
+	if err := validateCategoryScanContent(receipt); err != nil {
+		return CategoryScanReceipt{}, err
+	}
+	payload, err := categoryScanIdentityBytes(receipt)
+	if err != nil {
+		return CategoryScanReceipt{}, err
+	}
+	receipt.ContentDigest = digest(payload)
+	receipt.ID = shortID(categoryScanIDPrefix, payload)
+	for i := range receipt.Categories {
+		category := &receipt.Categories[i]
+		category.ChoiceID = makeChoiceID(receipt.ID, RolePivotCategoryValue, category.Value)
+	}
+	if err := receipt.Validate(); err != nil {
+		return CategoryScanReceipt{}, err
+	}
+	return receipt, nil
+}
+
+// NewPivotDerivedOperandChoiceID creates an opaque choice scoped to the exact
+// post-pivot output mapping. The pivot's own ID is intentionally excluded to
+// avoid a content-addressing cycle; every other semantic pivot field is bound.
+func NewPivotDerivedOperandChoiceID(parentCatalogID string, pivot PivotResolution, output NamedOutput, fact TypeFact) (string, error) {
+	pivot.DerivedOperands = nil
+	payload, err := canonical(struct {
+		Pivot  PivotResolution `json:"pivot"`
+		Output NamedOutput     `json:"output"`
+		Type   TypeFact        `json:"type"`
+	}{pivot, output, fact})
+	if err != nil {
+		return "", err
+	}
+	return makeChoiceID(parentCatalogID, RoleDerivedOperand, payload), nil
+}
+
+func (r CategoryScanReceipt) ValidateAgainstCatalog(catalog CatalogReceipt) error {
+	return ValidateCategoryScanAgainstCatalog(catalog, r)
+}
+
+func ValidateCategoryScanAgainstCatalog(catalog CatalogReceipt, scan CategoryScanReceipt) error {
+	if err := catalog.Validate(); err != nil {
+		return err
+	}
+	if err := scan.Validate(); err != nil {
+		return err
+	}
+	if catalog.ID != scan.ParentCatalogID || catalog.Binding != scan.Binding {
+		return invalid("category scan does not belong to this catalog binding")
+	}
+	if _, err := catalog.findColumn(RolePivotCategory, scan.CategoryColumnChoiceID); err != nil {
+		return invalid("category scan column choice is not in parent catalog")
+	}
+	if _, err := catalog.findColumn(RolePivotValue, scan.ValueColumnChoiceID); err != nil {
+		return invalid("category scan value choice is not in parent catalog")
+	}
+	return nil
+}
+
+func validateCategoryScan(r CategoryScanReceipt) error {
+	if err := validateCategoryScanContent(r); err != nil {
+		return err
+	}
+	if !validRecordID(r.ID, categoryScanIDPrefix) {
+		return invalid("category scan ID is malformed")
+	}
+	payload, err := categoryScanIdentityBytes(r)
+	if err != nil {
+		return err
+	}
+	if r.ContentDigest != digest(payload) || r.ID != shortID(categoryScanIDPrefix, payload) {
+		return invalid("category scan identity does not match its content")
+	}
+	for _, category := range r.Categories {
+		if category.ChoiceID != makeChoiceID(r.ID, RolePivotCategoryValue, category.Value) {
+			return invalid("category choice ID does not match scan receipt and value")
+		}
+	}
+	return nil
+}
+
+func validateCategoryScanContent(r CategoryScanReceipt) error {
+	if err := r.Binding.Validate(); err != nil {
+		return err
+	}
+	if !validRecordID(r.ParentCatalogID, catalogIDPrefix) {
+		return invalid("category scan requires a valid parent catalog ID")
+	}
+	if !validChoiceID(r.CategoryColumnChoiceID) || !validChoiceID(r.ValueColumnChoiceID) || r.CategoryColumnChoiceID == r.ValueColumnChoiceID {
+		return invalid("category scan requires distinct valid category and value choices")
+	}
+	if r.Categories == nil {
+		return invalid("category scan categories must be present, even when empty")
+	}
+	if r.CreatedAt != "" && strings.TrimSpace(r.CreatedAt) != r.CreatedAt {
+		return invalid("createdAt must be trimmed")
+	}
+	values := make([]Scalar, len(r.Categories))
+	seen := make(map[string]struct{}, len(r.Categories))
+	for i, category := range r.Categories {
+		if err := category.Value.Validate(); err != nil {
+			return err
+		}
+		key, err := canonical(category.Value)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[string(key)]; ok {
+			return invalid("category scan values must be unique")
+		}
+		seen[string(key)] = struct{}{}
+		if category.ChoiceID != "" && !validChoiceID(category.ChoiceID) {
+			return invalid("category scan choice ID is malformed")
+		}
+		values[i] = category.Value
+	}
+	proof := r.Proof
+	if !proof.Complete || proof.Overflow || proof.MaxCategories <= 0 || proof.MaxCategories > maxDiscoveredCategories || proof.DistinctCount != len(values) || proof.DistinctCount > proof.MaxCategories || proof.SourceGeneration != r.Binding.SourceGeneration || proof.OutputFingerprint != r.Binding.OutputFingerprint || strings.TrimSpace(proof.ScanFingerprint) == "" || strings.TrimSpace(proof.ScanFingerprint) != proof.ScanFingerprint || strings.TrimSpace(proof.QueryProof) == "" || strings.TrimSpace(proof.QueryProof) != proof.QueryProof {
+		return invalid("category scan proof must certify the complete set for the bound source and output")
+	}
+	valueDigest, err := CategoryValuesDigest(values)
+	if err != nil {
+		return err
+	}
+	if proof.ValuesDigest != valueDigest {
+		return invalid("category scan proof digest does not match discovered membership")
+	}
+	return nil
+}
+
+func categoryScanIdentityBytes(r CategoryScanReceipt) ([]byte, error) {
+	values := make([]Scalar, len(r.Categories))
+	for i := range r.Categories {
+		values[i] = r.Categories[i].Value
+	}
+	return canonical(categoryScanIdentity{
+		Binding: r.Binding, ParentCatalogID: r.ParentCatalogID,
+		CategoryColumnChoiceID: r.CategoryColumnChoiceID, ValueColumnChoiceID: r.ValueColumnChoiceID,
+		Values: values, Proof: r.Proof,
+	})
 }
 
 func NewCatalogReceipt(binding Binding, columns []PublicColumn, availability []RoleAvailability, choices CatalogChoices, saved SavedShapeSummary, createdAt string) (CatalogReceipt, error) {
@@ -110,16 +274,37 @@ func NewResolutionReceipt(binding Binding, parentCatalogID string, kind Resoluti
 	}
 	receipt.ContentDigest = digest(payload)
 	receipt.ID = shortID(resolutionIDPrefix, payload)
-	if receipt.Pivot != nil {
-		for i := range receipt.Pivot.Categories {
-			category := &receipt.Pivot.Categories[i]
-			category.ChoiceID = makeChoiceID(receipt.ID, RolePivotCategoryValue, category.Value)
-		}
-	}
 	if err := receipt.Validate(); err != nil {
 		return ResolutionReceipt{}, err
 	}
 	return receipt, nil
+}
+
+func ValidateResolutionAgainstCategoryScan(catalog CatalogReceipt, scan CategoryScanReceipt, resolution ResolutionReceipt) error {
+	if err := ValidateCategoryScanAgainstCatalog(catalog, scan); err != nil {
+		return err
+	}
+	if err := ValidateResolutionAgainstCatalog(catalog, resolution); err != nil {
+		return err
+	}
+	if resolution.Kind != ResolutionPivot || resolution.Pivot == nil {
+		return invalid("category scan can only bind a pivot resolution")
+	}
+	pivot := resolution.Pivot
+	if pivot.CategoryDiscoveryID != scan.ID || pivot.CategoryColumnChoiceID != scan.CategoryColumnChoiceID || pivot.ValueColumnChoiceID != scan.ValueColumnChoiceID || pivot.CategoryProof != scan.Proof {
+		return invalid("pivot does not match its complete category discovery receipt")
+	}
+	discovered := make(map[string]Scalar, len(scan.Categories))
+	for _, category := range scan.Categories {
+		discovered[category.ChoiceID] = category.Value
+	}
+	for _, category := range pivot.Categories {
+		value, ok := discovered[category.ChoiceID]
+		if !ok || !sameScalar(value, category.Value) {
+			return invalid("pivot category is not selected from its complete category discovery receipt")
+		}
+	}
+	return nil
 }
 
 func validateCatalog(c CatalogReceipt) error {
@@ -297,13 +482,6 @@ func validateResolution(r ResolutionReceipt) error {
 	if r.ContentDigest != digest(payload) || r.ID != shortID(resolutionIDPrefix, payload) {
 		return invalid("resolution identity does not match its content")
 	}
-	if r.Pivot != nil {
-		for _, category := range r.Pivot.Categories {
-			if category.ChoiceID != makeChoiceID(r.ID, RolePivotCategoryValue, category.Value) {
-				return invalid("pivot category choice ID does not match receipt, role, and value")
-			}
-		}
-	}
 	return nil
 }
 
@@ -370,10 +548,14 @@ func validatePivot(binding Binding, p PivotResolution) error {
 	if p.CategoryColumnChoiceID == p.ValueColumnChoiceID {
 		return invalid("pivot category and value columns must differ")
 	}
+	if !validRecordID(p.CategoryDiscoveryID, categoryScanIDPrefix) {
+		return invalid("pivot requires a valid category discovery receipt ID")
+	}
 	if len(p.Categories) == 0 {
 		return invalid("pivot requires a non-empty complete category set")
 	}
 	values := make(map[string]struct{}, len(p.Categories))
+	outputNames := make(map[string]struct{}, len(p.Categories))
 	for _, category := range p.Categories {
 		if err := category.Value.Validate(); err != nil {
 			return err
@@ -386,35 +568,55 @@ func validatePivot(binding Binding, p PivotResolution) error {
 			return invalid("pivot category values must be unique")
 		}
 		values[string(key)] = struct{}{}
-		if category.ChoiceID != "" && !validChoiceID(category.ChoiceID) {
+		if !validChoiceID(category.ChoiceID) {
 			return invalid("pivot category choice ID is malformed")
 		}
+		if strings.TrimSpace(category.OutputColumn) == "" || strings.TrimSpace(category.OutputColumn) != category.OutputColumn || strings.TrimSpace(category.OutputLabel) == "" || strings.TrimSpace(category.OutputLabel) != category.OutputLabel {
+			return invalid("pivot category output column and label must be non-empty and trimmed")
+		}
+		if _, exists := outputNames[category.OutputColumn]; exists {
+			return invalid("pivot category output columns must be unique")
+		}
+		outputNames[category.OutputColumn] = struct{}{}
 	}
 	proof := p.CategoryProof
-	if !proof.Complete || proof.Overflow || proof.MaxCategories <= 0 || proof.DistinctCount != len(p.Categories) || proof.DistinctCount > proof.MaxCategories || proof.SourceGeneration != binding.SourceGeneration || proof.OutputFingerprint != binding.OutputFingerprint || strings.TrimSpace(proof.ScanFingerprint) == "" || strings.TrimSpace(proof.ScanFingerprint) != proof.ScanFingerprint || strings.TrimSpace(proof.QueryProof) == "" || strings.TrimSpace(proof.QueryProof) != proof.QueryProof {
+	if !proof.Complete || proof.Overflow || proof.MaxCategories <= 0 || proof.MaxCategories > maxDiscoveredCategories || proof.DistinctCount <= 0 || proof.DistinctCount < len(p.Categories) || proof.DistinctCount > proof.MaxCategories || proof.SourceGeneration != binding.SourceGeneration || proof.OutputFingerprint != binding.OutputFingerprint || strings.TrimSpace(proof.ScanFingerprint) == "" || strings.TrimSpace(proof.ScanFingerprint) != proof.ScanFingerprint || strings.TrimSpace(proof.QueryProof) == "" || strings.TrimSpace(proof.QueryProof) != proof.QueryProof {
 		return invalid("pivot category proof must certify the complete set for the bound source and output")
 	}
-	digest, err := categoryValuesDigest(categoriesAsScalars(p.Categories))
-	if err != nil {
-		return err
-	}
-	if proof.ValuesDigest != digest {
-		return invalid("pivot category proof digest does not match frozen membership")
+	if strings.TrimSpace(proof.ValuesDigest) == "" || strings.TrimSpace(proof.ValuesDigest) != proof.ValuesDigest {
+		return invalid("pivot category proof values digest is required")
 	}
 	for _, id := range []string{p.DuplicatePolicyChoiceID, p.MissingPolicyChoiceID, p.UnlistedPolicyChoiceID} {
 		if strings.TrimSpace(id) == "" || !validChoiceID(id) {
 			return invalid("pivot policy choice ID is malformed")
 		}
 	}
+	choiceIDs := make(map[string]struct{}, len(p.DerivedOperands))
+	for _, operand := range p.DerivedOperands {
+		if !validChoiceID(operand.ChoiceID) {
+			return invalid("post-pivot derived operand choice ID is malformed")
+		}
+		if _, exists := choiceIDs[operand.ChoiceID]; exists {
+			return invalid("post-pivot derived operand choices must be unique")
+		}
+		choiceIDs[operand.ChoiceID] = struct{}{}
+		if err := validateNamedOutput(NamedOutput{Name: operand.OutputColumn, Label: operand.OutputLabel}); err != nil {
+			return invalid("post-pivot derived operand output: %v", err)
+		}
+		if err := operand.Type.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func validateUnpivot(p UnpivotResolution) error {
-	if len(p.InputColumnChoiceIDs) < 2 {
+	if len(p.InputColumnChoiceIDs) < 2 || len(p.Inputs) != len(p.InputColumnChoiceIDs) {
 		return invalid("unpivot requires at least two ordered input columns")
 	}
 	seen := map[string]struct{}{}
-	for _, id := range p.InputColumnChoiceIDs {
+	keyKind := ScalarKind("")
+	for index, id := range p.InputColumnChoiceIDs {
 		if !validChoiceID(id) {
 			return invalid("unpivot input choice ID is malformed")
 		}
@@ -422,12 +624,33 @@ func validateUnpivot(p UnpivotResolution) error {
 			return invalid("unpivot inputs must be unique")
 		}
 		seen[id] = struct{}{}
+		input := p.Inputs[index]
+		if input.ChoiceID != id {
+			return invalid("unpivot resolved inputs must preserve choice order")
+		}
+		if err := input.Key.Validate(); err != nil {
+			return err
+		}
+		if keyKind == "" {
+			keyKind = input.Key.Kind
+		} else if keyKind != input.Key.Kind {
+			return invalid("unpivot keys must have one canonical scalar type")
+		}
 	}
 	if err := p.KeyResult.Validate(); err != nil {
 		return err
 	}
 	if err := p.ValueResult.Validate(); err != nil {
 		return err
+	}
+	if err := validateNamedOutput(p.KeyOutput); err != nil {
+		return invalid("unpivot key output: %v", err)
+	}
+	if err := validateNamedOutput(p.ValueOutput); err != nil {
+		return invalid("unpivot value output: %v", err)
+	}
+	if p.KeyOutput.Name == p.ValueOutput.Name {
+		return invalid("unpivot output names must be distinct")
 	}
 	if !validChoiceID(p.NullPolicyChoiceID) {
 		return invalid("unpivot null policy choice ID is malformed")
@@ -436,6 +659,9 @@ func validateUnpivot(p UnpivotResolution) error {
 }
 
 func validateDerived(p DerivedResolution) error {
+	if err := validateNamedOutput(p.Output); err != nil {
+		return invalid("derived output: %v", err)
+	}
 	if !validChoiceID(p.OperatorChoiceID) {
 		return invalid("derived operator choice ID is malformed")
 	}
@@ -457,6 +683,13 @@ func validateDerived(p DerivedResolution) error {
 	return nil
 }
 
+func validateNamedOutput(output NamedOutput) error {
+	if strings.TrimSpace(output.Name) == "" || output.Name != strings.TrimSpace(output.Name) || strings.TrimSpace(output.Label) == "" || output.Label != strings.TrimSpace(output.Label) {
+		return invalid("name and label must be non-empty and trimmed")
+	}
+	return nil
+}
+
 func ValidateResolutionAgainstCatalog(catalog CatalogReceipt, resolution ResolutionReceipt, priorReceipts ...ResolutionReceipt) error {
 	if err := catalog.Validate(); err != nil {
 		return err
@@ -472,8 +705,8 @@ func ValidateResolutionAgainstCatalog(catalog CatalogReceipt, resolution Resolut
 		if err := receipt.Validate(); err != nil {
 			return err
 		}
-		if receipt.Binding != catalog.Binding || receipt.ParentCatalogID != catalog.ID || receipt.Kind != ResolutionDerived {
-			return invalid("prior derived receipt does not belong to this catalog binding")
+		if receipt.Binding != catalog.Binding || receipt.ParentCatalogID != catalog.ID {
+			return invalid("prior capability receipt does not belong to this catalog binding")
 		}
 		if receipt.ID == resolution.ID {
 			return invalid("derived receipt cannot depend on itself")
@@ -481,8 +714,23 @@ func ValidateResolutionAgainstCatalog(catalog CatalogReceipt, resolution Resolut
 		if _, exists := prior[receipt.ID]; exists {
 			return invalid("duplicate prior resolution receipt")
 		}
-		if err := validateDerivedAgainstCatalog(catalog, *receipt.Derived, prior); err != nil {
-			return err
+		switch receipt.Kind {
+		case ResolutionPivot:
+			if receipt.Pivot == nil || receipt.Unpivot != nil || receipt.Derived != nil {
+				return invalid("pivot context receipt has an invalid payload")
+			}
+			if err := validatePivotContext(catalog, *receipt.Pivot); err != nil {
+				return err
+			}
+		case ResolutionDerived:
+			if receipt.Derived == nil || receipt.Pivot != nil || receipt.Unpivot != nil {
+				return invalid("prior derived receipt has an invalid payload")
+			}
+			if err := validateDerivedAgainstCatalog(catalog, *receipt.Derived, prior); err != nil {
+				return err
+			}
+		default:
+			return invalid("prior capability receipt must be a pivot context or derived resolution")
 		}
 		prior[receipt.ID] = receipt
 	}
@@ -524,9 +772,13 @@ func ValidateResolutionAgainstCatalog(catalog CatalogReceipt, resolution Resolut
 		}
 	}
 	if resolution.Unpivot != nil {
-		for _, id := range resolution.Unpivot.InputColumnChoiceIDs {
-			if _, err := catalog.findColumn(RoleUnpivotInput, id); err != nil {
+		for index, id := range resolution.Unpivot.InputColumnChoiceIDs {
+			choice, err := catalog.findColumn(RoleUnpivotInput, id)
+			if err != nil {
 				return invalid("unpivot input choice is not in parent catalog")
+			}
+			if resolution.Unpivot.Inputs[index].ChoiceID != choice.ID {
+				return invalid("unpivot resolved input does not match parent catalog choice")
 			}
 		}
 		if _, err := catalog.findPolicy(RolePolicyUnpivotNull, resolution.Unpivot.NullPolicyChoiceID); err != nil {
@@ -536,6 +788,27 @@ func ValidateResolutionAgainstCatalog(catalog CatalogReceipt, resolution Resolut
 	if resolution.Derived != nil {
 		if err := validateDerivedAgainstCatalog(catalog, *resolution.Derived, prior); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validatePivotContext(catalog CatalogReceipt, pivot PivotResolution) error {
+	for _, id := range pivot.GroupColumnChoiceIDs {
+		if _, err := catalog.findColumn(RolePivotGroup, id); err != nil {
+			return invalid("pivot context group choice is not in parent catalog")
+		}
+	}
+	if _, err := catalog.findColumn(RolePivotCategory, pivot.CategoryColumnChoiceID); err != nil {
+		return invalid("pivot context category choice is not in parent catalog")
+	}
+	if _, err := catalog.findColumn(RolePivotValue, pivot.ValueColumnChoiceID); err != nil {
+		return invalid("pivot context value choice is not in parent catalog")
+	}
+	for _, operand := range pivot.DerivedOperands {
+		id, err := NewPivotDerivedOperandChoiceID(catalog.ID, pivot, NamedOutput{Name: operand.OutputColumn, Label: operand.OutputLabel}, operand.Type)
+		if err != nil || id != operand.ChoiceID {
+			return invalid("post-pivot derived operand choice does not match its output mapping")
 		}
 	}
 	return nil
@@ -552,15 +825,30 @@ func validateDerivedAgainstCatalog(catalog CatalogReceipt, d DerivedResolution, 
 	if operator.Operator != "DIVIDE" && d.DivisionByZeroPolicyChoiceID != "" {
 		return invalid("non-division operation cannot select division-by-zero policy")
 	}
+	var pivot *PivotResolution
+	if d.PivotResolutionID != "" {
+		context, ok := prior[d.PivotResolutionID]
+		if !ok || context.Kind != ResolutionPivot || context.Pivot == nil || context.Binding != catalog.Binding || context.ParentCatalogID != catalog.ID {
+			return invalid("derived resolution pivot context is not an earlier pivot from this catalog")
+		}
+		pivot = context.Pivot
+	}
 	for _, operand := range []ResolvedOperand{d.Left, d.Right} {
 		switch operand.Kind {
 		case ResolvedOperandCatalogChoice:
-			choice, err := catalog.findOperand(operand.ChoiceID)
-			if err != nil || choice.Operand.Kind != OperandColumn {
-				return invalid("derived base operand is not a choice in parent catalog")
+			if pivot != nil {
+				if _, ok := findPivotDerivedOperand(*pivot, operand.ChoiceID); !ok {
+					return invalid("derived operand is not present in the selected pivot output")
+				}
+			} else {
+				choice, err := catalog.findOperand(operand.ChoiceID)
+				if err != nil || choice.Operand.Kind != OperandColumn {
+					return invalid("derived base operand is not a choice in parent catalog")
+				}
 			}
 		case ResolvedOperandResolution:
-			if _, ok := prior[operand.ResolutionID]; !ok || operand.OutputIndex == nil || *operand.OutputIndex != 0 {
+			previous, ok := prior[operand.ResolutionID]
+			if !ok || previous.Kind != ResolutionDerived || previous.Derived == nil || previous.Derived.PivotResolutionID != d.PivotResolutionID || operand.OutputIndex == nil || *operand.OutputIndex != 0 {
 				return invalid("derived resolution operand must reference an earlier receipt under the same catalog")
 			}
 		case ResolvedOperandLiteral:
@@ -580,6 +868,15 @@ func validateDerivedAgainstCatalog(catalog CatalogReceipt, d DerivedResolution, 
 		}
 	}
 	return nil
+}
+
+func findPivotDerivedOperand(pivot PivotResolution, choiceID string) (PivotDerivedOperand, bool) {
+	for _, operand := range pivot.DerivedOperands {
+		if operand.ChoiceID == choiceID {
+			return operand, true
+		}
+	}
+	return PivotDerivedOperand{}, false
 }
 
 func catalogIdentityBytes(c CatalogReceipt) ([]byte, error) {
@@ -604,13 +901,10 @@ func catalogIdentityBytes(c CatalogReceipt) ([]byte, error) {
 func resolutionIdentityBytes(r ResolutionReceipt) ([]byte, error) {
 	identity := resolutionIdentity{Binding: r.Binding, ParentCatalogID: r.ParentCatalogID, Kind: r.Kind}
 	if r.Pivot != nil {
-		categories := make([]Scalar, len(r.Pivot.Categories))
-		for i := range r.Pivot.Categories {
-			categories[i] = r.Pivot.Categories[i].Value
-		}
 		identity.Pivot = &pivotIdentity{
 			GroupColumnChoiceIDs: clone(r.Pivot.GroupColumnChoiceIDs), CategoryColumnChoiceID: r.Pivot.CategoryColumnChoiceID,
-			ValueColumnChoiceID: r.Pivot.ValueColumnChoiceID, Categories: categories, CategoryProof: r.Pivot.CategoryProof,
+			ValueColumnChoiceID: r.Pivot.ValueColumnChoiceID, CategoryDiscoveryID: r.Pivot.CategoryDiscoveryID, Categories: cloneFrozenCategories(r.Pivot.Categories), CategoryProof: r.Pivot.CategoryProof,
+			DerivedOperands:         clonePivotDerivedOperands(r.Pivot.DerivedOperands),
 			DuplicatePolicyChoiceID: r.Pivot.DuplicatePolicyChoiceID, MissingPolicyChoiceID: r.Pivot.MissingPolicyChoiceID,
 			UnlistedPolicyChoiceID: r.Pivot.UnlistedPolicyChoiceID,
 		}
@@ -618,6 +912,14 @@ func resolutionIdentityBytes(r ResolutionReceipt) ([]byte, error) {
 	identity.Unpivot = clonePtr(r.Unpivot)
 	identity.Derived = clonePtr(r.Derived)
 	return canonical(identity)
+}
+
+func clonePivotDerivedOperands(values []PivotDerivedOperand) []PivotDerivedOperand {
+	if values == nil {
+		return nil
+	}
+	out := append([]PivotDerivedOperand(nil), values...)
+	return out
 }
 
 func makeChoiceID(parentID string, role ChoiceRole, payload any) string {
@@ -810,12 +1112,34 @@ func clonePivot(value *PivotResolution) *PivotResolution {
 	return &out
 }
 
+func cloneFrozenCategories(values []FrozenCategory) []FrozenCategory {
+	if values == nil {
+		return nil
+	}
+	out := make([]FrozenCategory, len(values))
+	copy(out, values)
+	for i := range out {
+		out[i].Value = cloneScalar(out[i].Value)
+	}
+	return out
+}
+
+func sameScalar(left, right Scalar) bool {
+	leftBytes, leftErr := canonical(left)
+	rightBytes, rightErr := canonical(right)
+	return leftErr == nil && rightErr == nil && string(leftBytes) == string(rightBytes)
+}
+
 func cloneUnpivot(value *UnpivotResolution) *UnpivotResolution {
 	if value == nil {
 		return nil
 	}
 	out := *value
 	out.InputColumnChoiceIDs = clone(value.InputColumnChoiceIDs)
+	out.Inputs = append([]ResolvedUnpivotInput(nil), value.Inputs...)
+	for index := range out.Inputs {
+		out.Inputs[index].Key = cloneScalar(out.Inputs[index].Key)
+	}
 	return &out
 }
 
@@ -840,6 +1164,20 @@ func (c *CatalogReceipt) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*c = result
+	return nil
+}
+
+func (r *CategoryScanReceipt) UnmarshalJSON(data []byte) error {
+	type alias CategoryScanReceipt
+	var value alias
+	if err := decodeStrict(data, &value); err != nil {
+		return err
+	}
+	result := CategoryScanReceipt(value)
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	*r = result
 	return nil
 }
 
@@ -876,6 +1214,12 @@ func (c CatalogReceipt) CanonicalContent() ([]byte, error) {
 		return nil, err
 	}
 	return catalogIdentityBytes(c)
+}
+func (r CategoryScanReceipt) CanonicalContent() ([]byte, error) {
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
+	return categoryScanIdentityBytes(r)
 }
 func (r ResolutionReceipt) CanonicalContent() ([]byte, error) {
 	if err := r.Validate(); err != nil {

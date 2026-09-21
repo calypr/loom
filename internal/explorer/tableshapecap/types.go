@@ -471,30 +471,91 @@ type CategoryProof struct {
 	QueryProof        string `json:"queryProof"`
 }
 
-type FrozenCategory struct {
+// DiscoveredCategory is a typed value made selectable by one complete,
+// compiler-owned scan receipt. Its ID is opaque and scoped to that receipt.
+type DiscoveredCategory struct {
 	ChoiceID string `json:"choiceId"`
 	Value    Scalar `json:"value"`
 }
 
+type CategoryScanReceipt struct {
+	ID                     string               `json:"id"`
+	ContentDigest          string               `json:"contentDigest"`
+	Binding                Binding              `json:"binding"`
+	ParentCatalogID        string               `json:"parentCatalogId"`
+	CategoryColumnChoiceID string               `json:"categoryColumnChoiceId"`
+	ValueColumnChoiceID    string               `json:"valueColumnChoiceId"`
+	Categories             []DiscoveredCategory `json:"categories"`
+	Proof                  CategoryProof        `json:"proof"`
+	CreatedAt              string               `json:"createdAt,omitempty"`
+}
+
+func (r CategoryScanReceipt) Validate() error { return validateCategoryScan(r) }
+
+func (r CategoryScanReceipt) FindCategoryChoice(id string) (DiscoveredCategory, error) {
+	if strings.TrimSpace(id) == "" {
+		return DiscoveredCategory{}, invalid("category choice ID is required")
+	}
+	if err := r.Validate(); err != nil {
+		return DiscoveredCategory{}, err
+	}
+	for _, category := range r.Categories {
+		if category.ChoiceID == id {
+			return category, nil
+		}
+	}
+	return DiscoveredCategory{}, ErrNotFound
+}
+
+type FrozenCategory struct {
+	ChoiceID     string `json:"choiceId"`
+	Value        Scalar `json:"value"`
+	OutputColumn string `json:"outputColumn"`
+	OutputLabel  string `json:"outputLabel"`
+}
+
 type PivotResolution struct {
-	GroupColumnChoiceIDs    []string         `json:"groupColumnChoiceIds"`
-	CategoryColumnChoiceID  string           `json:"categoryColumnChoiceId"`
-	ValueColumnChoiceID     string           `json:"valueColumnChoiceId"`
-	Categories              []FrozenCategory `json:"categories"`
-	CategoryProof           CategoryProof    `json:"categoryProof"`
-	DuplicatePolicyChoiceID string           `json:"duplicatePolicyChoiceId"`
-	MissingPolicyChoiceID   string           `json:"missingPolicyChoiceId"`
-	UnlistedPolicyChoiceID  string           `json:"unlistedPolicyChoiceId"`
+	GroupColumnChoiceIDs    []string              `json:"groupColumnChoiceIds"`
+	CategoryColumnChoiceID  string                `json:"categoryColumnChoiceId"`
+	ValueColumnChoiceID     string                `json:"valueColumnChoiceId"`
+	CategoryDiscoveryID     string                `json:"categoryDiscoveryId"`
+	Categories              []FrozenCategory      `json:"categories"`
+	DerivedOperands         []PivotDerivedOperand `json:"derivedOperands,omitempty"`
+	CategoryProof           CategoryProof         `json:"categoryProof"`
+	DuplicatePolicyChoiceID string                `json:"duplicatePolicyChoiceId"`
+	MissingPolicyChoiceID   string                `json:"missingPolicyChoiceId"`
+	UnlistedPolicyChoiceID  string                `json:"unlistedPolicyChoiceId"`
+}
+
+// PivotDerivedOperand describes a compiler-typed output that remains after
+// the pivot and can feed a subsequent derived construction.
+type PivotDerivedOperand struct {
+	ChoiceID     string   `json:"choiceId"`
+	OutputColumn string   `json:"outputColumn"`
+	OutputLabel  string   `json:"outputLabel"`
+	Type         TypeFact `json:"type"`
 }
 
 type UnpivotResolution struct {
-	InputColumnChoiceIDs []string `json:"inputColumnChoiceIds"`
-	KeyResult            TypeFact `json:"keyResult"`
-	ValueResult          TypeFact `json:"valueResult"`
-	NullPolicyChoiceID   string   `json:"nullPolicyChoiceId"`
+	InputColumnChoiceIDs []string               `json:"inputColumnChoiceIds"`
+	Inputs               []ResolvedUnpivotInput `json:"inputs"`
+	KeyOutput            NamedOutput            `json:"keyOutput"`
+	ValueOutput          NamedOutput            `json:"valueOutput"`
+	KeyResult            TypeFact               `json:"keyResult"`
+	ValueResult          TypeFact               `json:"valueResult"`
+	NullPolicyChoiceID   string                 `json:"nullPolicyChoiceId"`
+}
+
+// ResolvedUnpivotInput freezes the server-owned emitted key for a selected
+// source column. The browser selects only ChoiceID and cannot author Key.
+type ResolvedUnpivotInput struct {
+	ChoiceID string `json:"choiceId"`
+	Key      Scalar `json:"key"`
 }
 
 type DerivedResolution struct {
+	Output                       NamedOutput     `json:"output"`
+	PivotResolutionID            string          `json:"pivotResolutionId,omitempty"`
 	OperatorChoiceID             string          `json:"operatorChoiceId"`
 	Left                         ResolvedOperand `json:"left"`
 	Right                        ResolvedOperand `json:"right"`

@@ -49,6 +49,18 @@ type ColumnOutput struct {
 	Label  string `json:"label"`
 }
 
+// ValidateTableShapeOutput applies the authoring document's exact output-name
+// and label contract to one server-resolved construction descriptor.
+func ValidateTableShapeOutput(output ColumnOutput) error {
+	if !physicalColumnPattern.MatchString(output.Column) {
+		return fmt.Errorf("output column %q is not a valid public column name", output.Column)
+	}
+	if strings.TrimSpace(output.Label) == "" {
+		return fmt.Errorf("output %q label is required", output.Column)
+	}
+	return nil
+}
+
 type PivotConstruction struct {
 	ConstructionID         ConstructionID  `json:"constructionId"`
 	GroupKeys              []string        `json:"groupKeys"`

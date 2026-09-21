@@ -81,7 +81,7 @@ func (c *tableShapeCapabilityClient) QueryRows(_ context.Context, query string, 
 	return nil
 }
 
-func tableShapeTestResolution(t *testing.T, catalog tableshapecap.CatalogReceipt) tableshapecap.ResolutionReceipt {
+func tableShapeTestResolution(t *testing.T, catalog tableshapecap.CatalogReceipt) (tableshapecap.ResolutionReceipt, tableshapecap.CategoryScanReceipt) {
 	t.Helper()
 	columns := map[tableshapecap.ChoiceRole]string{}
 	for _, choice := range catalog.Choices.Columns {
@@ -93,21 +93,33 @@ func tableShapeTestResolution(t *testing.T, catalog tableshapecap.CatalogReceipt
 	for _, choice := range catalog.Choices.Policies {
 		policies[choice.Role] = choice.ID
 	}
-	pivot := &tableshapecap.PivotResolution{
-		GroupColumnChoiceIDs: []string{columns[tableshapecap.RolePivotGroup]}, CategoryColumnChoiceID: columns[tableshapecap.RolePivotCategory], ValueColumnChoiceID: columns[tableshapecap.RolePivotValue],
-		Categories:              []tableshapecap.FrozenCategory{{Value: tableshapecap.StringScalar("north")}},
-		DuplicatePolicyChoiceID: policies[tableshapecap.RolePolicyDuplicate], MissingPolicyChoiceID: policies[tableshapecap.RolePolicyMissing], UnlistedPolicyChoiceID: policies[tableshapecap.RolePolicyUnlisted],
-	}
-	valuesDigest, err := tableshapecap.CategoryValuesDigest([]tableshapecap.Scalar{tableshapecap.StringScalar("north")})
+	categoryID, valueID := columns[tableshapecap.RolePivotCategory], columns[tableshapecap.RolePivotValue]
+	values := []tableshapecap.Scalar{tableshapecap.StringScalar("north")}
+	valuesDigest, err := tableshapecap.CategoryValuesDigest(values)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pivot.CategoryProof = tableshapecap.CategoryProof{Complete: true, DistinctCount: 1, MaxCategories: 256, ValuesDigest: valuesDigest, SourceGeneration: catalog.Binding.SourceGeneration, OutputFingerprint: catalog.Binding.OutputFingerprint, ScanFingerprint: "scan-fingerprint-v1", QueryProof: "query-proof-v1"}
+	proof := tableshapecap.CategoryProof{
+		Complete: true, DistinctCount: 1, MaxCategories: 256, ValuesDigest: valuesDigest,
+		SourceGeneration: catalog.Binding.SourceGeneration, OutputFingerprint: catalog.Binding.OutputFingerprint,
+		ScanFingerprint: "scan-fingerprint-v1", QueryProof: "query-proof-v1",
+	}
+	scan, err := tableshapecap.NewCategoryScanReceipt(catalog.Binding, catalog.ID, categoryID, valueID, values, proof, "2026-09-19T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pivot := &tableshapecap.PivotResolution{
+		GroupColumnChoiceIDs: []string{columns[tableshapecap.RolePivotGroup]}, CategoryColumnChoiceID: columns[tableshapecap.RolePivotCategory], ValueColumnChoiceID: columns[tableshapecap.RolePivotValue],
+		CategoryDiscoveryID:     scan.ID,
+		Categories:              []tableshapecap.FrozenCategory{{ChoiceID: scan.Categories[0].ChoiceID, Value: scan.Categories[0].Value, OutputColumn: "category_north", OutputLabel: "North"}},
+		DuplicatePolicyChoiceID: policies[tableshapecap.RolePolicyDuplicate], MissingPolicyChoiceID: policies[tableshapecap.RolePolicyMissing], UnlistedPolicyChoiceID: policies[tableshapecap.RolePolicyUnlisted],
+		CategoryProof: scan.Proof,
+	}
 	resolution, err := tableshapecap.NewResolutionReceipt(catalog.Binding, catalog.ID, tableshapecap.ResolutionPivot, pivot, nil, nil, "2026-09-19T00:00:00Z")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return resolution
+	return resolution, scan
 }
 
 func TestTableShapeCapabilityRepositoryIsCreateOnceAndTenantScoped(t *testing.T) {
@@ -203,7 +215,7 @@ func TestTableShapeCapabilityRepositoryScopesResolutionByParent(t *testing.T) {
 	}
 	binding := tableShapeTestBinding()
 	catalog := tableShapeTestCatalog(t, binding)
-	resolution := tableShapeTestResolution(t, catalog)
+	resolution, scan := tableShapeTestResolution(t, catalog)
 	catalogRow, err := catalogDocument(catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +225,40 @@ func TestTableShapeCapabilityRepositoryScopesResolutionByParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.rows["CATALOG"] = catalogRow
+	scanRow, err := categoryScanDocument(scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.rows["CATEGORY_SCAN:"+scan.ID] = scanRow
 	client.rows["RESOLUTION"] = resolutionRow
+	if _, err := repository.PutCategoryScan(context.Background(), scan); err != nil {
+		t.Fatalf("persist category scan: %v", err)
+	}
+	if again, err := repository.PutCategoryScan(context.Background(), scan); err != nil || again.ID != scan.ID {
+		t.Fatalf("idempotent category scan put = %#v err=%v", again, err)
+	}
+	gotScan, err := repository.GetCategoryScan(context.Background(), binding, catalog.ID, scan.ID)
+	if err != nil || gotScan.ID != scan.ID {
+		t.Fatalf("read category scan = %#v err=%v", gotScan, err)
+	}
+	var categoryLookup *queryCall
+	for index := len(client.calls) - 1; index >= 0; index-- {
+		if client.calls[index].binds["kind"] == "CATEGORY_SCAN" {
+			categoryLookup = &client.calls[index]
+			break
+		}
+	}
+	if categoryLookup == nil || !strings.Contains(categoryLookup.query, `d.kind == @kind`) || !strings.Contains(categoryLookup.query, `d.parentCatalogId == @parentCatalogId`) || categoryLookup.binds["parentCatalogId"] != catalog.ID {
+		t.Fatalf("category scan lookup is not kind/parent scoped: %#v", categoryLookup)
+	}
+	otherBinding := binding
+	otherBinding.OutputID = "other-output"
+	if _, err := repository.GetCategoryScan(context.Background(), otherBinding, catalog.ID, scan.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
+		t.Fatalf("cross-output category scan read returned %v", err)
+	}
+	if _, err := repository.GetCategoryScan(context.Background(), binding, "tsc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scan.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
+		t.Fatalf("cross-parent category scan read returned %v", err)
+	}
 	if _, err := repository.PutResolution(context.Background(), resolution); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +270,7 @@ func TestTableShapeCapabilityRepositoryScopesResolutionByParent(t *testing.T) {
 		t.Fatalf("resolution lookup is not parent-scoped: %#v", call)
 	}
 
-	otherBinding := binding
+	otherBinding = binding
 	otherBinding.OutputID = "other-output"
 	if _, err := repository.GetResolution(context.Background(), otherBinding, catalog.ID, resolution.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
 		t.Fatalf("cross-output resolution read returned %v", err)
@@ -250,7 +295,7 @@ func TestTableShapeCapabilityRepositoryScopesResolutionByParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreignChoiceResolution := tableShapeTestResolution(t, otherCatalog)
+	foreignChoiceResolution, _ := tableShapeTestResolution(t, otherCatalog)
 	foreignChoiceResolution, err = tableshapecap.NewResolutionReceipt(binding, catalog.ID, foreignChoiceResolution.Kind, foreignChoiceResolution.Pivot, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
@@ -282,6 +327,7 @@ func TestTableShapeCapabilityRepositoryLoadsNestedDerivedParents(t *testing.T) {
 		}
 	}
 	first, err := tableshapecap.NewResolutionReceipt(binding, catalog.ID, tableshapecap.ResolutionDerived, nil, nil, &tableshapecap.DerivedResolution{
+		Output:           tableshapecap.NamedOutput{Name: "first", Label: "First"},
 		OperatorChoiceID: operatorID, Left: tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandCatalogChoice, ChoiceID: operandID}, Right: tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandLiteral, Literal: scalarPtr(tableshapecap.IntegerScalar(1))},
 		Result: tableshapecap.TypeFact{LogicalType: tableshapecap.LogicalInteger}, MissingPolicyChoiceID: missingPolicyID,
 	}, "")
@@ -298,6 +344,7 @@ func TestTableShapeCapabilityRepositoryLoadsNestedDerivedParents(t *testing.T) {
 	}
 	zero := 0
 	second, err := tableshapecap.NewResolutionReceipt(binding, catalog.ID, tableshapecap.ResolutionDerived, nil, nil, &tableshapecap.DerivedResolution{
+		Output:           tableshapecap.NamedOutput{Name: "second", Label: "Second"},
 		OperatorChoiceID: operatorID, Left: tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandResolution, ResolutionID: first.ID, OutputIndex: &zero}, Right: tableshapecap.ResolvedOperand{Kind: tableshapecap.ResolvedOperandCatalogChoice, ChoiceID: operandID},
 		Result: tableshapecap.TypeFact{LogicalType: tableshapecap.LogicalInteger}, MissingPolicyChoiceID: missingPolicyID,
 	}, "")
