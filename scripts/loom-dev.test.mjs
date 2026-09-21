@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
-test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence, and pivot types in separate row scopes', () => {
+test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
   const loaded = loadJ04FixtureContract(fixtureDir);
   assert.equal(loaded.contract.sourceFile, 'j04-records.ndjson.fixture');
@@ -19,6 +19,8 @@ test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence
   assert.equal(loaded.contract.baseRowResourceType, 'Observation');
   assert.equal(loaded.contract.aggregateScope.rowResourceType, 'Patient');
   assert.deepEqual(loaded.contract.aggregateScope.selectedRowIdentities, ['Patient/j04-patient-001']);
+  assert.equal(loaded.contract.aggregateScope.anchorPath, 'meta.lastUpdated');
+  assert.equal(loaded.sourceRecords.find((record) => record.id === 'j04-patient-001').meta.lastUpdated, '2025-01-03T00:00:00Z');
   assert.deepEqual(loaded.contract.expectedAggregates.map(({ rowIdentity }) => rowIdentity), ['Patient/j04-patient-001']);
   assert.deepEqual(
     Object.fromEntries(['count', 'exists', 'min', 'max', 'mean', 'sum'].map((key) => [key, loaded.contract.expectedAggregates[0][key]])),
@@ -46,6 +48,17 @@ test('J04 fixture keeps Observation columns, Patient aggregates, scalar presence
   const changedSource = structuredClone(loaded.sourceRecords);
   changedSource.find((record) => record.id === 'j04-scalar-blank').valueString = 'not blank';
   assert.throws(() => validateJ04FixtureContract(loaded.contract, changedSource), /blank scalar evidence/);
+  const invalidNull = structuredClone(loaded.sourceRecords);
+  invalidNull.find((record) => record.id === 'j04-scalar-absence').valueString = null;
+  assert.throws(() => validateJ04FixtureContract(loaded.contract, invalidNull), /scalar evidence/);
+  const absence = loaded.sourceRecords.find((record) => record.id === 'j04-scalar-absence');
+  assert.equal(Object.hasOwn(absence, 'valueString'), false);
+  assert.deepEqual(absence.dataAbsentReason.coding, [{
+    system: 'http://terminology.hl7.org/CodeSystem/data-absent-reason', code: 'unknown', display: 'Unknown',
+  }]);
+  const ambiguousAbsence = structuredClone(loaded.sourceRecords);
+  ambiguousAbsence.find((record) => record.id === 'j04-scalar-absence').dataAbsentReason.coding.push({ system: 'urn:other', code: 'unknown' });
+  assert.throws(() => validateJ04FixtureContract(loaded.contract, ambiguousAbsence), /exact official data-absent-reason coding/);
 });
 
 test('J04 fixture contract recalculates exact aggregate and temporal source evidence', () => {
@@ -65,6 +78,14 @@ test('J04 fixture contract recalculates exact aggregate and temporal source evid
   const changedPopulation = structuredClone(contract);
   changedPopulation.aggregateScope.selectedRowIdentities[0] = 'Observation/j04-measure-001';
   assert.throws(() => validateJ04FixtureContract(changedPopulation, sourceRecords), /unique existing Patient rows/);
+
+  const substitutedAnchor = structuredClone(sourceRecords);
+  substitutedAnchor.find((record) => record.id === 'j04-patient-001').meta.lastUpdated = '2025-01-04T00:00:00Z';
+  assert.throws(() => validateJ04FixtureContract(contract, substitutedAnchor), /Jan 1 inclusive to Jan 3 exclusive/);
+
+  const changedAnchorPath = structuredClone(contract);
+  changedAnchorPath.aggregateScope.anchorPath = 'birthDate';
+  assert.throws(() => validateJ04FixtureContract(changedAnchorPath, sourceRecords), /Jan 1 inclusive to Jan 3 exclusive/);
 
   const appliedRefusal = structuredClone(contract);
   appliedRefusal.unsupportedUnitRefusal.applied = true;
@@ -124,18 +145,70 @@ test('J04 browser control plan carries both row scopes and fixture-owned operato
     { operation: 'MEAN', expected: 120 },
     { operation: 'SUM', expected: 360 },
   ]);
-  assert.equal(plan.aggregate.temporal.latestSelectedRecordId, 'j04-measure-002');
+  assert.equal(plan.aggregate.contributorWindow.latestSelectedRecordId, 'j04-measure-002');
   assert.equal(plan.aggregate.unitNormalization.targetUnit, 'cm');
   assert.equal(plan.aggregate.unitNormalization.refusal.applied, false);
   assert.equal(plan.observation.rowResourceType, 'Observation');
   assert.notEqual(plan.aggregate.rowResourceType, plan.observation.rowResourceType);
   assert.deepEqual(plan.observation.pivot.categories.map(({ code }) => code), ['alpha', 'beta']);
   assert.equal(plan.observation.pivot.expectedInformationLoss.unlistedExcludedRecordCount, 12);
-  assert.deepEqual(plan.observation.presenceCases.map(({ presence }) => presence), ['missing', 'null', 'false', 'zero', 'blank']);
+  assert.deepEqual(plan.observation.presenceCases.map(({ presence }) => presence), ['missing', 'missing', 'false', 'zero', 'blank']);
+  assert.deepEqual(plan.observation.recordedAbsence, {
+    sourceRecordId: 'j04-scalar-absence', valuePath: 'valueString', codingPath: 'dataAbsentReason.coding[].code',
+    systemPath: 'dataAbsentReason.coding[].system', displayPath: 'dataAbsentReason.coding[].display',
+    system: 'http://terminology.hl7.org/CodeSystem/data-absent-reason', code: 'unknown', display: 'Unknown',
+  });
   assert.throws(() => j04BrowserControlPlan({ ...contract, expectedAggregates: [{ count: 3 }] }), /all six aggregate literals/);
 });
 
-test('J04 evidence shaping keeps missing, recorded null, false, zero, and empty distinct', () => {
+test('J04 Patient selection seed plan pins only the fixture-owned selected Patient', () => {
+  const { contract } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  assert.deepEqual(j04PatientSelectionSeedPlan(contract), {
+    resourceType: 'Patient',
+    selectedRowIdentities: ['Patient/j04-patient-001'],
+    refs: [{ resourceType: 'Patient', id: 'j04-patient-001' }],
+    memberCount: 1,
+  });
+  assert.deepEqual(j04PatientSelectionSeedPlan({
+    ...contract,
+    aggregateScope: { ...contract.aggregateScope, selectedRowIdentities: ['Patient/j04-patient-002'] },
+  }).refs, [{ resourceType: 'Patient', id: 'j04-patient-002' }]);
+  assert.throws(() => j04PatientSelectionSeedPlan({ aggregateScope: { rowResourceType: 'Patient', selectedRowIdentities: ['Observation/o1'] } }), /identity is invalid/);
+});
+
+test('J04 Patient DOM plan includes visible selection, contributor-window, operator, and unit controls', () => {
+  const { contract } = loadJ04FixtureContract(join(process.cwd(), 'testdata/devloop-fixture'));
+  const plan = j04PatientOperatorDOMPlan(contract);
+  assert.deepEqual(plan.selectionAttachment, [
+    'New explorer', 'Explorer name', 'Create blank', 'first-table-name', 'Create table',
+    'Choose Patient rows', 'Starting collection', 'Use selected resources',
+  ]);
+  assert.deepEqual(plan.refusalTable, {
+    visibleCreateAction: 'New table', rowIdentity: 'Patient/j04-patient-002', sourceRecordId: 'j04-unsupported-unit',
+    expectedCode: 'UNIT_IDENTITY_UNKNOWN', mustNotPublish: true,
+  });
+  assert.deepEqual(plan.aggregateOperations, [
+    { operation: 'COUNT', expected: 3, contributorWindowRequired: true }, { operation: 'EXISTS', expected: true, contributorWindowRequired: true },
+    { operation: 'MIN', expected: 0, contributorWindowRequired: true }, { operation: 'MAX', expected: 180, contributorWindowRequired: true },
+    { operation: 'MEAN', expected: 120, contributorWindowRequired: true }, { operation: 'SUM', expected: 360, contributorWindowRequired: true },
+  ]);
+  assert.deepEqual(plan.contributorWindow, {
+    recordDatePath: 'effectiveDateTime', anchorPath: 'meta.lastUpdated', lookbackDays: 2,
+    window: { startInclusive: '2025-01-01T00:00:00Z', endExclusive: '2025-01-03T00:00:00Z' },
+    earliestRecordId: 'j04-measure-001', latestSelectedRecordId: 'j04-measure-002', tiePolicy: 'RESOURCE_KEY',
+  });
+  for (const control of ['Add date window', 'Edit date window', 'Record date', 'Compare with row date', 'Look back days', 'Include start boundary', 'Include end boundary', 'Date selection direction', 'Equal date handling', 'Apply date window', 'Apply date selection']) {
+    assert.ok(plan.visibleActions.includes(control), `missing visible contributor-window control: ${control}`);
+  }
+  assert.equal(plan.unitNormalization.targetUnit, 'cm');
+  assert.equal(plan.unitNormalization.refusal.reason, 'UNIT_IDENTITY_UNKNOWN');
+  assert.ok(plan.visibleActions.includes('Apply normalization'));
+  assert.deepEqual(j04PatientOperatorSourceIDs(contract, 'MIN'), ['j04-measure-003']);
+  assert.deepEqual(j04PatientOperatorSourceIDs(contract, 'MAX'), ['j04-measure-001', 'j04-measure-002']);
+  assert.deepEqual(j04PatientOperatorSourceIDs(contract, 'SUM'), ['j04-measure-001', 'j04-measure-002', 'j04-measure-003']);
+});
+
+test('J04 dataframe evidence can still represent null, false, zero, and empty distinctly', () => {
   const columns = [
     { id: 'missing-id', name: 'Missing', logicalType: 'string' },
     { id: 'null-id', name: 'Recorded null', logicalType: 'string' },

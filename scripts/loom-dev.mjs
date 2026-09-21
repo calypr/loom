@@ -31,7 +31,7 @@ const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
-export const AUTHORING_SEMANTICS_VERSION = 8;
+export const AUTHORING_SEMANTICS_VERSION = 9;
 
 export const explicitGroupPreviewRows = (rows) => rows.map((row) => {
   const identity = row.__loom_row_id;
@@ -1073,6 +1073,64 @@ const seedJ03ExplicitGroupRevision = async (target, explorerId) => {
   return { selection: selection.value, sourceMemberIDs };
 };
 
+const seedJ04PatientSelectionRevision = async (target, explorerId, contract, selectedRowIdentities = contract.aggregateScope.selectedRowIdentities) => {
+  const builder = await fetchBuilderState(target, explorerId);
+  if (!builder.catalog?.snapshotToken) throw new Error('J04 cannot seed Patient selection without a current Builder snapshot');
+  const plan = j04PatientSelectionSeedPlan({
+    ...contract,
+    aggregateScope: { ...contract.aggregateScope, selectedRowIdentities },
+  });
+  const refs = plan.refs.map((ref) => ({
+    project: target.fixtureProject,
+    generation: target.fixtureGeneration,
+    ...ref,
+  }));
+  const selectionURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/selections`;
+  const created = await requestJSON(selectionURL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+    body: JSON.stringify({
+      idempotencyKey: `loom-dev-j04-patient-${target.fixtureProject}-${explorerId}-${refs.map(({ id }) => id).sort().join('-')}`,
+      snapshotToken: builder.catalog.snapshotToken,
+      source: { kind: 'resources', resources: { resourceType: plan.resourceType, refs } },
+    }),
+  });
+  if (created.response.status !== 201 || created.value.complete !== true || created.value.memberCount !== plan.memberCount) {
+    throw new Error(`J04 Patient selection seed returned HTTP ${created.response.status}: ${JSON.stringify(created.value).slice(0, 700)}`);
+  }
+
+  const members = [];
+  let cursor;
+  do {
+    const query = new URLSearchParams({ limit: '1', ...(cursor ? { cursor } : {}) });
+    const page = await requestJSON(`${selectionURL}/${encodeURIComponent(created.value.id)}?${query}`, { timeout: 30000 });
+    if (!page.response.ok || page.value.revision?.complete !== true
+      || page.value.revision?.membershipDigest !== created.value.membershipDigest
+      || page.value.revision?.memberCount !== plan.memberCount) {
+      throw new Error(`J04 Patient selection page did not match immutable revision ${created.value.id}: ${JSON.stringify(page.value).slice(0, 700)}`);
+    }
+    members.push(...(page.value.members ?? []).map(({ ref }) => ref));
+    if (members.length > plan.memberCount) throw new Error('J04 Patient selection pagination repeated a member');
+    cursor = page.value.nextCursor;
+  } while (cursor);
+
+  const expected = refs.map((ref) => ({
+    project: canonicalProjectID(ref.project),
+    generation: ref.generation,
+    resourceType: ref.resourceType,
+    id: ref.id,
+  })).sort((left, right) => left.id.localeCompare(right.id));
+  const actual = members.map((ref) => ({
+    project: canonicalProjectID(ref.project),
+    generation: ref.generation,
+    resourceType: ref.resourceType,
+    id: ref.id,
+  })).sort((left, right) => left.id.localeCompare(right.id));
+  if (!j04ExactEqual(actual, expected)) {
+    throw new Error(`J04 immutable Patient selection differs from its exact source identity: ${JSON.stringify({ expected, actual })}`);
+  }
+  return { selection: created.value, members: actual, snapshotToken: builder.catalog.snapshotToken };
+};
+
 const createJ03ThreeMemberFixture = (sourceDirectory) => {
   const directory = mkdtempSync(join(tmpdir(), 'loom-dev-j03-fixture-'));
   try {
@@ -1331,7 +1389,7 @@ const snapshot = async (cdp, path) => {
   writeFileSync(path, String(html ?? ''), { mode: 0o600 });
 };
 
-const launchBrowser = async (downloadDir) => {
+const launchBrowser = async (downloadDir, { promptText } = {}) => {
   const chrome = findChrome();
   const port = await freePort();
   const profile = mkdtempSync(join(tmpdir(), 'loom-dev-chrome-'));
@@ -1365,7 +1423,12 @@ const launchBrowser = async (downloadDir) => {
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
   await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir });
-  const dialogHandler = () => { void cdp.send('Page.handleJavaScriptDialog', { accept: true }); };
+  const dialogHandler = (event) => {
+    void cdp.send('Page.handleJavaScriptDialog', {
+      accept: true,
+      ...(event.type === 'prompt' && promptText !== undefined ? { promptText } : {}),
+    });
+  };
   cdp.on('Page.javascriptDialogOpening', dialogHandler);
   const awaitExit = () => new Promise((resolvePromise) => {
     if (child.exitCode !== null || child.signalCode !== null) { resolvePromise(); return; }
@@ -1497,7 +1560,7 @@ export const normalizeJ05LogicalValue = (value, column) => {
   return value;
 };
 
-const J04_PRESENCE_STATES = new Set(['missing', 'null', 'false', 'zero', 'blank']);
+const J04_PRESENCE_STATES = new Set(['missing', 'false', 'zero', 'blank']);
 
 const j04ValueAtPath = (value, path) => path.split('.').reduce((current, part) => {
   if (!current || typeof current !== 'object') return undefined;
@@ -1574,7 +1637,7 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
   if (!baseRows.length || baseRows.some((record) => contract.baseColumns.some(({ path, optional }) => !optional && j04ValueAtPath(record, path) === undefined))) throw new Error(`J04 required base columns must resolve against ${baseResourceType} rows`);
 
   const scope = contract.aggregateScope;
-  if (!scope || scope.rowResourceType !== 'Patient' || scope.rowResourceType === baseResourceType || scope.sourceResourceType !== 'Observation' || !Array.isArray(scope.selectedRowIdentities) || !scope.selectedRowIdentities.length || !scope.ownerReferencePath || !scope.categoryPath || !scope.categoryCode || !scope.valuePath || !scope.unitPath || !scope.timePath || !scope.normalizedUnit) throw new Error('J04 aggregate scope must describe selected Patient rows separate from the Observation base output');
+  if (!scope || scope.rowResourceType !== 'Patient' || scope.rowResourceType === baseResourceType || scope.sourceResourceType !== 'Observation' || !Array.isArray(scope.selectedRowIdentities) || !scope.selectedRowIdentities.length || !scope.ownerReferencePath || !scope.categoryPath || !scope.categoryCode || !scope.valuePath || !scope.unitPath || !scope.timePath || !scope.anchorPath || !scope.normalizedUnit) throw new Error('J04 aggregate scope must describe selected Patient rows separate from the Observation base output');
   const aggregateWindow = j04WindowBounds(scope.window, 'aggregate time window');
   if (!Array.isArray(contract.expectedAggregates) || !contract.expectedAggregates.length) throw new Error('J04 fixture contract must list exact aggregate outcomes');
   const normalization = contract.normalizationPolicy;
@@ -1601,6 +1664,13 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
   }
   const patientRows = scope.selectedRowIdentities;
   if (new Set(patientRows).size !== patientRows.length || patientRows.some((identity) => sourceByIdentity.get(identity)?.resourceType !== scope.rowResourceType)) throw new Error('J04 aggregate population must contain unique existing Patient rows');
+  const temporalAnchor = sourceByIdentity.get(patientRows[0]);
+  const windowStart = Date.parse(scope.window.startInclusive);
+  const windowEnd = Date.parse(scope.window.endExclusive);
+  if (patientRows.length !== 1 || j04ValueAtPath(temporalAnchor, scope.anchorPath) !== scope.window.endExclusive
+    || windowEnd - windowStart !== 2 * 86_400_000) {
+    throw new Error('J04 Patient date anchor must prove the two-day window from Jan 1 inclusive to Jan 3 exclusive');
+  }
   const aggregateRowIdentities = contract.expectedAggregates.map(({ rowIdentity }) => rowIdentity).sort();
   j04AssertEqual([...patientRows].sort(), aggregateRowIdentities, 'selected aggregate row identities');
   const aggregateByRow = new Map();
@@ -1649,7 +1719,9 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
 
   const temporal = contract.temporalOutcomes;
   const temporalWindow = j04WindowBounds(temporal?.window, 'temporal window');
-  if (!temporal?.rowIdentity || !aggregateByRow.has(temporal.rowIdentity) || !j04ExactEqual(temporal.window, scope.window)) throw new Error('J04 temporal outcomes must use a declared Patient row and the aggregate time window');
+  if (!temporal?.rowIdentity || !aggregateByRow.has(temporal.rowIdentity) || temporal.anchorPath !== scope.anchorPath
+    || j04ValueAtPath(sourceByIdentity.get(temporal.rowIdentity), temporal.anchorPath) !== temporal.window.endExclusive
+    || !j04ExactEqual(temporal.window, scope.window)) throw new Error('J04 temporal outcomes must use the declared Patient date anchor and aggregate time window');
   if (temporal.latestTiePolicy !== 'SOURCE_ID_ASCENDING') throw new Error('J04 temporal outcomes must declare deterministic source-ID tie ordering');
   const temporalSources = sourceRecords.filter((record) => record.resourceType === scope.sourceResourceType
     && j04ValueAtPath(record, scope.ownerReferencePath) === temporal.rowIdentity
@@ -1792,12 +1864,26 @@ export const validateJ04FixtureContract = (contract, sourceRecords) => {
   if (!unrelated?.column || !unrelatedRow || typeof unrelated.value !== 'string') throw new Error('J04 unrelated column must have one exact source literal');
   j04AssertEqual(j04ValueAtPath(unrelatedRow, unrelated.column), unrelated.value, 'unrelated source column literal');
 
-  if (!Array.isArray(contract.presenceCases) || !['missing', 'null', 'false', 'zero', 'blank'].every((state) => contract.presenceCases.some((item) => item.presence === state))) throw new Error('J04 fixture must declare all five live FHIR presence distinctions');
+  if (!Array.isArray(contract.presenceCases) || !['missing', 'false', 'zero', 'blank'].every((state) => contract.presenceCases.some((item) => item.presence === state))) throw new Error('J04 fixture must declare valid FHIR missing, false, zero, and blank source states');
   for (const item of contract.presenceCases) {
     const source = sourceByID.get(item?.sourceRecordId);
     if (!source || source.resourceType !== baseResourceType || typeof item.fieldPath !== 'string' || !J04_PRESENCE_STATES.has(item.presence) || j04Presence(source, item.fieldPath) !== item.presence) throw new Error(`J04 ${item?.presence ?? 'unknown'} scalar evidence must belong to ${baseResourceType} rows`);
     if (item.presence === 'missing' ? Object.hasOwn(item, 'value') : !Object.hasOwn(item, 'value')) throw new Error(`J04 ${item.presence} presence case has an invalid value-presence contract`);
     if (item.presence !== 'missing' && !j04ExactEqual(j04ValueAtPath(source, item.fieldPath), item.value)) throw new Error(`J04 source record differs from its declared ${item.presence} literal`);
+  }
+  const absence = contract.recordedAbsence;
+  const absenceRecord = sourceByID.get(absence?.sourceRecordId);
+  const absenceCodings = absenceRecord?.dataAbsentReason?.coding;
+  if (!absenceRecord || absenceRecord.resourceType !== 'Observation' || absence.valuePath !== 'valueString'
+    || !Array.isArray(absenceCodings) || absenceCodings.length !== 1
+    || !j04ExactEqual(absenceCodings[0], { system: 'http://terminology.hl7.org/CodeSystem/data-absent-reason', code: 'unknown', display: 'Unknown' })
+    || j04Presence(absenceRecord, absence.valuePath) !== 'missing'
+    || j04ValueAtPath(absenceRecord, absence.systemPath) !== 'http://terminology.hl7.org/CodeSystem/data-absent-reason'
+    || j04ValueAtPath(absenceRecord, absence.codingPath) !== 'unknown'
+    || j04ValueAtPath(absenceRecord, absence.displayPath) !== 'Unknown'
+    || absence.system !== 'http://terminology.hl7.org/CodeSystem/data-absent-reason' || absence.code !== 'unknown' || absence.display !== 'Unknown'
+    || !contract.presenceCases.some((item) => item.sourceRecordId === absence.sourceRecordId && item.fieldPath === absence.valuePath && item.presence === 'missing')) {
+    throw new Error('J04 recorded absence must be a valid Observation with missing valueString and the exact official data-absent-reason coding');
   }
   if (!j04ExactEqual(contract.acceptanceExpectations, {
     unsupportedUnitProposalIsRefused: true,
@@ -1864,7 +1950,7 @@ export const j04BrowserControlPlan = (contract) => {
         operation: operation.toUpperCase(),
         expected: aggregate[operation],
       })),
-      temporal: structuredClone(contract.temporalOutcomes),
+      contributorWindow: structuredClone(contract.temporalOutcomes),
       unitNormalization: {
         ...structuredClone(contract.normalizationPolicy),
         cases: structuredClone(contract.normalizationCases),
@@ -1879,10 +1965,92 @@ export const j04BrowserControlPlan = (contract) => {
       recoding: structuredClone(contract.recodingOutcomes),
       pivot: structuredClone(contract.pivot),
       presenceCases: structuredClone(contract.presenceCases),
+      recordedAbsence: structuredClone(contract.recordedAbsence),
       unrelatedColumnLiteral: structuredClone(contract.unrelatedColumnLiteral),
     },
     acceptance: structuredClone(contract.acceptanceExpectations),
   };
+};
+
+export const j04PatientSelectionSeedPlan = (contract) => {
+  const scope = contract?.aggregateScope;
+  if (scope?.rowResourceType !== 'Patient' || !Array.isArray(scope.selectedRowIdentities) || !scope.selectedRowIdentities.length) {
+    throw new Error('J04 Patient selection seed plan requires exact Patient row identities');
+  }
+  const refs = scope.selectedRowIdentities.map((identity) => {
+    const match = /^Patient\/(.+)$/.exec(identity);
+    if (!match?.[1]) throw new Error(`J04 Patient selection identity is invalid: ${identity}`);
+    return { resourceType: 'Patient', id: match[1] };
+  });
+  return {
+    resourceType: 'Patient',
+    selectedRowIdentities: [...scope.selectedRowIdentities],
+    refs,
+    memberCount: refs.length,
+  };
+};
+
+export const j04PatientOperatorDOMPlan = (contract) => {
+  const aggregate = contract?.expectedAggregates?.[0];
+  const scope = contract?.aggregateScope;
+  const outcomes = contract?.temporalOutcomes;
+  if (!aggregate || scope?.rowResourceType !== 'Patient' || !outcomes) {
+    throw new Error('J04 Patient DOM plan requires Patient aggregate and contributor-window outcomes');
+  }
+  return {
+    selectionAttachment: [
+      'New explorer', 'Explorer name', 'Create blank', 'first-table-name', 'Create table',
+      'Choose Patient rows', 'Starting collection', 'Use selected resources',
+    ],
+    refusalTable: {
+      visibleCreateAction: 'New table',
+      rowIdentity: contract.unsupportedUnitRefusal?.rowIdentity,
+      sourceRecordId: contract.unsupportedUnitRefusal?.sourceRecordId,
+      expectedCode: contract.unsupportedUnitRefusal?.reason,
+      mustNotPublish: true,
+    },
+    graph: ['Advanced graph', 'Relationship to add', 'Add branch', 'Add traversal'],
+    aggregateOperations: ['COUNT', 'EXISTS', 'MIN', 'MAX', 'MEAN', 'SUM'].map((operation) => ({
+      operation,
+      expected: aggregate[operation.toLowerCase()],
+      contributorWindowRequired: true,
+    })),
+    contributorWindow: {
+      recordDatePath: scope.timePath,
+      anchorPath: scope.anchorPath,
+      lookbackDays: (Date.parse(outcomes.window.endExclusive) - Date.parse(outcomes.window.startInclusive)) / 86_400_000,
+      window: structuredClone(outcomes.window),
+      earliestRecordId: outcomes.earliestRecordId,
+      latestSelectedRecordId: outcomes.latestSelectedRecordId,
+      tiePolicy: 'RESOURCE_KEY',
+    },
+    unitNormalization: {
+      targetUnit: contract.normalizationPolicy?.targetUnit,
+      targetSystem: contract.normalizationPolicy?.targetSystem,
+      refusal: structuredClone(contract.unsupportedUnitRefusal),
+    },
+    recoding: structuredClone(contract.recodingOutcomes),
+    visibleActions: [
+      'Add date window', 'Edit date window', 'Record date', 'Compare with row date',
+      'Look back days', 'Include start boundary', 'Include end boundary',
+      'Date selection direction', 'Equal date handling',
+      'Apply date window', 'Apply date selection', 'Normalize units', 'Unit conversion preset',
+      'Apply normalization', 'Recode exact category values', 'Save recoding', 'Preview',
+    ],
+  };
+};
+
+export const j04PatientOperatorSourceIDs = (contract, operation) => {
+  const aggregate = contract.expectedAggregates[0];
+  const operator = operation.toLowerCase();
+  const sourceIDs = aggregate.operatorSourceRecordIds;
+  if (!['min', 'max'].includes(operator)) return [...sourceIDs];
+  const normalizedBySource = new Map(contract.normalizationCases
+    .filter((item) => item.status === 'NORMALIZED')
+    .map((item) => [item.sourceRecordId, item.expected.value]));
+  const values = sourceIDs.map((id) => [id, normalizedBySource.get(id)]).filter(([, value]) => Number.isFinite(value));
+  const extreme = operator === 'min' ? Math.min(...values.map(([, value]) => value)) : Math.max(...values.map(([, value]) => value));
+  return values.filter(([, value]) => value === extreme).map(([id]) => id).sort();
 };
 
 export const j04ExactEqual = (expected, actual) => {
@@ -4961,7 +5129,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       ['dev-patient-002', '1'],
     ], valueCounts);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Value nearest a date')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Date-aware value selection') && Boolean(document.querySelector('button') && [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply date selection'))`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Record date"]')) && Boolean(document.querySelector('select[aria-label="Compare with row date"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply date selection'))`);
     const beforeTemporalApply = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'date-aware-editor-does-not-persist-partial-policy', 'COUNT',
       beforeTemporalApply.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.operation);
@@ -4986,11 +5154,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     }, {
       operation: temporalFeature?.source?.aggregate?.operation,
       path: temporalFeature?.source?.aggregate?.path,
-      timestampPath: temporalFeature?.source?.aggregate?.temporal?.timestampPath,
-      anchorPath: temporalFeature?.source?.aggregate?.temporal?.anchorPath,
-      direction: temporalFeature?.source?.aggregate?.temporal?.direction,
-      precision: temporalFeature?.source?.aggregate?.temporal?.precision,
-      tiePolicy: temporalFeature?.source?.aggregate?.temporal?.tiePolicy,
+      timestampPath: temporalFeature?.source?.aggregate?.contributorWindow?.timestampPath,
+      anchorPath: temporalFeature?.source?.aggregate?.contributorWindow?.anchorPath,
+      direction: temporalFeature?.source?.aggregate?.ordering?.direction,
+      precision: temporalFeature?.source?.aggregate?.contributorWindow?.precision,
+      tiePolicy: temporalFeature?.source?.aggregate?.ordering?.tiePolicy,
     });
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Preview')`);
@@ -5003,11 +5171,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     while (Date.now() < tiePolicyDeadline) {
       temporalBuilder = await fetchBuilderState(target, explorerId);
       const valueFeature = temporalBuilder.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
-      if (valueFeature?.source?.aggregate?.temporal?.tiePolicy === 'RESOURCE_KEY') break;
+      if (valueFeature?.source?.aggregate?.ordering?.tiePolicy === 'RESOURCE_KEY') break;
       await sleep(200);
     }
     recordAssertion(report, 'builder-persists-explicit-equal-date-resolution', 'RESOURCE_KEY',
-      temporalBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.temporal?.tiePolicy);
+      temporalBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.ordering?.tiePolicy);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Preview')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
@@ -5965,8 +6133,13 @@ const j04UnprovenAssertions = [
   'j04-exact-recoding-honors-case-and-unknown-policy',
   'j04-pivot-source-columns-come-from-the-saved-catalog',
   'j04-pivot-freezes-category-names-and-policies',
-  'j04-observation-preview-materializes-missing-and-null-as-null-cells',
+  'j04-observation-preview-materializes-missing-values-as-null-cells',
   'j04-observation-cell-trace-proves-literals-and-exact-source-row-identities',
+  'j04-missing-valueString-is-a-null-no-match-cell',
+  'j04-recorded-absence-is-visibly-emitted-with-exact-coding-and-source',
+  'j04-preview-preserves-missing-false-zero-and-whitespace-blank-source-values',
+  'j04-recorded-absence-code-is-visible-in-preview',
+  'j04-recorded-absence-cell-trace-pins-source-observation',
   'j04-pivot-derived-alpha-plus-beta-matches-literals-with-null-propagation',
   'j04-derived-numeric-division-by-zero-and-later-reference-match-literals',
   'j04-preview-is-nonmutating-and-cancel-discards-the-proposal',
@@ -6015,6 +6188,823 @@ const j04EvidenceDocument = (report) => {
     'The driver did not substitute API authoring for the missing Builder action.',
   ];
   return `${lines.join('\n')}\n`;
+};
+
+const verifyJ04PatientOperatorScenario = async (target, report, entryTarget, fixture) => {
+  const controlPlan = j04PatientOperatorDOMPlan(fixture.contract);
+  const evidenceDirectory = join(report.target.evidenceDirectory, 'patient-operator');
+  const downloadDirectory = join(evidenceDirectory, 'downloads');
+  mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
+  report.target.patientOperatorEvidenceDirectory = evidenceDirectory;
+  report.target.patientOperatorControlPlan = controlPlan;
+  report.target.patientOperatorJourney = { status: 'running', actions: [], previews: [], proposals: [], receipts: [] };
+  report.actions ??= [];
+  const journey = report.target.patientOperatorJourney;
+  const network = [];
+  const pendingNetworkBodies = new Set();
+  let browser;
+  let cdp;
+  let explorerId;
+  let outputId;
+  let failure;
+  const started = Date.now();
+  const captureDOM = async (name) => {
+    const path = join(evidenceDirectory, `${name}.html`);
+    await snapshot(cdp, path);
+    recordEvidence(report, path);
+    return path;
+  };
+  const captureScreenshot = async (name) => {
+    const shot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const path = join(evidenceDirectory, `${name}.png`);
+    writeFileSync(path, Buffer.from(shot.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, path);
+    return path;
+  };
+  const action = async (name, operation) => {
+    const actionStarted = Date.now();
+    await operation();
+    journey.actions.push({ name, elapsedMs: Date.now() - actionStarted });
+  };
+  const waitForState = async (predicate, label, timeout = 45000) => {
+    const deadline = Date.now() + timeout;
+    let state;
+    while (Date.now() < deadline) {
+      state = await fetchBuilderState(target, explorerId);
+      if (predicate(state)) return state;
+      await sleep(150);
+    }
+    throw new Error(`J04 Patient Builder did not reach ${label}: ${JSON.stringify(state?.workspace?.documents?.map((doc) => ({ id: doc.output?.id, rows: doc.rootResourceType, columns: doc.columns?.length })))}`);
+  };
+  const recordLiteral = (name, expected, actual, details = {}) => {
+    const passed = j04ExactEqual(expected, actual);
+    report.assertions.push({ name, status: passed ? 'passed' : 'failed', expected, actual, ...details });
+    return passed;
+  };
+  const readCellTrace = async (receiptId, column, rowIdentity, rawRow) => {
+    const candidates = [
+      rawRow?.__loom_row_id,
+      rawRow?.rowId,
+      rowIdentity?.replace(/^Patient\//, ''),
+      rowIdentity,
+    ].filter((value, index, values) => typeof value === 'string' && value.length > 0 && values.indexOf(value) === index);
+    const url = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/cell-trace`;
+    const attempts = [];
+    for (const rowId of candidates) {
+      const result = await requestJSON(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+        body: JSON.stringify({ receiptId, outputId, rowId, column, limit: 100 }),
+      });
+      attempts.push({ rowId, status: result.response.status, body: result.value });
+      if (result.response.ok && result.value?.trace?.complete === true) return { rowId, ...result.value, attempts };
+    }
+    return { unavailable: true, attempts };
+  };
+  const readVisiblePreview = async (label, expected, expectedContributorIDs = []) => {
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+    const visible = await evaluate(cdp, `(() => {
+      const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+      const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
+      return rows.slice(1).map((row) => Object.fromEntries([...row.querySelectorAll('[role="cell"]')].map((cell, index) => [headers[index], cell.textContent.trim()])));
+    })()`);
+    const state = await fetchBuilderState(target, explorerId);
+    const receiptId = state.receipt?.receiptId ?? null;
+    const visibleRow = visible.find((row) => row['Patient ID'] === 'j04-patient-001');
+    const actual = visibleRow?.[label] ?? null;
+    const literal = typeof expected === 'number' && actual !== null ? Number(actual) : typeof expected === 'boolean' ? actual === 'true' : actual;
+    const response = [...network].reverse().find((item) => item.path.endsWith('/preview')
+      && item.status >= 200 && item.status < 300 && item.responseJSON);
+    const authoredColumns = state.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns ?? [];
+    const patientIDColumn = authoredColumns.find((column) => column.label === 'Patient ID');
+    const authoredColumn = authoredColumns.find((column) => column.label === label);
+    const rawRow = response?.responseJSON?.rows?.find((row) => row?.[patientIDColumn?.column] === 'j04-patient-001');
+    const resultColumn = response?.responseJSON?.columns?.find((column) => column.column === authoredColumn?.column);
+    const actualReceiptId = response?.responseJSON?.receiptId ?? receiptId;
+    const trace = actualReceiptId && authoredColumn
+      ? await readCellTrace(actualReceiptId, authoredColumn.column, 'Patient/j04-patient-001', rawRow)
+      : { unavailable: true, reason: 'preview receipt or authored column identity is unavailable' };
+    const sourceIdentities = trace.trace?.contributions?.flatMap((item) =>
+      item.resourceType && item.resourceId ? [`${item.resourceType}/${item.resourceId}`] : []) ?? [];
+    const preview = {
+      label,
+      rows: visible,
+      selectedSourceIdentity: visibleRow?.['Patient ID'] ? `Patient/${visibleRow['Patient ID']}` : null,
+      expected,
+      actual: literal,
+      receiptId: actualReceiptId,
+      outputId: response?.responseJSON?.outputId ?? outputId,
+      resultUnit: resultColumn?.resultUnit ?? null,
+      responseRowCount: response?.responseJSON?.rowCount ?? null,
+      cellTrace: trace,
+      sourceIdentities,
+      draftVersion: state.draftVersion,
+      draftDigest: state.draftDigest,
+    };
+    journey.previews.push(preview);
+    if (preview.receiptId) journey.receipts.push({ stage: label, receiptId: preview.receiptId });
+    journey.proposals.push({ stage: label, proposalId: null, reason: 'Column policy edits compile directly; this Builder interaction creates no table-shape proposal.' });
+    recordLiteral(`j04-patient-preview-${label}-matches-literal`, expected, literal, { receiptId: actualReceiptId, draftVersion: state.draftVersion });
+    recordLiteral(`j04-patient-preview-${label}-retains-selected-patient-identity`, 'Patient/j04-patient-001', preview.selectedSourceIdentity, { receiptId: preview.receiptId });
+    const expectedSourceIdentities = expectedContributorIDs.map((id) => `Observation/${id}`).sort();
+    if (trace.trace?.complete === true) {
+      recordLiteral(`j04-patient-preview-${label}-source-identities-match-literal`, expectedSourceIdentities, sourceIdentities.sort(), { receiptId: actualReceiptId, rowId: trace.rowId });
+    } else {
+      report.assertions.push({ name: `j04-patient-preview-${label}-source-identities-match-literal`, status: 'not-proven', expected: expectedSourceIdentities, actual: trace, detail: 'Receipt-bound cell trace did not return complete source identities.' });
+    }
+    return { ...preview, visible, state, receiptId, actual: literal };
+  };
+  const previewNow = async (label, expected, expectedContributorIDs = []) => {
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+    return readVisiblePreview(label, expected, expectedContributorIDs);
+  };
+  const previewForRefusal = async (expectedCode) => {
+    const firstRequestIndex = network.length;
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+    await browserEval(cdp, `clickButton('Preview')`);
+    const deadline = Date.now() + 60000;
+    let response;
+    while (Date.now() < deadline) {
+      await Promise.allSettled([...pendingNetworkBodies]);
+      response = network.slice(firstRequestIndex).reverse().find((item) => item.path.endsWith('/preview') && item.responseJSON);
+      if (response) break;
+      await sleep(150);
+    }
+    if (!response) throw new Error('J04 Patient unsupported-unit Preview returned no captured server response');
+    const findCode = (value) => {
+      if (!value || typeof value !== 'object') return undefined;
+      if (typeof value.code === 'string') return value.code;
+      for (const child of Object.values(value)) {
+        const found = findCode(child);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    const alertText = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter(visible).map((item) => norm(item.innerText)).join(' | '))()`);
+    const refusal = {
+      requestId: response.requestId,
+      status: response.status,
+      code: findCode(response.responseJSON),
+      body: response.responseJSON,
+      visibleAlert: alertText,
+    };
+    journey.refusalTable.preview = refusal;
+    await waitForBrowser(cdp, `[...document.querySelectorAll('[role="alert"]')].some((item) => visible(item) && norm(item.innerText).includes(${JSON.stringify(expectedCode)}))`, 15000);
+    refusal.visibleAlert = await evaluate(cdp, `(() => [...document.querySelectorAll('[role="alert"]')].filter(visible).map((item) => norm(item.innerText)).join(' | '))()`);
+    recordLiteral('j04-unsupported-unit-preview-returns-exact-refusal-code', expectedCode, refusal.code, { requestId: refusal.requestId, status: refusal.status });
+    recordLiteral('j04-unsupported-unit-refusal-is-visible-in-builder', true, alertText.includes(expectedCode), { visibleAlert: alertText, requestId: refusal.requestId });
+    await captureDOM('patient-unsupported-unit-refusal');
+    return refusal;
+  };
+  const setSelectValue = async (label, value) => browserEval(cdp, `(() => {
+    const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
+    const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(value)});
+    if (!select || !option || option.disabled) throw new Error('J04 Patient visible option is unavailable: ' + ${JSON.stringify(label)} + '=' + ${JSON.stringify(value)});
+    select.value = option.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return norm(option.textContent);
+  })()`);
+  const setAccessibleSelect = async (label, value) => browserEval(cdp, `(() => {
+    const select = [...document.querySelectorAll('select[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
+    const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(value)});
+    if (!select || !option || option.disabled) throw new Error('J04 Patient accessible choice is unavailable: ' + ${JSON.stringify(label)} + '=' + ${JSON.stringify(value)});
+    select.value = option.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return norm(option.textContent);
+  })()`);
+  const setCheckboxByLabel = async (labelNeedle, checked) => browserEval(cdp, `(() => {
+    const needle = norm(${JSON.stringify(labelNeedle)}).toLowerCase();
+    const input = [...document.querySelectorAll('input[type="checkbox"]')].find((item) => norm(item.closest('label')?.innerText).toLowerCase().includes(needle));
+    if (!input || input.disabled) throw new Error('J04 Patient visible checkbox is unavailable: ' + ${JSON.stringify(labelNeedle)});
+    if (input.checked !== ${JSON.stringify(checked)}) input.click();
+    return input.checked;
+  })()`);
+  const applyCmNormalization = async (column, targetOutputId = outputId, capability = journey.capabilities?.unitNormalization) => {
+    const preset = capability?.presets?.find((item) => item.available && item.target?.code === controlPlan.unitNormalization.targetUnit);
+    if (!preset) throw new Error(`J04 Patient Builder did not offer an available ${controlPlan.unitNormalization.targetUnit} unit-normalization preset`);
+    const button = await evaluate(cdp, `(() => [...document.querySelectorAll('button')].find((item) => ['Normalize units', 'Edit unit normalization'].includes(norm(item.textContent)))?.textContent.trim())()`);
+    if (button === 'Normalize units') await browserEval(cdp, `clickButton('Normalize units')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Unit conversion preset"]'))`, 20000);
+    await setAccessibleSelect('Unit conversion preset', JSON.stringify([preset.policyId, preset.version]));
+    await browserEval(cdp, `clickButton('Apply normalization')`);
+    const state = await waitForState((value) => {
+      const saved = value.workspace?.documents?.find((item) => item.output?.id === targetOutputId)?.columns?.find((item) => item.column === column.column);
+      return saved?.source?.kind === 'aggregate' && saved.source.aggregate.unitNormalization?.policyId === preset.policyId;
+    }, `${column.label} ${controlPlan.unitNormalization.targetUnit} normalization`);
+    const saved = state.workspace.documents.find((item) => item.output?.id === targetOutputId).columns.find((item) => item.column === column.column);
+    return { preset, saved };
+  };
+  const setInputValue = async (label, value) => browserEval(cdp, `(() => {
+    const input = [...document.querySelectorAll('input[aria-label]')].find((item) => item.getAttribute('aria-label') === ${JSON.stringify(label)});
+    if (!input || input.disabled) throw new Error('J04 Patient visible input is unavailable: ' + ${JSON.stringify(label)});
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
+    setter?.call(input, ${JSON.stringify(value)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return input.value;
+  })()`);
+  const applyContributorWindow = async (column, operation, direction) => {
+    const stateBefore = await fetchBuilderState(target, explorerId);
+    const current = stateBefore.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === column.column);
+    if (current?.source?.kind !== 'aggregate' || current.source.aggregate.operation !== operation) {
+      throw new Error(`J04 date-window editor requires saved ${operation} source for ${column.label}`);
+    }
+    const aggregate = current.source.aggregate;
+    await browserEval(cdp, `clickButton(${JSON.stringify(aggregate.contributorWindow ? 'Edit date window' : 'Add date window')})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Record date"]')) && Boolean(document.querySelector('select[aria-label="Compare with row date"]')) && Boolean(document.querySelector('input[aria-label="Look back days"]'))`, 20000);
+    const windowPlan = controlPlan.contributorWindow;
+    await setAccessibleSelect('Record date', windowPlan.recordDatePath);
+    await setAccessibleSelect('Compare with row date', windowPlan.anchorPath);
+    await setInputValue('Look back days', String(windowPlan.lookbackDays));
+    await setCheckboxByLabel('Include start boundary', true);
+    await setCheckboxByLabel('Include end boundary', false);
+    if (direction) {
+      await setAccessibleSelect('Date selection direction', direction);
+      await setAccessibleSelect('Equal date handling', windowPlan.tiePolicy);
+    }
+    const expectedWindow = {
+      timestampPath: windowPlan.recordDatePath,
+      anchorPath: windowPlan.anchorPath,
+      lowerOffsetSeconds: -windowPlan.lookbackDays * 86_400,
+      upperOffsetSeconds: 0,
+      lowerInclusive: true,
+      upperInclusive: false,
+      precision: 'INSTANT',
+    };
+    const applyLabel = direction ? 'Apply date selection' : 'Apply date window';
+    await browserEval(cdp, `clickButton(${JSON.stringify(applyLabel)})`);
+    const persisted = await waitForState((value) => {
+      const saved = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === column.column);
+      if (saved?.source?.kind !== 'aggregate' || saved.source.aggregate.operation !== operation
+        || !j04ExactEqual(saved.source.aggregate.contributorWindow, expectedWindow)) return false;
+      if (!direction) return !saved.source.aggregate.ordering;
+      return j04ExactEqual(saved.source.aggregate.ordering, {
+        timestampPath: windowPlan.recordDatePath,
+        direction,
+        tiePolicy: windowPlan.tiePolicy,
+      });
+    }, `${operation} contributor window`);
+    const saved = persisted.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === column.column);
+    return { saved, expectedWindow, ordering: direction ? saved.source.aggregate.ordering : undefined };
+  };
+
+  try {
+    browser = await launchBrowser(downloadDirectory, { promptText: 'J04 unsupported-unit refusal' });
+    cdp = browser.cdp;
+    cdp.on('Network.requestWillBeSent', (event) => {
+      if (!event.request.url.includes('/authoring/v2/')) return;
+      const path = new URL(event.request.url).pathname;
+      network.push({ requestId: event.requestId, path, method: event.request.method,
+        requestJSON: event.request.postData ? (() => { try { return JSON.parse(event.request.postData); } catch { return undefined; } })() : undefined });
+    });
+    cdp.on('Network.responseReceived', (event) => {
+      const item = network.find((candidate) => candidate.requestId === event.requestId);
+      if (item) {
+        item.status = event.response.status;
+        item.mimeType = event.response.mimeType;
+      }
+    });
+    cdp.on('Network.loadingFinished', (event) => {
+      const item = network.find((candidate) => candidate.requestId === event.requestId);
+      if (!item || !/\/(preview|compile)$/.test(item.path) || item.status < 100) return;
+      const capture = (async () => {
+        try {
+          const body = await cdp.send('Network.getResponseBody', { requestId: item.requestId });
+          const raw = body.base64Encoded ? Buffer.from(body.body, 'base64').toString('utf8') : body.body;
+          item.responseJSON = JSON.parse(raw);
+        } catch (error) {
+          item.responseBodyError = String(error);
+        }
+      })().finally(() => pendingNetworkBodies.delete(capture));
+      pendingNetworkBodies.add(capture);
+    });
+
+    await navigate(cdp, entryTarget.uiUrl);
+    const bootstrapId = report.target.bootstrapExplorerId;
+    if (!bootstrapId) throw new Error('J04 Patient journey requires the fresh fixture bootstrap Explorer');
+    await navigate(cdp, `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(bootstrapId)}&mode=builder`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Explorer"]'))`, 60000);
+    await captureDOM('before-new-explorer');
+    await action('create-blank-explorer-through-visible-controls', async () => {
+      await browserEval(cdp, `clickText('summary', 'New explorer')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('#new-explorer-name'))`, 10000);
+      await browserEval(cdp, `setInput('new-explorer-name', 'J04 Patient operators')`);
+      await browserEval(cdp, `clickButton('Create blank')`);
+      await waitForBrowser(cdp, `new URL(location.href).searchParams.get('explorer') && new URL(location.href).searchParams.get('explorer') !== ${JSON.stringify(bootstrapId)}`, 30000);
+      explorerId = await evaluate(cdp, `new URL(location.href).searchParams.get('explorer')`);
+      if (!explorerId) throw new Error('visible blank Explorer creation did not select a new Explorer');
+    });
+
+    const selectionFixture = await seedJ04PatientSelectionRevision(target, explorerId, fixture.contract);
+    journey.selectionRevision = {
+      id: selectionFixture.selection.id,
+      membershipDigest: selectionFixture.selection.membershipDigest,
+      memberCount: selectionFixture.selection.memberCount,
+      members: selectionFixture.members,
+      snapshotToken: selectionFixture.snapshotToken,
+    };
+    recordAssertion(report, 'j04-patient-selection-revision-is-exactly-one-fixture-resource', [
+      { project: canonicalProjectID(target.fixtureProject), generation: target.fixtureGeneration, resourceType: 'Patient', id: 'j04-patient-001' },
+    ], selectionFixture.members.map((member) => ({ ...member, project: canonicalProjectID(member.project) })));
+
+    await action('create-patient-table-and-attach-selection-in-builder', async () => {
+      const builderURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(selectionFixture.selection.id)}&mode=builder`;
+      await navigate(cdp, builderURL);
+      await waitForBrowser(cdp, `document.body.innerText.includes('Create your first table')`, 60000);
+      await browserEval(cdp, `setInput('first-table-name', 'J04 Patient metrics')`);
+      await browserEval(cdp, `clickButton('Create table')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]'))`, 30000);
+      await browserEval(cdp, `clickButton('Choose Patient rows')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Starting collection"]'))`, 30000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => norm(button.textContent) === 'Use selected resources' && !button.disabled))`, 60000);
+      await captureDOM('patient-table-before-selection-attachment');
+      await browserEval(cdp, `clickButton('Use selected resources')`);
+      const state = await waitForState((value) => {
+        const doc = value.workspace?.documents?.find((item) => item.rootResourceType === 'Patient');
+        return doc?.population?.selectionRevisionId === selectionFixture.selection.id;
+      }, 'visible starting-collection selection attachment');
+      const document = state.workspace.documents.find((item) => item.rootResourceType === 'Patient');
+      outputId = document.output.id;
+      journey.outputId = outputId;
+      journey.rowDefinition = { rootResourceType: document.rootResourceType, selectionRevisionId: document.population.selectionRevisionId, route: document.population.route };
+      recordAssertion(report, 'j04-patient-table-attaches-exact-selection-through-visible-starting-collection', selectionFixture.selection.id, document.population.selectionRevisionId);
+    });
+
+    let state = await fetchBuilderState(target, explorerId);
+    const document = state.workspace.documents.find((item) => item.output?.id === outputId);
+    const root = state.catalog.nodes.find((node) => node.resourceType === 'Patient' && node.rowRootEligible);
+    const observationNodes = state.catalog.nodes.filter((node) => node.resourceType === 'Observation');
+    if (!document || !root || observationNodes.length === 0) throw new Error('J04 Patient graph did not expose Patient and Observation schema nodes');
+    const relatedEdges = state.catalog.edges.filter((edge) => edge.fromNodeId === root.nodeId
+      && observationNodes.some((node) => node.nodeId === edge.toNodeId)
+      && /subject/i.test(edge.label));
+    if (relatedEdges.length !== 1) throw new Error(`J04 Patient graph needs one subject-to-Observation edge, found ${relatedEdges.length}`);
+    const relatedEdge = relatedEdges[0];
+    const observationNode = state.catalog.nodes.find((node) => node.nodeId === relatedEdge.toNodeId);
+    journey.sourceRoute = { edgeId: relatedEdge.edgeId, relationship: relatedEdge.label, from: 'Patient', to: 'Observation' };
+    await action('add-observation-source-through-advanced-graph', async () => {
+      await browserEval(cdp, `clickButton('Advanced graph')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('.react-flow__node'))`, 30000);
+      const patientIDCandidate = state.catalog.candidates.find((candidate) => candidate.nodeId === root.nodeId && candidatePath(candidate) === 'id');
+      if (!patientIDCandidate) throw new Error('J04 Patient graph did not expose its source id candidate');
+      await browserEval(cdp, `setInput('Search columns', 'id')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add id to table"]'))`, 30000);
+      await browserEval(cdp, `clickCandidate('id', 'to table')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]'))`, 30000);
+      await browserEval(cdp, `setInput('Display name for configured id', 'Patient ID')`);
+      await browserEval(cdp, `inputByLabel('Display name for configured id').blur()`);
+      state = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.some((column) => column.label === 'Patient ID'), 'Patient ID source column');
+      const rootOccurrence = state.workspace.documents.find((item) => item.output?.id === outputId).route.occurrenceId;
+      await browserEval(cdp, `(() => { const button = [...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].find((item) => item.dataset.occurrenceId === ${JSON.stringify(rootOccurrence)}); if (!button) throw new Error('J04 Patient root occurrence is not visible'); button.click(); })()`);
+      await browserEval(cdp, `(() => {
+        const node = [...document.querySelectorAll('.react-flow__node')].find((item) => item.dataset.id === ${JSON.stringify(observationNode.nodeId)});
+        if (!node) throw new Error('J04 Patient Observation node is not visible in Advanced graph');
+        node.scrollIntoView({ block: 'center' }); node.click();
+      })()`);
+      await waitForState((value) => Boolean(routePathForEdgeIDs(
+        value.workspace?.documents?.find((item) => item.output?.id === outputId)?.route,
+        [relatedEdge.edgeId],
+      )), 'Patient-to-Observation source route');
+      state = await fetchBuilderState(target, explorerId);
+      const route = routePathForEdgeIDs(state.workspace.documents.find((item) => item.output?.id === outputId).route, [relatedEdge.edgeId]);
+      const occurrenceId = route.at(-1).occurrenceId;
+      await waitForBrowser(cdp, `[...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].some((button) => button.dataset.occurrenceId === ${JSON.stringify(occurrenceId)})`, 30000);
+      await browserEval(cdp, `(() => { const button = [...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].find((item) => item.dataset.occurrenceId === ${JSON.stringify(occurrenceId)}); if (!button) throw new Error('J04 Observation traversal occurrence is not visible'); button.click(); })()`);
+      journey.sourceRoute.occurrenceId = occurrenceId;
+      await captureDOM('patient-observation-route');
+    });
+
+    const metricPath = fixture.contract.aggregateScope.valuePath;
+    const metricCandidate = state.catalog.candidates.find((candidate) => candidate.nodeId === observationNode.nodeId && candidatePath(candidate) === metricPath);
+    const categoryCandidate = state.catalog.candidates.find((candidate) => candidate.nodeId === observationNode.nodeId && candidatePath(candidate) === fixture.contract.aggregateScope.categoryPath);
+    if (!metricCandidate || !categoryCandidate) throw new Error('J04 Patient Observation catalog did not expose metric and category candidates');
+    await action('add-patient-metric-through-visible-column-selector', async () => {
+      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(metricPath)})`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add ${metricPath} to table"]'))`, 30000);
+      await browserEval(cdp, `clickCandidate(${JSON.stringify(metricPath)}, 'to table')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label^="Display name for configured "]'))`, 30000);
+      state = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.some((column) => column.source?.field?.path === metricPath), 'configured Patient metric column');
+      journey.metricColumn = state.workspace.documents.find((item) => item.output?.id === outputId).columns.find((column) => column.source?.field?.path === metricPath);
+      const candidateCapability = state.catalog.candidates.find((candidate) => candidate.candidateId === metricCandidate.candidateId);
+      journey.capabilities = {
+        metricCandidateId: metricCandidate.candidateId,
+        categoryCandidateId: categoryCandidate.candidateId,
+        aggregateOperations: candidateCapability?.aggregateOperations,
+        temporalReduction: candidateCapability?.transformations?.temporalReduction,
+        unitNormalization: candidateCapability?.transformations?.unitNormalization,
+      };
+      await captureDOM('patient-metric-and-category-filter');
+    });
+
+    const recodingContract = controlPlan.recoding;
+    const recodingCandidate = state.catalog.candidates.find((candidate) => candidate.nodeId === observationNode.nodeId
+      && candidatePath(candidate) === recodingContract.sourcePath);
+    if (!recodingCandidate) throw new Error(`J04 Patient Observation catalog did not expose recoding candidate ${recodingContract.sourcePath}`);
+    const recodingCapability = recodingCandidate.valueTransformations?.exactCategoryRecode
+      ?? recodingCandidate.valueTransformations?.codedValueRecoding;
+    if (!recodingCapability?.available) throw new Error(`J04 Patient recoding candidate is unavailable: ${recodingCapability?.reason ?? recodingContract.sourcePath}`);
+    let recodingColumn;
+    await action('configure-exact-recoding-through-visible-column-controls', async () => {
+      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(recodingContract.sourcePath)})`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Add ${recodingContract.sourcePath} to table"]`)}))`, 30000);
+      await browserEval(cdp, `clickCandidate(${JSON.stringify(recodingContract.sourcePath)}, 'to table')`);
+      state = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.some((column) => column.source?.field?.path === recodingContract.sourcePath), 'configured exact-recoding column');
+      recodingColumn = state.workspace.documents.find((item) => item.output?.id === outputId).columns.find((column) => column.source?.field?.path === recodingContract.sourcePath);
+      journey.recoding = {
+        sourcePath: recodingContract.sourcePath,
+        candidateId: recodingCandidate.candidateId,
+        occurrenceId: recodingColumn.occurrenceId,
+        capability: recodingCapability,
+        expectedCases: recodingContract.cases,
+      };
+      await browserEval(cdp, `clickText('summary', 'Recode exact category values')`);
+      const mappings = Object.entries(recodingContract.mapping);
+      for (let index = 0; index < mappings.length; index += 1) {
+        await browserEval(cdp, `clickButton('Add mapping')`);
+        const [from, to] = mappings[index];
+        await setInputValue(`Recorded category ${index + 1} for ${recodingColumn.label}`, from);
+        await setInputValue(`Replacement value ${index + 1} for ${recodingColumn.label}`, to);
+      }
+      await setAccessibleSelect(`Unmapped value policy for ${recodingColumn.label}`, recodingContract.unknownPolicy);
+      await browserEval(cdp, `clickButton('Save recoding')`);
+      state = await waitForState((value) => {
+        const column = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === recodingColumn.column);
+        return column?.valueTransformation?.kind === 'EXACT_CATEGORY_RECODE';
+      }, 'saved exact-category recoding');
+      recodingColumn = state.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === recodingColumn.column);
+      const savedRecode = recodingColumn.valueTransformation?.exactCategoryRecode;
+      recordLiteral('j04-patient-exact-recoding-definition-is-exact', {
+        mappings: Object.entries(recodingContract.mapping).map(([from, to]) => ({ from, to })),
+        unknownPolicy: recodingContract.unknownPolicy,
+      }, savedRecode);
+      await captureDOM('patient-exact-recoding-definition');
+    });
+
+    const recodingOperationControl = `Across related Observation records for ${recodingColumn.label}`;
+    await action('preview-case-sensitive-recoding-through-visible-controls', async () => {
+      await setSelectValue(recodingOperationControl, 'MIN');
+      state = await waitForState((value) => {
+        const column = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === recodingColumn.column);
+        return column?.source?.kind === 'aggregate' && column.source.aggregate.operation === 'MIN';
+      }, 'recoding MIN source');
+      recodingColumn = state.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === recodingColumn.column);
+      const applyCategory = async (rawValue, expectedValue, sourceRecordId) => {
+        const live = await fetchBuilderState(target, explorerId);
+        recodingColumn = live.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === recodingColumn.column);
+        if (!recodingColumn.contributor) {
+          await browserEval(cdp, `(() => {
+            const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(recodingColumn.label)}) + ']);
+            const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(recodingCandidate.candidateId)});
+            if (!select || !option) throw new Error('J04 recoding field is unavailable as its own contributor filter');
+            select.value = option.value;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          })()`);
+          await setAccessibleSelect(`Contributor condition for ${recodingColumn.label}`, 'EQUALS');
+        }
+        await setInputValue(`Contributor value for ${recodingColumn.label}`, rawValue);
+        await browserEval(cdp, `clickButton('Apply condition')`);
+        state = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === recodingColumn.column)?.contributor?.value?.code?.code === rawValue
+          || value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === recodingColumn.column)?.contributor?.value?.string === rawValue, `recoding contributor ${rawValue}`);
+        const preview = await previewNow(recodingColumn.label, expectedValue, [sourceRecordId]);
+        journey.recoding.cases ??= [];
+        journey.recoding.cases.push({ input: rawValue, expected: expectedValue, sourceIdentity: `Observation/${sourceRecordId}`, previewReceiptId: preview.receiptId });
+      };
+      await applyCategory('A', 'Positive', 'j04-measure-001');
+      await applyCategory('a', 'a', 'j04-measure-002');
+      await applyCategory('UNKNOWN', 'UNKNOWN', 'j04-measure-003');
+      recordLiteral('j04-exact-recoding-honors-case-and-unknown-policy', recodingContract.cases.map(({ input, expected }) => ({ input, expected })),
+        journey.recoding.cases.map(({ input, expected }) => ({ input, expected })));
+    });
+
+    const metricLabel = journey.metricColumn.label;
+    const operationControl = `Across related Observation records for ${metricLabel}`;
+    const observedOperations = [];
+    for (const item of controlPlan.aggregateOperations) {
+      await action(`preview-${item.operation.toLowerCase()}-on-patient-row`, async () => {
+        const beforeState = await fetchBuilderState(target, explorerId);
+        const currentColumn = beforeState.workspace.documents.find((candidate) => candidate.output?.id === outputId).columns.find((column) => column.column === journey.metricColumn.column);
+        if (currentColumn?.source?.kind === 'field') {
+          await browserEval(cdp, `(() => {
+            const details = [...document.querySelectorAll('details')].find((item) => norm(item.innerText).includes('Time and units'));
+            const select = document.querySelector('select[aria-label=' + JSON.stringify('Across related Observation records for ' + ${JSON.stringify(metricLabel)}) + ']);
+            if (!select) throw new Error('J04 aggregate operation selector is missing');
+            const option = [...select.options].find((candidate) => candidate.value === ${JSON.stringify(item.operation)});
+            if (!option || option.disabled) throw new Error('J04 aggregate operation is not offered: ' + ${JSON.stringify(item.operation)} + '; options=' + [...select.options].map((candidate) => norm(candidate.textContent)).join(' | '));
+            select.value = option.value; select.dispatchEvent(new Event('change', { bubbles: true }));
+          })()`);
+        } else {
+          await setSelectValue(operationControl, item.operation);
+        }
+        const persisted = await waitForState((value) => {
+          const column = value.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.columns?.find((candidate) => candidate.column === journey.metricColumn.column);
+          return column?.source?.kind === 'aggregate' && column.source.aggregate.operation === item.operation;
+        }, `${item.operation} persisted`);
+        let savedColumn = persisted.workspace.documents.find((candidate) => candidate.output?.id === outputId).columns.find((column) => column.column === journey.metricColumn.column);
+        if (item.operation === 'COUNT' && !savedColumn.contributor) {
+          const categoryCandidateID = journey.capabilities.categoryCandidateId;
+          await browserEval(cdp, `(() => {
+            const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(savedColumn.label)}) + ']);
+            const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(categoryCandidateID)});
+            if (!select || !option) throw new Error('J04 category candidate is absent from the visible contributor filter');
+            select.value = option.value;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          })()`);
+          await setAccessibleSelect(`Contributor condition for ${savedColumn.label}`, 'EQUALS');
+          await setInputValue(`Contributor value for ${savedColumn.label}`, fixture.contract.aggregateScope.categoryCode);
+          await browserEval(cdp, `clickButton('Apply condition')`);
+          persisted = await waitForState((value) => value.workspace.documents.find((candidate) => candidate.output?.id === outputId)?.columns?.find((column) => column.column === journey.metricColumn.column)?.contributor?.operator === 'EQUALS', 'exact measure-code contributor condition');
+          savedColumn = persisted.workspace.documents.find((candidate) => candidate.output?.id === outputId).columns.find((column) => column.column === journey.metricColumn.column);
+          recordLiteral('j04-patient-metric-contributor-condition-is-exact', {
+            candidateId: categoryCandidateID,
+            operator: 'EQUALS',
+            value: fixture.contract.aggregateScope.categoryCode,
+          }, {
+            candidateId: savedColumn.contributor?.candidateId,
+            operator: savedColumn.contributor?.operator,
+            value: savedColumn.contributor?.value?.string ?? savedColumn.contributor?.value?.code?.code,
+          });
+        }
+        const windowed = await applyContributorWindow(savedColumn, item.operation);
+        savedColumn = windowed.saved;
+        let normalization;
+        if (['MIN', 'MAX', 'MEAN', 'SUM'].includes(item.operation)) {
+          normalization = await applyCmNormalization(savedColumn);
+          savedColumn = normalization.saved;
+        }
+        journey.metricColumn = savedColumn;
+        const expectedContributorIDs = j04PatientOperatorSourceIDs(fixture.contract, item.operation);
+        const preview = await previewNow(savedColumn.label, item.expected, expectedContributorIDs);
+        const resultUnit = preview.resultUnit
+          ?? preview.state.receipt?.outputs?.find((entry) => entry.outputId === outputId)?.columns?.find((entry) => entry.column === savedColumn.column)?.resultUnit
+          ?? preview.state.preview?.columns?.find((entry) => entry.column === savedColumn.column)?.resultUnit
+          ?? null;
+        recordLiteral(`j04-patient-${item.operation.toLowerCase()}-contributor-window-is-exact`, {
+          timestampPath: windowed.expectedWindow.timestampPath,
+          anchorPath: windowed.expectedWindow.anchorPath,
+          lowerOffsetSeconds: windowed.expectedWindow.lowerOffsetSeconds,
+          upperOffsetSeconds: windowed.expectedWindow.upperOffsetSeconds,
+          lowerInclusive: windowed.expectedWindow.lowerInclusive,
+          upperInclusive: windowed.expectedWindow.upperInclusive,
+          precision: windowed.expectedWindow.precision,
+        }, savedColumn.source.aggregate.contributorWindow, { receiptId: preview.receiptId });
+        recordLiteral(`j04-patient-${item.operation.toLowerCase()}-excludes-out-of-window-record`, false,
+          preview.sourceIdentities.includes('Observation/j04-window-excluded'), {
+            receiptId: preview.receiptId,
+            sourceIdentities: preview.sourceIdentities,
+          });
+        if (normalization) {
+          recordLiteral(`j04-patient-${item.operation.toLowerCase()}-result-unit-is-centimeters`, {
+            system: controlPlan.unitNormalization.targetSystem,
+            code: controlPlan.unitNormalization.targetUnit,
+          }, resultUnit ? { system: resultUnit.system, code: resultUnit.code } : null, { receiptId: preview.receiptId });
+        }
+        observedOperations.push({
+          operation: item.operation,
+          column: savedColumn.column,
+          source: savedColumn.source,
+          contributor: savedColumn.contributor,
+          expectedContributorIDs,
+          actual: preview.actual,
+          resultUnit,
+          sourceIdentities: preview.sourceIdentities,
+          contributorWindow: savedColumn.source.aggregate.contributorWindow,
+          ordering: savedColumn.source.aggregate.ordering,
+          receiptId: preview.receiptId,
+        });
+      });
+    }
+    journey.observedOperations = observedOperations;
+    recordLiteral('j04-count-exists-min-max-mean-sum-match-literal-oracle', controlPlan.aggregateOperations.map(({ operation, expected }) => ({ operation, expected })),
+      observedOperations.map(({ operation, actual }) => ({ operation, expected: actual })), { receipts: observedOperations.map(({ operation, receiptId }) => ({ operation, receiptId })) });
+
+    const normalizedSum = observedOperations.find((item) => item.operation === 'SUM');
+    const normalizedMinimum = observedOperations.find((item) => item.operation === 'MIN');
+    journey.normalization = {
+      sourceUnitCases: fixture.contract.normalizationCases.filter((item) => item.status === 'NORMALIZED'),
+      resultUnit: normalizedSum?.resultUnit ?? null,
+      policy: normalizedSum?.source?.aggregate?.unitNormalization ?? null,
+    };
+    recordLiteral('j04-patient-normalized-sum-result-unit-is-centimeters', {
+      system: controlPlan.unitNormalization.targetSystem,
+      code: controlPlan.unitNormalization.targetUnit,
+    }, normalizedSum?.resultUnit ? { system: normalizedSum.resultUnit.system, code: normalizedSum.resultUnit.code } : null,
+    { receiptId: normalizedSum?.receiptId, sourceIdentities: normalizedSum?.sourceIdentities });
+    recordLiteral('j04-patient-normalized-zero-is-retained-with-centimeter-unit', {
+      value: 0, system: controlPlan.unitNormalization.targetSystem, code: controlPlan.unitNormalization.targetUnit,
+    }, {
+      value: normalizedMinimum?.actual,
+      system: normalizedMinimum?.resultUnit?.system,
+      code: normalizedMinimum?.resultUnit?.code,
+    }, { receiptId: normalizedMinimum?.receiptId, sourceIdentities: normalizedMinimum?.sourceIdentities });
+
+    const configureDateSelection = async (direction, expectedValue, expectedRecordId) => {
+      await setSelectValue(operationControl, 'FIRST_ORDERED');
+      const ordered = await waitForState((value) => {
+        const saved = value.workspace?.documents?.find((item) => item.output?.id === outputId)?.columns?.find((item) => item.column === journey.metricColumn.column);
+        return saved?.source?.kind === 'aggregate' && saved.source.aggregate.operation === 'FIRST_ORDERED';
+      }, 'FIRST_ORDERED value selection');
+      const current = ordered.workspace.documents.find((item) => item.output?.id === outputId).columns.find((item) => item.column === journey.metricColumn.column);
+      const windowed = await applyContributorWindow(current, 'FIRST_ORDERED', direction);
+      let saved = windowed.saved;
+      const normalized = await applyCmNormalization(saved);
+      saved = normalized.saved;
+      journey.metricColumn = saved;
+      const preview = await previewNow(saved.label, expectedValue, [expectedRecordId]);
+      journey.windowedSelections ??= [];
+      journey.windowedSelections.push({ direction, expectedRecordId, contributorWindow: saved.source.aggregate.contributorWindow, ordering: saved.source.aggregate.ordering, preview });
+      recordLiteral(`j04-patient-${direction.toLowerCase()}-contributor-window-is-exact`, {
+        timestampPath: controlPlan.contributorWindow.recordDatePath,
+        anchorPath: controlPlan.contributorWindow.anchorPath,
+        lowerOffsetSeconds: -controlPlan.contributorWindow.lookbackDays * 86_400,
+        upperOffsetSeconds: 0,
+        lowerInclusive: true,
+        upperInclusive: false,
+        precision: 'INSTANT',
+      }, saved.source.aggregate.contributorWindow, { selectedRecordId: expectedRecordId, receiptId: preview.receiptId });
+      recordLiteral(`j04-patient-${direction.toLowerCase()}-ordering-is-exact`, {
+        timestampPath: controlPlan.contributorWindow.recordDatePath,
+        direction,
+        tiePolicy: controlPlan.contributorWindow.tiePolicy,
+      }, saved.source.aggregate.ordering, { selectedRecordId: expectedRecordId, receiptId: preview.receiptId });
+      recordLiteral(`j04-patient-${direction.toLowerCase()}-value-unit-is-centimeters`, {
+        system: controlPlan.unitNormalization.targetSystem,
+        code: controlPlan.unitNormalization.targetUnit,
+      }, preview.resultUnit ? { system: preview.resultUnit.system, code: preview.resultUnit.code } : null, { receiptId: preview.receiptId });
+    };
+    await action('preview-earliest-windowed-value', () => configureDateSelection('ASC', 180, controlPlan.contributorWindow.earliestRecordId));
+    await action('preview-latest-windowed-value-with-deterministic-tie', () => configureDateSelection('DESC', 180, controlPlan.contributorWindow.latestSelectedRecordId));
+
+    await action('create-separate-visible-patient-unit-refusal-table', async () => {
+      const beforeState = await fetchBuilderState(target, explorerId);
+      const p1DocumentBefore = structuredClone(beforeState.workspace.documents.find((item) => item.output?.id === outputId));
+      journey.refusalTable = { expected: controlPlan.refusalTable, p1OutputId: outputId, p1DocumentBefore, published: false };
+      const refusalSelection = await seedJ04PatientSelectionRevision(target, explorerId, fixture.contract, [controlPlan.refusalTable.rowIdentity]);
+      journey.refusalTable.selectionRevision = {
+        id: refusalSelection.selection.id,
+        membershipDigest: refusalSelection.selection.membershipDigest,
+        memberCount: refusalSelection.selection.memberCount,
+        members: refusalSelection.members,
+      };
+      recordLiteral('j04-refusal-selection-is-exactly-patient-002', [
+        { project: canonicalProjectID(target.fixtureProject), generation: target.fixtureGeneration, resourceType: 'Patient', id: 'j04-patient-002' },
+      ], refusalSelection.members);
+      await navigate(cdp, `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&selection=${encodeURIComponent(refusalSelection.selection.id)}&mode=builder`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Explorer"]'))`, 30000);
+
+      await browserEval(cdp, `(() => {
+        const selector = document.querySelector('[aria-label="Table selector"]');
+        if (!selector) throw new Error('J04 table selector is missing');
+        selector.click();
+      })()`);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'New table' && visible(button)))`, 15000);
+      await browserEval(cdp, `clickButton('New table')`);
+      const p2Title = 'J04 unsupported-unit refusal';
+      let createdState = await waitForState((value) => value.workspace?.documents?.some((item) => item.output?.title === p2Title), 'separate Patient-002 refusal table');
+      const p2Document = createdState.workspace.documents.find((item) => item.output?.title === p2Title);
+      const p2OutputId = p2Document.output.id;
+      journey.refusalTable.outputId = p2OutputId;
+      await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]'))`, 30000);
+      await browserEval(cdp, `clickButton('Choose Patient rows')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Starting collection"]'))`, 30000);
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find((button) => norm(button.textContent) === 'Use selected resources' && !button.disabled))`, 60000);
+      await browserEval(cdp, `clickButton('Use selected resources')`);
+      createdState = await waitForState((value) => {
+        const item = value.workspace?.documents?.find((doc) => doc.output?.id === p2OutputId);
+        return item?.rootResourceType === 'Patient' && item.population?.selectionRevisionId === refusalSelection.selection.id;
+      }, 'visible Patient-002 starting-collection attachment');
+      const attached = createdState.workspace.documents.find((item) => item.output?.id === p2OutputId);
+      journey.refusalTable.rowDefinition = {
+        rootResourceType: attached.rootResourceType,
+        selectionRevisionId: attached.population.selectionRevisionId,
+        route: attached.population.route,
+      };
+      recordLiteral('j04-refusal-table-attaches-exact-patient-002-selection-visibly', refusalSelection.selection.id, attached.population.selectionRevisionId);
+
+      const patientNode = createdState.catalog.nodes.find((node) => node.resourceType === 'Patient' && node.rowRootEligible);
+      const observationNodes = createdState.catalog.nodes.filter((node) => node.resourceType === 'Observation');
+      const edge = createdState.catalog.edges.find((candidate) => candidate.fromNodeId === patientNode?.nodeId
+        && observationNodes.some((node) => node.nodeId === candidate.toNodeId) && /subject/i.test(candidate.label));
+      const observationNode = observationNodes.find((node) => node.nodeId === edge?.toNodeId);
+      if (!patientNode || !observationNode || !edge) throw new Error('J04 Patient-002 graph has no Patient-to-Observation subject route');
+      await browserEval(cdp, `clickButton('Advanced graph')`);
+      const p2RootOccurrence = attached.route.occurrenceId;
+      await browserEval(cdp, `(() => {
+        const root = [...document.querySelectorAll('nav[aria-label="Current traversal"] button[data-occurrence-id]')].find((item) => item.dataset.occurrenceId === ${JSON.stringify(p2RootOccurrence)});
+        if (!root) throw new Error('J04 Patient-002 root occurrence is not visible');
+        root.click();
+        const node = [...document.querySelectorAll('.react-flow__node')].find((item) => item.dataset.id === ${JSON.stringify(observationNode.nodeId)});
+        if (!node) throw new Error('J04 Patient-002 Observation node is not visible');
+        node.scrollIntoView({ block: 'center' }); node.click();
+      })()`);
+      await waitForState((value) => Boolean(routePathForEdgeIDs(value.workspace?.documents?.find((item) => item.output?.id === p2OutputId)?.route, [edge.edgeId])), 'Patient-002 Observation source route');
+      let p2State = await fetchBuilderState(target, explorerId);
+      const metricPath = fixture.contract.aggregateScope.valuePath;
+      const metricCandidate = p2State.catalog.candidates.find((candidate) => candidate.nodeId === observationNode.nodeId && candidatePath(candidate) === metricPath);
+      const categoryCandidate = p2State.catalog.candidates.find((candidate) => candidate.nodeId === observationNode.nodeId && candidatePath(candidate) === fixture.contract.aggregateScope.categoryPath);
+      if (!metricCandidate || !categoryCandidate) throw new Error('J04 Patient-002 catalog lacks value or category source candidates');
+      await browserEval(cdp, `setInput('Search columns', ${JSON.stringify(metricPath)})`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add ${metricPath} to table"]'))`, 30000);
+      await browserEval(cdp, `clickCandidate(${JSON.stringify(metricPath)}, 'to table')`);
+      p2State = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === p2OutputId)?.columns?.some((column) => column.source?.field?.path === metricPath), 'Patient-002 unsupported-unit value column');
+      let p2Column = p2State.workspace.documents.find((item) => item.output?.id === p2OutputId).columns.find((item) => item.source?.field?.path === metricPath);
+      const p2Capability = p2State.catalog.candidates.find((candidate) => candidate.candidateId === metricCandidate.candidateId)?.transformations?.unitNormalization;
+      journey.refusalTable.metricColumn = { id: p2Column.column, label: p2Column.label, candidateId: metricCandidate.candidateId };
+      journey.refusalTable.sourceIdentity = `Observation/${controlPlan.refusalTable.sourceRecordId}`;
+      journey.refusalTable.unitNormalizationCapability = p2Capability;
+      await setSelectValue(`Across related Observation records for ${p2Column.label}`, 'SUM');
+      p2State = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === p2OutputId)?.columns?.find((column) => column.column === p2Column.column)?.source?.aggregate?.operation === 'SUM', 'Patient-002 SUM aggregate');
+      p2Column = p2State.workspace.documents.find((item) => item.output?.id === p2OutputId).columns.find((item) => item.column === p2Column.column);
+      await browserEval(cdp, `(() => {
+        const select = document.querySelector('select[aria-label=' + JSON.stringify('Contributors for ' + ${JSON.stringify(p2Column.label)}) + ']);
+        const option = [...(select?.options || [])].find((item) => item.value === ${JSON.stringify(categoryCandidate.candidateId)});
+        if (!select || !option) throw new Error('J04 Patient-002 code contributor is not visible');
+        select.value = option.value; select.dispatchEvent(new Event('input', { bubbles: true })); select.dispatchEvent(new Event('change', { bubbles: true }));
+      })()`);
+      await setAccessibleSelect(`Contributor condition for ${p2Column.label}`, 'EQUALS');
+      await setInputValue(`Contributor value for ${p2Column.label}`, fixture.contract.aggregateScope.categoryCode);
+      await browserEval(cdp, `clickButton('Apply condition')`);
+      p2State = await waitForState((value) => value.workspace?.documents?.find((item) => item.output?.id === p2OutputId)?.columns?.find((item) => item.column === p2Column.column)?.contributor?.operator === 'EQUALS', 'Patient-002 measure category filter');
+      p2Column = p2State.workspace.documents.find((item) => item.output?.id === p2OutputId).columns.find((item) => item.column === p2Column.column);
+      recordLiteral('j04-refusal-table-filters-to-measure-code', {
+        candidateId: categoryCandidate.candidateId, operator: 'EQUALS', value: fixture.contract.aggregateScope.categoryCode,
+      }, {
+        candidateId: p2Column.contributor?.candidateId, operator: p2Column.contributor?.operator,
+        value: p2Column.contributor?.value?.string ?? p2Column.contributor?.value?.code?.code,
+      });
+      const normalized = await applyCmNormalization(p2Column, p2OutputId, p2Capability);
+      p2Column = normalized.saved;
+      journey.refusalTable.normalization = {
+        policyId: normalized.preset.policyId, version: normalized.preset.version,
+        target: normalized.preset.target, resultUnit: null,
+      };
+      const p2BeforePreview = await fetchBuilderState(target, explorerId);
+      const p2BeforeDocument = structuredClone(p2BeforePreview.workspace.documents.find((item) => item.output?.id === p2OutputId));
+      journey.refusalTable.beforePreview = { draftVersion: p2BeforePreview.draftVersion, draftDigest: p2BeforePreview.draftDigest, document: p2BeforeDocument };
+      const refusal = await previewForRefusal(controlPlan.refusalTable.expectedCode);
+      const p2AfterPreview = await fetchBuilderState(target, explorerId);
+      const p2AfterDocument = p2AfterPreview.workspace.documents.find((item) => item.output?.id === p2OutputId);
+      const p1AfterDocument = p2AfterPreview.workspace.documents.find((item) => item.output?.id === outputId);
+      journey.refusalTable.afterPreview = { draftVersion: p2AfterPreview.draftVersion, draftDigest: p2AfterPreview.draftDigest, document: structuredClone(p2AfterDocument) };
+      recordLiteral('j04-unsupported-unit-refusal-does-not-mutate-draft', {
+        draftVersion: p2BeforePreview.draftVersion, draftDigest: p2BeforePreview.draftDigest, document: p2BeforeDocument,
+      }, {
+        draftVersion: p2AfterPreview.draftVersion, draftDigest: p2AfterPreview.draftDigest, document: p2AfterDocument,
+      }, { requestId: refusal.requestId, errorCode: refusal.code });
+      recordLiteral('j04-unsupported-unit-refusal-preserves-success-table', p1DocumentBefore, p1AfterDocument, { p1OutputId: outputId });
+      recordLiteral('j04-unsupported-unit-row-source-identity-is-fixture-owned', 'Observation/j04-unsupported-unit', journey.refusalTable.sourceIdentity);
+      journey.refusalTable.published = false;
+      journey.refusalTable.publicationReceiptId = null;
+    });
+
+    recordLiteral('j04-earliest-latest-tie-and-window-exclusion-match-literal-oracle', {
+      earliest: 'Observation/j04-measure-001', latestTieWinner: 'Observation/j04-measure-002', excluded: ['Observation/j04-window-excluded'],
+    }, {
+      earliest: journey.windowedSelections?.find((item) => item.direction === 'ASC')?.preview?.sourceIdentities?.[0],
+      latestTieWinner: journey.windowedSelections?.find((item) => item.direction === 'DESC')?.preview?.sourceIdentities?.[0],
+      excluded: journey.windowedSelections?.flatMap((item) => item.preview?.sourceIdentities ?? []).includes('Observation/j04-window-excluded') ? ['Observation/j04-window-excluded'] : [],
+    });
+    recordLiteral('j04-unsupported-unit-preview-refuses-without-applying', {
+      code: controlPlan.refusalTable.expectedCode, applied: false, published: false,
+    }, {
+      code: journey.refusalTable.preview?.code, applied: false, published: journey.refusalTable.published,
+    }, { requestId: journey.refusalTable.preview?.requestId, outputId: journey.refusalTable.outputId });
+    recordLiteral('j04-unit-normalization-preserves-zero-and-refuses-unsupported-units', {
+      normalizedZero: 0, refusalCode: controlPlan.refusalTable.expectedCode,
+    }, {
+      normalizedZero: journey.previews.find((item) => item.label === metricLabel && item.expected === 0)?.actual,
+      refusalCode: journey.refusalTable.preview?.code,
+    });
+
+    journey.status = 'completed';
+    recordAssertion(report, 'j04-patient-visible-explorer-selection-and-graph-actions-ran', [
+      'create-blank-explorer-through-visible-controls',
+      'create-patient-table-and-attach-selection-in-builder',
+      'add-observation-source-through-advanced-graph',
+      'add-patient-metric-through-visible-column-selector',
+    ], journey.actions.map((item) => item.name));
+  } catch (error) {
+    failure = error;
+    journey.status = 'failed';
+    journey.error = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    if (cdp) {
+      try { await captureDOM('final'); } catch {}
+      try { journey.failureScreenshot = await captureScreenshot('failure'); } catch {}
+      try { await browser.close(); } catch {}
+    }
+    journey.network = network.map(({ path, method, status, requestJSON }) => ({ path, method, status, commandId: requestJSON?.commandId }));
+    journey.elapsedMs = Date.now() - started;
+    if (failure) report.target.patientOperatorError = journey.error;
+    writeJSON(join(evidenceDirectory, 'patient-operator.json'), journey);
+    recordEvidence(report, join(evidenceDirectory, 'patient-operator.json'));
+  }
 };
 
 const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) => {
@@ -6259,34 +7249,9 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
     if (!root?.nodeId || !outputDocument?.output?.id) throw new Error(`J04 ${rowResourceType} row selection did not create a saved output table`);
     const outputId = outputDocument.output.id;
     report.target.outputId = outputId;
-    const startingCollection = await browserEval(cdp, `return (() => {
-      const panel = document.querySelector('[aria-label="Starting collection"]');
-      return {
-        visible: Boolean(panel && visible(panel)),
-        text: norm(panel?.innerText),
-        visibleActions: [...(panel?.querySelectorAll('button, select, input') || [])].filter(visible).map((item) => ({
-          role: item.tagName.toLowerCase(), label: item.getAttribute('aria-label') || norm(item.innerText), disabled: Boolean(item.disabled),
-        })),
-      };
-    })()`);
-    report.target.patientOperatorJourney = {
-      outputId: null,
-      rowResourceType: controlPlan.aggregate.rowResourceType,
-      requiredRowIdentities: controlPlan.aggregate.selectedRowIdentities,
-      status: 'not-proven',
-      blocker: {
-        selector: '[aria-label="Starting collection"]',
-        visiblePanel: startingCollection,
-        reason: 'This fresh fixture has no immutable Patient selection revision loaded into Builder. Starting collection can attach a provided selection and compiler-proved route, but it cannot create the exact Patient-001 membership from the visible Builder controls. No API-created selection or population was substituted.',
-      },
-    };
-    report.assertions.push({
-      name: 'j04-patient-operator-population-is-exactly-the-fixture-identity',
-      status: 'not-proven',
-      expected: controlPlan.aggregate.selectedRowIdentities,
-      actual: { patientOutputCreated: false, visibleStartingCollection: startingCollection },
-      detail: report.target.patientOperatorJourney.blocker.reason,
-    });
+    const patientJourney = report.target.patientOperatorJourney;
+    recordAssertion(report, 'j04-patient-operator-population-is-exactly-the-fixture-identity',
+      controlPlan.aggregate.selectedRowIdentities, patientJourney?.selectionRevision?.members?.map((item) => `${item.resourceType}/${item.id}`) ?? []);
     const fieldChoices = fieldChoicesFromCatalog(state, root.nodeId, fixture.contract.baseColumns);
     report.target.capabilityIdentities = fieldChoices.map(({ path, candidate, selection }) => ({
       path,
@@ -6338,9 +7303,15 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       path: item.fieldPath,
       label: `J04 ${item.presence} scalar evidence`,
     }));
+    const absenceFields = [
+      { path: controlPlan.observation.recordedAbsence.systemPath, label: 'J04 recorded-absence code system', projectionMode: 'FIRST' },
+      { path: controlPlan.observation.recordedAbsence.codingPath, label: 'J04 recorded-absence code', projectionMode: 'FIRST' },
+      { path: controlPlan.observation.recordedAbsence.displayPath, label: 'J04 recorded-absence display', projectionMode: 'FIRST' },
+    ];
     const existingPaths = new Set(pivotAuthored.columns.map((column) => String(column?.source?.field?.path ?? '').replace(/^root\./, '')));
     const additionalFields = [...new Map([
       ...scalarFields,
+      ...absenceFields,
       { path: recoding.sourcePath, label: 'J04 exact category recoding', projectionMode: 'FIRST' },
     ].map((column) => [column.path, column])).values()].filter((column) => !existingPaths.has(column.path));
     const additionalChoices = fieldChoicesFromCatalog(state, root.nodeId, additionalFields);
@@ -6411,10 +7382,10 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
       await browserEval(cdp, `setInput('Search columns', '')`);
       report.target.recoding = { column: recodingColumn.column, sourcePath: recoding.sourcePath, saved: saved.exactCategoryRecode };
     });
-    const savedPresencePaths = authoredObservation.columns.map(sourcePathFor).filter((path) =>
-      controlPlan.observation.presenceCases.some((item) => item.fieldPath === path));
-    recordAssertion(report, 'j04-observation-output-authors-all-five-scalar-presence-cases',
-      [...new Set(controlPlan.observation.presenceCases.map((item) => item.fieldPath))].sort(),
+    const presenceAndAbsencePaths = [...new Set([...scalarFields.map((item) => item.path), ...absenceFields.map((item) => item.path)])];
+    const savedPresencePaths = authoredObservation.columns.map(sourcePathFor).filter((path) => presenceAndAbsencePaths.includes(path));
+    recordAssertion(report, 'j04-observation-output-authors-valid-source-states-and-recorded-absence-coding',
+      [...presenceAndAbsencePaths].sort(),
       [...new Set(savedPresencePaths)].sort());
     report.target.presenceColumns = controlPlan.observation.presenceCases.map((item) => {
       const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === item.fieldPath);
@@ -6458,7 +7429,7 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         presence: item.presence === 'missing' || item.presence === 'null' ? 'null' : item.presence,
         value: item.presence === 'missing' ? null : item.value,
       }));
-      recordAssertion(report, 'j04-observation-preview-materializes-missing-and-null-as-null-cells', expected, actual);
+      recordAssertion(report, 'j04-observation-preview-materializes-missing-values-as-null-cells', expected, actual);
 
       const previewOutputId = preview.outputId ?? outputId;
       if (!preview.receiptId || previewOutputId !== outputId) {
@@ -6549,17 +7520,134 @@ const verifyJ04BrowserScenario = async (target, report, entryTarget, fixture) =>
         sourceRecordId, fieldPath, rowId, traceRowId, column, outputId: traceOutputId, receiptId, status, value, contributors, complete, identityTrace,
       }));
       recordAssertion(report, 'j04-observation-cell-trace-proves-literals-and-exact-source-row-identities', expectedTraces, actualTraces);
-      report.target.fixtureExplicitNullCellTrace = 'NO_MATCH; exact source row is independently confirmed by its id-column VALUE trace';
+      report.target.fixtureMissingValueCellTrace = 'NO_MATCH; exact source row is independently confirmed by its id-column VALUE trace';
       report.target.sourcePresenceEvidence = { previewReceiptId: preview.receiptId, previewOutputId, previewValues: actual, cellTraces };
       await captureDOM('j04-observation-source-preview-presence');
       await navigate(cdp, builderURL);
       await waitForBrowser(cdp, `document.body.innerText.includes('J04 measurements') && Boolean(document.querySelector('[data-testid="ui04-open-table-shape-settings"]'))`, 60000);
+    });
+    report.target.recordedAbsenceColumns = absenceFields.map((field) => {
+      const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === field.path);
+      return { path: field.path, column: column?.column, label: column?.label };
     });
     const policyRegions = await evaluate(cdp, `({ values: document.querySelectorAll('[data-testid="feature-policy-values"]').length, timeUnits: document.querySelectorAll('[data-testid="feature-policy-time-units"]').length })`);
     recordAssertion(report, 'j04-values-and-time-unit-policy-regions-render-for-authored-observation-columns', authoredObservation.columns.length, policyRegions.values);
     report.target.observationPolicyRegions = policyRegions;
     await saveWorkspaceSnapshot('after-pivot-and-values-authoring', explorerId);
     await captureDOM('j04-builder-pivot-and-values-authored');
+
+    await action('preview-recorded-fhir-absence-before-reshape', async () => {
+      const requestStart = network.length;
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Preview' && !button.disabled))`, 60000);
+      await browserEval(cdp, `clickButton('Preview')`);
+      await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+      let previewResponse;
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        await Promise.allSettled([...pendingNetworkBodies]);
+        previewResponse = network.slice(requestStart).reverse().find((item) => item.path.endsWith('/preview') && item.responseJSON?.rows);
+        if (previewResponse) break;
+        await sleep(150);
+      }
+      if (!previewResponse) throw new Error('J04 recorded-absence Preview returned no receipt-backed row response');
+      const idColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === 'id');
+      const valueColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.valuePath);
+      const codeColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.codingPath);
+      const systemColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.systemPath);
+      const displayColumn = authoredObservation.columns.find((column) => sourcePathFor(column) === controlPlan.observation.recordedAbsence.displayPath);
+      if (![idColumn, valueColumn, codeColumn, systemColumn, displayColumn].every(Boolean)) throw new Error('J04 recorded-absence Preview is missing a visible authored source column');
+      const sourceRecordID = controlPlan.observation.recordedAbsence.sourceRecordId;
+      const rowIndex = previewResponse.responseJSON.rows.findIndex((row) => row?.[idColumn.column] === sourceRecordID);
+      if (rowIndex < 0) throw new Error(`J04 Preview did not emit Observation/${sourceRecordID}`);
+      const row = previewResponse.responseJSON.rows[rowIndex];
+      const getCell = (column) => Object.hasOwn(row, column.column) ? row[column.column] : null;
+      const projected = {
+        sourceIdentity: `Observation/${getCell(idColumn)}`,
+        valueString: getCell(valueColumn),
+        absenceCode: getCell(codeColumn),
+        absenceSystem: getCell(systemColumn),
+        absenceDisplay: getCell(displayColumn),
+      };
+      await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${rowIndex})`);
+      const visibleRow = await evaluate(cdp, `(() => {
+        const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+        const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
+        const headers = [...(rows[0]?.querySelectorAll('[role="columnheader"]') || [])].map((cell) => cell.textContent.trim());
+        const found = rows.slice(1).find((candidate) => [...candidate.querySelectorAll('[role="cell"]')].some((cell) => cell.textContent.trim() === ${JSON.stringify(sourceRecordID)}));
+        return found ? Object.fromEntries([...found.querySelectorAll('[role="cell"]')].map((cell, index) => [headers[index], cell.textContent.trim()])) : null;
+      })()`);
+      const cellTraceURL = `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2/cell-trace`;
+      const traceRowIDs = [row.__loom_row_id, row.rowId, sourceRecordID, `Observation/${sourceRecordID}`]
+        .filter((value, index, values) => typeof value === 'string' && value && values.indexOf(value) === index);
+      const traceAttempts = [];
+      for (const rowId of traceRowIDs) {
+        const trace = await requestJSON(cellTraceURL, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+          body: JSON.stringify({ receiptId: previewResponse.responseJSON.receiptId, outputId, rowId, column: codeColumn.column, limit: 20 }),
+        });
+        traceAttempts.push({ rowId, status: trace.response.status, value: trace.value });
+        if (trace.response.ok && trace.value?.trace?.complete === true) break;
+      }
+      const completeTrace = traceAttempts.find((item) => item.value?.trace?.complete === true);
+      const traceSources = completeTrace?.value?.trace?.contributions?.flatMap((item) => item.resourceType && item.resourceId
+        ? [`${item.resourceType}/${item.resourceId}`] : []) ?? [];
+      const valueTraceAttempts = [];
+      for (const rowId of traceRowIDs) {
+        const trace = await requestJSON(cellTraceURL, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 30000,
+          body: JSON.stringify({ receiptId: previewResponse.responseJSON.receiptId, outputId, rowId, column: valueColumn.column, limit: 20 }),
+        });
+        valueTraceAttempts.push({ rowId, status: trace.response.status, value: trace.value });
+        if (trace.response.ok && trace.value?.trace?.complete === true) break;
+      }
+      const completeValueTrace = valueTraceAttempts.find((item) => item.value?.trace?.complete === true);
+      const noMatchTrace = completeValueTrace?.value?.trace;
+      const absence = controlPlan.observation.recordedAbsence;
+      report.target.recordedAbsenceEvidence = {
+        outputId,
+        receiptId: previewResponse.responseJSON.receiptId,
+        previewRequestId: previewResponse.requestId,
+        previewStatus: previewResponse.status,
+        rowIndex,
+        sourceIdentity: projected.sourceIdentity,
+        previewValue: projected,
+        visibleRow,
+        cellTrace: completeTrace?.value ?? { attempts: traceAttempts },
+        sourceIdentities: traceSources,
+        missingValueTrace: completeValueTrace?.value ?? { attempts: valueTraceAttempts },
+      };
+      recordAssertion(report, 'j04-missing-valueString-is-a-null-no-match-cell', { sourceIdentity: `Observation/${sourceRecordID}`, value: null, traceStatus: 'NO_MATCH', sourceIdentities: [] }, {
+        sourceIdentity: projected.sourceIdentity, value: projected.valueString, traceStatus: noMatchTrace?.status ?? null,
+        sourceIdentities: noMatchTrace?.contributions?.flatMap((item) => item.resourceType && item.resourceId ? [`${item.resourceType}/${item.resourceId}`] : []) ?? null,
+      });
+      recordAssertion(report, 'j04-recorded-absence-is-visibly-emitted-with-exact-coding-and-source', {
+        sourceIdentity: `Observation/${sourceRecordID}`, code: absence.code, system: absence.system, display: absence.display,
+      }, {
+        sourceIdentity: projected.sourceIdentity, code: projected.absenceCode, system: projected.absenceSystem,
+        display: projected.absenceDisplay,
+      });
+      const actualPresenceCases = controlPlan.observation.presenceCases.map((item) => {
+        const sourceRow = previewResponse.responseJSON.rows.find((candidate) => candidate?.[idColumn.column] === item.sourceRecordId);
+        const column = authoredObservation.columns.find((candidate) => sourcePathFor(candidate) === item.fieldPath);
+        return {
+          sourceRecordId: item.sourceRecordId,
+          presence: item.presence,
+          value: sourceRow && column && Object.hasOwn(sourceRow, column.column) ? sourceRow[column.column] : null,
+        };
+      });
+      recordAssertion(report, 'j04-preview-preserves-missing-false-zero-and-whitespace-blank-source-values',
+        controlPlan.observation.presenceCases.map((item) => ({
+          sourceRecordId: item.sourceRecordId, presence: item.presence, value: item.presence === 'missing' ? null : item.value,
+        })), actualPresenceCases);
+      recordAssertion(report, 'j04-recorded-absence-code-is-visible-in-preview', absence.code,
+        visibleRow?.[authoredObservation.columns.find((column) => sourcePathFor(column) === absence.codingPath)?.label] ?? null);
+      if (completeTrace) {
+        recordAssertion(report, 'j04-recorded-absence-cell-trace-pins-source-observation', [`Observation/${sourceRecordID}`], traceSources);
+      } else {
+        report.assertions.push({ name: 'j04-recorded-absence-cell-trace-pins-source-observation', status: 'not-proven', expected: [`Observation/${sourceRecordID}`], actual: traceAttempts, detail: 'The receipt-bound code-cell trace did not return complete source identities.' });
+      }
+      await captureDOM('j04-recorded-absence-visible-preview');
+    });
 
     const openShapeSelector = '[data-testid="ui04-open-table-shape-settings"]';
     const openShapeVisible = await browserEval(cdp, `return Boolean([...document.querySelectorAll(${JSON.stringify(openShapeSelector)})].find(visible))`);
@@ -7063,7 +8151,7 @@ const main = async (argv) => {
       : command === 'verify-j01' ? j01Scenario
         : command === 'verify-j02' ? 'S02-J02-related-column-route-edit-persistence'
       : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
-            : command === 'verify-j04' ? 'S04-J04-values-time-shape-typed-pivot-derived'
+            : command === 'verify-j04' || command === 'verify-j04-patient' ? 'S04-J04-values-time-shape-typed-pivot-derived'
             : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
           : undefined);
   let activeReport = report;
@@ -7169,7 +8257,7 @@ const main = async (argv) => {
       }
       return;
     }
-    if (command === 'verify-j04') {
+    if (command === 'verify-j04' || command === 'verify-j04-patient') {
       const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
       const verificationTarget = createVerificationTarget(target, runID);
       const verificationReport = createVerificationReport(verificationTarget, 'S04-J04-values-time-shape-typed-pivot-derived');
@@ -7209,6 +8297,20 @@ const main = async (argv) => {
       verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
       recordAssertion(verificationReport, 'j04-seeds-a-fresh-isolated-project-with-an-empty-builder', true,
         seed.fresh && !seed.reused && Boolean(seed.bootstrapExplorerId) && !seed.bootstrapWorkspace?.workspace?.documents?.length);
+      await verifyJ04PatientOperatorScenario(verificationTarget, verificationReport, target, fixture);
+      if (command === 'verify-j04-patient') {
+        const failures = verificationReport.assertions.filter((assertion) => assertion.status === 'failed');
+        const unproven = verificationReport.assertions.filter((assertion) => assertion.status === 'not-proven');
+        if (failures.length || unproven.length || verificationReport.limitations.length) {
+          throw new Error(`J04 Patient operator acceptance incomplete: ${failures.length} literal assertion mismatch(es), ${unproven.length} unproven assertion(s), ${verificationReport.limitations.length} limitation(s)`);
+        }
+        verificationReport.status = 'passed';
+        verificationReport.timings.total_ms = Date.now() - commandStarted;
+        writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+        writeJSON(join(verificationTarget.artifacts, 'report.json'), verificationReport);
+        console.log(`DEV_J04_PATIENT_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+        return;
+      }
       await verifyJ04BrowserScenario(verificationTarget, verificationReport, target, fixture);
       verificationReport.status = 'passed';
       verificationReport.timings.total_ms = Date.now() - commandStarted;
@@ -7300,7 +8402,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j05, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j04-patient, verify-j05, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);

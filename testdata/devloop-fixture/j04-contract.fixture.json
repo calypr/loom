@@ -10,7 +10,7 @@
     { "resourceType": "Observation", "id": "j04-window-excluded" },
     { "resourceType": "Observation", "id": "j04-unsupported-unit" },
     { "resourceType": "Observation", "id": "j04-scalar-present" },
-    { "resourceType": "Observation", "id": "j04-scalar-null" },
+    { "resourceType": "Observation", "id": "j04-scalar-absence" },
     { "resourceType": "Observation", "id": "j04-scalar-false" },
     { "resourceType": "Observation", "id": "j04-scalar-zero" },
     { "resourceType": "Observation", "id": "j04-scalar-blank" },
@@ -32,6 +32,7 @@
   "aggregateScope": {
     "rowResourceType": "Patient",
     "selectedRowIdentities": ["Patient/j04-patient-001"],
+    "anchorPath": "meta.lastUpdated",
     "sourceResourceType": "Observation",
     "ownerReferencePath": "subject.reference",
     "categoryPath": "code.coding[].code",
@@ -62,6 +63,7 @@
   ],
   "temporalOutcomes": {
     "rowIdentity": "Patient/j04-patient-001",
+    "anchorPath": "meta.lastUpdated",
     "window": {
       "startInclusive": "2025-01-01T00:00:00Z",
       "endExclusive": "2025-01-03T00:00:00Z"
@@ -176,7 +178,7 @@
       { "sourceRecordId": "j04-window-excluded", "categoryCode": "measure", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-unsupported-unit", "categoryCode": "measure", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-present", "categoryCode": "scalar-present", "reason": "UNLISTED_CATEGORY" },
-      { "sourceRecordId": "j04-scalar-null", "categoryCode": "scalar-null", "reason": "UNLISTED_CATEGORY" },
+      { "sourceRecordId": "j04-scalar-absence", "categoryCode": "scalar-absence", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-false", "categoryCode": "scalar-false", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-zero", "categoryCode": "scalar-zero", "reason": "UNLISTED_CATEGORY" },
       { "sourceRecordId": "j04-scalar-blank", "categoryCode": "scalar-blank", "reason": "UNLISTED_CATEGORY" },
@@ -235,11 +237,21 @@
   },
   "presenceCases": [
     { "sourceRecordId": "j04-scalar-missing", "fieldPath": "valueString", "presence": "missing" },
-    { "sourceRecordId": "j04-scalar-null", "fieldPath": "valueString", "presence": "null", "value": null },
+    { "sourceRecordId": "j04-scalar-absence", "fieldPath": "valueString", "presence": "missing" },
     { "sourceRecordId": "j04-scalar-false", "fieldPath": "valueBoolean", "presence": "false", "value": false },
     { "sourceRecordId": "j04-scalar-zero", "fieldPath": "valueInteger", "presence": "zero", "value": 0 },
     { "sourceRecordId": "j04-scalar-blank", "fieldPath": "valueString", "presence": "blank", "value": " " }
   ],
+  "recordedAbsence": {
+    "sourceRecordId": "j04-scalar-absence",
+    "valuePath": "valueString",
+    "codingPath": "dataAbsentReason.coding[].code",
+    "systemPath": "dataAbsentReason.coding[].system",
+    "displayPath": "dataAbsentReason.coding[].display",
+    "system": "http://terminology.hl7.org/CodeSystem/data-absent-reason",
+    "code": "unknown",
+    "display": "Unknown"
+  },
   "acceptanceExpectations": {
     "unsupportedUnitProposalIsRefused": true,
     "previewProposalIsNonMutating": true,
