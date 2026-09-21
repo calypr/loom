@@ -1013,7 +1013,7 @@ export const explorerBuilderCandidateSchema = z
     constructionChoice: constructionChoiceSchema.optional(),
     aggregateOperations: z.array(aggregateOperationCapabilitySchema),
     transformations: aggregateTransformationCapabilitySchema,
-    valueTransformations: columnValueTransformationCapabilitiesSchema.optional(),
+    valueTransformations: columnValueTransformationCapabilitiesSchema,
     conceptCandidates: z.array(conceptCandidateSchema).optional(),
     repeatedBoundaries: z
       .array(

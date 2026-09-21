@@ -2,8 +2,10 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type {
   AggregateTransformationCapability,
+  ColumnValueTransformationCapabilities,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
@@ -70,6 +72,28 @@ const unavailableTransformations: AggregateTransformationCapability = {
     reasonCode: 'NO_COMPATIBLE_UNIT_PRESET',
     reason: 'No approved unit preset is available for this candidate.',
     presets: [],
+  },
+};
+
+const availableStringValueTransformations: ColumnValueTransformationCapabilities = {
+  exactCategoryRecode: { available: true },
+  codedValueRecoding: {
+    available: false,
+    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
+  },
+};
+
+const unsupportedValueTransformations: ColumnValueTransformationCapabilities = {
+  exactCategoryRecode: {
+    available: false,
+    reasonCode: 'COLUMN_VALUE_TYPE_UNSUPPORTED',
+    reason: 'Exact category recoding requires a scalar string value.',
+  },
+  codedValueRecoding: {
+    available: false,
+    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
   },
 };
 
@@ -215,7 +239,7 @@ describe('configured V2 columns', () => {
     expect(screen.getByRole('textbox', { name: 'Display name for configured Research Subject ID' })).toBeInTheDocument();
   });
 
-  it('saves exact category mappings through FeaturePolicyEditor without changing column identity or source', () => {
+  it('types and saves exact category mappings without changing column identity or source', async () => {
     const column: ExplorerBuilderColumn = {
       column: 'status',
       label: 'Status',
@@ -252,6 +276,7 @@ describe('configured V2 columns', () => {
     const onTransformationChange = vi.fn();
     const onSourceChange = vi.fn();
 
+    const user = userEvent.setup();
     render(<ColumnSelector
       catalog={{ ...catalog, candidates: [candidate] }}
       interpretationContext={contextFor(transformTable.outputId, column.column, [candidate.candidateId])}
@@ -266,18 +291,18 @@ describe('configured V2 columns', () => {
       onRemove={vi.fn()}
     />);
 
-    fireEvent.click(screen.getByText('Recode exact category values'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add mapping' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Recorded category 1 for Status' }), {
-      target: { value: 'recorded-A' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Replacement value 1 for Status' }), {
-      target: { value: 'group-1' },
-    });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), {
-      target: { value: 'KEEP_ORIGINAL' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save recoding' }));
+    await user.click(screen.getByText('Recode exact category values'));
+    await user.click(screen.getByRole('button', { name: 'Add mapping' }));
+    const recordedCategory = screen.getByRole('textbox', { name: 'Recorded category 1 for Status' });
+    await user.type(recordedCategory, 'recorded-A');
+    expect(screen.getByDisplayValue('recorded-A')).toBe(recordedCategory);
+    expect(document.activeElement).toBe(recordedCategory);
+    const replacementValue = screen.getByRole('textbox', { name: 'Replacement value 1 for Status' });
+    await user.type(replacementValue, 'group-1');
+    expect(screen.getByDisplayValue('group-1')).toBe(replacementValue);
+    expect(document.activeElement).toBe(replacementValue);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unmapped value policy for Status' }), 'KEEP_ORIGINAL');
+    await user.click(screen.getByRole('button', { name: 'Save recoding' }));
 
     expect(onTransformationChange).toHaveBeenCalledWith('status', {
       kind: 'SET',
@@ -314,6 +339,7 @@ describe('configured V2 columns', () => {
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
         transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
       }],
     };
 
@@ -350,6 +376,7 @@ describe('configured V2 columns', () => {
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
       transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
     };
     const samePathDecoy = { ...idCandidate, candidateId: 'opaque-decoy', label: 'Decoy identity', filterable: true };
     render(<ColumnSelector
@@ -387,6 +414,7 @@ describe('configured V2 columns', () => {
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
         transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
       }],
     };
     const aggregateTable: DraftTable = {
@@ -607,6 +635,7 @@ describe('configured V2 columns', () => {
           },
         ],
         transformations: unavailableTransformations,
+        valueTransformations: unsupportedValueTransformations,
       }],
     };
     const relatedTable: DraftTable = {
@@ -721,6 +750,7 @@ describe('configured V2 columns', () => {
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
           transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
         },
         {
           candidateId: 'c_value',
@@ -764,6 +794,7 @@ describe('configured V2 columns', () => {
               }],
             },
           },
+          valueTransformations: unsupportedValueTransformations,
         },
         {
           candidateId: 'c_timestamp',
@@ -779,6 +810,7 @@ describe('configured V2 columns', () => {
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
           transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
         },
         {
           candidateId: 'c_unadvertised_anchor',
@@ -794,6 +826,7 @@ describe('configured V2 columns', () => {
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
           transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
         },
         {
           candidateId: 'c_unadvertised_timestamp',
@@ -809,6 +842,7 @@ describe('configured V2 columns', () => {
           defaultProjectionMode: 'VALUE',
           aggregateOperations: [],
           transformations: unavailableTransformations,
+          valueTransformations: unsupportedValueTransformations,
         },
       ],
     };
@@ -921,6 +955,7 @@ describe('configured V2 columns', () => {
             }],
           },
         },
+        valueTransformations: unsupportedValueTransformations,
       }],
     };
     const measurementTable: DraftTable = {
@@ -1022,6 +1057,7 @@ describe('configured V2 columns', () => {
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
       transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
     };
     const beta: ExplorerBuilderCandidate = {
       ...alpha,
@@ -1163,6 +1199,7 @@ describe('configured V2 columns', () => {
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
       transformations: unavailableTransformations,
+      valueTransformations: unsupportedValueTransformations,
     };
     const onAdd = vi.fn();
     const onAddAll = vi.fn();
@@ -1235,6 +1272,7 @@ describe('configured V2 columns', () => {
       defaultProjectionMode: 'FIRST',
       aggregateOperations: [],
       transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
     };
     render(
       <ColumnSelector
@@ -1326,6 +1364,7 @@ describe('configured V2 columns', () => {
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
         transformations: unavailableTransformations,
+        valueTransformations: unsupportedValueTransformations,
       },
       'patient-step',
       table.document.columns,
@@ -1363,6 +1402,7 @@ describe('configured V2 columns', () => {
         defaultProjectionMode: 'FIRST',
         aggregateOperations: [],
         transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
       },
       'base',
       [],

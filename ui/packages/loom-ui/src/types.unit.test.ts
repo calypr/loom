@@ -348,11 +348,27 @@ describe('aggregateTransformationCapabilitySchema', () => {
       defaultProjectionMode: 'VALUE',
       aggregateOperations: [],
       transformations,
+      valueTransformations: {
+        exactCategoryRecode: {
+          available: false,
+          reasonCode: 'COLUMN_VALUE_TYPE_UNSUPPORTED',
+          reason: 'Exact category recoding requires a scalar string value.',
+        },
+        codedValueRecoding: {
+          available: false,
+          reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+          reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
+        },
+      },
     } as const;
     expect(explorerBuilderCandidateSchema.parse(candidate)).toEqual(candidate);
     expect(explorerBuilderCandidateSchema.safeParse({
       ...candidate,
       transformations: undefined,
+    }).success).toBe(false);
+    expect(explorerBuilderCandidateSchema.safeParse({
+      ...candidate,
+      valueTransformations: undefined,
     }).success).toBe(false);
   });
 });

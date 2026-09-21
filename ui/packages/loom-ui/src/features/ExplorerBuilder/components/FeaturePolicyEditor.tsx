@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   AggregateOperationCapability,
   TemporalFieldChoice,
@@ -15,6 +15,10 @@ type ExactCategoryRecode = Extract<
   NonNullable<ExplorerBuilderColumn['valueTransformation']>,
   { readonly kind: 'EXACT_CATEGORY_RECODE' }
 >['exactCategoryRecode'];
+
+type DraftCategoryMapping = ExactCategoryRecode['mappings'][number] & {
+  readonly draftId: number;
+};
 
 const ExactCategoryRecodeEditor = ({
   column,
@@ -33,15 +37,18 @@ const ExactCategoryRecodeEditor = ({
   const capability = column.source.kind === 'codedValue'
     ? candidate?.valueTransformations?.codedValueRecoding
     : candidate?.valueTransformations?.exactCategoryRecode;
-  const [mappings, setMappings] = useState<ReadonlyArray<{ from: string; to: string }>>(
-    () => current?.mappings.map((mapping) => ({ ...mapping })) ?? [],
+  const nextDraftId = useRef(0);
+  const toDraftMappings = (values: ExactCategoryRecode['mappings'] = []) =>
+    values.map((mapping) => ({ ...mapping, draftId: nextDraftId.current++ }));
+  const [mappings, setMappings] = useState<ReadonlyArray<DraftCategoryMapping>>(
+    () => toDraftMappings(current?.mappings),
   );
   const [unknownPolicy, setUnknownPolicy] = useState<ExactCategoryRecode['unknownPolicy']>(
     () => current?.unknownPolicy ?? 'ERROR',
   );
 
   useEffect(() => {
-    setMappings(current?.mappings.map((mapping) => ({ ...mapping })) ?? []);
+    setMappings(toDraftMappings(current?.mappings));
     setUnknownPolicy(current?.unknownPolicy ?? 'ERROR');
   }, [column.column, current]);
 
@@ -71,7 +78,7 @@ const ExactCategoryRecodeEditor = ({
       <div className="mt-1 space-y-1 rounded border border-slate-200 bg-white p-2">
         <div className="max-h-24 space-y-1 overflow-y-auto">
           {mappings.map((mapping, index) => (
-            <div key={`${index}-${mapping.from}`} className="flex items-center gap-1">
+            <div key={mapping.draftId} className="flex items-center gap-1">
               <input
                 aria-label={`Recorded category ${index + 1} for ${column.label}`}
                 className="min-w-0 flex-1 rounded border border-slate-300 px-1.5 py-1"
@@ -114,7 +121,7 @@ const ExactCategoryRecodeEditor = ({
             type="button"
             className="rounded border border-slate-300 px-2 py-1 font-medium hover:bg-slate-50 disabled:opacity-40"
             disabled={disabled}
-            onClick={() => setMappings((previous) => [...previous, { from: '', to: '' }])}
+            onClick={() => setMappings((previous) => [...previous, { draftId: nextDraftId.current++, from: '', to: '' }])}
           >
             Add mapping
           </button>
@@ -141,7 +148,7 @@ const ExactCategoryRecodeEditor = ({
               kind: 'SET',
               transformation: {
                 kind: 'EXACT_CATEGORY_RECODE',
-                exactCategoryRecode: { mappings: mappings.map((mapping) => ({ ...mapping })), unknownPolicy },
+                exactCategoryRecode: { mappings: mappings.map(({ from, to }) => ({ from, to })), unknownPolicy },
               },
             })}
           >

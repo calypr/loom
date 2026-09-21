@@ -6,6 +6,7 @@ import { createLoomClient } from '../../../api';
 import { LoomProvider } from '../../../react';
 import type {
   AggregateTransformationCapability,
+  ColumnValueTransformationCapabilities,
   ConstructionChoice,
   ExplorerBuilderCatalog,
   ExplorerBuilderCandidate,
@@ -65,6 +66,15 @@ const unavailableTransformations: AggregateTransformationCapability = {
     available: false,
     reason: 'No approved unit preset is available for this candidate.',
     presets: [],
+  },
+};
+
+const availableStringValueTransformations: ColumnValueTransformationCapabilities = {
+  exactCategoryRecode: { available: true },
+  codedValueRecoding: {
+    available: false,
+    reasonCode: 'CODED_VALUE_RECODE_UNAVAILABLE',
+    reason: 'Coded value recoding is unavailable because this scalar transformation cannot preserve both Coding.system and Coding.code.',
   },
 };
 
@@ -152,6 +162,7 @@ const rootId: ExplorerBuilderCandidate = {
   defaultProjectionMode: 'VALUE',
   aggregateOperations: [],
   transformations: unavailableTransformations,
+  valueTransformations: availableStringValueTransformations,
   constructionChoice: fieldChoice('field-choice-id', 'candidate-id', 'patient-node', 'Patient', 'id'),
 };
 
