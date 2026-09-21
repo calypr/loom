@@ -387,6 +387,27 @@ func TestTableShapeSavedPivotReloadUsesDetachedBaseCatalog(t *testing.T) {
 	}
 }
 
+func TestTableScalarToCapabilityScalarPreservesSentinelKeys(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		in   authoringv2.TableScalar
+		want tableshapecap.ScalarKind
+	}{
+		{name: "recorded null", in: authoringv2.TableScalar{Kind: authoringv2.TableScalarNull}, want: tableshapecap.ScalarNull},
+		{name: "missing property", in: authoringv2.TableScalar{Kind: authoringv2.TableScalarMissing}, want: tableshapecap.ScalarMissing},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := tableScalarToCapabilityScalar(test.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != test.want {
+				t.Fatalf("kind = %q, want %q", got.Kind, test.want)
+			}
+		})
+	}
+}
+
 func TestTableShapeDiscoveryRejectsStaleAndIncompleteBindings(t *testing.T) {
 	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
 	request := tableShapeCatalogRequest(store.created, snapshot)

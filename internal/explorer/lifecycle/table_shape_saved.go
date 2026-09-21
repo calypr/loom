@@ -444,18 +444,22 @@ func findOperandChoiceID(catalog tableshapecap.CatalogReceipt, key string) (stri
 }
 
 func tableScalarToCapabilityScalar(value authoringv2.TableScalar) (tableshapecap.Scalar, error) {
-	if err := value.Validate(); err != nil {
+	if err := value.ValidateStructure(); err != nil {
 		return tableshapecap.Scalar{}, err
 	}
 	switch value.Kind {
-	case "STRING":
+	case authoringv2.TableScalarString:
 		return tableshapecap.StringScalar(*value.String), nil
-	case "INTEGER":
+	case authoringv2.TableScalarInteger:
 		return tableshapecap.IntegerScalar(*value.Integer), nil
-	case "DECIMAL":
+	case authoringv2.TableScalarDecimal:
 		return tableshapecap.DecimalScalar(*value.Decimal), nil
-	case "BOOLEAN":
+	case authoringv2.TableScalarBoolean:
 		return tableshapecap.BooleanScalar(*value.Boolean), nil
+	case authoringv2.TableScalarNull:
+		return tableshapecap.NullScalar(), nil
+	case authoringv2.TableScalarMissing:
+		return tableshapecap.MissingScalar(), nil
 	default:
 		return tableshapecap.Scalar{}, fmt.Errorf("unsupported saved scalar kind %q", value.Kind)
 	}
