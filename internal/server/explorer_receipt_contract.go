@@ -50,15 +50,20 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	workspaceStarted := time.Now()
 	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, request.ResolvedInputs)
 	if err != nil {
 		return nil, err
 	}
+	workspaceCompileDuration := time.Since(workspaceStarted)
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
+	engineStarted := time.Now()
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
 		return nil, err
 	}
+	initialEngineCompileDuration := time.Since(engineStarted)
+	contractStarted := time.Now()
 	translated, err = reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("reconcile receipt output metadata: %w", err)
@@ -102,16 +107,19 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
+	contractDuration := time.Since(contractStarted)
+	persistStarted := time.Now()
 	stored, err := persistValidatedReceipt(ctx, recipeEngine, &receipt, bindings, explorerService.StoreCompilationReceipt)
 	if err != nil {
 		return nil, err
 	}
+	revalidateAndStoreDuration := time.Since(persistStarted)
 	receiptBytes := 0
 	if raw, marshalErr := json.Marshal(stored); marshalErr == nil {
 		receiptBytes = len(raw)
 	}
 	if logger != nil {
-		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
+		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "workspace_compile_ms", workspaceCompileDuration.Milliseconds(), "initial_recipe_compile_ms", initialEngineCompileDuration.Milliseconds(), "receipt_contract_ms", contractDuration.Milliseconds(), "revalidate_and_store_ms", revalidateAndStoreDuration.Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
 	}
 	return stored, nil
 }
