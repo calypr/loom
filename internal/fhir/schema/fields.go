@@ -27,27 +27,39 @@ type ResolvedPath struct {
 
 const maxSelectorFieldDepth = 6
 
+type resourceFieldIndex struct {
+	fields []FieldSpec
+	byPath map[string]int
+}
+
 var resourceCache sync.Map
 
 func FieldsForResource(resourceType string) []FieldSpec {
+	return cloneFields(cachedResourceFields(resourceType).fields)
+}
+
+func cachedResourceFields(resourceType string) *resourceFieldIndex {
 	if cached, ok := resourceCache.Load(resourceType); ok {
-		return cloneFields(cached.([]FieldSpec))
+		return cached.(*resourceFieldIndex)
 	}
 	fields := flattenDefinition(resourceType, 0, map[string]bool{})
-	if len(fields) == 0 {
-		return []FieldSpec{}
+	index := &resourceFieldIndex{fields: fields, byPath: make(map[string]int, len(fields))}
+	for position, field := range fields {
+		index.byPath[field.Path] = position
 	}
-	resourceCache.Store(resourceType, cloneFields(fields))
-	return cloneFields(fields)
+	stored, _ := resourceCache.LoadOrStore(resourceType, index)
+	return stored.(*resourceFieldIndex)
 }
 
 func LookupField(resourceType, canonicalPath string) (FieldSpec, bool) {
-	for _, field := range FieldsForResource(resourceType) {
-		if field.Path == canonicalPath {
-			return field, true
-		}
+	index := cachedResourceFields(resourceType)
+	position, ok := index.byPath[canonicalPath]
+	if !ok {
+		return FieldSpec{}, false
 	}
-	return FieldSpec{}, false
+	field := index.fields[position]
+	field.PredicatePaths = cloneStrings(field.PredicatePaths)
+	return field, true
 }
 
 func ResolvePath(resourceType, canonicalPath string) (ResolvedPath, bool) {

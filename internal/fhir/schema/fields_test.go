@@ -25,3 +25,27 @@ func TestFieldsForResourceIncludesExpectedPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestLookupFieldDoesNotExposeCachedPredicatePaths(t *testing.T) {
+	var path string
+	for _, field := range FieldsForResource("Observation") {
+		if len(field.PredicatePaths) > 0 {
+			path = field.Path
+			break
+		}
+	}
+	if path == "" {
+		t.Fatal("Observation has no field with predicate paths")
+	}
+
+	first, ok := LookupField("Observation", path)
+	if !ok {
+		t.Fatalf("field %q disappeared", path)
+	}
+	want := first.PredicatePaths[0]
+	first.PredicatePaths[0] = "mutated-by-caller"
+	second, ok := LookupField("Observation", path)
+	if !ok || second.PredicatePaths[0] != want {
+		t.Fatalf("cached field changed after caller mutation: %#v, found=%t", second, ok)
+	}
+}
