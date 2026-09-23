@@ -30,3 +30,21 @@ func TestLookupTraversalRejectsUnknownTuple(t *testing.T) {
 		t.Fatal("expected unsupported tuple to miss")
 	}
 }
+
+func TestLookupTraversalResolvesDeepNestedReferenceFromSchema(t *testing.T) {
+	const (
+		fromType  = "Organization"
+		edgeLabel = "modifierExtension_extension_valueReference_ResearchStudy"
+		toType    = "ResearchStudy"
+	)
+	spec, ok := LookupTraversal(fromType, edgeLabel, toType)
+	if !ok {
+		t.Fatalf("expected deep traversal %s %s %s", fromType, edgeLabel, toType)
+	}
+	if spec.FromType != fromType || spec.EdgeLabel != edgeLabel || spec.ToType != toType {
+		t.Fatalf("unexpected deep traversal spec: %#v", spec)
+	}
+	if _, ok := LookupTraversal(fromType, "unrelated_extension_valueReference_ResearchStudy", toType); ok {
+		t.Fatal("expected path outside the generated schema to miss")
+	}
+}

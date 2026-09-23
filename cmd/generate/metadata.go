@@ -14,6 +14,7 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	sb.WriteString("type Definition struct {\n\tTitle string\n\tDescription string\n\tRequired []string\n\tProperties []Property\n}\n\n")
 	sb.WriteString("type Property struct {\n\tName string\n\tKind string\n\tFormat string\n\tRef string\n\tProperties []Property\n\tItemKind string\n\tItemFormat string\n\tItemRef string\n\tItemProperties []Property\n\tChoiceGroup string\n\tChoiceGroupRequired bool\n\tElementRequired bool\n\tRequiredChildren []string\n\tBindingStrength string\n\tBindingURI string\n\tBindingVersion string\n\tBindingDescription string\n\tReferenceTargetTypes []string\n\tTitle string\n\tDescription string\n}\n\n")
 	sb.WriteString("type Traversal struct {\n\tFromType string\n\tEdgeLabel string\n\tToType string\n\tDirection []string\n\tMultiplicity []string\n\tBackref []string\n\tRegexMatch []string\n}\n\n")
+	sb.WriteString("type NestedTraversalRule struct {\n\tNestedType string\n\tRelation string\n\tTargetType string\n\tDirection []string\n\tMultiplicity []string\n\tBackref []string\n\tRegexMatch []string\n}\n\n")
 	sb.WriteString("var ResourceTypes = []string{\n")
 	for _, k := range schemaFHIRRootResourceTypes(schema) {
 		sb.WriteString(fmt.Sprintf("\t%q,\n", k))
@@ -96,8 +97,43 @@ func generateFHIRSchema(schema *Schema, path string) error {
 			writeLink(link, true)
 		}
 	}
-	sb.WriteString("}\n")
+	sb.WriteString("}\n\n")
+	writeGeneratedNestedTraversalRules(&sb, schema, keys)
 	return os.WriteFile(path, []byte(sb.String()), 0644)
+}
+
+func writeGeneratedNestedTraversalRules(sb *strings.Builder, schema *Schema, definitionNames []string) {
+	sb.WriteString("var NestedTraversals = []NestedTraversalRule{\n")
+	seen := map[string]struct{}{}
+	resourceTypes := schemaFHIRRootResourceTypes(schema)
+	for _, nestedType := range definitionNames {
+		definition := schema.Defs[nestedType]
+		if isFHIRRootResourceDefinition(nestedType, definition) {
+			continue
+		}
+		for _, link := range definition.Links {
+			if strings.TrimSpace(link.Rel) == "" {
+				continue
+			}
+			for _, targetType := range resourceTypes {
+				if !nestedLinkSchemaAllowsTarget(schema, link, targetType) {
+					continue
+				}
+				key := nestedType + "|" + link.Rel + "|" + targetType
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				sb.WriteString(fmt.Sprintf("\t{NestedType: %q, Relation: %q, TargetType: %q", nestedType, link.Rel, targetType))
+				writeGeneratedInlineStringSlice(sb, "Direction", link.TargetHints.Direction)
+				writeGeneratedInlineStringSlice(sb, "Multiplicity", link.TargetHints.Multiplicity)
+				writeGeneratedInlineStringSlice(sb, "Backref", link.TargetHints.Backref)
+				writeGeneratedInlineStringSlice(sb, "RegexMatch", link.TargetHints.RegexMatch)
+				sb.WriteString("},\n")
+			}
+		}
+	}
+	sb.WriteString("}\n")
 }
 
 func schemaNestedLinkDefinitions(schema *Schema, rootType string) []Link {

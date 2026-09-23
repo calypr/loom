@@ -244,6 +244,47 @@ func TestGeneratedNestedExtensionReferenceIsSchemaLegalAndCarriesProvenance(t *t
 	}
 }
 
+func TestGeneratedDeepNestedReferenceTraversalIsSchemaLegal(t *testing.T) {
+	const (
+		edgeLabel    = "modifierExtension_extension_valueReference_ResearchStudy"
+		sourcePath   = "Organization.modifierExtension[].extension[].valueReference.reference"
+		extensionURL = "urn:deep-study-link"
+	)
+	line := []byte(`{
+  "resourceType": "Organization",
+  "id": "organization-deep",
+  "modifierExtension": [{
+    "url": "urn:outer-modifier",
+    "extension": [{
+      "url": "urn:deep-study-link",
+      "valueReference": {"reference": "ResearchStudy/study-deep"}
+    }]
+  }]
+}`)
+	_, edges, _, err := loadRowGenerated("Organization", line, "project-1", map[string]float64{})
+	if err != nil {
+		t.Fatalf("loadRowGenerated(Organization): %v", err)
+	}
+	spec, ok := fhirschema.LookupTraversal("Organization", edgeLabel, "ResearchStudy")
+	if !ok || spec.FromType != "Organization" || spec.ToType != "ResearchStudy" {
+		t.Fatalf("deep nested Reference traversal = %#v, found %t", spec, ok)
+	}
+	for _, raw := range edges {
+		var edge fhir.EdgeDocument
+		if err := json.Unmarshal(raw, &edge); err != nil {
+			t.Fatalf("decode generated edge: %v", err)
+		}
+		if edge.Label != edgeLabel {
+			continue
+		}
+		if edge.From != "Organization/organization-deep" || edge.To != "ResearchStudy/study-deep" || edge.SourcePath != sourcePath || edge.ExtensionURL != extensionURL {
+			t.Fatalf("deep nested edge = %#v, want source %q with URL %q", edge, sourcePath, extensionURL)
+		}
+		return
+	}
+	t.Fatalf("deep nested edge %q not found: %#v", edgeLabel, edges)
+}
+
 func TestGeneratedLoadAddsProjectIDToEnvelopeAndPayload(t *testing.T) {
 	project := "HTAN_INT-BForePC"
 	vertex, _, _, err := loadRowGenerated("Patient", []byte(`{
