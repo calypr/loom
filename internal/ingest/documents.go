@@ -27,13 +27,15 @@ type VertexDocument struct {
 }
 
 type EdgeDocument struct {
-	Key      string `json:"_key"`
-	From     string `json:"_from"`
-	To       string `json:"_to"`
-	Label    string `json:"label"`
-	Project  string `json:"project"`
-	FromType string `json:"from_type"`
-	ToType   string `json:"to_type"`
+	Key          string `json:"_key"`
+	From         string `json:"_from"`
+	To           string `json:"_to"`
+	Label        string `json:"label"`
+	Project      string `json:"project"`
+	FromType     string `json:"from_type"`
+	ToType       string `json:"to_type"`
+	SourcePath   string `json:"source_path,omitempty"`
+	ExtensionURL string `json:"extension_url,omitempty"`
 }
 
 func VertexFromFHIRWithExtra(project, resourceType string, payload, extraArgs map[string]any) (VertexDocument, error) {

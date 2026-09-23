@@ -47,28 +47,118 @@ func generateFHIRSchema(schema *Schema, path string) error {
 	seenTraversalKeys := map[string]struct{}{}
 	for _, k := range keys {
 		def := schema.Defs[k]
-		if !isFHIRRootResourceDefinition(k, def) || len(def.Links) == 0 {
+		if !isFHIRRootResourceDefinition(k, def) {
 			continue
 		}
-		for _, link := range def.Links {
+		writeLink := func(link Link, compact bool) {
 			toType, ok := schemaConcreteLinkTargetType(schema, link)
 			if strings.TrimSpace(link.Rel) == "" || !ok {
-				continue
+				return
 			}
 			forwardKey := traversalKey(k, link.Rel, toType)
 			if _, ok := seenTraversalKeys[forwardKey]; !ok {
-				writeGeneratedTraversal(&sb, k, link.Rel, toType, link, forwardKey)
+				if compact {
+					writeGeneratedTraversalCompact(&sb, k, link.Rel, toType, link, forwardKey)
+				} else {
+					writeGeneratedTraversal(&sb, k, link.Rel, toType, link, forwardKey)
+				}
 				seenTraversalKeys[forwardKey] = struct{}{}
 			}
 			reverseKey := traversalKey(toType, link.Rel, k)
 			if _, ok := seenTraversalKeys[reverseKey]; !ok {
-				writeGeneratedTraversal(&sb, toType, link.Rel, k, link, reverseKey)
+				if compact {
+					writeGeneratedTraversalCompact(&sb, toType, link.Rel, k, link, reverseKey)
+				} else {
+					writeGeneratedTraversal(&sb, toType, link.Rel, k, link, reverseKey)
+				}
 				seenTraversalKeys[reverseKey] = struct{}{}
 			}
+			for _, backref := range link.TargetHints.Backref {
+				backrefKey := traversalKey(toType, backref, k)
+				if strings.TrimSpace(backref) == "" {
+					continue
+				}
+				if _, ok := seenTraversalKeys[backrefKey]; ok {
+					continue
+				}
+				if compact {
+					writeGeneratedTraversalCompact(&sb, toType, backref, k, link, backrefKey)
+				} else {
+					writeGeneratedTraversal(&sb, toType, backref, k, link, backrefKey)
+				}
+				seenTraversalKeys[backrefKey] = struct{}{}
+			}
+		}
+		for _, link := range def.Links {
+			writeLink(link, false)
+		}
+		for _, link := range schemaNestedLinkDefinitions(schema, k) {
+			writeLink(link, true)
 		}
 	}
 	sb.WriteString("}\n")
 	return os.WriteFile(path, []byte(sb.String()), 0644)
+}
+
+func schemaNestedLinkDefinitions(schema *Schema, rootType string) []Link {
+	root := schema.Defs[rootType]
+	if root == nil {
+		return nil
+	}
+	active := map[string]bool{}
+	var links []Link
+	var visitDefinition func(string, string)
+	visitDefinition = func(typeName, path string) {
+		definition := schema.Defs[typeName]
+		if definition == nil || isFHIRRootResourceDefinition(typeName, definition) {
+			return
+		}
+		if active[typeName] {
+			return
+		}
+		active[typeName] = true
+		defer delete(active, typeName)
+		prefix := nestedTraversalPathPrefix(path)
+		for _, link := range definition.Links {
+			link.Rel = nestedTraversalLabel(prefix, link.Rel)
+			link.TargetHints.Backref = append([]string(nil), link.TargetHints.Backref...)
+			for index, backref := range link.TargetHints.Backref {
+				link.TargetHints.Backref[index] = nestedTraversalLabel(prefix, backref)
+			}
+			links = append(links, link)
+		}
+		return
+	}
+	propertyNames := make([]string, 0, len(root.Properties))
+	for name := range root.Properties {
+		propertyNames = append(propertyNames, name)
+	}
+	sort.Strings(propertyNames)
+	for _, name := range propertyNames {
+		property := root.Properties[name]
+		if property == nil {
+			continue
+		}
+		if property.Ref != "" {
+			visitDefinition(refName(property.Ref), name)
+		}
+		if property.Items != nil && property.Items.Ref != "" {
+			visitDefinition(refName(property.Items.Ref), name+"[]")
+		}
+	}
+	return links
+}
+
+func nestedTraversalPathPrefix(path string) string {
+	path = strings.ReplaceAll(path, "[]", "")
+	return strings.ReplaceAll(path, ".", "_")
+}
+
+func nestedTraversalLabel(prefix, relation string) string {
+	if prefix == "" {
+		return relation
+	}
+	return prefix + "_" + relation
 }
 
 // schemaConcreteLinkTargetType resolves a graph link target from schema
@@ -322,6 +412,29 @@ func writeGeneratedTraversal(sb *strings.Builder, fromType, edgeLabel, toType st
 	writeGeneratedStringSlice(sb, "Backref", link.TargetHints.Backref, 2)
 	writeGeneratedStringSlice(sb, "RegexMatch", link.TargetHints.RegexMatch, 2)
 	sb.WriteString("\t},\n")
+}
+
+func writeGeneratedTraversalCompact(sb *strings.Builder, fromType, edgeLabel, toType string, link Link, key string) {
+	sb.WriteString(fmt.Sprintf("\t%q: {FromType: %q, EdgeLabel: %q, ToType: %q", key, fromType, edgeLabel, toType))
+	writeGeneratedInlineStringSlice(sb, "Direction", link.TargetHints.Direction)
+	writeGeneratedInlineStringSlice(sb, "Multiplicity", link.TargetHints.Multiplicity)
+	writeGeneratedInlineStringSlice(sb, "Backref", link.TargetHints.Backref)
+	writeGeneratedInlineStringSlice(sb, "RegexMatch", link.TargetHints.RegexMatch)
+	sb.WriteString("},\n")
+}
+
+func writeGeneratedInlineStringSlice(sb *strings.Builder, field string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	sb.WriteString(", " + field + ": []string{")
+	for index, value := range values {
+		if index > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%q", value))
+	}
+	sb.WriteString("}")
 }
 
 func writeIndent(sb *strings.Builder, n int) {

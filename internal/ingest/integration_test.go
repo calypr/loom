@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +128,114 @@ func TestLoadAndQueryFixture(t *testing.T) {
 				t.Fatalf("semantic inventory source availability = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestGenerationLoadPrunesDanglingNestedReferenceTargets(t *testing.T) {
+	if os.Getenv("ARANGO_PROTO_INTEGRATION") == "" {
+		t.Skip("set ARANGO_PROTO_INTEGRATION=1 to run Arango integration tests")
+	}
+	ctx := context.Background()
+	metaDir := t.TempDir()
+	patientFile := filepath.Join(metaDir, "Patient.ndjson")
+	researchStudyFile := filepath.Join(metaDir, "ResearchStudy.ndjson")
+	patientPayload := `{"resourceType":"Patient","id":"patient-present","extension":[{"url":"urn:part-of-study","valueReference":{"reference":"ResearchStudy/study-present"}},{"url":"urn:missing-study","valueReference":{"reference":"ResearchStudy/study-missing"}}]}`
+	researchStudyPayload := `{"resourceType":"ResearchStudy","id":"study-present","status":"active"}`
+	if err := os.WriteFile(patientFile, []byte(patientPayload+"\n"), 0o644); err != nil {
+		t.Fatalf("write Patient fixture: %v", err)
+	}
+	if err := os.WriteFile(researchStudyFile, []byte(researchStudyPayload+"\n"), 0o644); err != nil {
+		t.Fatalf("write ResearchStudy fixture: %v", err)
+	}
+
+	project := "ARANGO_PROTO_TEST"
+	generation, err := publication.NewRef(project, "nested-reference-"+strconv.FormatInt(time.Now().UnixNano(), 10))
+	if err != nil {
+		t.Fatalf("create generation reference: %v", err)
+	}
+	database := "fhir_nested_ref_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	summary, err := Load(ctx, LoadOptions{
+		ConnectionOptions: arangostore.ConnectionOptions{URL: "http://127.0.0.1:8529", Database: database},
+		Schema:            repoPath(t, "schemas", "graph-fhir.json"),
+		MetaDir:           metaDir,
+		Project:           project,
+		Dataset:           &generation,
+		BatchSize:         100,
+	})
+	if err != nil {
+		t.Fatalf("load nested-reference generation: %v", err)
+	}
+	if got, want := summary.EdgesInserted, 2; got != want {
+		t.Fatalf("traversable edges inserted = %d, want %d edges for the one resolved reference", got, want)
+	}
+
+	client, err := arangostore.Open(ctx, "http://127.0.0.1:8529", database)
+	if err != nil {
+		t.Fatalf("open loaded graph: %v", err)
+	}
+	defer client.Close(ctx)
+	var edges []map[string]any
+	err = client.QueryRows(ctx, `
+FOR edge IN fhir_edge
+  FILTER edge.project == @project AND edge.dataset_generation == @generation
+  LET source = DOCUMENT(edge._from)
+  LET target = DOCUMENT(edge._to)
+  RETURN {
+    from_type: edge.from_type,
+    to_type: edge.to_type,
+    label: edge.label,
+    source_id: source.id,
+    target_id: target.id,
+    source_path: edge.source_path,
+    extension_url: edge.extension_url
+  }`, 100, map[string]any{"project": project, "generation": generation.Generation}, func(row map[string]any) error {
+		edges = append(edges, row)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("query loaded nested-reference edges: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("persisted nested-reference edges = %d, want forward/backref only for the existing target: %#v", len(edges), edges)
+	}
+	for _, edge := range edges {
+		if edge["source_path"] != "Patient.extension[].valueReference.reference" {
+			t.Errorf("persisted source_path = %#v, want Patient.extension[].valueReference.reference", edge["source_path"])
+		}
+		if edge["extension_url"] != "urn:part-of-study" {
+			t.Errorf("persisted extension_url = %#v, want urn:part-of-study", edge["extension_url"])
+		}
+		if edge["source_id"] == "patient-present" && edge["target_id"] != "study-present" {
+			t.Errorf("Patient edge target = %#v, want existing study-present", edge["target_id"])
+		}
+		if edge["target_id"] == "patient-present" && edge["source_id"] != "study-present" {
+			t.Errorf("back-reference source = %#v, want existing study-present", edge["source_id"])
+		}
+		if edge["source_id"] == "patient-present" && edge["target_id"] == "study-missing" || edge["source_id"] == "study-missing" {
+			t.Errorf("dangling target was persisted as an edge: %#v", edge)
+		}
+	}
+
+	catalogStore, err := catalogarango.New(client)
+	if err != nil {
+		t.Fatalf("create catalog store: %v", err)
+	}
+	references, err := catalogStore.DiscoverReferences(ctx, catalog.PopulatedReferenceOptions{
+		Project:           project,
+		DatasetGeneration: generation.Generation,
+		CursorBatch:       100,
+	})
+	if err != nil {
+		t.Fatalf("discover populated nested references: %v", err)
+	}
+	var resolvedCount int64
+	for _, reference := range references {
+		if reference.FromType == "Patient" && reference.Label == "extension_valueReference_ResearchStudy" && reference.ToType == "ResearchStudy" {
+			resolvedCount += reference.EdgeCount
+		}
+	}
+	if resolvedCount != 1 {
+		t.Fatalf("relationship catalog reports %d Patient-to-ResearchStudy links, want exactly one resolved target", resolvedCount)
 	}
 }
 

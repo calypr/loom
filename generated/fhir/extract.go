@@ -11,6 +11,7 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/google/uuid"
 	"hash"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,13 +19,1067 @@ import (
 
 // EdgeDocument represents an edge in ArangoDB.
 type EdgeDocument struct {
-	Key      string `json:"_key"`
-	From     string `json:"_from"`
-	To       string `json:"_to"`
-	Label    string `json:"label"`
-	Project  string `json:"project"`
-	FromType string `json:"from_type"`
-	ToType   string `json:"to_type"`
+	Key          string `json:"_key"`
+	From         string `json:"_from"`
+	To           string `json:"_to"`
+	Label        string `json:"label"`
+	Project      string `json:"project"`
+	FromType     string `json:"from_type"`
+	ToType       string `json:"to_type"`
+	SourcePath   string `json:"source_path,omitempty"`
+	ExtensionURL string `json:"extension_url,omitempty"`
+}
+
+type nestedLinkRule struct {
+	SourceType     string
+	Path           []string
+	Label          string
+	TargetPatterns []string
+	Backrefs       []string
+}
+
+var nestedLinkRules = []nestedLinkRule{
+	{SourceType: "Annotation", Path: []string{"authorReference", "reference"}, Label: "authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Annotation", Path: []string{"authorReference", "reference"}, Label: "authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Annotation", Path: []string{"authorReference", "reference"}, Label: "authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Annotation", Path: []string{"authorReference", "reference"}, Label: "authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "BodyStructureIncludedStructureBodyLandmarkOrientationDistanceFromLandmark", Path: []string{"device", "-", "reference", "reference"}, Label: "device_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "CodeableReference", Path: []string{"reference", "reference"}, Label: "reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ConditionParticipant", Path: []string{"actor", "reference"}, Label: "actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"condition_participant"}},
+	{SourceType: "ConditionParticipant", Path: []string{"actor", "reference"}, Label: "actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"condition_participant"}},
+	{SourceType: "ConditionParticipant", Path: []string{"actor", "reference"}, Label: "actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"condition_participant"}},
+	{SourceType: "ConditionParticipant", Path: []string{"actor", "reference"}, Label: "actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"condition_participant"}},
+	{SourceType: "ConditionStage", Path: []string{"assessment", "-", "reference"}, Label: "assessment_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"assessment_condition_stage"}},
+	{SourceType: "ConditionStage", Path: []string{"assessment", "-", "reference"}, Label: "assessment_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"assessment_condition_stage"}},
+	{SourceType: "DataRequirement", Path: []string{"subjectReference", "reference"}, Label: "subjectReference", TargetPatterns: []string{"Group"}, Backrefs: []string{"data_requirement"}},
+	{SourceType: "DiagnosticReportMedia", Path: []string{"link", "reference"}, Label: "link", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"diagnostic_report_media"}},
+	{SourceType: "DiagnosticReportSupportingInfo", Path: []string{"reference", "reference"}, Label: "reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"diagnostic_report_supporting_info"}},
+	{SourceType: "DiagnosticReportSupportingInfo", Path: []string{"reference", "reference"}, Label: "reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"diagnostic_report_supporting_info"}},
+	{SourceType: "DiagnosticReportSupportingInfo", Path: []string{"reference", "reference"}, Label: "reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"diagnostic_report_supporting_info"}},
+	{SourceType: "Directory", Path: []string{"child", "-", "reference"}, Label: "child_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{}},
+	{SourceType: "DocumentReferenceAttester", Path: []string{"party", "reference"}, Label: "party_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"document_reference_attester"}},
+	{SourceType: "DocumentReferenceAttester", Path: []string{"party", "reference"}, Label: "party_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"document_reference_attester"}},
+	{SourceType: "DocumentReferenceAttester", Path: []string{"party", "reference"}, Label: "party_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"document_reference_attester"}},
+	{SourceType: "DocumentReferenceAttester", Path: []string{"party", "reference"}, Label: "party_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"document_reference_attester"}},
+	{SourceType: "DocumentReferenceRelatesTo", Path: []string{"target", "reference"}, Label: "target", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"document_reference_relates_to"}},
+	{SourceType: "ExtendedContactDetail", Path: []string{"organization", "reference"}, Label: "organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"extended_contact_detail"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueReference", "reference"}, Label: "valueReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"extension"}},
+	{SourceType: "Extension", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Extension", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Extension", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Extension", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "Extension", Path: []string{"valueDataRequirement", "subjectReference", "reference"}, Label: "valueDataRequirement_subjectReference", TargetPatterns: []string{"Group"}, Backrefs: []string{"data_requirement"}},
+	{SourceType: "Extension", Path: []string{"valueExtendedContactDetail", "organization", "reference"}, Label: "valueExtendedContactDetail_organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"extended_contact_detail"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Extension", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Extension", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "Extension", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "Extension", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "FamilyMemberHistoryCondition", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryCondition", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryCondition", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryCondition", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryParticipant", Path: []string{"actor", "reference"}, Label: "actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"family_member_history_participant"}},
+	{SourceType: "FamilyMemberHistoryParticipant", Path: []string{"actor", "reference"}, Label: "actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"family_member_history_participant"}},
+	{SourceType: "FamilyMemberHistoryParticipant", Path: []string{"actor", "reference"}, Label: "actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"family_member_history_participant"}},
+	{SourceType: "FamilyMemberHistoryParticipant", Path: []string{"actor", "reference"}, Label: "actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"family_member_history_participant"}},
+	{SourceType: "FamilyMemberHistoryProcedure", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryProcedure", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryProcedure", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "FamilyMemberHistoryProcedure", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupCharacteristic", Path: []string{"valueReference", "reference"}, Label: "valueReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"group_characteristic"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"group_member"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"group_member"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"group_member"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"group_member"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"group_member"}},
+	{SourceType: "GroupMember", Path: []string{"entity", "reference"}, Label: "entity_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"group_member"}},
+	{SourceType: "Identifier", Path: []string{"assigner", "reference"}, Label: "assigner", TargetPatterns: []string{"Organization"}, Backrefs: []string{"identifier"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"specimen", "-", "reference"}, Label: "specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"specimen_imaging_study_series"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"performer", "-", "actor", "reference"}, Label: "performer_actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"performer", "-", "actor", "reference"}, Label: "performer_actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"performer", "-", "actor", "reference"}, Label: "performer_actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeries", Path: []string{"performer", "-", "actor", "reference"}, Label: "performer_actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeriesPerformer", Path: []string{"actor", "reference"}, Label: "actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeriesPerformer", Path: []string{"actor", "reference"}, Label: "actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeriesPerformer", Path: []string{"actor", "reference"}, Label: "actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "ImagingStudySeriesPerformer", Path: []string{"actor", "reference"}, Label: "actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"imaging_study_series_performer"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationAdministrationPerformer", Path: []string{"actor", "reference", "reference"}, Label: "actor_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationIngredient", Path: []string{"item", "reference", "reference"}, Label: "item_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "MedicationRequestDispenseRequest", Path: []string{"dispenser", "reference"}, Label: "dispenser", TargetPatterns: []string{"Organization"}, Backrefs: []string{"medication_request_dispense_request"}},
+	{SourceType: "MedicationRequestDispenseRequest", Path: []string{"dispenserInstruction", "-", "authorReference", "reference"}, Label: "dispenserInstruction_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "MedicationRequestDispenseRequest", Path: []string{"dispenserInstruction", "-", "authorReference", "reference"}, Label: "dispenserInstruction_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "MedicationRequestDispenseRequest", Path: []string{"dispenserInstruction", "-", "authorReference", "reference"}, Label: "dispenserInstruction_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "MedicationRequestDispenseRequest", Path: []string{"dispenserInstruction", "-", "authorReference", "reference"}, Label: "dispenserInstruction_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "ObservationTriggeredBy", Path: []string{"observation", "reference"}, Label: "observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"observation_triggered_by"}},
+	{SourceType: "OrganizationQualification", Path: []string{"issuer", "reference"}, Label: "issuer", TargetPatterns: []string{"Organization"}, Backrefs: []string{"organization_qualification"}},
+	{SourceType: "PatientContact", Path: []string{"organization", "reference"}, Label: "organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"patient_contact"}},
+	{SourceType: "PatientLink", Path: []string{"other", "reference"}, Label: "other_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"patient_link"}},
+	{SourceType: "PractitionerQualification", Path: []string{"issuer", "reference"}, Label: "issuer", TargetPatterns: []string{"Organization"}, Backrefs: []string{"practitioner_qualification"}},
+	{SourceType: "ProcedurePerformer", Path: []string{"actor", "reference"}, Label: "actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"actor_procedure_performer"}},
+	{SourceType: "ProcedurePerformer", Path: []string{"actor", "reference"}, Label: "actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"actor_procedure_performer"}},
+	{SourceType: "ProcedurePerformer", Path: []string{"actor", "reference"}, Label: "actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"actor_procedure_performer"}},
+	{SourceType: "ProcedurePerformer", Path: []string{"actor", "reference"}, Label: "actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"actor_procedure_performer"}},
+	{SourceType: "ProcedurePerformer", Path: []string{"onBehalfOf", "reference"}, Label: "onBehalfOf", TargetPatterns: []string{"Organization"}, Backrefs: []string{"onBehalfOf_procedure_performer"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "RelatedArtifact", Path: []string{"resourceReference", "reference"}, Label: "resourceReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "ResearchStudyAssociatedParty", Path: []string{"party", "reference"}, Label: "party_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"research_study_associated_party"}},
+	{SourceType: "ResearchStudyAssociatedParty", Path: []string{"party", "reference"}, Label: "party_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"research_study_associated_party"}},
+	{SourceType: "ResearchStudyAssociatedParty", Path: []string{"party", "reference"}, Label: "party_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"research_study_associated_party"}},
+	{SourceType: "ResearchStudyComparisonGroup", Path: []string{"observedGroup", "reference"}, Label: "observedGroup", TargetPatterns: []string{"Group"}, Backrefs: []string{"research_study_comparison_group"}},
+	{SourceType: "ResearchStudyRecruitment", Path: []string{"actualGroup", "reference"}, Label: "actualGroup", TargetPatterns: []string{"Group"}, Backrefs: []string{"actualGroup_research_study_recruitment"}},
+	{SourceType: "ResearchStudyRecruitment", Path: []string{"eligibility", "reference"}, Label: "eligibility_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"eligibility_research_study_recruitment"}},
+	{SourceType: "Signature", Path: []string{"onBehalfOf", "reference"}, Label: "onBehalfOf_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Signature", Path: []string{"onBehalfOf", "reference"}, Label: "onBehalfOf_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Signature", Path: []string{"onBehalfOf", "reference"}, Label: "onBehalfOf_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Signature", Path: []string{"onBehalfOf", "reference"}, Label: "onBehalfOf_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "Signature", Path: []string{"who", "reference"}, Label: "who_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Signature", Path: []string{"who", "reference"}, Label: "who_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Signature", Path: []string{"who", "reference"}, Label: "who_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "Signature", Path: []string{"who", "reference"}, Label: "who_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "SpecimenCollection", Path: []string{"collector", "reference"}, Label: "collector_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"specimen_collection"}},
+	{SourceType: "SpecimenCollection", Path: []string{"collector", "reference"}, Label: "collector_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"specimen_collection"}},
+	{SourceType: "SpecimenCollection", Path: []string{"collector", "reference"}, Label: "collector_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"specimen_collection"}},
+	{SourceType: "SpecimenCollection", Path: []string{"procedure", "reference"}, Label: "procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"specimen_collection"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"bodySite", "reference", "reference"}, Label: "bodySite_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenCollection", Path: []string{"device", "reference", "reference"}, Label: "device_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "SpecimenProcessing", Path: []string{"additive", "-", "reference"}, Label: "additive", TargetPatterns: []string{"Substance"}, Backrefs: []string{"additive_specimen_processing"}},
+	{SourceType: "SubstanceDefinitionCode", Path: []string{"source", "-", "reference"}, Label: "source", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"source_substance_definition_code"}},
+	{SourceType: "SubstanceDefinitionCode", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "SubstanceDefinitionCode", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "SubstanceDefinitionCode", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "SubstanceDefinitionCode", Path: []string{"note", "-", "authorReference", "reference"}, Label: "note_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "SubstanceDefinitionName", Path: []string{"source", "-", "reference"}, Label: "source", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"source_substance_definition_name"}},
+	{SourceType: "SubstanceDefinitionName", Path: []string{"synonym", "-", "source", "-", "reference"}, Label: "synonym_source", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"source_substance_definition_name"}},
+	{SourceType: "SubstanceDefinitionName", Path: []string{"translation", "-", "source", "-", "reference"}, Label: "translation_source", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"source_substance_definition_name"}},
+	{SourceType: "SubstanceDefinitionRelationship", Path: []string{"source", "-", "reference"}, Label: "source", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"source_substance_definition_relationship"}},
+	{SourceType: "SubstanceDefinitionRelationship", Path: []string{"substanceDefinitionReference", "reference"}, Label: "substanceDefinitionReference", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"substance_definition_relationship"}},
+	{SourceType: "SubstanceDefinitionStructure", Path: []string{"sourceDocument", "-", "reference"}, Label: "sourceDocument", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"sourceDocument_substance_definition_structure"}},
+	{SourceType: "SubstanceDefinitionStructure", Path: []string{"representation", "-", "document", "reference"}, Label: "representation_document", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"substance_definition_structure_representation"}},
+	{SourceType: "SubstanceDefinitionStructureRepresentation", Path: []string{"document", "reference"}, Label: "document", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"substance_definition_structure_representation"}},
+	{SourceType: "SubstanceIngredient", Path: []string{"substanceReference", "reference"}, Label: "substanceReference", TargetPatterns: []string{"Substance"}, Backrefs: []string{"substance_ingredient"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueReference", "reference"}, Label: "valueReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"task_input"}},
+	{SourceType: "TaskInput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskInput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskInput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskInput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskInput", Path: []string{"valueDataRequirement", "subjectReference", "reference"}, Label: "valueDataRequirement_subjectReference", TargetPatterns: []string{"Group"}, Backrefs: []string{"data_requirement"}},
+	{SourceType: "TaskInput", Path: []string{"valueExtendedContactDetail", "organization", "reference"}, Label: "valueExtendedContactDetail_organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"extended_contact_detail"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskInput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskInput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskInput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueReference", "reference"}, Label: "valueReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"task_output"}},
+	{SourceType: "TaskOutput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskOutput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskOutput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskOutput", Path: []string{"valueAnnotation", "authorReference", "reference"}, Label: "valueAnnotation_authorReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"annotation"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueCodeableReference", "reference", "reference"}, Label: "valueCodeableReference_reference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"codeable_reference"}},
+	{SourceType: "TaskOutput", Path: []string{"valueDataRequirement", "subjectReference", "reference"}, Label: "valueDataRequirement_subjectReference", TargetPatterns: []string{"Group"}, Backrefs: []string{"data_requirement"}},
+	{SourceType: "TaskOutput", Path: []string{"valueExtendedContactDetail", "organization", "reference"}, Label: "valueExtendedContactDetail_organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"extended_contact_detail"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ResearchSubject", TargetPatterns: []string{"ResearchSubject"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Substance", TargetPatterns: []string{"Substance"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_SubstanceDefinition", TargetPatterns: []string{"SubstanceDefinition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Specimen", TargetPatterns: []string{"Specimen"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Observation", TargetPatterns: []string{"Observation"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DiagnosticReport", TargetPatterns: []string{"DiagnosticReport"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Condition", TargetPatterns: []string{"Condition"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Medication", TargetPatterns: []string{"Medication"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationAdministration", TargetPatterns: []string{"MedicationAdministration"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationStatement", TargetPatterns: []string{"MedicationStatement"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_MedicationRequest", TargetPatterns: []string{"MedicationRequest"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Procedure", TargetPatterns: []string{"Procedure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_DocumentReference", TargetPatterns: []string{"DocumentReference"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_Task", TargetPatterns: []string{"Task"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_ImagingStudy", TargetPatterns: []string{"ImagingStudy"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_FamilyMemberHistory", TargetPatterns: []string{"FamilyMemberHistory"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueRelatedArtifact", "resourceReference", "reference"}, Label: "valueRelatedArtifact_resourceReference_BodyStructure", TargetPatterns: []string{"BodyStructure"}, Backrefs: []string{"related_artifact"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "onBehalfOf", "reference"}, Label: "valueSignature_onBehalfOf_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"onBehalfOf_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueSignature", "who", "reference"}, Label: "valueSignature_who_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"who_signature"}},
+	{SourceType: "TaskOutput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskOutput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskOutput", Path: []string{"valueUsageContext", "valueReference", "reference"}, Label: "valueUsageContext_valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "TaskPerformer", Path: []string{"actor", "reference"}, Label: "actor_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"task_performer"}},
+	{SourceType: "TaskPerformer", Path: []string{"actor", "reference"}, Label: "actor_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"task_performer"}},
+	{SourceType: "TaskPerformer", Path: []string{"actor", "reference"}, Label: "actor_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"task_performer"}},
+	{SourceType: "TaskPerformer", Path: []string{"actor", "reference"}, Label: "actor_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"task_performer"}},
+	{SourceType: "TaskRestriction", Path: []string{"recipient", "-", "reference"}, Label: "recipient_Patient", TargetPatterns: []string{"Patient"}, Backrefs: []string{"recipient_task_restriction"}},
+	{SourceType: "TaskRestriction", Path: []string{"recipient", "-", "reference"}, Label: "recipient_Practitioner", TargetPatterns: []string{"Practitioner"}, Backrefs: []string{"recipient_task_restriction"}},
+	{SourceType: "TaskRestriction", Path: []string{"recipient", "-", "reference"}, Label: "recipient_PractitionerRole", TargetPatterns: []string{"PractitionerRole"}, Backrefs: []string{"recipient_task_restriction"}},
+	{SourceType: "TaskRestriction", Path: []string{"recipient", "-", "reference"}, Label: "recipient_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"recipient_task_restriction"}},
+	{SourceType: "TaskRestriction", Path: []string{"recipient", "-", "reference"}, Label: "recipient_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"recipient_task_restriction"}},
+	{SourceType: "TriggerDefinition", Path: []string{"data", "-", "subjectReference", "reference"}, Label: "data_subjectReference", TargetPatterns: []string{"Group"}, Backrefs: []string{"data_requirement"}},
+	{SourceType: "UsageContext", Path: []string{"valueReference", "reference"}, Label: "valueReference_ResearchStudy", TargetPatterns: []string{"ResearchStudy"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "UsageContext", Path: []string{"valueReference", "reference"}, Label: "valueReference_Group", TargetPatterns: []string{"Group"}, Backrefs: []string{"usage_context"}},
+	{SourceType: "UsageContext", Path: []string{"valueReference", "reference"}, Label: "valueReference_Organization", TargetPatterns: []string{"Organization"}, Backrefs: []string{"usage_context"}},
+}
+
+var nestedLinkCoverage = map[string]struct{}{
+	"Condition|Annotation|authorReference_Organization|Organization":                                         {},
+	"Condition|Annotation|authorReference_Patient|Patient":                                                   {},
+	"Condition|Annotation|authorReference_PractitionerRole|PractitionerRole":                                 {},
+	"Condition|Annotation|authorReference_Practitioner|Practitioner":                                         {},
+	"Condition|CodeableReference|reference_BodyStructure|BodyStructure":                                      {},
+	"Condition|CodeableReference|reference_Condition|Condition":                                              {},
+	"Condition|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                                {},
+	"Condition|CodeableReference|reference_DocumentReference|DocumentReference":                              {},
+	"Condition|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                          {},
+	"Condition|CodeableReference|reference_Group|Group":                                                      {},
+	"Condition|CodeableReference|reference_ImagingStudy|ImagingStudy":                                        {},
+	"Condition|CodeableReference|reference_MedicationAdministration|MedicationAdministration":                {},
+	"Condition|CodeableReference|reference_MedicationRequest|MedicationRequest":                              {},
+	"Condition|CodeableReference|reference_MedicationStatement|MedicationStatement":                          {},
+	"Condition|CodeableReference|reference_Medication|Medication":                                            {},
+	"Condition|CodeableReference|reference_Observation|Observation":                                          {},
+	"Condition|CodeableReference|reference_Organization|Organization":                                        {},
+	"Condition|CodeableReference|reference_Patient|Patient":                                                  {},
+	"Condition|CodeableReference|reference_PractitionerRole|PractitionerRole":                                {},
+	"Condition|CodeableReference|reference_Practitioner|Practitioner":                                        {},
+	"Condition|CodeableReference|reference_Procedure|Procedure":                                              {},
+	"Condition|CodeableReference|reference_ResearchStudy|ResearchStudy":                                      {},
+	"Condition|CodeableReference|reference_ResearchSubject|ResearchSubject":                                  {},
+	"Condition|CodeableReference|reference_Specimen|Specimen":                                                {},
+	"Condition|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                          {},
+	"Condition|CodeableReference|reference_Substance|Substance":                                              {},
+	"Condition|CodeableReference|reference_Task|Task":                                                        {},
+	"Condition|ConditionParticipant|actor_Organization|Organization":                                         {},
+	"Condition|ConditionParticipant|actor_Patient|Patient":                                                   {},
+	"Condition|ConditionParticipant|actor_PractitionerRole|PractitionerRole":                                 {},
+	"Condition|ConditionParticipant|actor_Practitioner|Practitioner":                                         {},
+	"Condition|ConditionStage|assessment_DiagnosticReport|DiagnosticReport":                                  {},
+	"Condition|ConditionStage|assessment_Observation|Observation":                                            {},
+	"DiagnosticReport|Annotation|authorReference_Organization|Organization":                                  {},
+	"DiagnosticReport|Annotation|authorReference_Patient|Patient":                                            {},
+	"DiagnosticReport|Annotation|authorReference_PractitionerRole|PractitionerRole":                          {},
+	"DiagnosticReport|Annotation|authorReference_Practitioner|Practitioner":                                  {},
+	"DiagnosticReport|DiagnosticReportMedia|link|DocumentReference":                                          {},
+	"DiagnosticReport|DiagnosticReportSupportingInfo|reference_DiagnosticReport|DiagnosticReport":            {},
+	"DiagnosticReport|DiagnosticReportSupportingInfo|reference_Observation|Observation":                      {},
+	"DiagnosticReport|DiagnosticReportSupportingInfo|reference_Procedure|Procedure":                          {},
+	"DocumentReference|CodeableReference|reference_BodyStructure|BodyStructure":                              {},
+	"DocumentReference|CodeableReference|reference_Condition|Condition":                                      {},
+	"DocumentReference|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                        {},
+	"DocumentReference|CodeableReference|reference_DocumentReference|DocumentReference":                      {},
+	"DocumentReference|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                  {},
+	"DocumentReference|CodeableReference|reference_Group|Group":                                              {},
+	"DocumentReference|CodeableReference|reference_ImagingStudy|ImagingStudy":                                {},
+	"DocumentReference|CodeableReference|reference_MedicationAdministration|MedicationAdministration":        {},
+	"DocumentReference|CodeableReference|reference_MedicationRequest|MedicationRequest":                      {},
+	"DocumentReference|CodeableReference|reference_MedicationStatement|MedicationStatement":                  {},
+	"DocumentReference|CodeableReference|reference_Medication|Medication":                                    {},
+	"DocumentReference|CodeableReference|reference_Observation|Observation":                                  {},
+	"DocumentReference|CodeableReference|reference_Organization|Organization":                                {},
+	"DocumentReference|CodeableReference|reference_Patient|Patient":                                          {},
+	"DocumentReference|CodeableReference|reference_PractitionerRole|PractitionerRole":                        {},
+	"DocumentReference|CodeableReference|reference_Practitioner|Practitioner":                                {},
+	"DocumentReference|CodeableReference|reference_Procedure|Procedure":                                      {},
+	"DocumentReference|CodeableReference|reference_ResearchStudy|ResearchStudy":                              {},
+	"DocumentReference|CodeableReference|reference_ResearchSubject|ResearchSubject":                          {},
+	"DocumentReference|CodeableReference|reference_Specimen|Specimen":                                        {},
+	"DocumentReference|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                  {},
+	"DocumentReference|CodeableReference|reference_Substance|Substance":                                      {},
+	"DocumentReference|CodeableReference|reference_Task|Task":                                                {},
+	"DocumentReference|DocumentReferenceAttester|party_Organization|Organization":                            {},
+	"DocumentReference|DocumentReferenceAttester|party_Patient|Patient":                                      {},
+	"DocumentReference|DocumentReferenceAttester|party_PractitionerRole|PractitionerRole":                    {},
+	"DocumentReference|DocumentReferenceAttester|party_Practitioner|Practitioner":                            {},
+	"DocumentReference|DocumentReferenceRelatesTo|target|DocumentReference":                                  {},
+	"FamilyMemberHistory|Annotation|authorReference_Organization|Organization":                               {},
+	"FamilyMemberHistory|Annotation|authorReference_Patient|Patient":                                         {},
+	"FamilyMemberHistory|Annotation|authorReference_PractitionerRole|PractitionerRole":                       {},
+	"FamilyMemberHistory|Annotation|authorReference_Practitioner|Practitioner":                               {},
+	"FamilyMemberHistory|CodeableReference|reference_BodyStructure|BodyStructure":                            {},
+	"FamilyMemberHistory|CodeableReference|reference_Condition|Condition":                                    {},
+	"FamilyMemberHistory|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                      {},
+	"FamilyMemberHistory|CodeableReference|reference_DocumentReference|DocumentReference":                    {},
+	"FamilyMemberHistory|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                {},
+	"FamilyMemberHistory|CodeableReference|reference_Group|Group":                                            {},
+	"FamilyMemberHistory|CodeableReference|reference_ImagingStudy|ImagingStudy":                              {},
+	"FamilyMemberHistory|CodeableReference|reference_MedicationAdministration|MedicationAdministration":      {},
+	"FamilyMemberHistory|CodeableReference|reference_MedicationRequest|MedicationRequest":                    {},
+	"FamilyMemberHistory|CodeableReference|reference_MedicationStatement|MedicationStatement":                {},
+	"FamilyMemberHistory|CodeableReference|reference_Medication|Medication":                                  {},
+	"FamilyMemberHistory|CodeableReference|reference_Observation|Observation":                                {},
+	"FamilyMemberHistory|CodeableReference|reference_Organization|Organization":                              {},
+	"FamilyMemberHistory|CodeableReference|reference_Patient|Patient":                                        {},
+	"FamilyMemberHistory|CodeableReference|reference_PractitionerRole|PractitionerRole":                      {},
+	"FamilyMemberHistory|CodeableReference|reference_Practitioner|Practitioner":                              {},
+	"FamilyMemberHistory|CodeableReference|reference_Procedure|Procedure":                                    {},
+	"FamilyMemberHistory|CodeableReference|reference_ResearchStudy|ResearchStudy":                            {},
+	"FamilyMemberHistory|CodeableReference|reference_ResearchSubject|ResearchSubject":                        {},
+	"FamilyMemberHistory|CodeableReference|reference_Specimen|Specimen":                                      {},
+	"FamilyMemberHistory|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                {},
+	"FamilyMemberHistory|CodeableReference|reference_Substance|Substance":                                    {},
+	"FamilyMemberHistory|CodeableReference|reference_Task|Task":                                              {},
+	"FamilyMemberHistory|FamilyMemberHistoryParticipant|actor_Organization|Organization":                     {},
+	"FamilyMemberHistory|FamilyMemberHistoryParticipant|actor_Patient|Patient":                               {},
+	"FamilyMemberHistory|FamilyMemberHistoryParticipant|actor_PractitionerRole|PractitionerRole":             {},
+	"FamilyMemberHistory|FamilyMemberHistoryParticipant|actor_Practitioner|Practitioner":                     {},
+	"Group|GroupCharacteristic|valueReference_BodyStructure|BodyStructure":                                   {},
+	"Group|GroupCharacteristic|valueReference_Condition|Condition":                                           {},
+	"Group|GroupCharacteristic|valueReference_DiagnosticReport|DiagnosticReport":                             {},
+	"Group|GroupCharacteristic|valueReference_DocumentReference|DocumentReference":                           {},
+	"Group|GroupCharacteristic|valueReference_FamilyMemberHistory|FamilyMemberHistory":                       {},
+	"Group|GroupCharacteristic|valueReference_Group|Group":                                                   {},
+	"Group|GroupCharacteristic|valueReference_ImagingStudy|ImagingStudy":                                     {},
+	"Group|GroupCharacteristic|valueReference_MedicationAdministration|MedicationAdministration":             {},
+	"Group|GroupCharacteristic|valueReference_MedicationRequest|MedicationRequest":                           {},
+	"Group|GroupCharacteristic|valueReference_MedicationStatement|MedicationStatement":                       {},
+	"Group|GroupCharacteristic|valueReference_Medication|Medication":                                         {},
+	"Group|GroupCharacteristic|valueReference_Observation|Observation":                                       {},
+	"Group|GroupCharacteristic|valueReference_Organization|Organization":                                     {},
+	"Group|GroupCharacteristic|valueReference_Patient|Patient":                                               {},
+	"Group|GroupCharacteristic|valueReference_PractitionerRole|PractitionerRole":                             {},
+	"Group|GroupCharacteristic|valueReference_Practitioner|Practitioner":                                     {},
+	"Group|GroupCharacteristic|valueReference_Procedure|Procedure":                                           {},
+	"Group|GroupCharacteristic|valueReference_ResearchStudy|ResearchStudy":                                   {},
+	"Group|GroupCharacteristic|valueReference_ResearchSubject|ResearchSubject":                               {},
+	"Group|GroupCharacteristic|valueReference_Specimen|Specimen":                                             {},
+	"Group|GroupCharacteristic|valueReference_SubstanceDefinition|SubstanceDefinition":                       {},
+	"Group|GroupCharacteristic|valueReference_Substance|Substance":                                           {},
+	"Group|GroupCharacteristic|valueReference_Task|Task":                                                     {},
+	"Group|GroupMember|entity_Group|Group":                                                                   {},
+	"Group|GroupMember|entity_Organization|Organization":                                                     {},
+	"Group|GroupMember|entity_Patient|Patient":                                                               {},
+	"Group|GroupMember|entity_PractitionerRole|PractitionerRole":                                             {},
+	"Group|GroupMember|entity_Practitioner|Practitioner":                                                     {},
+	"Group|GroupMember|entity_Specimen|Specimen":                                                             {},
+	"ImagingStudy|Annotation|authorReference_Organization|Organization":                                      {},
+	"ImagingStudy|Annotation|authorReference_Patient|Patient":                                                {},
+	"ImagingStudy|Annotation|authorReference_PractitionerRole|PractitionerRole":                              {},
+	"ImagingStudy|Annotation|authorReference_Practitioner|Practitioner":                                      {},
+	"ImagingStudy|CodeableReference|reference_BodyStructure|BodyStructure":                                   {},
+	"ImagingStudy|CodeableReference|reference_Condition|Condition":                                           {},
+	"ImagingStudy|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                             {},
+	"ImagingStudy|CodeableReference|reference_DocumentReference|DocumentReference":                           {},
+	"ImagingStudy|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                       {},
+	"ImagingStudy|CodeableReference|reference_Group|Group":                                                   {},
+	"ImagingStudy|CodeableReference|reference_ImagingStudy|ImagingStudy":                                     {},
+	"ImagingStudy|CodeableReference|reference_MedicationAdministration|MedicationAdministration":             {},
+	"ImagingStudy|CodeableReference|reference_MedicationRequest|MedicationRequest":                           {},
+	"ImagingStudy|CodeableReference|reference_MedicationStatement|MedicationStatement":                       {},
+	"ImagingStudy|CodeableReference|reference_Medication|Medication":                                         {},
+	"ImagingStudy|CodeableReference|reference_Observation|Observation":                                       {},
+	"ImagingStudy|CodeableReference|reference_Organization|Organization":                                     {},
+	"ImagingStudy|CodeableReference|reference_Patient|Patient":                                               {},
+	"ImagingStudy|CodeableReference|reference_PractitionerRole|PractitionerRole":                             {},
+	"ImagingStudy|CodeableReference|reference_Practitioner|Practitioner":                                     {},
+	"ImagingStudy|CodeableReference|reference_Procedure|Procedure":                                           {},
+	"ImagingStudy|CodeableReference|reference_ResearchStudy|ResearchStudy":                                   {},
+	"ImagingStudy|CodeableReference|reference_ResearchSubject|ResearchSubject":                               {},
+	"ImagingStudy|CodeableReference|reference_Specimen|Specimen":                                             {},
+	"ImagingStudy|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                       {},
+	"ImagingStudy|CodeableReference|reference_Substance|Substance":                                           {},
+	"ImagingStudy|CodeableReference|reference_Task|Task":                                                     {},
+	"ImagingStudy|ImagingStudySeries|specimen|Specimen":                                                      {},
+	"MedicationAdministration|Annotation|authorReference_Organization|Organization":                          {},
+	"MedicationAdministration|Annotation|authorReference_Patient|Patient":                                    {},
+	"MedicationAdministration|Annotation|authorReference_PractitionerRole|PractitionerRole":                  {},
+	"MedicationAdministration|Annotation|authorReference_Practitioner|Practitioner":                          {},
+	"MedicationAdministration|CodeableReference|reference_BodyStructure|BodyStructure":                       {},
+	"MedicationAdministration|CodeableReference|reference_Condition|Condition":                               {},
+	"MedicationAdministration|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                 {},
+	"MedicationAdministration|CodeableReference|reference_DocumentReference|DocumentReference":               {},
+	"MedicationAdministration|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":           {},
+	"MedicationAdministration|CodeableReference|reference_Group|Group":                                       {},
+	"MedicationAdministration|CodeableReference|reference_ImagingStudy|ImagingStudy":                         {},
+	"MedicationAdministration|CodeableReference|reference_MedicationAdministration|MedicationAdministration": {},
+	"MedicationAdministration|CodeableReference|reference_MedicationRequest|MedicationRequest":               {},
+	"MedicationAdministration|CodeableReference|reference_MedicationStatement|MedicationStatement":           {},
+	"MedicationAdministration|CodeableReference|reference_Medication|Medication":                             {},
+	"MedicationAdministration|CodeableReference|reference_Observation|Observation":                           {},
+	"MedicationAdministration|CodeableReference|reference_Organization|Organization":                         {},
+	"MedicationAdministration|CodeableReference|reference_Patient|Patient":                                   {},
+	"MedicationAdministration|CodeableReference|reference_PractitionerRole|PractitionerRole":                 {},
+	"MedicationAdministration|CodeableReference|reference_Practitioner|Practitioner":                         {},
+	"MedicationAdministration|CodeableReference|reference_Procedure|Procedure":                               {},
+	"MedicationAdministration|CodeableReference|reference_ResearchStudy|ResearchStudy":                       {},
+	"MedicationAdministration|CodeableReference|reference_ResearchSubject|ResearchSubject":                   {},
+	"MedicationAdministration|CodeableReference|reference_Specimen|Specimen":                                 {},
+	"MedicationAdministration|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":           {},
+	"MedicationAdministration|CodeableReference|reference_Substance|Substance":                               {},
+	"MedicationAdministration|CodeableReference|reference_Task|Task":                                         {},
+	"MedicationRequest|Annotation|authorReference_Organization|Organization":                                 {},
+	"MedicationRequest|Annotation|authorReference_Patient|Patient":                                           {},
+	"MedicationRequest|Annotation|authorReference_PractitionerRole|PractitionerRole":                         {},
+	"MedicationRequest|Annotation|authorReference_Practitioner|Practitioner":                                 {},
+	"MedicationRequest|CodeableReference|reference_BodyStructure|BodyStructure":                              {},
+	"MedicationRequest|CodeableReference|reference_Condition|Condition":                                      {},
+	"MedicationRequest|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                        {},
+	"MedicationRequest|CodeableReference|reference_DocumentReference|DocumentReference":                      {},
+	"MedicationRequest|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                  {},
+	"MedicationRequest|CodeableReference|reference_Group|Group":                                              {},
+	"MedicationRequest|CodeableReference|reference_ImagingStudy|ImagingStudy":                                {},
+	"MedicationRequest|CodeableReference|reference_MedicationAdministration|MedicationAdministration":        {},
+	"MedicationRequest|CodeableReference|reference_MedicationRequest|MedicationRequest":                      {},
+	"MedicationRequest|CodeableReference|reference_MedicationStatement|MedicationStatement":                  {},
+	"MedicationRequest|CodeableReference|reference_Medication|Medication":                                    {},
+	"MedicationRequest|CodeableReference|reference_Observation|Observation":                                  {},
+	"MedicationRequest|CodeableReference|reference_Organization|Organization":                                {},
+	"MedicationRequest|CodeableReference|reference_Patient|Patient":                                          {},
+	"MedicationRequest|CodeableReference|reference_PractitionerRole|PractitionerRole":                        {},
+	"MedicationRequest|CodeableReference|reference_Practitioner|Practitioner":                                {},
+	"MedicationRequest|CodeableReference|reference_Procedure|Procedure":                                      {},
+	"MedicationRequest|CodeableReference|reference_ResearchStudy|ResearchStudy":                              {},
+	"MedicationRequest|CodeableReference|reference_ResearchSubject|ResearchSubject":                          {},
+	"MedicationRequest|CodeableReference|reference_Specimen|Specimen":                                        {},
+	"MedicationRequest|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                  {},
+	"MedicationRequest|CodeableReference|reference_Substance|Substance":                                      {},
+	"MedicationRequest|CodeableReference|reference_Task|Task":                                                {},
+	"MedicationRequest|MedicationRequestDispenseRequest|dispenser|Organization":                              {},
+	"MedicationStatement|Annotation|authorReference_Organization|Organization":                               {},
+	"MedicationStatement|Annotation|authorReference_Patient|Patient":                                         {},
+	"MedicationStatement|Annotation|authorReference_PractitionerRole|PractitionerRole":                       {},
+	"MedicationStatement|Annotation|authorReference_Practitioner|Practitioner":                               {},
+	"MedicationStatement|CodeableReference|reference_BodyStructure|BodyStructure":                            {},
+	"MedicationStatement|CodeableReference|reference_Condition|Condition":                                    {},
+	"MedicationStatement|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                      {},
+	"MedicationStatement|CodeableReference|reference_DocumentReference|DocumentReference":                    {},
+	"MedicationStatement|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                {},
+	"MedicationStatement|CodeableReference|reference_Group|Group":                                            {},
+	"MedicationStatement|CodeableReference|reference_ImagingStudy|ImagingStudy":                              {},
+	"MedicationStatement|CodeableReference|reference_MedicationAdministration|MedicationAdministration":      {},
+	"MedicationStatement|CodeableReference|reference_MedicationRequest|MedicationRequest":                    {},
+	"MedicationStatement|CodeableReference|reference_MedicationStatement|MedicationStatement":                {},
+	"MedicationStatement|CodeableReference|reference_Medication|Medication":                                  {},
+	"MedicationStatement|CodeableReference|reference_Observation|Observation":                                {},
+	"MedicationStatement|CodeableReference|reference_Organization|Organization":                              {},
+	"MedicationStatement|CodeableReference|reference_Patient|Patient":                                        {},
+	"MedicationStatement|CodeableReference|reference_PractitionerRole|PractitionerRole":                      {},
+	"MedicationStatement|CodeableReference|reference_Practitioner|Practitioner":                              {},
+	"MedicationStatement|CodeableReference|reference_Procedure|Procedure":                                    {},
+	"MedicationStatement|CodeableReference|reference_ResearchStudy|ResearchStudy":                            {},
+	"MedicationStatement|CodeableReference|reference_ResearchSubject|ResearchSubject":                        {},
+	"MedicationStatement|CodeableReference|reference_Specimen|Specimen":                                      {},
+	"MedicationStatement|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                {},
+	"MedicationStatement|CodeableReference|reference_Substance|Substance":                                    {},
+	"MedicationStatement|CodeableReference|reference_Task|Task":                                              {},
+	"Observation|Annotation|authorReference_Organization|Organization":                                       {},
+	"Observation|Annotation|authorReference_Patient|Patient":                                                 {},
+	"Observation|Annotation|authorReference_PractitionerRole|PractitionerRole":                               {},
+	"Observation|Annotation|authorReference_Practitioner|Practitioner":                                       {},
+	"Observation|ObservationTriggeredBy|observation|Observation":                                             {},
+	"Organization|ExtendedContactDetail|organization|Organization":                                           {},
+	"Organization|OrganizationQualification|issuer|Organization":                                             {},
+	"Patient|PatientContact|organization|Organization":                                                       {},
+	"Patient|PatientLink|other_Patient|Patient":                                                              {},
+	"PractitionerRole|ExtendedContactDetail|organization|Organization":                                       {},
+	"Practitioner|PractitionerQualification|issuer|Organization":                                             {},
+	"Procedure|Annotation|authorReference_Organization|Organization":                                         {},
+	"Procedure|Annotation|authorReference_Patient|Patient":                                                   {},
+	"Procedure|Annotation|authorReference_PractitionerRole|PractitionerRole":                                 {},
+	"Procedure|Annotation|authorReference_Practitioner|Practitioner":                                         {},
+	"Procedure|CodeableReference|reference_BodyStructure|BodyStructure":                                      {},
+	"Procedure|CodeableReference|reference_Condition|Condition":                                              {},
+	"Procedure|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                                {},
+	"Procedure|CodeableReference|reference_DocumentReference|DocumentReference":                              {},
+	"Procedure|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                          {},
+	"Procedure|CodeableReference|reference_Group|Group":                                                      {},
+	"Procedure|CodeableReference|reference_ImagingStudy|ImagingStudy":                                        {},
+	"Procedure|CodeableReference|reference_MedicationAdministration|MedicationAdministration":                {},
+	"Procedure|CodeableReference|reference_MedicationRequest|MedicationRequest":                              {},
+	"Procedure|CodeableReference|reference_MedicationStatement|MedicationStatement":                          {},
+	"Procedure|CodeableReference|reference_Medication|Medication":                                            {},
+	"Procedure|CodeableReference|reference_Observation|Observation":                                          {},
+	"Procedure|CodeableReference|reference_Organization|Organization":                                        {},
+	"Procedure|CodeableReference|reference_Patient|Patient":                                                  {},
+	"Procedure|CodeableReference|reference_PractitionerRole|PractitionerRole":                                {},
+	"Procedure|CodeableReference|reference_Practitioner|Practitioner":                                        {},
+	"Procedure|CodeableReference|reference_Procedure|Procedure":                                              {},
+	"Procedure|CodeableReference|reference_ResearchStudy|ResearchStudy":                                      {},
+	"Procedure|CodeableReference|reference_ResearchSubject|ResearchSubject":                                  {},
+	"Procedure|CodeableReference|reference_Specimen|Specimen":                                                {},
+	"Procedure|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                          {},
+	"Procedure|CodeableReference|reference_Substance|Substance":                                              {},
+	"Procedure|CodeableReference|reference_Task|Task":                                                        {},
+	"Procedure|ProcedurePerformer|actor_Organization|Organization":                                           {},
+	"Procedure|ProcedurePerformer|actor_Patient|Patient":                                                     {},
+	"Procedure|ProcedurePerformer|actor_PractitionerRole|PractitionerRole":                                   {},
+	"Procedure|ProcedurePerformer|actor_Practitioner|Practitioner":                                           {},
+	"Procedure|ProcedurePerformer|onBehalfOf|Organization":                                                   {},
+	"ResearchStudy|Annotation|authorReference_Organization|Organization":                                     {},
+	"ResearchStudy|Annotation|authorReference_Patient|Patient":                                               {},
+	"ResearchStudy|Annotation|authorReference_PractitionerRole|PractitionerRole":                             {},
+	"ResearchStudy|Annotation|authorReference_Practitioner|Practitioner":                                     {},
+	"ResearchStudy|CodeableReference|reference_BodyStructure|BodyStructure":                                  {},
+	"ResearchStudy|CodeableReference|reference_Condition|Condition":                                          {},
+	"ResearchStudy|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                            {},
+	"ResearchStudy|CodeableReference|reference_DocumentReference|DocumentReference":                          {},
+	"ResearchStudy|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                      {},
+	"ResearchStudy|CodeableReference|reference_Group|Group":                                                  {},
+	"ResearchStudy|CodeableReference|reference_ImagingStudy|ImagingStudy":                                    {},
+	"ResearchStudy|CodeableReference|reference_MedicationAdministration|MedicationAdministration":            {},
+	"ResearchStudy|CodeableReference|reference_MedicationRequest|MedicationRequest":                          {},
+	"ResearchStudy|CodeableReference|reference_MedicationStatement|MedicationStatement":                      {},
+	"ResearchStudy|CodeableReference|reference_Medication|Medication":                                        {},
+	"ResearchStudy|CodeableReference|reference_Observation|Observation":                                      {},
+	"ResearchStudy|CodeableReference|reference_Organization|Organization":                                    {},
+	"ResearchStudy|CodeableReference|reference_Patient|Patient":                                              {},
+	"ResearchStudy|CodeableReference|reference_PractitionerRole|PractitionerRole":                            {},
+	"ResearchStudy|CodeableReference|reference_Practitioner|Practitioner":                                    {},
+	"ResearchStudy|CodeableReference|reference_Procedure|Procedure":                                          {},
+	"ResearchStudy|CodeableReference|reference_ResearchStudy|ResearchStudy":                                  {},
+	"ResearchStudy|CodeableReference|reference_ResearchSubject|ResearchSubject":                              {},
+	"ResearchStudy|CodeableReference|reference_Specimen|Specimen":                                            {},
+	"ResearchStudy|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                      {},
+	"ResearchStudy|CodeableReference|reference_Substance|Substance":                                          {},
+	"ResearchStudy|CodeableReference|reference_Task|Task":                                                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_BodyStructure|BodyStructure":                            {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Condition|Condition":                                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_DiagnosticReport|DiagnosticReport":                      {},
+	"ResearchStudy|RelatedArtifact|resourceReference_DocumentReference|DocumentReference":                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_FamilyMemberHistory|FamilyMemberHistory":                {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Group|Group":                                            {},
+	"ResearchStudy|RelatedArtifact|resourceReference_ImagingStudy|ImagingStudy":                              {},
+	"ResearchStudy|RelatedArtifact|resourceReference_MedicationAdministration|MedicationAdministration":      {},
+	"ResearchStudy|RelatedArtifact|resourceReference_MedicationRequest|MedicationRequest":                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_MedicationStatement|MedicationStatement":                {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Medication|Medication":                                  {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Observation|Observation":                                {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Organization|Organization":                              {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Patient|Patient":                                        {},
+	"ResearchStudy|RelatedArtifact|resourceReference_PractitionerRole|PractitionerRole":                      {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Practitioner|Practitioner":                              {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Procedure|Procedure":                                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_ResearchStudy|ResearchStudy":                            {},
+	"ResearchStudy|RelatedArtifact|resourceReference_ResearchSubject|ResearchSubject":                        {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Specimen|Specimen":                                      {},
+	"ResearchStudy|RelatedArtifact|resourceReference_SubstanceDefinition|SubstanceDefinition":                {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Substance|Substance":                                    {},
+	"ResearchStudy|RelatedArtifact|resourceReference_Task|Task":                                              {},
+	"ResearchStudy|ResearchStudyAssociatedParty|party_Organization|Organization":                             {},
+	"ResearchStudy|ResearchStudyAssociatedParty|party_PractitionerRole|PractitionerRole":                     {},
+	"ResearchStudy|ResearchStudyAssociatedParty|party_Practitioner|Practitioner":                             {},
+	"ResearchStudy|ResearchStudyComparisonGroup|observedGroup|Group":                                         {},
+	"ResearchStudy|ResearchStudyRecruitment|actualGroup|Group":                                               {},
+	"ResearchStudy|ResearchStudyRecruitment|eligibility_Group|Group":                                         {},
+	"Specimen|Annotation|authorReference_Organization|Organization":                                          {},
+	"Specimen|Annotation|authorReference_Patient|Patient":                                                    {},
+	"Specimen|Annotation|authorReference_PractitionerRole|PractitionerRole":                                  {},
+	"Specimen|Annotation|authorReference_Practitioner|Practitioner":                                          {},
+	"Specimen|SpecimenCollection|collector_Patient|Patient":                                                  {},
+	"Specimen|SpecimenCollection|collector_PractitionerRole|PractitionerRole":                                {},
+	"Specimen|SpecimenCollection|collector_Practitioner|Practitioner":                                        {},
+	"Specimen|SpecimenCollection|procedure|Procedure":                                                        {},
+	"Specimen|SpecimenProcessing|additive|Substance":                                                         {},
+	"SubstanceDefinition|Annotation|authorReference_Organization|Organization":                               {},
+	"SubstanceDefinition|Annotation|authorReference_Patient|Patient":                                         {},
+	"SubstanceDefinition|Annotation|authorReference_PractitionerRole|PractitionerRole":                       {},
+	"SubstanceDefinition|Annotation|authorReference_Practitioner|Practitioner":                               {},
+	"SubstanceDefinition|SubstanceDefinitionCode|source|DocumentReference":                                   {},
+	"SubstanceDefinition|SubstanceDefinitionName|source|DocumentReference":                                   {},
+	"SubstanceDefinition|SubstanceDefinitionRelationship|source|DocumentReference":                           {},
+	"SubstanceDefinition|SubstanceDefinitionRelationship|substanceDefinitionReference|SubstanceDefinition":   {},
+	"SubstanceDefinition|SubstanceDefinitionStructure|sourceDocument|DocumentReference":                      {},
+	"Substance|CodeableReference|reference_BodyStructure|BodyStructure":                                      {},
+	"Substance|CodeableReference|reference_Condition|Condition":                                              {},
+	"Substance|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                                {},
+	"Substance|CodeableReference|reference_DocumentReference|DocumentReference":                              {},
+	"Substance|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                          {},
+	"Substance|CodeableReference|reference_Group|Group":                                                      {},
+	"Substance|CodeableReference|reference_ImagingStudy|ImagingStudy":                                        {},
+	"Substance|CodeableReference|reference_MedicationAdministration|MedicationAdministration":                {},
+	"Substance|CodeableReference|reference_MedicationRequest|MedicationRequest":                              {},
+	"Substance|CodeableReference|reference_MedicationStatement|MedicationStatement":                          {},
+	"Substance|CodeableReference|reference_Medication|Medication":                                            {},
+	"Substance|CodeableReference|reference_Observation|Observation":                                          {},
+	"Substance|CodeableReference|reference_Organization|Organization":                                        {},
+	"Substance|CodeableReference|reference_Patient|Patient":                                                  {},
+	"Substance|CodeableReference|reference_PractitionerRole|PractitionerRole":                                {},
+	"Substance|CodeableReference|reference_Practitioner|Practitioner":                                        {},
+	"Substance|CodeableReference|reference_Procedure|Procedure":                                              {},
+	"Substance|CodeableReference|reference_ResearchStudy|ResearchStudy":                                      {},
+	"Substance|CodeableReference|reference_ResearchSubject|ResearchSubject":                                  {},
+	"Substance|CodeableReference|reference_Specimen|Specimen":                                                {},
+	"Substance|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                          {},
+	"Substance|CodeableReference|reference_Substance|Substance":                                              {},
+	"Substance|CodeableReference|reference_Task|Task":                                                        {},
+	"Substance|SubstanceIngredient|substanceReference|Substance":                                             {},
+	"Task|Annotation|authorReference_Organization|Organization":                                              {},
+	"Task|Annotation|authorReference_Patient|Patient":                                                        {},
+	"Task|Annotation|authorReference_PractitionerRole|PractitionerRole":                                      {},
+	"Task|Annotation|authorReference_Practitioner|Practitioner":                                              {},
+	"Task|CodeableReference|reference_BodyStructure|BodyStructure":                                           {},
+	"Task|CodeableReference|reference_Condition|Condition":                                                   {},
+	"Task|CodeableReference|reference_DiagnosticReport|DiagnosticReport":                                     {},
+	"Task|CodeableReference|reference_DocumentReference|DocumentReference":                                   {},
+	"Task|CodeableReference|reference_FamilyMemberHistory|FamilyMemberHistory":                               {},
+	"Task|CodeableReference|reference_Group|Group":                                                           {},
+	"Task|CodeableReference|reference_ImagingStudy|ImagingStudy":                                             {},
+	"Task|CodeableReference|reference_MedicationAdministration|MedicationAdministration":                     {},
+	"Task|CodeableReference|reference_MedicationRequest|MedicationRequest":                                   {},
+	"Task|CodeableReference|reference_MedicationStatement|MedicationStatement":                               {},
+	"Task|CodeableReference|reference_Medication|Medication":                                                 {},
+	"Task|CodeableReference|reference_Observation|Observation":                                               {},
+	"Task|CodeableReference|reference_Organization|Organization":                                             {},
+	"Task|CodeableReference|reference_Patient|Patient":                                                       {},
+	"Task|CodeableReference|reference_PractitionerRole|PractitionerRole":                                     {},
+	"Task|CodeableReference|reference_Practitioner|Practitioner":                                             {},
+	"Task|CodeableReference|reference_Procedure|Procedure":                                                   {},
+	"Task|CodeableReference|reference_ResearchStudy|ResearchStudy":                                           {},
+	"Task|CodeableReference|reference_ResearchSubject|ResearchSubject":                                       {},
+	"Task|CodeableReference|reference_Specimen|Specimen":                                                     {},
+	"Task|CodeableReference|reference_SubstanceDefinition|SubstanceDefinition":                               {},
+	"Task|CodeableReference|reference_Substance|Substance":                                                   {},
+	"Task|CodeableReference|reference_Task|Task":                                                             {},
+	"Task|TaskInput|valueReference_BodyStructure|BodyStructure":                                              {},
+	"Task|TaskInput|valueReference_Condition|Condition":                                                      {},
+	"Task|TaskInput|valueReference_DiagnosticReport|DiagnosticReport":                                        {},
+	"Task|TaskInput|valueReference_DocumentReference|DocumentReference":                                      {},
+	"Task|TaskInput|valueReference_FamilyMemberHistory|FamilyMemberHistory":                                  {},
+	"Task|TaskInput|valueReference_Group|Group":                                                              {},
+	"Task|TaskInput|valueReference_ImagingStudy|ImagingStudy":                                                {},
+	"Task|TaskInput|valueReference_MedicationAdministration|MedicationAdministration":                        {},
+	"Task|TaskInput|valueReference_MedicationRequest|MedicationRequest":                                      {},
+	"Task|TaskInput|valueReference_MedicationStatement|MedicationStatement":                                  {},
+	"Task|TaskInput|valueReference_Medication|Medication":                                                    {},
+	"Task|TaskInput|valueReference_Observation|Observation":                                                  {},
+	"Task|TaskInput|valueReference_Organization|Organization":                                                {},
+	"Task|TaskInput|valueReference_Patient|Patient":                                                          {},
+	"Task|TaskInput|valueReference_PractitionerRole|PractitionerRole":                                        {},
+	"Task|TaskInput|valueReference_Practitioner|Practitioner":                                                {},
+	"Task|TaskInput|valueReference_Procedure|Procedure":                                                      {},
+	"Task|TaskInput|valueReference_ResearchStudy|ResearchStudy":                                              {},
+	"Task|TaskInput|valueReference_ResearchSubject|ResearchSubject":                                          {},
+	"Task|TaskInput|valueReference_Specimen|Specimen":                                                        {},
+	"Task|TaskInput|valueReference_SubstanceDefinition|SubstanceDefinition":                                  {},
+	"Task|TaskInput|valueReference_Substance|Substance":                                                      {},
+	"Task|TaskInput|valueReference_Task|Task":                                                                {},
+	"Task|TaskOutput|valueReference_BodyStructure|BodyStructure":                                             {},
+	"Task|TaskOutput|valueReference_Condition|Condition":                                                     {},
+	"Task|TaskOutput|valueReference_DiagnosticReport|DiagnosticReport":                                       {},
+	"Task|TaskOutput|valueReference_DocumentReference|DocumentReference":                                     {},
+	"Task|TaskOutput|valueReference_FamilyMemberHistory|FamilyMemberHistory":                                 {},
+	"Task|TaskOutput|valueReference_Group|Group":                                                             {},
+	"Task|TaskOutput|valueReference_ImagingStudy|ImagingStudy":                                               {},
+	"Task|TaskOutput|valueReference_MedicationAdministration|MedicationAdministration":                       {},
+	"Task|TaskOutput|valueReference_MedicationRequest|MedicationRequest":                                     {},
+	"Task|TaskOutput|valueReference_MedicationStatement|MedicationStatement":                                 {},
+	"Task|TaskOutput|valueReference_Medication|Medication":                                                   {},
+	"Task|TaskOutput|valueReference_Observation|Observation":                                                 {},
+	"Task|TaskOutput|valueReference_Organization|Organization":                                               {},
+	"Task|TaskOutput|valueReference_Patient|Patient":                                                         {},
+	"Task|TaskOutput|valueReference_PractitionerRole|PractitionerRole":                                       {},
+	"Task|TaskOutput|valueReference_Practitioner|Practitioner":                                               {},
+	"Task|TaskOutput|valueReference_Procedure|Procedure":                                                     {},
+	"Task|TaskOutput|valueReference_ResearchStudy|ResearchStudy":                                             {},
+	"Task|TaskOutput|valueReference_ResearchSubject|ResearchSubject":                                         {},
+	"Task|TaskOutput|valueReference_Specimen|Specimen":                                                       {},
+	"Task|TaskOutput|valueReference_SubstanceDefinition|SubstanceDefinition":                                 {},
+	"Task|TaskOutput|valueReference_Substance|Substance":                                                     {},
+	"Task|TaskOutput|valueReference_Task|Task":                                                               {},
+	"Task|TaskPerformer|actor_Organization|Organization":                                                     {},
+	"Task|TaskPerformer|actor_Patient|Patient":                                                               {},
+	"Task|TaskPerformer|actor_PractitionerRole|PractitionerRole":                                             {},
+	"Task|TaskPerformer|actor_Practitioner|Practitioner":                                                     {},
+	"Task|TaskRestriction|recipient_Group|Group":                                                             {},
+	"Task|TaskRestriction|recipient_Organization|Organization":                                               {},
+	"Task|TaskRestriction|recipient_Patient|Patient":                                                         {},
+	"Task|TaskRestriction|recipient_PractitionerRole|PractitionerRole":                                       {},
+	"Task|TaskRestriction|recipient_Practitioner|Practitioner":                                               {},
 }
 
 // Result of validation and edge extraction.
@@ -169,6 +1224,218 @@ func buildEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType string
 	return json.RawMessage(buf.Bytes())
 }
 
+func buildNestedEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType, sourcePath, extensionURL string) json.RawMessage {
+	var buf bytes.Buffer
+	buf.Grow(320)
+	buf.WriteString("{\"_key\":")
+	buf.WriteString(strconv.Quote(key))
+	buf.WriteString(",\"_from\":")
+	buf.WriteString(strconv.Quote(from))
+	buf.WriteString(",\"_to\":")
+	buf.WriteString(strconv.Quote(to))
+	buf.WriteString(",\"label\":")
+	buf.WriteString(strconv.Quote(label))
+	buf.WriteString(",\"project\":")
+	buf.WriteString(projectJSON)
+	buf.WriteString(",\"from_type\":")
+	buf.WriteString(strconv.Quote(fromType))
+	buf.WriteString(",\"to_type\":")
+	buf.WriteString(strconv.Quote(toType))
+	buf.WriteString(",\"source_path\":")
+	buf.WriteString(strconv.Quote(sourcePath))
+	if extensionURL != "" {
+		buf.WriteString(",\"extension_url\":")
+		buf.WriteString(strconv.Quote(extensionURL))
+	}
+	buf.WriteByte('}')
+	return json.RawMessage(buf.Bytes())
+}
+
+func nestedEdgeUUID(parts ...string) string {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	for _, part := range parts {
+		buf.WriteString(strconv.Itoa(len(part)))
+		buf.WriteByte(':')
+		buf.WriteString(part)
+	}
+	key := fastUUIDSHA1(namespaceUUID, buf.Bytes())
+	bufferPool.Put(buf)
+	return key
+}
+
+func walkNestedFHIRLinks(value reflect.Value, sourcePath, extensionURL, project, sourceType, sourceID string, projectJSON string, seen *map[string]struct{}, edges *[]json.RawMessage) {
+	for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+		if value.IsNil() {
+			return
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() {
+		return
+	}
+	if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
+		for index := 0; index < value.Len(); index++ {
+			walkNestedFHIRLinks(value.Index(index), sourcePath+"[]", extensionURL, project, sourceType, sourceID, projectJSON, seen, edges)
+		}
+		return
+	}
+	if value.Kind() != reflect.Struct {
+		return
+	}
+
+	valueType := value.Type()
+	if valueType.Name() == "Extension" {
+		if urlField := value.FieldByName("URL"); urlField.IsValid() && urlField.Kind() == reflect.Pointer && !urlField.IsNil() && urlField.Elem().Kind() == reflect.String {
+			extensionURL = urlField.Elem().String()
+		}
+	}
+
+	for _, rule := range nestedLinkRules {
+		if rule.SourceType != valueType.Name() {
+			continue
+		}
+		for _, reference := range nestedReferenceValues(value, rule.Path, sourcePath) {
+			refType, targetID, ok := splitFHIRReference(reference.value)
+			if !ok {
+				continue
+			}
+			refType, ok = fhirschema.ConcreteResourceType(refType)
+			if !ok || !nestedLinkAllowsTarget(rule.TargetPatterns, refType) {
+				continue
+			}
+			if _, alreadyExtracted := nestedLinkCoverage[nestedLinkCoverageKey(sourceType, rule.SourceType, rule.Label, refType)]; alreadyExtracted {
+				continue
+			}
+			label := nestedRelationshipLabel(sourceType, reference.path, rule.Path, rule.Label)
+			forwardKey := nestedEdgeUUID(project, sourceType, sourceID, refType, targetID, label, reference.path, extensionURL)
+			appendNestedEdge(edges, seen, forwardKey, collectionID(sourceType, sourceID), collectionID(refType, targetID), label, projectJSON, sourceType, refType, reference.path, extensionURL)
+			for _, backref := range rule.Backrefs {
+				if strings.TrimSpace(backref) == "" {
+					continue
+				}
+				backrefLabel := nestedRelationshipLabel(sourceType, reference.path, rule.Path, backref)
+				backrefKey := nestedEdgeUUID(project, refType, targetID, sourceType, sourceID, backrefLabel, reference.path, extensionURL)
+				appendNestedEdge(edges, seen, backrefKey, collectionID(refType, targetID), collectionID(sourceType, sourceID), backrefLabel, projectJSON, refType, sourceType, reference.path, extensionURL)
+			}
+		}
+	}
+
+	for index := 0; index < value.NumField(); index++ {
+		field := valueType.Field(index)
+		if field.PkgPath != "" || field.Name == "Links" {
+			continue
+		}
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonName == "" || jsonName == "-" {
+			continue
+		}
+		walkNestedFHIRLinks(value.Field(index), sourcePath+"."+jsonName, extensionURL, project, sourceType, sourceID, projectJSON, seen, edges)
+	}
+}
+
+func nestedLinkCoverageKey(resourceType, nestedType, label, targetType string) string {
+	return resourceType + "|" + nestedType + "|" + label + "|" + targetType
+}
+
+func nestedRelationshipLabel(resourceType, referencePath string, linkPath []string, relation string) string {
+	relativePath := strings.TrimPrefix(referencePath, resourceType+".")
+	relativePath = strings.ReplaceAll(relativePath, "[]", "")
+	linkParts := make([]string, 0, len(linkPath))
+	for _, part := range linkPath {
+		if part != "-" {
+			linkParts = append(linkParts, part)
+		}
+	}
+	linkSuffix := strings.Join(linkParts, ".")
+	if linkSuffix != "" && relativePath != linkSuffix {
+		relativePath = strings.TrimSuffix(relativePath, "."+linkSuffix)
+	} else if relativePath == linkSuffix {
+		relativePath = ""
+	}
+	prefix := strings.ReplaceAll(relativePath, ".", "_")
+	if prefix == "" {
+		return relation
+	}
+	return prefix + "_" + relation
+}
+
+type nestedReferenceValue struct {
+	value string
+	path  string
+}
+
+func nestedReferenceValues(value reflect.Value, path []string, sourcePath string) []nestedReferenceValue {
+	if len(path) == 0 {
+		for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+			if value.IsNil() {
+				return nil
+			}
+			value = value.Elem()
+		}
+		if value.IsValid() && value.Kind() == reflect.String && strings.TrimSpace(value.String()) != "" {
+			return []nestedReferenceValue{{value: value.String(), path: sourcePath}}
+		}
+		return nil
+	}
+	if !value.IsValid() {
+		return nil
+	}
+	if path[0] == "-" {
+		for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+			if value.IsNil() {
+				return nil
+			}
+			value = value.Elem()
+		}
+		if value.Kind() != reflect.Slice && value.Kind() != reflect.Array {
+			return nil
+		}
+		var matches []nestedReferenceValue
+		for index := 0; index < value.Len(); index++ {
+			matches = append(matches, nestedReferenceValues(value.Index(index), path[1:], sourcePath+"[]")...)
+		}
+		return matches
+	}
+	for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+		if value.IsNil() {
+			return nil
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return nil
+	}
+	for index := 0; index < value.NumField(); index++ {
+		field := value.Type().Field(index)
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonName == path[0] {
+			return nestedReferenceValues(value.Field(index), path[1:], sourcePath+"."+jsonName)
+		}
+	}
+	return nil
+}
+
+func nestedLinkAllowsTarget(patterns []string, targetType string) bool {
+	for _, pattern := range patterns {
+		if pattern == "Resource/*" || strings.TrimSuffix(pattern, "/*") == targetType {
+			return true
+		}
+	}
+	return false
+}
+
+func appendNestedEdge(edges *[]json.RawMessage, seen *map[string]struct{}, key, from, to, label, projectJSON, fromType, toType, sourcePath, extensionURL string) {
+	if *seen == nil {
+		*seen = make(map[string]struct{}, 8)
+	}
+	if _, exists := (*seen)[key]; exists {
+		return
+	}
+	(*seen)[key] = struct{}{}
+	*edges = append(*edges, buildNestedEdgeRawJSON(key, from, to, label, projectJSON, fromType, toType, sourcePath, extensionURL))
+}
+
 // ExtractEdges extracts graph links from BodyStructure.
 func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) {
 	var edges []json.RawMessage
@@ -228,6 +1495,7 @@ func (x *BodyStructure) ExtractEdges(project string) ([]json.RawMessage, error) 
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "BodyStructure", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -2026,6 +3294,7 @@ func (x *Condition) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Condition", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -3211,6 +4480,7 @@ func (x *DiagnosticReport) ExtractEdges(project string) ([]json.RawMessage, erro
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "DiagnosticReport", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -7154,6 +8424,7 @@ func (x *DocumentReference) ExtractEdges(project string) ([]json.RawMessage, err
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "DocumentReference", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -8797,6 +10068,7 @@ func (x *FamilyMemberHistory) ExtractEdges(project string) ([]json.RawMessage, e
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "FamilyMemberHistory", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -10428,6 +11700,7 @@ func (x *Group) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Group", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -13328,6 +14601,7 @@ func (x *ImagingStudy) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "ImagingStudy", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -13390,6 +14664,7 @@ func (x *Medication) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Medication", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -18398,6 +19673,7 @@ func (x *MedicationAdministration) ExtractEdges(project string) ([]json.RawMessa
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "MedicationAdministration", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -24066,6 +25342,7 @@ func (x *MedicationRequest) ExtractEdges(project string) ([]json.RawMessage, err
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "MedicationRequest", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -28150,6 +29427,7 @@ func (x *MedicationStatement) ExtractEdges(project string) ([]json.RawMessage, e
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "MedicationStatement", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -30636,6 +31914,7 @@ func (x *Observation) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Observation", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -30800,6 +32079,7 @@ func (x *Organization) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Organization", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -31111,6 +32391,7 @@ func (x *Patient) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Patient", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -31179,6 +32460,7 @@ func (x *Practitioner) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Practitioner", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -31337,6 +32619,7 @@ func (x *PractitionerRole) ExtractEdges(project string) ([]json.RawMessage, erro
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "PractitionerRole", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -37469,6 +38752,7 @@ func (x *Procedure) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Procedure", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -40559,6 +41843,7 @@ func (x *ResearchStudy) ExtractEdges(project string) ([]json.RawMessage, error) 
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "ResearchStudy", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -40846,6 +42131,7 @@ func (x *ResearchSubject) ExtractEdges(project string) ([]json.RawMessage, error
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "ResearchSubject", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -41494,6 +42780,7 @@ func (x *Specimen) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Specimen", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -42643,6 +43930,7 @@ func (x *Substance) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Substance", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -43229,6 +44517,7 @@ func (x *SubstanceDefinition) ExtractEdges(project string) ([]json.RawMessage, e
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "SubstanceDefinition", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 
@@ -53288,6 +54577,7 @@ func (x *Task) ExtractEdges(project string) ([]json.RawMessage, error) {
 			}
 		}
 	}
+	walkNestedFHIRLinks(reflect.ValueOf(x), "Task", "", project, sourceType, id, projectJSON, &seen, &edges)
 	return edges, nil
 }
 

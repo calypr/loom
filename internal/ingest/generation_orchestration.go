@@ -203,7 +203,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		})
 	}()
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
-	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
 	for _, file := range files {
 		if err = ctx.Err(); err != nil {
@@ -252,8 +251,6 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
 		}
-		catalog.MergeRelationshipCounts(relationshipCounts, result.RelationshipCounts)
-
 		key := generationCatalogKey{
 			project:           opts.Project,
 			datasetGeneration: plan.Dataset.Generation,
@@ -297,6 +294,15 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
+	removedEdges, validationSeconds, validationErr := removeDanglingFHIRGraphEdges(ctx, client, opts.Project, plan.Dataset.Generation, opts.BatchSize)
+	if validationErr != nil {
+		return summary, fmt.Errorf("validate FHIR edge targets for dataset generation %s/%s: %w", plan.Dataset.Project, plan.Dataset.Generation, validationErr)
+	}
+	summary.StageSeconds["edge_target_validation"] += validationSeconds
+	summary.EdgesInserted -= removedEdges
+	if summary.EdgesInserted < 0 {
+		summary.EdgesInserted = 0
+	}
 
 	for _, key := range sortedGenerationCatalogKeys(catalogs) {
 		if err = ctx.Err(); err != nil {
@@ -314,16 +320,24 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			return summary, err
 		}
 	}
-	if err = catalogStore.WriteRelationshipCatalog(
-		ctx,
-		catalog.RelationshipCatalogDocuments(relationshipCounts),
-		opts.BatchSize,
-		false,
-		opts.WriteAPI,
-		summary.StageSeconds,
-	); err != nil {
+	var authResourcePaths []string
+	authPathsUnrestricted := opts.AuthResourcePath == ""
+	if !authPathsUnrestricted {
+		authResourcePaths = []string{opts.AuthResourcePath}
+	}
+	relationshipRebuildStarted := time.Now()
+	if _, err = catalogStore.RebuildRelationshipCatalog(ctx, catalog.RelationshipRebuildOptions{
+		Project:                       opts.Project,
+		DatasetGeneration:             plan.Dataset.Generation,
+		AuthResourcePaths:             authResourcePaths,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(authPathsUnrestricted),
+		CursorBatch:                   opts.BatchSize,
+		BatchSize:                     opts.BatchSize,
+		WriteAPI:                      opts.WriteAPI,
+	}); err != nil {
 		return summary, err
 	}
+	summary.StageSeconds["relationship_catalog_rebuild"] += time.Since(relationshipRebuildStarted).Seconds()
 	if err = ctx.Err(); err != nil {
 		return summary, err
 	}
