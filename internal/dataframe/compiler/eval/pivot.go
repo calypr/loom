@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -42,6 +43,20 @@ func compileCorrelatedPivot(pivot ir.PhysicalPivotMap, binds map[string]any) (ex
 	}
 	if mode != "FIRST" && mode != "ALL" && mode != "VALUE" && mode != "DISTINCT" {
 		return nil, unsupported("pivot reduction %q is unsupported", mode)
+	}
+	if mode == "DISTINCT" {
+		return nil, unsupported("DISTINCT pivot reduction requires AQL SORTED_UNIQUE ordering")
+	}
+	if mode == "FIRST" {
+		primitive := strings.ToLower(strings.TrimSpace(correlation.ValuePrimitive))
+		if primitive == "" {
+			primitive = strings.ToLower(strings.TrimSpace(correlation.LogicalType))
+		}
+		switch primitive {
+		case "string", "integer", "decimal", "date", "datetime":
+		default:
+			return nil, unsupported("FIRST pivot primitive %q requires AQL sort ordering", primitive)
+		}
 	}
 	if pivot.StringifyValue && correlation.ValuePrimitive != "" && correlation.ValuePrimitive != "string" {
 		return nil, unsupported("pivot unexpectedly stringifies %q values", correlation.ValuePrimitive)
@@ -446,16 +461,26 @@ func reducePivot(mode string, stringify bool, primitive string, values, invalid 
 		}
 		return map[string]any{"status": "INVALID_MULTIPLE_VALUES", "raw": values}, nil
 	case "DISTINCT":
-		return uniqueValues(values)
+		return nil, unsupported("DISTINCT pivot reduction requires AQL SORTED_UNIQUE ordering")
 	case "FIRST":
 		if len(values) == 0 {
 			return nil, nil
 		}
 		ordered := append([]any(nil), values...)
+		stringMode := false
+		numberMode := false
 		for _, item := range ordered {
 			if !isAQLScalar(item) {
 				return nil, fmt.Errorf("FIRST pivot reduction has non-scalar value %T", item)
 			}
+			if _, ok := item.(string); ok {
+				stringMode = true
+			} else {
+				numberMode = true
+			}
+		}
+		if stringMode && numberMode {
+			return nil, fmt.Errorf("FIRST pivot reduction has mixed string and numeric values")
 		}
 		sortAQLValues(ordered)
 		return ordered[0], nil
@@ -465,13 +490,9 @@ func reducePivot(mode string, stringify bool, primitive string, values, invalid 
 }
 
 func sortAQLValues(values []any) {
-	// Callers have already validated scalar values. The simple insertion sort
-	// keeps numeric and string domains explicit and avoids interface panics.
-	for index := 1; index < len(values); index++ {
-		for cursor := index; cursor > 0 && aqlLess(values[cursor], values[cursor-1]); cursor-- {
-			values[cursor], values[cursor-1] = values[cursor-1], values[cursor]
-		}
-	}
+	// Callers validate one scalar domain first, so AQL-like ordering is
+	// transitive and can use the standard O(n log n) sorter.
+	sort.Slice(values, func(left, right int) bool { return aqlLess(values[left], values[right]) })
 }
 
 func aqlLess(left, right any) bool {

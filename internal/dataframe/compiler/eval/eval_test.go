@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -96,35 +97,14 @@ func TestEvaluateRowKeyedMapUsesSortedUniqueStringValues(t *testing.T) {
 }
 
 func TestEvaluateRowCorrelatedPivotAndObjectLookupNullModes(t *testing.T) {
-	source := ir.PhysicalValue{Variable: "root"}
-	correlation := ir.PhysicalCorrelation{
-		Source: source, ResourceType: "Observation", OwnerResource: "Observation", KeyResource: "Coding",
-		KeySelector:    mustSelector(t, "category[].coding[]"),
-		SystemSelector: mustSelector(t, "system"), CodeSelector: mustSelector(t, "code"),
-		ValueScope: ir.PhysicalCorrelationValueKeyItem, ValueSelector: mustSelector(t, "display"),
-		LogicalType: "string", ValuePrimitive: "string", SystemBindKey: "system", CodeBindKey: "code_bind",
-	}
-	pivot := ir.PhysicalExpression{
-		Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Pivot: &ir.PhysicalPivotMap{
-			Source: source, ResourceType: "Observation", Correlation: &correlation, ColumnsBindKey: "columns", ProjectionMode: "FIRST",
-		},
-	}
-	plan := rootPlan([]ir.PhysicalOperation{
-		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
-		{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{Variable: "pivot", Expression: pivot}},
-		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
-			{Name: "pivot", Value: ir.PhysicalValue{Variable: "pivot"}},
-			{Name: "nil_value", Expression: objectLookup("root", "nil_key", ir.PhysicalPreserveNull)},
-			{Name: "false_value", Expression: objectLookup("root", "false_key", ir.PhysicalPreserveNull)},
-			{Name: "zero_value", Expression: objectLookup("root", "zero_key", ir.PhysicalPreserveNull)},
-			{Name: "empty_value", Expression: objectLookup("root", "empty_key", ir.PhysicalPreserveNull)},
-			{Name: "missing_empty", Expression: objectLookup("root", "missing_key", ir.PhysicalEmptyOnNull)},
-		}}},
-	})
-	plan.BindVars["system"] = "urn:test"
-	plan.BindVars["code_bind"] = "code-1"
-	plan.BindVars["columns"] = []string{"code-1"}
+	plan := correlatedPivotPlan(t, "FIRST", "string", "string", "display")
+	plan.Operations[2].Return.Projections = append(plan.Operations[2].Return.Projections,
+		ir.PhysicalProjection{Name: "nil_value", Expression: objectLookup("root", "nil_key", ir.PhysicalPreserveNull)},
+		ir.PhysicalProjection{Name: "false_value", Expression: objectLookup("root", "false_key", ir.PhysicalPreserveNull)},
+		ir.PhysicalProjection{Name: "zero_value", Expression: objectLookup("root", "zero_key", ir.PhysicalPreserveNull)},
+		ir.PhysicalProjection{Name: "empty_value", Expression: objectLookup("root", "empty_key", ir.PhysicalPreserveNull)},
+		ir.PhysicalProjection{Name: "missing_empty", Expression: objectLookup("root", "missing_key", ir.PhysicalEmptyOnNull)},
+	)
 	plan.BindVars["nil_key"] = "nil"
 	plan.BindVars["false_key"] = "false"
 	plan.BindVars["zero_key"] = "zero"
@@ -157,6 +137,57 @@ func TestEvaluateRowCorrelatedPivotAndObjectLookupNullModes(t *testing.T) {
 	if got["missing_empty"] == nil || !reflect.DeepEqual(got["missing_empty"], []any{}) {
 		t.Fatalf("EMPTY_ON_NULL lookup = %#v, want empty array", got["missing_empty"])
 	}
+}
+
+func TestCompileRejectsPivotModesOutsideExactOrderingSubset(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      string
+		logical   string
+		primitive string
+		selector  string
+	}{
+		{name: "distinct requires sorted unique ordering", mode: "DISTINCT", logical: "string", primitive: "string", selector: "display"},
+		{name: "boolean first requires backend sort ordering", mode: "FIRST", logical: "boolean", primitive: "boolean", selector: "userSelected"},
+		{name: "unknown first primitive requires backend sort ordering", mode: "FIRST", logical: "unknown", selector: "display"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := correlatedPivotPlan(t, test.mode, test.logical, test.primitive, test.selector)
+			if _, err := Compile(plan); !errors.Is(err, ErrUnsupportedPlan) {
+				t.Fatalf("Compile() error = %v, want fail-closed ErrUnsupportedPlan", err)
+			}
+			if Eligible(plan) {
+				t.Fatal("Eligible() accepted pivot semantics that require AQL fallback")
+			}
+		})
+	}
+}
+
+func correlatedPivotPlan(t *testing.T, mode, logicalType, primitive, valueSelector string) ir.PhysicalPlan {
+	t.Helper()
+	source := ir.PhysicalValue{Variable: "root"}
+	correlation := ir.PhysicalCorrelation{
+		Source: source, ResourceType: "Observation", OwnerResource: "Observation", KeyResource: "Coding",
+		KeySelector: mustSelector(t, "category[].coding[]"), SystemSelector: mustSelector(t, "system"), CodeSelector: mustSelector(t, "code"),
+		ValueScope: ir.PhysicalCorrelationValueKeyItem, ValueSelector: mustSelector(t, valueSelector),
+		LogicalType: logicalType, ValuePrimitive: primitive, SystemBindKey: "system", CodeBindKey: "code_bind",
+	}
+	pivot := ir.PhysicalExpression{
+		Kind: ir.PhysicalPivotExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Pivot: &ir.PhysicalPivotMap{
+			Source: source, ResourceType: "Observation", Correlation: &correlation, ColumnsBindKey: "columns", ProjectionMode: mode,
+		},
+	}
+	plan := rootPlan([]ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalExpressionLetOp, ExpressionLet: &ir.PhysicalExpressionLet{Variable: "pivot", Expression: pivot}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "pivot", Value: ir.PhysicalValue{Variable: "pivot"}}}}},
+	})
+	plan.BindVars["system"] = "urn:test"
+	plan.BindVars["code_bind"] = "code-1"
+	plan.BindVars["columns"] = []string{"code-1"}
+	return plan
 }
 
 func TestCompileRejectsUnsupportedExpression(t *testing.T) {
