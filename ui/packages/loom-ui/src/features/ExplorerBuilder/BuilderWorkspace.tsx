@@ -63,6 +63,15 @@ import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
 import type { CatalogChoiceIntent } from './catalogItems';
+import {
+  ConstructionWorkspace,
+  constructionOperationFamilies,
+  type ConstructionOperationFamily,
+} from './constructionWorkspace/ConstructionWorkspace';
+import {
+  ConstructionColumnSelection,
+  type ConstructionSelectableColumn,
+} from './constructionWorkspace/ConstructionColumnSelection';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -85,6 +94,14 @@ const emptyBuilderState = (project: string): BuilderAuthoringState => ({
   dirty: false,
   reconciliation: 'idle',
 });
+
+type ColumnSelectionState =
+  | { readonly kind: 'empty' }
+  | {
+      readonly kind: 'selected';
+      readonly outputId: string;
+      readonly columnIds: ReadonlyArray<string>;
+    };
 
 const diagnosticsFromError = (
   error: unknown,
@@ -273,6 +290,10 @@ const BuilderWorkspaceContent = ({
   const [firstTableName, setFirstTableName] = useState('');
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
+  const [activeConstructionFamily, setActiveConstructionFamily] =
+    useState<ConstructionOperationFamily>();
+  const [columnSelection, setColumnSelection] =
+    useState<ColumnSelectionState>({ kind: 'empty' });
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewFocusTarget, setReviewFocusTarget] =
     useState<Exclude<DatasetReviewTarget, { readonly kind: 'new-table' }>>();
@@ -477,6 +498,53 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  useEffect(() => {
+    setActiveConstructionFamily(undefined);
+    setColumnSelection({ kind: 'empty' });
+  }, [state.explorerId, table?.outputId]);
+  const tablePreview =
+    state.preview?.outputId === table?.outputId ? state.preview : undefined;
+  const previewIsCurrent = Boolean(
+    table &&
+      tablePreview &&
+      tablePreview.rows !== null &&
+      state.receipt &&
+      state.reconciliation === 'resolved' &&
+      tablePreview.receiptId === state.receipt.receiptId,
+  );
+  const currentPreviewStatus = !tablePreview
+    ? 'empty'
+    : previewIsCurrent
+      ? 'ready'
+      : 'stale';
+  const selectedColumnIds =
+    columnSelection.kind === 'selected' &&
+    columnSelection.outputId === table?.outputId
+      ? columnSelection.columnIds
+      : [];
+  const selectableColumns: ReadonlyArray<ConstructionSelectableColumn> =
+    previewIsCurrent && state.preview
+      ? state.preview.columns.map((column) => ({
+          id: column.column,
+          label: column.label,
+          type: column.logicalType,
+        }))
+      : (table?.document.columns ?? []).map((column) => ({
+          id: column.column,
+          label: column.label,
+          type: column.logicalType,
+        }));
+  const rowMeaning = !table?.document.rootResourceType
+    ? 'Choose what one row represents to start this table.'
+    : table.document.output.rowLabel?.trim() ||
+      state.catalog.nodes.find(
+        (node) => node.resourceType === table.document.rootResourceType,
+      )?.rowGrain ||
+      (table.document.rows.kind === 'RECORDS'
+        ? 'One row per source record.'
+        : table.document.rows.kind === 'GROUPS'
+          ? 'One row per group.'
+          : 'One row per expanded value.');
   const focusedFeature = useMemo(() => {
     if (!featureFocus) return undefined;
     const targetTable = state.tables.find((candidate) => candidate.outputId === featureFocus.outputId);
@@ -867,6 +935,24 @@ const BuilderWorkspaceContent = ({
   };
   const duplicateTable = () => {
     if (!table) return;
+    if (!table.document.rootResourceType) {
+      const outputId = opaqueId('output');
+      const title = `${table.title} copy`;
+      dispatch({
+        type: 'addTable',
+        table: {
+          ...table,
+          outputId,
+          tabId: opaqueId('tab'),
+          title,
+          document: {
+            ...table.document,
+            output: { ...table.document.output, id: outputId, title },
+          },
+        },
+      });
+      return;
+    }
     void applyCommands([
       {
         type: 'DUPLICATE_TABLE',
@@ -874,6 +960,46 @@ const BuilderWorkspaceContent = ({
         title: `${table.title} copy`,
       },
     ]);
+  };
+  const renameTable = (outputId: string, value: string) => {
+    const title = value.trim();
+    if (!title) return;
+    const target = state.tables.find((candidate) => candidate.outputId === outputId);
+    if (!target?.document.rootResourceType) {
+      dispatch({ type: 'renameTable', outputId, title });
+      return;
+    }
+    void applyCommands([{ type: 'RENAME_TABLE', outputId, title }]);
+  };
+  const renameTableById = (outputId: string) => {
+    const target = state.tables.find((candidate) => candidate.outputId === outputId);
+    if (!target) return;
+    const title = window.prompt('Table name', target.title)?.trim();
+    if (title && title !== target.title) renameTable(outputId, title);
+  };
+  const deleteSelectedTable = () => {
+    if (!table || state.tables.length <= 1) return;
+    if (!window.confirm(`Delete ${table.title}?`)) return;
+    if (table.document.rootResourceType) {
+      void applyCommands([
+        { type: 'DELETE_TABLE', outputId: table.outputId },
+      ]);
+      return;
+    }
+    dispatch({ type: 'removeTable', outputId: table.outputId });
+  };
+  const reorderTable = (outputId: string, before?: string) => {
+    const moving = state.tables.find((candidate) => candidate.outputId === outputId);
+    if (!moving?.document.rootResourceType || incomplete) {
+      dispatch({ type: 'reorderTable', outputId, before });
+      return;
+    }
+    const outputIds = state.tables
+      .filter((candidate) => candidate.outputId !== outputId)
+      .map((candidate) => candidate.outputId);
+    const index = before ? outputIds.indexOf(before) : outputIds.length;
+    outputIds.splice(index < 0 ? outputIds.length : index, 0, outputId);
+    void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
   };
   const createCustomExplorer = async (title: string, fromCurrent: boolean) => {
     try {
@@ -1273,42 +1399,11 @@ const BuilderWorkspaceContent = ({
       tables={state.tables}
       selectedOutputId={state.selectedOutputId}
       onSelectTable={(outputId) => dispatch({ type: 'selectTable', outputId })}
-      onRenameTable={(outputId, title) => {
-        const target = state.tables.find(
-          (candidate) => candidate.outputId === outputId,
-        );
-        if (!target?.document.rootResourceType) {
-          dispatch({ type: 'renameTable', outputId, title });
-          return;
-        }
-        void applyCommands([{ type: 'RENAME_TABLE', outputId, title }]);
-      }}
+      onRenameTable={renameTable}
       onNewTable={addTable}
       onDuplicateTable={duplicateTable}
-      onDeleteTable={() =>
-        table &&
-        window.confirm(`Delete ${table.title}?`) &&
-        (table.document.rootResourceType
-          ? void applyCommands([
-              { type: 'DELETE_TABLE', outputId: table.outputId },
-            ])
-          : dispatch({ type: 'removeTable', outputId: table.outputId }))
-      }
-      onReorderTable={(outputId, before) => {
-        const moving = state.tables.find(
-          (candidate) => candidate.outputId === outputId,
-        );
-        if (!moving?.document.rootResourceType || incomplete) {
-          dispatch({ type: 'reorderTable', outputId, before });
-          return;
-        }
-        const outputIds = state.tables
-          .filter((candidate) => candidate.outputId !== outputId)
-          .map((candidate) => candidate.outputId);
-        const index = before ? outputIds.indexOf(before) : outputIds.length;
-        outputIds.splice(index < 0 ? outputIds.length : index, 0, outputId);
-        void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
-      }}
+      onDeleteTable={deleteSelectedTable}
+      onReorderTable={reorderTable}
       onPreview={() => void preview()}
       onReview={() => setReviewOpen((open) => !open)}
       reviewExpanded={reviewOpen}
@@ -1318,9 +1413,127 @@ const BuilderWorkspaceContent = ({
       publishing={publishing}
       busy={busy}
       columnCreationSupported
-      tableToolbarHost={featureMode === 'graph' ? tableToolbarHost : undefined}
+      tableToolbarHost={featureMode === 'graph' ? tableToolbarHost : null}
     />
   );
+
+  const activeOperation = constructionOperationFamilies.find(
+    (candidate) => candidate.family === activeConstructionFamily,
+  );
+  const operationEditor = table && activeOperation ? (
+    <section
+      aria-label={`${activeOperation.label} editor`}
+      data-testid="construction-operation-editor"
+      data-operation-family={activeOperation.family}
+      className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
+    >
+      <header className="border-b border-slate-200 px-4 py-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+          Proposed change
+        </p>
+        <div className="mt-1 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">
+              {activeOperation.label}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {activeOperation.description}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close operation editor"
+            data-testid="construction-close-operation-editor"
+            onClick={() => setActiveConstructionFamily(undefined)}
+            className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
+          >
+            Close
+          </button>
+        </div>
+        {selectedColumnIds.length > 0 ? (
+          <p className="mt-3 rounded bg-slate-50 px-2.5 py-2 text-xs text-slate-600">
+            Inputs from your selection:{' '}
+            <span className="font-medium text-slate-800">
+              {selectableColumns
+                .filter((column) => selectedColumnIds.includes(column.id))
+                .map((column) => column.label)
+                .join(', ')}
+            </span>
+          </p>
+        ) : null}
+      </header>
+
+      <div className="p-4">
+        {activeOperation.family === 'ADD_COLUMNS' ? (
+          <ConceptCatalog
+            key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:construction-add-columns`}
+            project={projectId}
+            explorerId={state.explorerId}
+            authResourcePath={authResourcePath}
+            snapshotToken={state.catalog.snapshotToken}
+            outputId={table.outputId}
+            rowRoot={table.document.rootResourceType}
+            resourceType={occurrence?.resourceType}
+            routeContext={selectedRouteContext}
+            layout="panel"
+            catalog={state.catalog}
+            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+            onAddSelected={addSelectedFeatures}
+          />
+        ) : null}
+        {activeOperation.family === 'RESHAPE' ||
+        activeOperation.family === 'CALCULATE' ? (
+          <TableShapeSettingsPanel
+            client={loomClient}
+            project={projectId}
+            explorerId={state.explorerId}
+            authResourcePath={authResourcePath}
+            snapshotToken={state.catalog.snapshotToken}
+            draftVersion={state.draftVersion}
+            draftDigest={state.draftDigest}
+            table={table}
+            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+            onApply={(proposalId) =>
+              applyCommands([
+                {
+                  type: 'APPLY_TABLE_SHAPE_PROPOSAL',
+                  outputId: table.outputId,
+                  proposalId,
+                },
+              ])
+            }
+          />
+        ) : null}
+        {activeOperation.family === 'KEEP_ROWS' ? (
+          <div
+            role="status"
+            data-testid="construction-operation-unavailable"
+            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+          >
+            <h3 className="font-semibold">Unavailable for this table</h3>
+            <p className="mt-1">
+              Filtering rows in the current result is not supported by this
+              Builder contract. Source contributor filters only change which
+              records supply a column; they do not remove output rows.
+            </p>
+          </div>
+        ) : null}
+        {activeOperation.family === 'COMBINE' ? (
+          <div
+            role="status"
+            data-testid="construction-operation-unavailable"
+            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
+          >
+            <h3 className="font-semibold">Unavailable for this table</h3>
+            <p className="mt-1">
+              Joining or appending another named table is not supported by this
+              Builder contract. No table change has been proposed.
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  ) : undefined;
 
   return (
     <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
@@ -1425,6 +1638,128 @@ const BuilderWorkspaceContent = ({
         ) : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
+            {table ? (
+              <ConstructionWorkspace
+                tables={state.tables.map((candidate) => ({
+                  outputId: candidate.outputId,
+                  title: candidate.title,
+                }))}
+                selectedOutputId={table.outputId}
+                tableActionsDisabled={pendingCommands > 0 || publishing}
+                onSelectTable={(outputId) => {
+                  setActiveConstructionFamily(undefined);
+                  dispatch({ type: 'selectTable', outputId });
+                }}
+                onNewTable={addTable}
+                onDuplicateTable={duplicateTable}
+                onDeleteTable={deleteSelectedTable}
+                onRenameTable={renameTableById}
+                onMoveTable={reorderTable}
+                title={table.title}
+                rowMeaning={rowMeaning}
+                previewRowCount={previewIsCurrent ? state.preview?.rowCount : undefined}
+                previewColumnCount={previewIsCurrent ? state.preview?.columns.length : undefined}
+                actionsDisabled={
+                  !table.document.rootResourceType ||
+                  pendingCommands > 0 ||
+                  state.reconciliation === 'pending' ||
+                  Boolean(pendingRowChange)
+                }
+                activeFamily={activeConstructionFamily}
+                onSelectFamily={(family) =>
+                  setActiveConstructionFamily((current) =>
+                    current === family ? undefined : family,
+                  )
+                }
+                preview={
+                  <>
+                    {currentPreviewStatus === 'stale' ? (
+                      <p
+                        role="status"
+                        data-testid="construction-preview-stale-notice"
+                        className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950"
+                      >
+                        Showing the last successful preview for this table. Run
+                        Preview to refresh it for the current draft.
+                      </p>
+                    ) : null}
+                    <ConstructionColumnSelection
+                      columns={selectableColumns}
+                      selectedColumnIds={selectedColumnIds}
+                      disabled={!table.document.rootResourceType || pendingCommands > 0}
+                      onToggleColumn={(columnId) =>
+                        setColumnSelection((current) => {
+                          const currentIds =
+                            current.kind === 'selected' &&
+                            current.outputId === table.outputId
+                              ? current.columnIds
+                              : [];
+                          const nextIds = currentIds.includes(columnId)
+                            ? currentIds.filter((candidate) => candidate !== columnId)
+                            : [...currentIds, columnId];
+                          return nextIds.length > 0
+                            ? {
+                                kind: 'selected',
+                                outputId: table.outputId,
+                                columnIds: nextIds,
+                              }
+                            : { kind: 'empty' };
+                        })
+                      }
+                      onClear={() => setColumnSelection({ kind: 'empty' })}
+                      onOpenFamily={(family) => setActiveConstructionFamily(family)}
+                    />
+                    <PreviewTable
+                      preview={tablePreview}
+                      table={table}
+                      limit={previewLimit}
+                      onLimitChange={(limit) => {
+                        setPreviewLimit(limit);
+                        preview(limit);
+                      }}
+                      onColumnChange={(column) =>
+                        void applyCommands([
+                          {
+                            type: 'UPDATE_COLUMN',
+                            outputId: table.outputId,
+                            column: column.column,
+                            columnValue: column,
+                          },
+                        ])
+                      }
+                      onColumnsChange={(columns) =>
+                        void applyCommands(
+                          columns.map((column) => ({
+                            type: 'UPDATE_COLUMN' as const,
+                            outputId: table.outputId,
+                            column: column.column,
+                            columnValue: column,
+                          })),
+                        )
+                      }
+                    />
+                  </>
+                }
+                editor={operationEditor}
+                previewStatus={currentPreviewStatus}
+                previewReceiptId={tablePreview?.receiptId}
+                previewOutputId={tablePreview?.outputId}
+                draftVersion={state.draftVersion}
+                draftDigest={state.draftDigest}
+              />
+            ) : null}
+            <details
+              className="rounded-xl border border-slate-200 bg-white shadow-sm"
+              open={!table?.document.rootResourceType}
+              data-testid="construction-source-setup"
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 marker:hidden">
+                <span>Source and column setup</span>
+                <span className="ml-2 text-xs font-normal text-slate-500">
+                  Set the row meaning, browse available data, or edit source columns.
+                </span>
+              </summary>
+              <div className="space-y-3 border-t border-slate-200 p-3">
             {table ? (
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="space-y-3">
@@ -1816,23 +2151,34 @@ const BuilderWorkspaceContent = ({
                 </div>
               </section>
             ) : null}
-            {table ? (
-              <TableShapeSettingsPanel
-                client={loomClient}
-                project={projectId}
-                explorerId={state.explorerId}
-                authResourcePath={authResourcePath}
-                snapshotToken={state.catalog.snapshotToken}
-                draftVersion={state.draftVersion}
-                draftDigest={state.draftDigest}
-                table={table}
-                disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                onApply={(proposalId) => applyCommands([{
-                  type: 'APPLY_TABLE_SHAPE_PROPOSAL',
-                  outputId: table.outputId,
-                  proposalId,
-                }])}
-              />
+            {table &&
+            activeConstructionFamily !== 'CALCULATE' &&
+            activeConstructionFamily !== 'RESHAPE' ? (
+              <details className="rounded-lg border border-slate-200 bg-white p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                  Table shape settings
+                </summary>
+                <TableShapeSettingsPanel
+                  client={loomClient}
+                  project={projectId}
+                  explorerId={state.explorerId}
+                  authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken}
+                  draftVersion={state.draftVersion}
+                  draftDigest={state.draftDigest}
+                  table={table}
+                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onApply={(proposalId) =>
+                    applyCommands([
+                      {
+                        type: 'APPLY_TABLE_SHAPE_PROPOSAL',
+                        outputId: table.outputId,
+                        proposalId,
+                      },
+                    ])
+                  }
+                />
+              </details>
             ) : null}
             {state.receipt && state.reconciliation === 'resolved' && table ? (
               <DataframeContractPanel
@@ -1840,37 +2186,8 @@ const BuilderWorkspaceContent = ({
                 outputId={table.outputId}
               />
             ) : null}
-            <PreviewTable
-              preview={state.preview}
-              table={table}
-              limit={previewLimit}
-              onLimitChange={(limit) => {
-                setPreviewLimit(limit);
-                preview(limit);
-              }}
-              onColumnChange={(column) =>
-                table &&
-                void applyCommands([
-                  {
-                    type: 'UPDATE_COLUMN',
-                    outputId: table.outputId,
-                    column: column.column,
-                    columnValue: column,
-                  },
-                ])
-              }
-              onColumnsChange={(columns) =>
-                table &&
-                void applyCommands(
-                  columns.map((column) => ({
-                    type: 'UPDATE_COLUMN' as const,
-                    outputId: table.outputId,
-                    column: column.column,
-                    columnValue: column,
-                  })),
-                )
-              }
-            />
+              </div>
+            </details>
           </>
         )}
       </div>

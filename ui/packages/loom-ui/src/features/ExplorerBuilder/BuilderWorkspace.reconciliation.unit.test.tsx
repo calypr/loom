@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -1088,7 +1088,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 
-  it('places table-shape settings after feature meanings and applies only the reviewed receipt command', async () => {
+  it('keeps Preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -1097,11 +1097,38 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    expect(await screen.findByTestId('construction-workspace')).toBeInTheDocument();
+    const preview = screen.getByTestId('construction-preview');
+    expect(['empty', 'stale']).toContain(preview.getAttribute('data-preview-status'));
+    expect(within(preview).getByText('Preview table')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-source-setup')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-keep-rows')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-calculate')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-reshape')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-combine')).toBeInTheDocument();
+
+    const selectedColumn = screen.getByTestId('construction-column-specimen_identifier');
+    expect(selectedColumn.tagName).toBe('BUTTON');
+    selectedColumn.focus();
+    expect(document.activeElement).toBe(selectedColumn);
+    fireEvent.click(selectedColumn);
+    expect(selectedColumn).toHaveAttribute('aria-pressed', 'true');
+    const calculateShortcut = screen.getByTestId('construction-selection-calculate');
+    expect(calculateShortcut.tagName).toBe('BUTTON');
+    calculateShortcut.focus();
+    expect(document.activeElement).toBe(calculateShortcut);
+    fireEvent.click(calculateShortcut);
+    expect(screen.getByTestId('construction-operation-editor')).toHaveAttribute(
+      'data-operation-family',
+      'CALCULATE',
+    );
+    expect(screen.getByTestId('construction-operation-editor').textContent).toContain(
+      'Specimen identifier',
+    );
+    fireEvent.click(screen.getByTestId('construction-close-operation-editor'));
+
     const settings = await screen.findByTestId('ui04-table-shape-settings');
-    const featureMeanings = screen.getByRole('heading', { name: 'Feature meanings' });
-    const preview = screen.getByText('Preview table');
-    expect(featureMeanings.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(settings.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('ui04-open-table-shape-settings'));
     await screen.findByTestId('ui04-reshape-mode');
