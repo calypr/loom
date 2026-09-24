@@ -32,8 +32,13 @@ type Document struct {
 	Population       *Population   `json:"population,omitempty"`
 	Columns          []Column      `json:"columns"`
 	TableShape       *TableShape   `json:"tableShape,omitempty"`
-	FixedFilters     []FixedFilter `json:"fixedFilters,omitempty"`
-	Actions          []Action      `json:"actions,omitempty"`
+	// Construction is the canonical post-source operation sequence. When it is
+	// present, Route/Rows/Columns describe only the source projection and
+	// TableShape must be nil. A nil value preserves the existing V2 document
+	// semantics and compiler path.
+	Construction *Construction `json:"construction,omitempty"`
+	FixedFilters []FixedFilter `json:"fixedFilters,omitempty"`
+	Actions      []Action      `json:"actions,omitempty"`
 }
 
 // Population constrains an output's row roots to resources reachable from a

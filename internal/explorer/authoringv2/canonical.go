@@ -108,6 +108,7 @@ func (w Workspace) NormalizePresentationOrders() Workspace {
 		normalizeFilterOrders(columns)
 		normalizeChartOrders(columns)
 		document.Columns = columns
+		normalizeConstructionOutputOrder(document)
 	}
 	return n
 }

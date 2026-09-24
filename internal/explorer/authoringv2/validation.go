@@ -24,7 +24,14 @@ func (d Document) Validate() error {
 	if err := d.validateSemantic(); err != nil {
 		return err
 	}
-	if err := d.TableShape.Validate(d.Columns); err != nil {
+	if d.Construction != nil {
+		if d.TableShape != nil {
+			return fmt.Errorf("construction and tableShape cannot both define post-source operations")
+		}
+		if err := d.Construction.Validate(d.Columns); err != nil {
+			return fmt.Errorf("construction: %w", err)
+		}
+	} else if err := d.TableShape.Validate(d.Columns); err != nil {
 		return fmt.Errorf("tableShape: %w", err)
 	}
 	return nil

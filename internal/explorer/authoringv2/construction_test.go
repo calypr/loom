@@ -1,0 +1,457 @@
+package authoringv2
+
+import (
+	"encoding/json"
+	"math"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func stagedConstructionDocument() Document {
+	document := workspaceDocument("patients")
+	document.Columns = []Column{
+		constructionSourceColumn("person_id", "person_id", "Person ID", "integer"),
+		constructionSourceColumn("group_id", "group_id", "Group", "string"),
+		constructionSourceColumn("category_id", "category", "Category", "string"),
+		constructionSourceColumn("value_id", "value", "Value", "integer"),
+	}
+	group := StageColumn{ID: "group_id", Name: "group_id", Label: "Group", Type: "string"}
+	categoryA := StageColumn{ID: "pivot_a", Name: "amount_a", Label: "Amount A", Type: "integer"}
+	categoryB := StageColumn{ID: "pivot_b", Name: "amount_b", Label: "Amount B", Type: "integer"}
+	pivotOutputs := []StageColumn{group, categoryA, categoryB}
+	quotient := StageColumn{ID: "ratio_id", Name: "ratio", Label: "Ratio", Type: "decimal"}
+	derivedOutputs := append(append([]StageColumn(nil), pivotOutputs...), quotient)
+	filterValue := int64(1)
+	filterOutputs := append([]StageColumn(nil), derivedOutputs...)
+	finalOutputs := []StageColumn{
+		group,
+		quotient,
+		{ID: "measure_key", Name: "measure", Label: "Measure"},
+		{ID: "measure_value", Name: "measure_value", Label: "Measure value", Type: "integer"},
+	}
+	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{
+		{
+			ID:     "pivot_step",
+			Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+				ConstructionID: "pivot_step", GroupKeyIDs: []string{"group_id"}, CategoryColumnID: "category_id", ValueColumnID: "value_id",
+				Categories: []ConstructionPivotCategory{
+					{Key: stringScalar("A"), OutputColumnID: "pivot_a"},
+					{Key: stringScalar("B"), OutputColumnID: "pivot_b"},
+				},
+				DuplicatePolicy: ConstructionPivotDuplicateSum, MissingCellPolicy: ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+			}},
+			Outputs: pivotOutputs,
+		},
+		{
+			ID: "derive_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "pivot_step"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
+				ConstructionID: "derive_step", OutputColumnID: "ratio_id", Operation: ConstructionDerivedDivide,
+				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "pivot_a"},
+				Right:              ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "pivot_b"},
+				MissingInputPolicy: ConstructionMissingInputPropagateNull, DivisionByZeroPolicy: ConstructionDivisionByZeroNull,
+			}}, Outputs: derivedOutputs,
+		},
+		{
+			ID: "filter_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "derive_step"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+				ColumnID: "ratio_id", Operator: ConstructionFilterGreaterEq,
+				Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &filterValue}},
+			}}, Outputs: filterOutputs,
+		},
+		{
+			ID: "unpivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "filter_step"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationUnpivot, Unpivot: &ConstructionUnpivot{
+				ConstructionID: "unpivot_step",
+				Inputs: []ConstructionUnpivotInput{
+					{ColumnID: "pivot_a", Key: stringScalar("A")},
+					{ColumnID: "pivot_b", Key: stringScalar("B")},
+				},
+				KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ConstructionUnpivotPreserve,
+			}}, Outputs: finalOutputs,
+		},
+	}}
+	return document
+}
+
+func constructionSourceColumn(id, name, label, logicalType string) Column {
+	return Column{
+		ColumnID: id, Column: name, Label: label, LogicalType: logicalType, OccurrenceID: RootOccurrenceID,
+		Source: ColumnSource{Kind: SourceProjectID},
+	}
+}
+
+func stringScalar(value string) TableScalar {
+	return TableScalar{Kind: TableScalarString, String: &value}
+}
+
+func constructionWorkspace(document Document) Workspace {
+	return Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion,
+		Explorer:  ExplorerMetadata{Title: "Construction test"},
+		Documents: []Document{document},
+		Tabs:      []Tab{{ID: "tab-patients", Title: "Patients", OutputID: document.Output.ID, Order: 0, Visible: true}},
+	}
+}
+
+func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
+	document := stagedConstructionDocument()
+	if err := document.Validate(); err != nil {
+		t.Fatalf("valid typed construction rejected: %v", err)
+	}
+
+	workspace := constructionWorkspace(document)
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("canonical JSON: %v", err)
+	}
+	decoded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("decode canonical workspace: %v", err)
+	}
+	if got := decoded.Documents[0].Construction; !reflect.DeepEqual(got, document.Construction) {
+		t.Fatalf("construction changed during save/reload:\n got: %#v\nwant: %#v", got, document.Construction)
+	}
+}
+
+func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
+	document := stagedConstructionDocument()
+	document.TableShape = &TableShape{Derived: []DerivedConstruction{{
+		ConstructionID: "legacy-derived", Output: ColumnOutput{Column: "old_result", Label: "Old result"}, Operation: "ADD",
+		Left:               ArithmeticOperand{Kind: "COLUMN", Column: "value"},
+		Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(1)}},
+		MissingInputPolicy: "PROPAGATE_NULL",
+	}}}
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "cannot both define") {
+		t.Fatalf("mixed construction modes error = %v", err)
+	}
+
+	document.TableShape = nil
+	document.Construction.Steps[2].Operation.Filter.ColumnID = "missing_column"
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "missing column id") {
+		t.Fatalf("missing filter column error = %v", err)
+	}
+}
+
+func TestUpgradeDocumentToConstructionMigratesAndReloadsLegacyShape(t *testing.T) {
+	legacy := legacyPivotDocument()
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy document is invalid: %v", err)
+	}
+	original := legacy
+	original.Columns = append([]Column(nil), legacy.Columns...)
+	original.TableShape, _ = cloneTableShape(legacy.TableShape)
+
+	upgraded, err := UpgradeDocumentToConstruction(legacy)
+	if err != nil {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if upgraded.TableShape != nil || upgraded.Construction == nil {
+		t.Fatalf("upgrade did not establish one staged plan: %#v", upgraded)
+	}
+	if len(upgraded.Construction.Steps) != 3 {
+		t.Fatalf("migrated steps = %d, want pivot plus two derived steps", len(upgraded.Construction.Steps))
+	}
+	if upgraded.Construction.Steps[0].Operation.Kind != ConstructionOperationPivot {
+		t.Fatalf("first migrated operation = %q, want PIVOT", upgraded.Construction.Steps[0].Operation.Kind)
+	}
+	if got := upgraded.Construction.Steps[1].Operation.Derive.OutputColumnID; got == "" {
+		t.Fatal("migrated derived output has no stable identity")
+	}
+	if upgraded.Construction.Steps[1].Operation.Derive.OutputColumnID == upgraded.Construction.Steps[2].Operation.Derive.OutputColumnID {
+		t.Fatal("migrated derived columns share one stable identity")
+	}
+	if got := upgraded.Construction.Steps[0].Operation.Pivot.DuplicatePolicy; got != ConstructionPivotDuplicateMax {
+		t.Fatalf("pivot duplicate policy = %q", got)
+	}
+	if got := upgraded.Construction.Steps[0].Operation.Pivot.UnlistedCategoryPolicy; got != ConstructionPivotUnlistedExcludeWithEvidence {
+		t.Fatalf("pivot unlisted policy = %q", got)
+	}
+	for _, column := range upgraded.Columns {
+		if column.ColumnID == "" {
+			t.Fatalf("source column %q did not receive a stable id", column.Column)
+		}
+	}
+	if !reflect.DeepEqual(legacy, original) {
+		t.Fatal("migration mutated the accepted legacy document")
+	}
+
+	workspace := constructionWorkspace(upgraded)
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("canonical upgraded workspace: %v", err)
+	}
+	decoded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("decode upgraded workspace: %v", err)
+	}
+	reloaded := decoded.Documents[0]
+	if !reflect.DeepEqual(reloaded.Construction, upgraded.Construction) {
+		t.Fatal("migrated operation identities or policies changed after reload")
+	}
+	idsByName := make(map[string]string, len(upgraded.Columns))
+	for _, column := range upgraded.Columns {
+		idsByName[column.Column] = column.ColumnID
+	}
+	for _, column := range reloaded.Columns {
+		if column.ColumnID != idsByName[column.Column] {
+			t.Fatalf("source column id changed for %q: %q != %q", column.Column, column.ColumnID, idsByName[column.Column])
+		}
+	}
+
+	beforeRename := upgraded.Columns[1].ColumnID
+	upgraded.Columns[1].Column = "group_renamed"
+	upgraded.Columns[1].Label = "Renamed group"
+	if err := upgraded.Validate(); err != nil {
+		t.Fatalf("rename with stable identity: %v", err)
+	}
+	if upgraded.Columns[1].ColumnID != beforeRename || upgraded.Construction.Steps[0].Operation.Pivot.GroupKeyIDs[0] != beforeRename {
+		t.Fatal("renaming a source label or public name changed the column identity")
+	}
+	normalized := constructionWorkspace(upgraded).NormalizePresentationOrders()
+	groupOutput, ok := findStageColumnByID(normalized.Documents[0].Construction.Steps[0].Outputs, beforeRename)
+	if !ok || groupOutput.Name != "group_renamed" || groupOutput.Label != "Renamed group" {
+		t.Fatalf("renamed output schema = %#v, found=%t", groupOutput, ok)
+	}
+
+	again, err := UpgradeDocumentToConstruction(reloaded)
+	if err != nil {
+		t.Fatalf("reapplying conversion to staged document: %v", err)
+	}
+	if !reflect.DeepEqual(again.Construction, reloaded.Construction) {
+		t.Fatal("reopening and editing a staged document changed its operation identities")
+	}
+}
+
+func TestUpgradeDocumentToConstructionMigratesUnpivotPolicies(t *testing.T) {
+	legacy := stagedConstructionDocument()
+	for i := range legacy.Columns {
+		legacy.Columns[i].ColumnID = ""
+	}
+	legacy.Construction = nil
+	legacy.TableShape = &TableShape{Reshape: &TableReshape{Kind: "UNPIVOT", Unpivot: &UnpivotConstruction{
+		ConstructionID: "legacy_unpivot",
+		Inputs: []UnpivotInput{
+			{Column: "value", Key: stringScalar("one")},
+			{Column: "category", Key: stringScalar("two")},
+		},
+		KeyOutput:     ColumnOutput{Column: "metric", Label: "Metric"},
+		ValueOutput:   ColumnOutput{Column: "metric_value", Label: "Metric value"},
+		NullRowPolicy: "PRESERVE",
+	}}}
+	upgraded, err := UpgradeDocumentToConstruction(legacy)
+	if err != nil {
+		t.Fatalf("upgrade unpivot: %v", err)
+	}
+	if len(upgraded.Construction.Steps) != 1 {
+		t.Fatalf("migrated step count = %d", len(upgraded.Construction.Steps))
+	}
+	unpivot := upgraded.Construction.Steps[0].Operation.Unpivot
+	if unpivot == nil || unpivot.NullRowPolicy != ConstructionUnpivotPreserve || len(unpivot.Inputs) != 2 {
+		t.Fatalf("migrated unpivot = %#v", unpivot)
+	}
+	if unpivot.Inputs[0].Key.String == nil || *unpivot.Inputs[0].Key.String != "one" || unpivot.Inputs[1].Key.String == nil || *unpivot.Inputs[1].Key.String != "two" {
+		t.Fatalf("unpivot keys changed during migration: %#v", unpivot.Inputs)
+	}
+	if err := upgraded.Validate(); err != nil {
+		t.Fatalf("migrated unpivot invalid: %v", err)
+	}
+}
+
+func TestUpgradeDocumentToConstructionRejectsLossyShapeWithoutMutation(t *testing.T) {
+	legacy := legacyPivotDocument()
+	legacy.TableShape.Derived[0].Left = ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarString, String: stringPointer("not numeric")}}
+	before := legacy
+	before.Columns = append([]Column(nil), legacy.Columns...)
+	before.TableShape, _ = cloneTableShape(legacy.TableShape)
+	if _, err := UpgradeDocumentToConstruction(legacy); err == nil || !strings.Contains(err.Error(), "not numeric") {
+		t.Fatalf("lossy conversion error = %v", err)
+	}
+	if !reflect.DeepEqual(legacy, before) || legacy.TableShape == nil || legacy.Construction != nil {
+		t.Fatal("failed conversion changed the accepted legacy document")
+	}
+}
+
+func TestAnalyzeStepEditReportsMissingDownstreamColumnAndKeepsAcceptedDocument(t *testing.T) {
+	accepted := documentWithDependentSteps()
+	var replacement ConstructionStep
+	raw, err := json.Marshal(accepted.Construction.Steps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &replacement); err != nil {
+		t.Fatal(err)
+	}
+	replacement.Operation.Derive.OutputColumnID = "score_v2_id"
+	replacement.Outputs = append([]StageColumn(nil), replacement.Outputs[:2]...)
+	replacement.Outputs = append(replacement.Outputs, StageColumn{ID: "score_v2_id", Name: "score_v2", Label: "Score v2", Type: "integer"})
+	proposal, impact, err := accepted.AnalyzeStepEdit(replacement)
+	if err != nil {
+		t.Fatalf("analyze edit: %v", err)
+	}
+	if !reflect.DeepEqual(impact.AffectedStepIDs, []string{"score_filter", "bonus_step"}) {
+		t.Fatalf("affected steps = %#v", impact.AffectedStepIDs)
+	}
+	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0].StepID != "score_filter" || impact.MissingInputs[0].ColumnID != "score_id" {
+		t.Fatalf("missing downstream inputs = %#v", impact.MissingInputs)
+	}
+	if accepted.Construction.Steps[0].Operation.Derive.OutputColumnID != "score_id" {
+		t.Fatal("proposed edit mutated the accepted construction")
+	}
+	if proposal.Construction.Steps[0].Operation.Derive.OutputColumnID != "score_v2_id" {
+		t.Fatal("proposal did not retain the edited step")
+	}
+}
+
+func TestProposeStepRemovalRequiresExplicitDependentRemovalAndKeepsUnrelatedStep(t *testing.T) {
+	accepted := documentWithDependentSteps()
+	proposal, impact, err := accepted.ProposeStepRemoval("score_step", nil)
+	if err != nil {
+		t.Fatalf("propose removal: %v", err)
+	}
+	if !reflect.DeepEqual(impact.RemovedStepIDs, []string{"score_step"}) {
+		t.Fatalf("removed steps = %#v", impact.RemovedStepIDs)
+	}
+	if !reflect.DeepEqual(impact.AffectedStepIDs, []string{"score_filter", "bonus_step"}) {
+		t.Fatalf("affected steps = %#v", impact.AffectedStepIDs)
+	}
+	if len(impact.MissingInputs) != 1 || impact.MissingInputs[0].StepID != "score_filter" || impact.MissingInputs[0].ColumnID != "score_id" {
+		t.Fatalf("missing inputs = %#v", impact.MissingInputs)
+	}
+	if len(proposal.Construction.Steps) != 2 || proposal.Construction.Steps[1].ID != "bonus_step" {
+		t.Fatalf("unrelated later step was removed: %#v", proposal.Construction.Steps)
+	}
+	if accepted.Construction.Steps[0].ID != "score_step" {
+		t.Fatal("proposing removal mutated the accepted construction")
+	}
+
+	repaired, resolved, err := accepted.ProposeStepRemoval("score_step", []string{"score_filter"})
+	if err != nil {
+		t.Fatalf("remove selected dependent explicitly: %v", err)
+	}
+	if resolved.HasMissingInputs() {
+		t.Fatalf("explicit removal left unresolved inputs: %#v", resolved.MissingInputs)
+	}
+	if len(repaired.Construction.Steps) != 1 || repaired.Construction.Steps[0].ID != "bonus_step" {
+		t.Fatalf("unrelated operation was not retained: %#v", repaired.Construction.Steps)
+	}
+	if err := repaired.Validate(); err != nil {
+		t.Fatalf("repaired construction is invalid: %v", err)
+	}
+	if repaired.Construction.Steps[0].Inputs[0].Kind != ConstructionInputSourceProjection {
+		t.Fatalf("retained step input was not rewired to source: %#v", repaired.Construction.Steps[0].Inputs)
+	}
+}
+
+func TestConstructionInputRequiresPinnedTableRevision(t *testing.T) {
+	valid := ConstructionInputRef{Kind: ConstructionInputTableRevision, TableID: "source_table", RevisionID: "rev_7", OutputID: "result"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("pinned table input rejected: %v", err)
+	}
+	if err := (ConstructionInputRef{Kind: ConstructionInputTableRevision, TableID: "source_table", OutputID: "result"}).Validate(); err == nil || !strings.Contains(err.Error(), "revisionId") {
+		t.Fatalf("floating table input error = %v", err)
+	}
+}
+
+func legacyPivotDocument() Document {
+	document := stagedConstructionDocument()
+	for i := range document.Columns {
+		document.Columns[i].ColumnID = ""
+	}
+	document.Construction = nil
+	document.TableShape = &TableShape{
+		Reshape: &TableReshape{Kind: "PIVOT", Pivot: &PivotConstruction{
+			ConstructionID: "legacy_pivot", GroupKeys: []string{"group_id"}, CategoryColumn: "category", ValueColumn: "value",
+			Categories: []PivotCategory{
+				{Key: stringScalar("A"), Output: ColumnOutput{Column: "amount_a", Label: "Amount A"}},
+				{Key: stringScalar("B"), Output: ColumnOutput{Column: "amount_b", Label: "Amount B"}},
+			},
+			DuplicatePolicy: "MAX", MissingCellPolicy: "NULL", UnlistedCategoryPolicy: "EXCLUDE_WITH_EVIDENCE",
+		}},
+		Derived: []DerivedConstruction{
+			{
+				ConstructionID: "legacy_ratio", Output: ColumnOutput{Column: "ratio", Label: "Ratio"}, Operation: "ADD",
+				Left: ArithmeticOperand{Kind: "COLUMN", Column: "twice_a"}, Right: ArithmeticOperand{Kind: "COLUMN", Column: "amount_b"},
+				MissingInputPolicy: "PROPAGATE_NULL",
+			},
+			{
+				ConstructionID: "legacy_twice", Output: ColumnOutput{Column: "twice_a", Label: "Twice A"}, Operation: "MULTIPLY",
+				Left:               ArithmeticOperand{Kind: "COLUMN", Column: "amount_a"},
+				Right:              ArithmeticOperand{Kind: "LITERAL", Literal: &TableScalar{Kind: TableScalarInteger, Integer: int64Pointer(2)}},
+				MissingInputPolicy: "PROPAGATE_NULL",
+			},
+		},
+	}
+	return document
+}
+
+func documentWithDependentSteps() Document {
+	document := workspaceDocument("patients")
+	document.Columns = []Column{
+		constructionSourceColumn("person_id", "person_id", "Person ID", "integer"),
+		constructionSourceColumn("age_id", "age", "Age", "integer"),
+	}
+	person := StageColumn{ID: "person_id", Name: "person_id", Label: "Person ID", Type: "integer"}
+	age := StageColumn{ID: "age_id", Name: "age", Label: "Age", Type: "integer"}
+	base := []StageColumn{person, age}
+	score := StageColumn{ID: "score_id", Name: "score", Label: "Score", Type: "integer"}
+	scoreStage := append(append([]StageColumn(nil), base...), score)
+	threshold := int64(18)
+	bonus := StageColumn{ID: "bonus_id", Name: "bonus", Label: "Bonus", Type: "integer"}
+	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{
+		{
+			ID: "score_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
+				ConstructionID: "score_step", OutputColumnID: "score_id", Operation: ConstructionDerivedAdd,
+				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "age_id"},
+				Right:              ConstructionOperand{Kind: ConstructionLiteralOperand, Literal: &ConstructionLiteral{Kind: ConstructionNumericInteger, Integer: int64Pointer(1)}},
+				MissingInputPolicy: ConstructionMissingInputPropagateNull,
+			}}, Outputs: scoreStage,
+		},
+		{
+			ID: "score_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "score_step"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+				ColumnID: "score_id", Operator: ConstructionFilterGreaterEq,
+				Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &threshold}},
+			}}, Outputs: append([]StageColumn(nil), scoreStage...),
+		},
+		{
+			ID: "bonus_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "score_filter"}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationDerive, Derive: &ConstructionDerive{
+				ConstructionID: "bonus_step", OutputColumnID: "bonus_id", Operation: ConstructionDerivedAdd,
+				Left:               ConstructionOperand{Kind: ConstructionColumnOperand, ColumnID: "age_id"},
+				Right:              ConstructionOperand{Kind: ConstructionLiteralOperand, Literal: &ConstructionLiteral{Kind: ConstructionNumericInteger, Integer: int64Pointer(2)}},
+				MissingInputPolicy: ConstructionMissingInputPropagateNull,
+			}}, Outputs: append(append([]StageColumn(nil), scoreStage...), bonus),
+		},
+	}}
+	return document
+}
+
+func int64Pointer(value int64) *int64 { return &value }
+
+func stringPointer(value string) *string { return &value }
+
+func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
+	if err := (FilterValue{Kind: ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
+		t.Fatal("NaN filter literal was accepted")
+	}
+	if err := validateConstructionLiteral(ConstructionLiteral{Kind: ConstructionNumericDecimal, Decimal: float64Pointer(math.Inf(1))}); err == nil {
+		t.Fatal("infinite calculation literal was accepted")
+	}
+}
+
+func float64Pointer(value float64) *float64 { return &value }
+
+func TestOldV2DocumentSerializationOmitsConstructionFields(t *testing.T) {
+	document := workspaceDocument("patients")
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "construction") || strings.Contains(string(raw), "columnId") {
+		t.Fatalf("old V2 document acquired staged fields without migration: %s", raw)
+	}
+}
