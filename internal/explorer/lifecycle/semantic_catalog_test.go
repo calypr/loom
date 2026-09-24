@@ -30,6 +30,11 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			buildID := "build-a"
 			readyObservation := semanticAuthoringEntry("ready-concept", "ready-binding", "system", "code", "").Observation
 			readyObservation.Population = 3
+			readyObservation.Examples = []string{"2.5 mg", "4 mg"}
+			readyObservation.ExamplesTruncated = true
+			readyObservation.ObservedUnits = []string{"mg", "mcg"}
+			readyObservation.ObservedUnitsTruncated = true
+			readyObservation.Completeness = catalog.SemanticComplete
 			service := &Service{config: Config{
 				Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 					return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
@@ -50,7 +55,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			}}
 			req := BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
 			first, err := service.BrowseSemanticInventory(context.Background(), req)
-			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
+			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || len(first.Entries[0].Examples) != 2 || !first.Entries[0].ExamplesTruncated || len(first.Entries[0].ObservedUnits) != 2 || !first.Entries[0].ObservedUnitsTruncated || first.Entries[0].Completeness != catalog.SemanticComplete || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
 			semanticSource, ok := first.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
@@ -63,7 +68,12 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			}
 			var decoded struct {
 				Entries []struct {
-					ConstructionChoice *struct {
+					Examples               []string `json:"examples"`
+					ExamplesTruncated      bool     `json:"examplesTruncated"`
+					ObservedUnits          []string `json:"observedUnits"`
+					ObservedUnitsTruncated bool     `json:"observedUnitsTruncated"`
+					Completeness           string   `json:"completeness"`
+					ConstructionChoice     *struct {
 						ChoiceID string                                `json:"choiceId"`
 						Source   json.RawMessage                       `json:"source"`
 						Options  []capability.ConstructionChoiceOption `json:"options"`
@@ -75,7 +85,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 					} `json:"readiness"`
 				} `json:"entries"`
 			}
-			if err := json.Unmarshal(wire, &decoded); err != nil || len(decoded.Entries) != 2 || decoded.Entries[0].ConstructionChoice == nil || decoded.Entries[0].ConstructionChoice.ChoiceID == "" || len(decoded.Entries[0].ConstructionChoice.Options) != 1 || decoded.Entries[0].ConstructionChoice.Options[0].Form != capability.ConstructionChoiceValue || decoded.Entries[0].Readiness.Status != "READY" || decoded.Entries[0].Readiness.Code != "READY" || decoded.Entries[0].Readiness.Message == "" || decoded.Entries[1].Readiness.Status != "UNSUPPORTED" {
+			if err := json.Unmarshal(wire, &decoded); err != nil || len(decoded.Entries) != 2 || len(decoded.Entries[0].Examples) != 2 || !decoded.Entries[0].ExamplesTruncated || len(decoded.Entries[0].ObservedUnits) != 2 || !decoded.Entries[0].ObservedUnitsTruncated || decoded.Entries[0].Completeness != "complete" || decoded.Entries[0].ConstructionChoice == nil || decoded.Entries[0].ConstructionChoice.ChoiceID == "" || len(decoded.Entries[0].ConstructionChoice.Options) != 1 || decoded.Entries[0].ConstructionChoice.Options[0].Form != capability.ConstructionChoiceValue || decoded.Entries[0].Readiness.Status != "READY" || decoded.Entries[0].Readiness.Code != "READY" || decoded.Entries[0].Readiness.Message == "" || decoded.Entries[1].Readiness.Status != "UNSUPPORTED" {
 				t.Fatalf("serialized readiness = %s decoded=%#v err=%v", wire, decoded, err)
 			}
 			var serializedSource struct {

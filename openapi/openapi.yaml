@@ -2824,6 +2824,7 @@ components:
         observedUnits:
           type: array
           items: {type: string}
+        observedUnitsTruncated: {type: boolean}
         completeness: {type: string}
         status: {type: string}
         population: {type: integer, format: int64, minimum: 0}
@@ -4120,7 +4121,8 @@ components:
     SemanticInventoryItem:
       type: object
       additionalProperties: false
-      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, readiness]
+      description: "occurrences counts observed source occurrences/events, not distinct source records or current constructed rows. Examples and units are bounded evidence; truncation flags indicate omitted values."
+      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, examplesTruncated, observedUnitsTruncated, readiness]
       properties:
         conceptId: {type: string}
         bindingId: {type: string}
@@ -4133,7 +4135,17 @@ components:
         valueSelector: {type: string}
         valueType: {type: string}
         owningScope: {type: string}
-        occurrences: {type: integer, format: int64, minimum: 0}
+        occurrences: {type: integer, format: int64, minimum: 0, description: Observed source occurrences/events; one source record may contribute more than once.}
+        examples:
+          type: array
+          maxItems: 32
+          items: {type: string}
+        examplesTruncated: {type: boolean}
+        observedUnits:
+          type: array
+          items: {type: string}
+        observedUnitsTruncated: {type: boolean}
+        completeness: {type: string, enum: [complete, partial, incomplete]}
         readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
     SemanticSelectionReadiness:

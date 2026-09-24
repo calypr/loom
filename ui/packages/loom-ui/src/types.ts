@@ -47,6 +47,7 @@ export const conceptCandidateSchema = z.object({
   choiceArm: z.string().optional(),
   logicalType: z.string().optional(),
   observedUnits: z.array(z.string()).optional(),
+  observedUnitsTruncated: z.boolean().optional(),
   completeness: opaqueIdSchema,
   status: opaqueIdSchema,
   population: z.number().int().nonnegative().safe(),
@@ -1948,7 +1949,13 @@ export const semanticInventoryItemSchema = z
     valueSelector: z.string(),
     valueType: z.string(),
     owningScope: z.string(),
+    // Counts observed source occurrences/events; one source record may contribute more than once.
     occurrences: z.number().int().nonnegative(),
+    examples: z.array(z.string()).max(32).optional(),
+    examplesTruncated: z.boolean(),
+    observedUnits: z.array(z.string()).optional(),
+    observedUnitsTruncated: z.boolean(),
+    completeness: z.enum(['complete', 'partial', 'incomplete']).optional(),
     readiness: semanticSelectionReadinessSchema,
     constructionChoice: constructionChoiceSchema.optional(),
   })

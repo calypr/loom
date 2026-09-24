@@ -30,20 +30,25 @@ type BrowseSemanticInventoryRequest struct {
 }
 
 type SemanticInventoryItem struct {
-	ConceptID          string                                 `json:"conceptId"`
-	BindingID          string                                 `json:"bindingId"`
-	ResourceType       string                                 `json:"resourceType"`
-	SourcePath         string                                 `json:"sourcePath"`
-	System             string                                 `json:"system"`
-	Code               string                                 `json:"code"`
-	CodingVersion      string                                 `json:"codingVersion"`
-	Display            string                                 `json:"display"`
-	ValueSelector      string                                 `json:"valueSelector"`
-	ValueType          string                                 `json:"valueType"`
-	OwningScope        string                                 `json:"owningScope"`
-	Occurrences        int64                                  `json:"occurrences"`
-	Readiness          authoringv2.SemanticSelectionReadiness `json:"readiness"`
-	ConstructionChoice *capability.ConstructionChoice         `json:"constructionChoice,omitempty"`
+	ConceptID              string                                  `json:"conceptId"`
+	BindingID              string                                  `json:"bindingId"`
+	ResourceType           string                                  `json:"resourceType"`
+	SourcePath             string                                  `json:"sourcePath"`
+	System                 string                                  `json:"system"`
+	Code                   string                                  `json:"code"`
+	CodingVersion          string                                  `json:"codingVersion"`
+	Display                string                                  `json:"display"`
+	ValueSelector          string                                  `json:"valueSelector"`
+	ValueType              string                                  `json:"valueType"`
+	OwningScope            string                                  `json:"owningScope"`
+	Occurrences            int64                                   `json:"occurrences"`
+	Examples               []string                                `json:"examples,omitempty"`
+	ExamplesTruncated      bool                                    `json:"examplesTruncated"`
+	ObservedUnits          []string                                `json:"observedUnits,omitempty"`
+	ObservedUnitsTruncated bool                                    `json:"observedUnitsTruncated"`
+	Completeness           catalog.SemanticObservationCompleteness `json:"completeness,omitempty"`
+	Readiness              authoringv2.SemanticSelectionReadiness  `json:"readiness"`
+	ConstructionChoice     *capability.ConstructionChoice          `json:"constructionChoice,omitempty"`
 }
 
 type BrowseSemanticInventoryResponse struct {
@@ -132,7 +137,10 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 			CodingVersion: observation.Key.Version, Display: observation.Key.Display,
 			ValueSelector: observation.Value.Selector, ValueType: observation.Value.Type,
 			OwningScope: observation.OwningScope, Occurrences: observation.Population,
-			Readiness: plan.Readiness,
+			Examples: append([]string(nil), observation.Examples...), ExamplesTruncated: observation.ExamplesTruncated,
+			ObservedUnits: append([]string(nil), observation.ObservedUnits...), ObservedUnitsTruncated: observation.ObservedUnitsTruncated,
+			Completeness: observation.Completeness,
+			Readiness:    plan.Readiness,
 		}
 		if plan.Readiness.Addable() {
 			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
