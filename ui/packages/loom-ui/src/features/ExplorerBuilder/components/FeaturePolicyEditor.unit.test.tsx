@@ -549,4 +549,67 @@ describe('FeaturePolicyEditor', () => {
       .getByRole('status').textContent).toBe(`Unavailable: ${reason}`);
     expect(screen.getByRole('button', { name: 'Add date window' })).toHaveProperty('disabled', true);
   });
+
+  it('shows the observed unit evidence behind normalization choices', () => {
+    const profiledCandidate = {
+      ...temporalCandidate,
+      conceptCandidates: [{
+        sourceResourceType: 'Observation',
+        sourcePath: 'valueQuantity.value',
+        owningScope: 'valueQuantity',
+        valueSelector: 'valueQuantity.value',
+        system: 'http://loinc.org',
+        code: '8302-2',
+        display: 'Body height',
+        logicalType: 'decimal',
+        completeness: 'PARTIAL',
+        status: 'SUPPORTED',
+        population: 9,
+        examples: ['170', '172'],
+        observedUnits: ['cm', 'm'],
+        observedUnitsTruncated: true,
+      }],
+    } satisfies ExplorerBuilderCandidate;
+    render(
+      <FeaturePolicyEditor
+        column={sumColumn()}
+        candidate={profiledCandidate}
+        candidates={[]}
+        related
+        rowContext="RECORDS"
+        resourceLabel="Patient"
+        disabled={false}
+        onSourceChange={vi.fn()}
+        onTransformationChange={vi.fn()}
+        onContributorChange={vi.fn()}
+      />,
+    );
+
+    const evidence = screen.getByRole('region', { name: 'Observed code evidence' });
+    expect(evidence).toHaveTextContent('Body height · http://loinc.org · 8302-2');
+    expect(evidence).toHaveTextContent('Observed units: cm, m · additional units exist');
+    expect(evidence).toHaveTextContent('Observed examples: 170, 172');
+    expect(evidence).toHaveTextContent('denominator and current-table coverage are not provided');
+  });
+
+  it('marks fallback aggregate choices as unverified when source capabilities are missing', () => {
+    render(
+      <FeaturePolicyEditor
+        column={sumColumn()}
+        candidates={[]}
+        related
+        rowContext="RECORDS"
+        resourceLabel="Patient"
+        disabled={false}
+        onSourceChange={vi.fn()}
+        onTransformationChange={vi.fn()}
+        onContributorChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(
+      'Server-supported aggregate choices are unavailable for this source; fallback choices need validation by Loom.',
+    )).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Count values' })).toBeInTheDocument();
+  });
 });

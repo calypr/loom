@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLoomClient } from '../../../react';
 import type {
+  ConstructionChoiceOption,
   ConstructionChoiceSearchSource,
   ExplorerBuilderCatalog,
   SemanticInventoryBrowseResponse,
@@ -37,6 +38,11 @@ type CatalogLoadState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading' }
   | { readonly status: 'ready' }
+  | { readonly status: 'error'; readonly message: string };
+
+type ChoiceDetailsState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly group: CatalogChoiceGroup }
   | { readonly status: 'error'; readonly message: string };
 
 const semanticLabel = (item: SemanticInventoryItem): string =>
@@ -86,23 +92,134 @@ const selectedAsArray = (selected: ReadonlyMap<string, CatalogItem>) =>
 const sourceDetails = (item: CatalogItem): ReadonlyArray<readonly [string, string]> => {
   const choice = catalogItemConstructionChoice(item);
   if (choice) {
-    return choice.presentation.facts.map((fact) => [fact.label, fact.value]);
+    const facts: ReadonlyArray<readonly [string, string]> = choice.presentation.facts
+      .map((fact): readonly [string, string] => [fact.label, fact.value]);
+    return [
+      ['Meaning', choice.presentation.summary],
+      ...facts,
+    ];
   }
   return item.kind === 'SEMANTIC'
     ? [['Availability', item.item.readiness.message]]
     : [];
 };
 
+const constructionFormLabel = (
+  option: ConstructionChoiceOption,
+): string => {
+  switch (option.form) {
+    case 'VALUE':
+      return 'One value';
+    case 'FIRST':
+      return 'First value';
+    case 'ALL':
+      return 'All values';
+    case 'DISTINCT':
+      return 'Distinct values';
+    case 'OWNER_RECORDS':
+      return 'Matching records';
+    default: {
+      const exhaustive: never = option.form;
+      return exhaustive;
+    }
+  }
+};
+
+const constructionRouteLabel = (
+  choice: NonNullable<ReturnType<typeof catalogItemConstructionChoice>>,
+  rowRoot: string,
+  currentResourceType?: string,
+): string => {
+  if (choice.route.length === 0) {
+    const contextResourceType = currentResourceType ?? rowRoot;
+    if (choice.source.resourceType === contextResourceType) {
+      return currentResourceType
+        ? `No extra route steps from the selected ${contextResourceType} occurrence`
+        : `Server choice uses the ${rowRoot} root resource; no route steps`;
+    }
+    return `No route steps were returned from ${choice.source.resourceType} to the current ${contextResourceType} context`;
+  }
+  return choice.route
+    .map((step) => `${step.fromResourceType} → ${step.toResourceType} via ${step.relationship} (${step.matchMode.toLowerCase()}, ${step.storageDirection.toLowerCase()})`)
+    .join(' · ');
+};
+
+const ChoiceDetails = ({
+  group,
+  rowRoot,
+  currentResourceType,
+}: {
+  readonly group: CatalogChoiceGroup;
+  readonly rowRoot: string;
+  readonly currentResourceType?: string;
+}) => (
+  <div className="mt-2 space-y-2" aria-label={`Construction choices for ${catalogItemLabel(group.item)}`}>
+    {group.truncated ? (
+      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
+        The server returned valid choices but reports that more routes may exist.
+      </p>
+    ) : null}
+    {group.choices.length === 0 ? (
+      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
+        {group.truncated
+          ? 'The first page has no construction choice. More routes may exist.'
+          : 'No supported construction was returned for these table rows.'}
+      </p>
+    ) : group.choices.map((choice) => (
+      <article key={choice.choiceId} className="rounded-md border border-blue-100 bg-blue-50/60 p-2">
+        <p className="font-semibold text-slate-800">{choice.presentation.summary}</p>
+        <p className="mt-1 text-slate-600">{constructionRouteLabel(choice, rowRoot, currentResourceType)}</p>
+        <ul className="mt-2 space-y-1">
+          {choice.options.map((option) => (
+            <li key={option.form} className="rounded bg-white px-2 py-1.5">
+              <span className="font-semibold text-slate-800">
+                {constructionFormLabel(option)} · {option.shape.toLowerCase()} · {option.preservation.toLowerCase()}
+              </span>
+              <span className="ml-1 text-slate-600">{option.reason}</span>
+              <span className="block text-[10px] uppercase tracking-wide text-slate-500">
+                {option.decision === 'DEFAULT' ? 'Server default' : 'Requires a choice'} · preserves row grain
+              </span>
+            </li>
+          ))}
+        </ul>
+        {choice.presentation.facts.length ? (
+          <dl className="mt-2 grid gap-1 font-mono">
+            {choice.presentation.facts.map((fact) => (
+              <div key={`${fact.label}:${fact.value}`}>
+                <dt className="inline text-slate-500">{fact.label} </dt>
+                <dd className="inline break-all">{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </article>
+    ))}
+  </div>
+);
+
 const CatalogItemRow = ({
   item,
+  rowRoot,
+  currentResourceType,
+  hasRouteContext,
   checked,
   disabled,
   onToggle,
+  choiceDetails,
+  onInspectChoices,
 }: {
   readonly item: CatalogItem;
+  readonly rowRoot: string;
+  readonly currentResourceType?: string;
+  readonly hasRouteContext: boolean;
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly onToggle: () => void;
+  readonly choiceDetails?:
+    | { readonly status: 'loading' }
+    | { readonly status: 'ready'; readonly group: CatalogChoiceGroup }
+    | { readonly status: 'error'; readonly message: string };
+  readonly onInspectChoices: () => void;
 }) => {
   const label = catalogItemLabel(item);
   const selectionLabel = item.kind === 'FIELD'
@@ -110,6 +227,17 @@ const CatalogItemRow = ({
     : `Select ${label}`;
   const availability = catalogItemAvailability(item);
   const details = sourceDetails(item);
+  const choice = catalogItemConstructionChoice(item);
+  const choicesNeedTableContext = Boolean(
+    choice && (
+      hasRouteContext ||
+      choice.source.resourceType !== rowRoot ||
+      choice.route.length > 0
+    ),
+  );
+  const fieldConcepts = item.kind === 'FIELD'
+    ? item.candidate.conceptCandidates ?? []
+    : [];
   return (
     <article className="py-3 first:pt-0">
       <div className="flex items-start gap-3">
@@ -127,7 +255,7 @@ const CatalogItemRow = ({
               <h3 className="font-semibold text-slate-900">{label}</h3>
               {item.kind === 'FIELD' ? (
                 <p className="break-all font-mono text-xs text-slate-600">
-                  {item.candidate.fieldPath} · {item.candidate.logicalType}
+                  {item.candidate.fieldPath} · {item.candidate.logicalType} · {item.constructionChoice.source.cardinality}
                 </p>
               ) : (
                 <p className="break-all font-mono text-xs text-slate-600">{semanticCodeLabel(item.item)}</p>
@@ -152,19 +280,39 @@ const CatalogItemRow = ({
                     {readinessPresentation(item.item.readiness).label}
                   </span>
                   <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                    {item.item.occurrences.toLocaleString()} source {item.item.occurrences === 1 ? 'match' : 'matches'}
+                    {item.item.occurrences.toLocaleString()} observed source {item.item.occurrences === 1 ? 'occurrence' : 'occurrences'}
                   </span>
                 </>
               )}
             </div>
           </div>
+          {item.kind === 'SEMANTIC' ? (
+            <p className="mt-1 text-xs text-slate-600">
+              {item.item.display || 'Observed coded value'} · {item.item.valueType || 'value type not provided'} from {[item.item.resourceType, item.item.sourcePath].filter(Boolean).join('.') || 'source path not provided'}
+            </p>
+          ) : fieldConcepts.length > 0 ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Observed concept evidence is available for {fieldConcepts.length} {fieldConcepts.length === 1 ? 'code' : 'codes'} in this field.
+            </p>
+          ) : null}
+          {choice && !choicesNeedTableContext ? (
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
+              <span>{choice.presentation.summary}</span>
+              <span aria-hidden="true">·</span>
+              <span>Server-supported forms: {choice.options.map(constructionFormLabel).join(', ')}</span>
+            </div>
+          ) : choicesNeedTableContext ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Table-specific routes and output forms need to be resolved before adding this source.
+            </p>
+          ) : null}
           {item.kind === 'SEMANTIC' && !availability.selectable ? (
             <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
               {availability.reason}
             </p>
           ) : null}
           <details className="mt-2 text-xs text-slate-600">
-            <summary className="cursor-pointer font-medium text-blue-700">Source details</summary>
+            <summary className="cursor-pointer font-medium text-blue-700">Inspect meaning, evidence, and construction choices</summary>
             <dl className="mt-2 grid gap-1 rounded-md bg-slate-50 p-2 font-mono">
               {details.map(([name, value]) => (
                 <div key={name}>
@@ -179,6 +327,77 @@ const CatalogItemRow = ({
                 </div>
               ) : null}
             </dl>
+            {item.kind === 'SEMANTIC' ? (
+              <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
+                <p className="font-semibold text-slate-800">Observed source evidence</p>
+                <p className="mt-1">{item.item.occurrences.toLocaleString()} source occurrences were observed for this code. The inventory response does not provide a denominator or coverage of the current table rows.</p>
+                <p className="mt-1">Source scope: {item.item.resourceType} · {item.item.owningScope || 'scope not specified'}.</p>
+                <p>Completeness: {item.item.completeness ?? 'not reported'}.</p>
+                {item.item.observedUnits?.length ? (
+                  <p className="break-all">
+                    Observed units: {item.item.observedUnits.join(', ')}{item.item.observedUnitsTruncated ? ' · additional units exist' : ''}
+                  </p>
+                ) : <p>Observed units were not reported for this code.</p>}
+                {item.item.examples?.length ? (
+                  <p className="break-all">
+                    Observed examples: {item.item.examples.join(', ')}{item.item.examplesTruncated ? ' · additional examples exist' : ''}
+                  </p>
+                ) : item.item.examplesTruncated ? (
+                  <p>Examples were omitted from this response; additional examples exist.</p>
+                ) : <p>Observed examples are not available for this code.</p>}
+              </div>
+            ) : fieldConcepts.length > 0 ? (
+              <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-white p-2">
+                <p className="font-semibold text-slate-800">Observed codes in this field</p>
+                {fieldConcepts.map((concept, index) => (
+                  <article key={`${concept.sourceResourceType}:${concept.sourcePath ?? ''}:${concept.system ?? ''}:${concept.code ?? ''}:${index}`} className="border-t border-slate-100 pt-2 first:border-t-0 first:pt-0">
+                    <p className="font-medium text-slate-800">
+                      {[concept.display, concept.system, concept.code].filter(Boolean).join(' · ') || 'Observed code without display metadata'}
+                    </p>
+                    <p>Scope: {concept.sourceResourceType}{concept.owningScope ? ` · ${concept.owningScope}` : ''} · {concept.completeness.toLowerCase()} evidence</p>
+                    <p>{concept.population.toLocaleString()} observed source {concept.population === 1 ? 'occurrence' : 'occurrences'}; no denominator or current-table coverage is provided.</p>
+                    {concept.observedUnits?.length ? (
+                      <p>Observed units: {concept.observedUnits.join(', ')}{concept.observedUnitsTruncated ? ' · additional units exist' : ''}</p>
+                    ) : <p>Observed units were not reported for this code.</p>}
+                    {concept.examples?.length ? (
+                      <p>Observed examples: {concept.examples.join(', ')}{concept.examplesTruncated ? ' · more examples exist' : ''}</p>
+                    ) : <p>Observed examples are not available for this code.</p>}
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            {choicesNeedTableContext ? (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  className="rounded border border-blue-200 bg-white px-2 py-1 font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+                  disabled={disabled || choiceDetails?.status === 'loading'}
+                  onClick={onInspectChoices}
+                >
+                  {choiceDetails?.status === 'loading' ? 'Loading table-specific choices…' : 'Load choices for these table rows'}
+                </button>
+                {choiceDetails?.status === 'error' ? (
+                  <p className="mt-2 text-red-800" role="alert">{choiceDetails.message}</p>
+                ) : null}
+                {choiceDetails?.status === 'ready' ? (
+                  <ChoiceDetails
+                    group={choiceDetails.group}
+                    rowRoot={rowRoot}
+                    currentResourceType={currentResourceType}
+                  />
+                ) : null}
+              </div>
+            ) : choice ? (
+              <ChoiceDetails
+                group={{ item, choices: [choice], complete: true, truncated: false }}
+                rowRoot={rowRoot}
+                currentResourceType={currentResourceType}
+              />
+            ) : (
+              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
+                No server-supported construction was included for this result.
+              </p>
+            )}
           </details>
         </div>
       </div>
@@ -222,6 +441,9 @@ export const ConceptCatalog = ({
   const [pageIndex, setPageIndex] = useState(0);
   const [loadState, setLoadState] = useState<CatalogLoadState>({ status: 'idle' });
   const [selected, setSelected] = useState<ReadonlyMap<string, CatalogItem>>(
+    () => new Map(),
+  );
+  const [choiceDetails, setChoiceDetails] = useState<ReadonlyMap<string, ChoiceDetailsState>>(
     () => new Map(),
   );
   const [adding, setAdding] = useState(false);
@@ -294,6 +516,7 @@ export const ConceptCatalog = ({
     setPages([]);
     setPageIndex(0);
     setSelected(new Map());
+    setChoiceDetails(new Map());
     setPendingSelection(undefined);
     selectionContext.current = undefined;
     if (snapshotToken && rowRoot) loadPage('', undefined, true);
@@ -329,6 +552,83 @@ export const ConceptCatalog = ({
     setActionMessage(undefined);
   };
 
+  const choiceDetailsKey = (item: CatalogItem): string =>
+    JSON.stringify([contextKey, response?.contextToken ?? '', catalogItemKey(item)]);
+
+  const resolveChoiceGroup = async (item: CatalogItem): Promise<CatalogChoiceGroup> => {
+    const existingChoice = catalogItemConstructionChoice(item);
+    if (!existingChoice) {
+      return { item, choices: [], complete: true, truncated: false };
+    }
+    if (
+      !routeContext &&
+      existingChoice.source.resourceType === rowRoot &&
+      existingChoice.route.length === 0
+    ) {
+      return { item, choices: [existingChoice], complete: true, truncated: false };
+    }
+    if (item.kind === 'SEMANTIC' && !response) {
+      throw new Error('Loom has not provided a complete concept catalog for this result.');
+    }
+    let source: ConstructionChoiceSearchSource;
+    if (item.kind === 'FIELD') {
+      source = { kind: 'FIELD', candidateId: item.candidate.candidateId };
+    } else {
+      if (!response) {
+        throw new Error('Loom has not provided a complete concept catalog for this result.');
+      }
+      source = {
+        kind: 'SEMANTIC',
+        contextToken: response.contextToken,
+        buildId: response.buildId,
+        conceptId: item.item.conceptId,
+        bindingId: item.item.bindingId,
+      };
+    }
+    const resolved = await client.searchConstructionChoices({
+      project,
+      explorerId,
+      authResourcePath,
+      snapshotToken,
+      outputId,
+      ...(routeContext ? { occurrenceId: routeContext.occurrenceId } : {}),
+      source,
+      limit: PAGE_SIZE,
+      requestId: `construction-choices-${window.crypto.randomUUID()}`,
+    });
+    if (
+      resolved.snapshotToken !== snapshotToken ||
+      resolved.outputId !== outputId
+    ) {
+      throw new Error('Loom returned construction choices for another table or catalog snapshot.');
+    }
+    return {
+      item,
+      choices: resolved.choices,
+      complete: resolved.complete,
+      truncated: resolved.truncated,
+    };
+  };
+
+  const inspectChoices = (item: CatalogItem) => {
+    const key = choiceDetailsKey(item);
+    const current = choiceDetails.get(key);
+    if (current?.status === 'loading' || current?.status === 'ready') return;
+    setChoiceDetails((previous) => new Map(previous).set(key, { status: 'loading' }));
+    void resolveChoiceGroup(item)
+      .then((group) => {
+        setChoiceDetails((previous) => new Map(previous).set(key, { status: 'ready', group }));
+      })
+      .catch((error: unknown) => {
+        setChoiceDetails((previous) => new Map(previous).set(key, {
+          status: 'error',
+          message: error instanceof Error
+            ? error.message
+            : 'Loom could not load table-specific construction choices.',
+        }));
+      });
+  };
+
   const commitSelections = async (selections: ReadonlyArray<CatalogChoiceIntent>) => {
     if (!onAddSelected || !selections.length) return;
     setAdding(true);
@@ -348,55 +648,18 @@ export const ConceptCatalog = ({
   };
 
   const openSelection = async () => {
-    if (!selectedItems.length || !onAddSelected || !response) return;
+    if (!selectedItems.length || !onAddSelected) return;
     setAdding(true);
     setActionMessage(undefined);
     try {
-      const groups = await Promise.all(selectedItems.map(async (item): Promise<CatalogChoiceGroup> => {
-        const existingChoice = catalogItemConstructionChoice(item);
-        if (!existingChoice) {
-          return { item, choices: [], complete: true, truncated: false };
+      const groups = await Promise.all(selectedItems.map(resolveChoiceGroup));
+      setChoiceDetails((previous) => {
+        const next = new Map(previous);
+        for (const group of groups) {
+          next.set(choiceDetailsKey(group.item), { status: 'ready', group });
         }
-        if (
-          !routeContext &&
-          existingChoice.source.resourceType === rowRoot &&
-          existingChoice.route.length === 0
-        ) {
-          return { item, choices: [existingChoice], complete: true, truncated: false };
-        }
-        const source: ConstructionChoiceSearchSource = item.kind === 'FIELD'
-          ? { kind: 'FIELD', candidateId: item.candidate.candidateId }
-          : {
-              kind: 'SEMANTIC',
-              contextToken: response.contextToken,
-              buildId: response.buildId,
-              conceptId: item.item.conceptId,
-              bindingId: item.item.bindingId,
-            };
-        const resolved = await client.searchConstructionChoices({
-          project,
-          explorerId,
-          authResourcePath,
-          snapshotToken,
-          outputId,
-          ...(routeContext ? { occurrenceId: routeContext.occurrenceId } : {}),
-          source,
-          limit: PAGE_SIZE,
-          requestId: `construction-choices-${window.crypto.randomUUID()}`,
-        });
-        if (
-          resolved.snapshotToken !== snapshotToken ||
-          resolved.outputId !== outputId
-        ) {
-          throw new Error('Loom returned construction choices for another table or catalog snapshot.');
-        }
-        return {
-          item,
-          choices: resolved.choices,
-          complete: resolved.complete,
-          truncated: resolved.truncated,
-        };
-      }));
+        return next;
+      });
       const direct = groups.flatMap((group) => {
         if (!group.complete || group.truncated || group.choices.length !== 1) return [];
         const choice = group.choices[0]!;
@@ -453,6 +716,9 @@ export const ConceptCatalog = ({
             ? `Search fields and concepts on the selected ${resourceType} graph node.`
             : `Search ${rowRoot} fields first, or search concepts and fields across the authorized dataset.`}
         </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.
+        </p>
         <form className="mt-4 flex gap-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">Search features</label>
           <input
@@ -478,6 +744,11 @@ export const ConceptCatalog = ({
         <div className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
           {warning}
         </div>
+      ) : null}
+      {response?.state === 'complete' && response.sourceAvailability === 'verified' ? (
+        <p className="mx-4 mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950 sm:mx-5" role="status">
+          Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.
+        </p>
       ) : null}
       {loadState.status === 'error' ? (
         <div className="mx-4 mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 sm:mx-5" role="alert">
@@ -505,9 +776,14 @@ export const ConceptCatalog = ({
                 <CatalogItemRow
                   key={catalogItemKey(item)}
                   item={item}
+                  rowRoot={rowRoot}
+                  currentResourceType={resourceType}
+                  hasRouteContext={routeContext !== undefined}
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                   onToggle={() => toggleSelection(item)}
+                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                  onInspectChoices={() => inspectChoices(item)}
                 />
               ))}
           </div>
@@ -533,9 +809,14 @@ export const ConceptCatalog = ({
                 <CatalogItemRow
                   key={catalogItemKey(item)}
                   item={item}
+                  rowRoot={rowRoot}
+                  currentResourceType={resourceType}
+                  hasRouteContext={routeContext !== undefined}
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                   onToggle={() => toggleSelection(item)}
+                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                  onInspectChoices={() => inspectChoices(item)}
                     />
               ))}
                         </div>

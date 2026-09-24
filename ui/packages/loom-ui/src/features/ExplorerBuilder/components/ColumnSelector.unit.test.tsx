@@ -238,6 +238,58 @@ describe('configured V2 columns', () => {
     expect(screen.getByRole('textbox', { name: 'Display name for configured Research Subject ID' })).toBeInTheDocument();
   });
 
+  it('inspects observed code examples with their source scope and explicit coverage limits', () => {
+    const observedField: ExplorerBuilderCandidate = {
+      candidateId: 'candidate-status',
+      nodeId: 'research-subject',
+      fieldPath: 'status',
+      label: 'Status',
+      logicalType: 'code',
+      cardinality: 'optional_one',
+      repeated: false,
+      filterable: true,
+      chartable: false,
+      projectionModes: ['VALUE'],
+      defaultProjectionMode: 'VALUE',
+      aggregateOperations: [],
+      transformations: unavailableTransformations,
+      valueTransformations: availableStringValueTransformations,
+      conceptCandidates: [{
+        sourceResourceType: 'ResearchSubject',
+        sourcePath: 'status',
+        owningScope: 'status',
+        system: 'urn:study-status',
+        code: 'active',
+        display: 'Active',
+        logicalType: 'code',
+        completeness: 'PARTIAL',
+        status: 'SUPPORTED',
+        population: 12,
+        examples: ['active', 'on-study'],
+        examplesTruncated: true,
+        observedUnits: ['cm', 'kg'],
+        observedUnitsTruncated: true,
+      }],
+    };
+    const dataCatalog = {
+      ...catalog,
+      candidates: [observedField],
+    } satisfies ExplorerBuilderCatalog;
+
+    render(
+      <ColumnSelector catalog={dataCatalog} table={table} occurrenceId="base"
+        disabled={false} onAdd={vi.fn()} onAddAll={vi.fn()} onChange={vi.fn()}
+        onSourceChange={vi.fn()} onRemove={vi.fn()} />,
+    );
+
+    const evidence = screen.getByText('Active · urn:study-status · active');
+    expect(evidence).toBeInTheDocument();
+    expect(screen.getByText(/ResearchSubject · status · partial evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/12 observed source occurrences; denominator and current-table coverage are not provided/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed examples: active, on-study · additional examples exist/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed units: cm, kg · additional units exist/)).toBeInTheDocument();
+  });
+
   it('types and saves exact category mappings without changing column identity or source', async () => {
     const column: ExplorerBuilderColumn = {
       column: 'status',

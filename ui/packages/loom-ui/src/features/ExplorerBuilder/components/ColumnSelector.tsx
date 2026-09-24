@@ -13,6 +13,7 @@ import type {
   ConfiguredColumnContextResponse,
 } from '../../../interpretation';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { ObservedCodeEvidence } from '../discovery/ObservedCodeEvidence';
 import {
   FeaturePolicyEditor,
   RelatedFeatureCreator,
@@ -22,7 +23,7 @@ import {
 } from './ColumnSourceInspector';
 import { useVirtualViewport, virtualRange } from './virtualization';
 
-const CANDIDATE_ROW_HEIGHT = 128;
+const CANDIDATE_ROW_HEIGHT = 144;
 
 const titleForResource = (value: string): string =>
   value
@@ -294,6 +295,7 @@ const AvailableColumnRow = ({
   ) => void;
 }) => {
   const normalizedDisplayName = displayName.trim();
+  const concepts = candidate.conceptCandidates ?? [];
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-blue-50/40">
@@ -312,6 +314,11 @@ const AvailableColumnRow = ({
           {candidate.fieldPath} · {candidate.logicalType}
           {candidate.repeated ? ' · repeated' : ''}
         </div>
+        {concepts.length > 0 ? (
+          <div className="mt-1 text-[10px]">
+            <ObservedCodeEvidence concepts={concepts} compact />
+          </div>
+        ) : null}
       </div>
       <label className="flex justify-center" title="Add to table">
         <span className="sr-only">Table</span>

@@ -12,6 +12,10 @@ import type {
   ExplorerBuilderColumn,
   ExplorerColumnSource,
 } from '../../../types';
+import {
+  ObservedCodeEvidence,
+  type ObservedCodeCandidate,
+} from '../discovery/ObservedCodeEvidence';
 
 type ExactCategoryRecode = Extract<
   NonNullable<ExplorerBuilderColumn['valueTransformation']>,
@@ -580,11 +584,13 @@ const unitPresetKey = (preset: UnitNormalizationPresetCapability): string =>
 
 const UnitNormalizationEditor = ({
   capability,
+  concepts,
   current,
   disabled,
   onApply,
 }: {
   readonly capability: UnitNormalizationCapability;
+  readonly concepts: ReadonlyArray<ObservedCodeCandidate>;
   readonly current?: UnitNormalizationDraft;
   readonly disabled: boolean;
   readonly onApply: (value: UnitNormalizationDraft | undefined) => void;
@@ -621,6 +627,7 @@ const UnitNormalizationEditor = ({
           ))}
         </select>
       </label>
+      <ObservedCodeEvidence concepts={concepts} />
       {!capability.available && capability.reason ? (
         <p role="status" className="text-amber-800">Unavailable: {capability.reason}</p>
       ) : null}
@@ -1175,8 +1182,23 @@ export const FeaturePolicyEditor = ({
     const aggregateSource = column.source;
     const currentAggregate = aggregateSource.aggregate;
     const path = currentAggregate.path;
+    const observedConcepts = candidate?.conceptCandidates?.filter(
+      (concept) => concept.valueSelector === path,
+    ) ?? [];
     const operation = draftWindowOperation ?? currentAggregate.operation;
     const options = aggregateOptions(candidate, rowContext, path, related);
+    const advertisedOperations = candidate && rowContext
+      ? candidate.aggregateOperations.filter(
+          (capability) => capability.rowContext === rowContext,
+        )
+      : [];
+    const aggregateChoiceStatus = !candidate
+      ? 'Server-supported aggregate choices are unavailable for this source; fallback choices need validation by Loom.'
+      : !rowContext
+        ? 'Server-supported aggregate choices are unavailable until Loom identifies this table’s row context.'
+        : advertisedOperations.length === 0
+          ? 'Loom did not advertise an aggregate choice for this field in the current row context.'
+          : undefined;
     const operationCapability = selectedOperationCapability(options, operation);
     const temporalCapability = candidate?.transformations.temporalReduction;
     const unitCapability = candidate?.transformations.unitNormalization;
@@ -1197,9 +1219,12 @@ export const FeaturePolicyEditor = ({
 
     return (
       <div className="col-span-full space-y-2">
-        <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-values">
-          <legend className="px-1 text-xs font-semibold text-slate-800">Values</legend>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+      <fieldset className="grid gap-1 rounded-md border border-slate-200 p-2" data-testid="feature-policy-values">
+        <legend className="px-1 text-xs font-semibold text-slate-800">Values</legend>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+            {aggregateChoiceStatus ? (
+              <p className="basis-full text-amber-800" role="status">{aggregateChoiceStatus}</p>
+            ) : null}
             <label className="flex items-center gap-1.5 font-medium text-slate-700">
               <span>{path && related ? 'Across records' : 'Calculation'}</span>
               <select
@@ -1287,6 +1312,7 @@ export const FeaturePolicyEditor = ({
             (editingUnitNormalization || unitNormalization) ? (
               <UnitNormalizationEditor
                 capability={unitCapability}
+                concepts={observedConcepts}
                 current={unitNormalization}
                 disabled={disabled}
                 onApply={(nextUnitNormalization) => {

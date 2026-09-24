@@ -129,8 +129,13 @@ const item = (
   display,
   valueSelector: 'valueQuantity.value',
   valueType: 'decimal',
-    owningScope: 'extension[]',
+  owningScope: 'extension[]',
   occurrences,
+  examples: ['10.2', '11.0'],
+  examplesTruncated: true,
+  observedUnits: ['g/dL'],
+  observedUnitsTruncated: true,
+  completeness: 'partial' as const,
     readiness: { status: 'READY' as const, code: 'READY', message: 'This semantic field is ready to add.' },
   };
   return { ...value, constructionChoice: semanticChoice(`choice-${code}`, value) };
@@ -321,6 +326,91 @@ describe('ConceptCatalog', () => {
     expect(screen.getByText('Unsupported')).toBeInTheDocument();
     expect(screen.getAllByText(/does not contain the scalar selected by the current projection/).length).toBeGreaterThan(0);
     expect(screen.getByText('Availability')).toBeInTheDocument();
+  });
+
+  it('shows observed source scope and server-supported forms before adding a root concept', async () => {
+    const observed = item('4548-4', 'Hemoglobin A1c', 91);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([observed])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    renderCatalog(fetch);
+
+    expect(await screen.findByText('91 observed source occurrences')).toBeInTheDocument();
+    expect(screen.getByText(/does not report a per-code denominator/)).toBeInTheDocument();
+
+    const resultRow = screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }).closest('article');
+    expect(resultRow).not.toBeNull();
+    if (!resultRow) throw new Error('The concept result row is missing.');
+    expect(within(resultRow).getByText(/Server-supported forms: One value/)).toBeInTheDocument();
+    fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
+    expect(within(resultRow).getByText('Completeness: partial.')).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Observed units: g\/dL · additional units exist/)).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Observed examples: 10\.2, 11\.0 · additional examples exist/)).toBeInTheDocument();
+    expect(within(resultRow).getByText('Server choice uses the Patient root resource; no route steps')).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Loom proves the VALUE output form preserves the row grain\./)).toBeInTheDocument();
+  });
+
+  it('loads table-specific route and output alternatives before the final Add action', async () => {
+    const related = item('718-7', 'Hemoglobin', 64, 'Observation');
+    const routeChoice: ConstructionChoice = {
+      ...semanticChoice('route-choice-subject', related, [
+        choiceOption('VALUE', 'DEFAULT'),
+        choiceOption('ALL', 'REQUIRES_DECISION'),
+      ]),
+      route: [{
+        edgeId: 'patient-observation-subject',
+        fromNodeId: 'patient-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'Observation',
+        relationship: 'subject',
+        storageDirection: 'INBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      presentation: {
+        summary: 'Observation through subject',
+        facts: [{ label: 'Relationship', value: 'subject' }],
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([related])
+        : url.endsWith('/construction-choices')
+          ? {
+              snapshotToken: 'snapshot-a',
+              outputId: 'patients',
+              complete: true,
+              truncated: false,
+              choices: [routeChoice],
+            }
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const onAddSelected = renderCatalogAtRoute(fetch, {
+      occurrenceId: 'observations',
+      nodeId: 'observation-node',
+    });
+
+    const result = await screen.findByRole('checkbox', { name: 'Select Hemoglobin' });
+    const resultRow = result.closest('article');
+    expect(resultRow).not.toBeNull();
+    if (!resultRow) throw new Error('The related concept result row is missing.');
+    fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
+    fireEvent.click(within(resultRow).getByRole('button', { name: 'Load choices for these table rows' }));
+
+    expect(await within(resultRow).findByText('Observation through subject')).toBeInTheDocument();
+    expect(within(resultRow).getByText(/via subject \(optional, inbound\)/)).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Server default/)).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Requires a choice/)).toBeInTheDocument();
+    expect(onAddSelected).not.toHaveBeenCalled();
   });
 
   it('applies one compiler DEFAULT field form after one Add click', async () => {
