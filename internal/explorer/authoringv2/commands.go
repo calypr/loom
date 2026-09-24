@@ -37,6 +37,7 @@ const (
 	CommandApplyInterpretationCandidate  = "APPLY_INTERPRETATION_CANDIDATE"
 	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
 	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
+	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
@@ -109,6 +110,8 @@ type Command struct {
 	resolvedRowDefinition   *RowDefinition
 	resolvedTableShape      *TableShape
 	resolvedTableShapeSet   bool
+	resolvedConstruction    *Construction
+	resolvedConstructionSet bool
 }
 
 // ColumnTransformationChange replaces or removes the one typed value
@@ -230,7 +233,7 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
-	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal {
+	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
 		}
@@ -294,6 +297,29 @@ func (c *Command) ResolveTableShapeProposal(shape *TableShape) error {
 	return nil
 }
 
+// ResolveConstructionProposal attaches the lifecycle-validated staged plan to
+// an apply command. The plan is server-resolved state and never appears in the
+// browser command payload.
+func (c *Command) ResolveConstructionProposal(construction *Construction) error {
+	if c == nil || c.Type != CommandApplyConstructionProposal {
+		return fmt.Errorf("construction can only be resolved for APPLY_CONSTRUCTION_PROPOSAL")
+	}
+	if strings.TrimSpace(c.OutputID) == "" || c.OutputID != strings.TrimSpace(c.OutputID) ||
+		strings.TrimSpace(c.ProposalID) == "" || c.ProposalID != strings.TrimSpace(c.ProposalID) {
+		return fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL requires outputId and proposalId")
+	}
+	if construction == nil {
+		return fmt.Errorf("resolved construction is required")
+	}
+	cloned, err := cloneConstruction(construction)
+	if err != nil {
+		return err
+	}
+	c.resolvedConstruction = cloned
+	c.resolvedConstructionSet = true
+	return nil
+}
+
 type CommandResult struct {
 	Type               string                    `json:"type"`
 	OutputID           string                    `json:"outputId,omitempty"`
@@ -342,7 +368,7 @@ func (r ApplyCommandsRequest) Validate() error {
 		if command.Type == CommandApplyConstructionChoice {
 			constructionChoiceCommandCount++
 		}
-		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal {
+		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal {
 			proposalCommandCount++
 		}
 		if err := command.validate(); err != nil {
@@ -491,7 +517,7 @@ func (c Command) validate() error {
 			c.InterpretationCandidate.RevisionID != strings.TrimSpace(c.InterpretationCandidate.RevisionID) {
 			return fmt.Errorf("APPLY_INTERPRETATION_CANDIDATE requires exact candidateReceiptId and revisionId")
 		}
-	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal:
+	case CommandApplyRowDefinitionProposal, CommandApplyTableShapeProposal, CommandApplyConstructionProposal:
 		if !required(c.OutputID, c.ProposalID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.ProposalID != strings.TrimSpace(c.ProposalID) {
 			return fmt.Errorf("%s requires exact outputId and proposalId", c.Type)
 		}
@@ -1049,6 +1075,29 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, err
 		}
 		workspace.Documents[document].TableShape = shape
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+	case CommandApplyConstructionProposal:
+		if !command.resolvedConstructionSet || command.resolvedConstruction == nil {
+			return result, fmt.Errorf("APPLY_CONSTRUCTION_PROPOSAL has no lifecycle-resolved construction")
+		}
+		documentIndexValue := documentIndex(workspace, command.OutputID)
+		if documentIndexValue < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		document, err := UpgradeDocumentToConstruction(workspace.Documents[documentIndexValue])
+		if err != nil {
+			return result, fmt.Errorf("prepare staged construction: %w", err)
+		}
+		construction, err := cloneConstruction(command.resolvedConstruction)
+		if err != nil {
+			return result, err
+		}
+		document.Construction = construction
+		document.TableShape = nil
+		if err := document.Validate(); err != nil {
+			return result, fmt.Errorf("resolved construction is invalid: %w", err)
+		}
+		workspace.Documents[documentIndexValue] = document
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandUpdateColumnSource:
 		document := documentIndex(workspace, command.OutputID)

@@ -305,6 +305,85 @@ func TestAnalyzeStepEditReportsMissingDownstreamColumnAndKeepsAcceptedDocument(t
 	}
 }
 
+func TestAnalyzeConstructionCandidateSupportsAppendAndRecalculatesStage(t *testing.T) {
+	accepted := stagedConstructionDocument()
+	construction, err := cloneConstruction(accepted.Construction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filterValue := int64(0)
+	lastOutputs := append([]StageColumn(nil), construction.Steps[len(construction.Steps)-1].Outputs...)
+	construction.Steps = append(construction.Steps, ConstructionStep{
+		ID: "last_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "unpivot_step"}},
+		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+			ColumnID: "measure_value", Operator: ConstructionFilterGreaterEq,
+			Values: []FilterValue{{Kind: ConstructionFilterInteger, Integer: &filterValue}},
+		}},
+		Outputs: lastOutputs,
+	})
+
+	candidate, impact, err := accepted.AnalyzeConstructionCandidate(*construction, "last_filter", nil)
+	if err != nil {
+		t.Fatalf("append candidate: %v", err)
+	}
+	if impact.ChangedStepID != "last_filter" || !reflect.DeepEqual(impact.AffectedStepIDs, []string{"last_filter"}) {
+		t.Fatalf("append impact = %#v", impact)
+	}
+	if got := candidate.Construction.Steps[4].Inputs; !reflect.DeepEqual(got, []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "unpivot_step"}}) {
+		t.Fatalf("appended input refs = %#v", got)
+	}
+	if err := candidate.Validate(); err != nil {
+		t.Fatalf("appended candidate invalid: %v", err)
+	}
+	if len(accepted.Construction.Steps) != 4 {
+		t.Fatal("append mutated accepted document")
+	}
+}
+
+func TestAnalyzeConstructionCandidateRequiresExplicitRemovalsAndReportsMissingInputs(t *testing.T) {
+	accepted := stagedConstructionDocument()
+	withoutFilter, err := cloneConstruction(accepted.Construction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutFilter.Steps = append(withoutFilter.Steps[:2], withoutFilter.Steps[3:]...)
+	if _, _, err := accepted.AnalyzeConstructionCandidate(*withoutFilter, "", nil); err == nil || !strings.Contains(err.Error(), "without listing it in removeStepIDs") {
+		t.Fatalf("unlisted removal error = %v", err)
+	}
+
+	removed, impact, err := accepted.AnalyzeConstructionCandidate(*withoutFilter, "", []string{"filter_step"})
+	if err != nil {
+		t.Fatalf("explicit removal candidate: %v", err)
+	}
+	if !reflect.DeepEqual(impact.RemovedStepIDs, []string{"filter_step"}) || !reflect.DeepEqual(impact.AffectedStepIDs, []string{"unpivot_step"}) {
+		t.Fatalf("removal impact = %#v", impact)
+	}
+	if err := removed.Validate(); err != nil {
+		t.Fatalf("removal candidate invalid: %v", err)
+	}
+
+	changed, err := cloneConstruction(accepted.Construction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed.Steps[0].Operation.Pivot.Categories[0].OutputColumnID = "pivot_a_replaced"
+	changed.Steps[0].Outputs[1] = StageColumn{ID: "pivot_a_replaced", Name: "amount_a_new", Label: "Amount A new", Type: "integer"}
+	invalid, missing, err := accepted.AnalyzeConstructionCandidate(*changed, "pivot_step", nil)
+	if err != nil {
+		t.Fatalf("edit with dependent issue: %v", err)
+	}
+	wantMissing := []ConstructionDependencyIssue{
+		{StepID: "derive_step", ColumnID: "pivot_a"},
+		{StepID: "unpivot_step", ColumnID: "pivot_a"},
+	}
+	if !reflect.DeepEqual(missing.MissingInputs, wantMissing) {
+		t.Fatalf("missing dependent inputs = %#v, want %#v", missing.MissingInputs, wantMissing)
+	}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("candidate with missing stable reference unexpectedly validated")
+	}
+}
+
 func TestProposeStepRemovalRequiresExplicitDependentRemovalAndKeepsUnrelatedStep(t *testing.T) {
 	accepted := documentWithDependentSteps()
 	proposal, impact, err := accepted.ProposeStepRemoval("score_step", nil)

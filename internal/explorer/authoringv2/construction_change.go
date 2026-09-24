@@ -1,7 +1,9 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 )
 
 type ConstructionDependencyIssue struct {
@@ -52,6 +54,161 @@ func (d Document) AnalyzeStepEdit(replacement ConstructionStep) (Document, Const
 		}
 	}
 	return candidate, impact, nil
+}
+
+// AnalyzeConstructionCandidate accepts one complete proposal and verifies its
+// identity-level changes against the saved sequence. It supports replacing one
+// existing step, appending one new step, and removing only explicitly named
+// steps. Surviving steps retain their order; downstream edits remain available
+// for repairing dependencies in the submitted candidate.
+func (d Document) AnalyzeConstructionCandidate(candidateConstruction Construction, changedStepID string, removeStepIDs []string) (Document, ConstructionImpact, error) {
+	base := d
+	if d.Construction == nil {
+		var err error
+		base, err = UpgradeDocumentToConstruction(d)
+		if err != nil {
+			return d, ConstructionImpact{}, fmt.Errorf("upgrade accepted document: %w", err)
+		}
+	} else if err := d.Validate(); err != nil {
+		return d, ConstructionImpact{}, fmt.Errorf("validate accepted document: %w", err)
+	}
+	if candidateConstruction.Version != ConstructionVersion {
+		return d, ConstructionImpact{}, fmt.Errorf("unsupported construction version %d", candidateConstruction.Version)
+	}
+	if changedStepID != "" && !requiredID(changedStepID) {
+		return d, ConstructionImpact{}, fmt.Errorf("changedStepID must be an exact non-empty token")
+	}
+	remove := make(map[string]bool, len(removeStepIDs))
+	removedOrder := make([]string, 0, len(removeStepIDs))
+	for _, id := range removeStepIDs {
+		if !requiredID(id) {
+			return d, ConstructionImpact{}, fmt.Errorf("removeStepIDs contains an empty step id")
+		}
+		if remove[id] {
+			return d, ConstructionImpact{}, fmt.Errorf("step %q is selected for removal more than once", id)
+		}
+		if findConstructionStep(base.Construction.Steps, id) < 0 {
+			return d, ConstructionImpact{}, fmt.Errorf("step %q does not exist", id)
+		}
+		remove[id] = true
+	}
+	if changedStepID != "" && remove[changedStepID] {
+		return d, ConstructionImpact{}, fmt.Errorf("changed step %q cannot also be removed", changedStepID)
+	}
+
+	cloned, err := cloneConstruction(&candidateConstruction)
+	if err != nil {
+		return d, ConstructionImpact{}, err
+	}
+	candidateSteps := cloned.Steps
+	candidateIDs := make(map[string]int, len(candidateSteps))
+	for index, step := range candidateSteps {
+		if !requiredID(step.ID) {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate steps[%d].id is required", index)
+		}
+		if _, exists := candidateIDs[step.ID]; exists {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate contains duplicate step id %q", step.ID)
+		}
+		candidateIDs[step.ID] = index
+	}
+	changedIndex := findConstructionStep(base.Construction.Steps, changedStepID)
+	isAppend := changedStepID != "" && changedIndex < 0
+	if changedStepID != "" {
+		if _, exists := candidateIDs[changedStepID]; !exists {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate does not contain changed step %q", changedStepID)
+		}
+	}
+
+	impact := ConstructionImpact{ChangedStepID: changedStepID, RemovedStepIDs: make([]string, 0, len(remove)), AffectedStepIDs: make([]string, 0)}
+	expectedIndex := 0
+	firstChanged := len(base.Construction.Steps)
+	for oldIndex, oldStep := range base.Construction.Steps {
+		if remove[oldStep.ID] {
+			impact.RemovedStepIDs = append(impact.RemovedStepIDs, oldStep.ID)
+			if oldIndex < firstChanged {
+				firstChanged = oldIndex
+			}
+			continue
+		}
+		if expectedIndex >= len(candidateSteps) || candidateSteps[expectedIndex].ID != oldStep.ID {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate changes step order or omits step %q without listing it in removeStepIDs", oldStep.ID)
+		}
+		if oldStep.ID == changedStepID {
+			if oldIndex < firstChanged {
+				firstChanged = oldIndex
+			}
+		} else if oldIndex < firstChanged && !reflect.DeepEqual(oldStep, candidateSteps[expectedIndex]) {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate changes step %q before the changed step", oldStep.ID)
+		}
+		expectedIndex++
+	}
+	if isAppend {
+		if expectedIndex != len(candidateSteps)-1 || candidateSteps[expectedIndex].ID != changedStepID {
+			return d, ConstructionImpact{}, fmt.Errorf("new changed step %q must be appended at the end", changedStepID)
+		}
+		firstChanged = len(base.Construction.Steps)
+		expectedIndex++
+	}
+	if expectedIndex != len(candidateSteps) {
+		return d, ConstructionImpact{}, fmt.Errorf("candidate includes an unrequested new step")
+	}
+	if changedStepID == "" && len(remove) == 0 {
+		return d, ConstructionImpact{}, fmt.Errorf("candidate must replace or append a step, or explicitly remove steps")
+	}
+	for _, oldStep := range base.Construction.Steps {
+		if remove[oldStep.ID] {
+			removedOrder = append(removedOrder, oldStep.ID)
+		}
+	}
+	impact.RemovedStepIDs = removedOrder
+
+	result := cloneDocumentForConstructionChange(base)
+	result.Construction = cloned
+	result.TableShape = nil
+	for index := range result.Construction.Steps {
+		if index == 0 {
+			result.Construction.Steps[index].Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
+		} else {
+			result.Construction.Steps[index].Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: result.Construction.Steps[index-1].ID}}
+		}
+	}
+	start := len(result.Construction.Steps)
+	if changedStepID != "" {
+		start = candidateIDs[changedStepID]
+	}
+	if len(remove) != 0 {
+		firstRemovedIndex := len(base.Construction.Steps)
+		for index, step := range base.Construction.Steps {
+			if remove[step.ID] {
+				firstRemovedIndex = index
+				break
+			}
+		}
+		for index := firstRemovedIndex; index < len(base.Construction.Steps); index++ {
+			step := base.Construction.Steps[index]
+			if remove[step.ID] {
+				continue
+			}
+			if affectedIndex, exists := candidateIDs[step.ID]; exists && affectedIndex < start {
+				start = affectedIndex
+			}
+			break
+		}
+	}
+	for index := start; index < len(result.Construction.Steps); index++ {
+		impact.AffectedStepIDs = append(impact.AffectedStepIDs, result.Construction.Steps[index].ID)
+	}
+	if start < len(result.Construction.Steps) {
+		if err := recalculateCandidateStages(&result, start, &impact); err != nil {
+			return d, ConstructionImpact{}, err
+		}
+	}
+	if !impact.HasMissingInputs() {
+		if err := result.Validate(); err != nil {
+			return d, ConstructionImpact{}, fmt.Errorf("candidate construction is invalid: %w", err)
+		}
+	}
+	return result, impact, nil
 }
 
 // ProposeStepRemoval removes only the selected step and the downstream steps
@@ -292,6 +449,21 @@ func findStageColumnByID(columns []StageColumn, id string) (StageColumn, bool) {
 		}
 	}
 	return StageColumn{}, false
+}
+
+func cloneConstruction(construction *Construction) (*Construction, error) {
+	if construction == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(construction)
+	if err != nil {
+		return nil, fmt.Errorf("clone construction: %w", err)
+	}
+	var cloned Construction
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return nil, fmt.Errorf("clone construction: %w", err)
+	}
+	return &cloned, nil
 }
 
 func cloneDocumentForConstructionChange(document Document) Document {
