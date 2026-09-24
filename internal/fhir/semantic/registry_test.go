@@ -41,7 +41,7 @@ func TestGeneratedDatatypeRegistryCoversEveryComplexDatatype(t *testing.T) {
 	}{
 		{datatype: "Identifier", disposition: DispositionValueAssociation},
 		{datatype: "Extension", disposition: DispositionValueAssociation},
-		{datatype: "CodeableConcept", disposition: DispositionCategorical, projection: "text"},
+		{datatype: "CodeableConcept", disposition: DispositionCategorical, projection: "coding[].code"},
 		{datatype: "Coding", disposition: DispositionCategorical},
 		{datatype: "Quantity", disposition: DispositionCompositeValue, projection: "value"},
 		{datatype: "Reference", disposition: DispositionNavigationOnly},
@@ -79,9 +79,11 @@ func TestClassifyDirectFieldUsesDatatypeOwnershipInsteadOfResourceNames(t *testi
 		{name: "codeable concept coding", resource: "DiagnosticReport", path: "code.coding[].code", reason: DirectFieldSemanticDatatype, owner: "CodeableConcept", disposition: DispositionCategorical},
 		{name: "extension URL", resource: "Patient", path: "extension[].url", reason: DirectFieldSemanticDatatype, owner: "Extension", disposition: DispositionValueAssociation},
 		{name: "extension value choice", resource: "Patient", path: "extension[].valueString", reason: DirectFieldSemanticDatatype, owner: "Extension", disposition: DispositionValueAssociation},
-		{name: "quantity value", resource: "Observation", path: "valueQuantity.value", reason: DirectFieldSemanticDatatype, owner: "Quantity", disposition: DispositionCompositeValue},
-		{name: "quantity unit", resource: "Observation", path: "valueQuantity.unit", reason: DirectFieldSemanticDatatype, owner: "Quantity", disposition: DispositionCompositeValue},
+		{name: "quantity value", resource: "Observation", path: "valueQuantity.value", reason: DirectFieldPairedValue, owner: "Observation", disposition: DispositionValueAssociation},
+		{name: "quantity unit", resource: "Observation", path: "valueQuantity.unit", reason: DirectFieldPairedValue, owner: "Observation", disposition: DispositionValueAssociation},
 		{name: "reference target", resource: "Observation", path: "subject.reference", reason: DirectFieldSemanticDatatype, owner: "Reference", disposition: DispositionNavigationOnly},
+		{name: "registered composite value", resource: "MedicationAdministration", path: "occurenceTiming.repeat.boundsRange", reason: DirectFieldNonPrimitive, owner: "Range", disposition: DispositionCompositeValue},
+		{name: "advanced-only complex value", resource: "Patient", path: "name[]", reason: DirectFieldNonPrimitive, owner: "HumanName", disposition: DispositionAdvancedOnly},
 		{name: "inherited resource id", resource: "Encounter", path: "id", eligible: true, reason: DirectFieldPrimitiveLeaf, owner: "Resource"},
 		{name: "inherited resource type", resource: "Encounter", path: "resourceType", eligible: true, reason: DirectFieldPrimitiveLeaf, owner: "Resource"},
 	}

@@ -44,10 +44,12 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 	}
 	categorical := catalog.SemanticObservation{
 		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Role:          catalog.SemanticRoleCategoricalSlot,
+		SlotLabel:     "Observation category",
 		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "category[]"},
-		Key:           catalog.SemanticObservationKey{Selector: "category[].coding[]", System: "http://terminology.hl7.org/CodeSystem/observation-category", Code: "laboratory", Display: "Laboratory"},
-		Value:         catalog.SemanticObservationValue{Selector: "category[].coding[].code", Type: "code"},
-		OwningScope:   "category[]", LogicalType: "code", Completeness: catalog.SemanticComplete,
+		Key:           catalog.SemanticObservationKey{Selector: "category[].coding[]", System: "urn:category"},
+		Value:         catalog.SemanticObservationValue{Selector: "category[].coding[].code", Type: "string", Presentation: fhirschema.ValuePresentationDisplayOrCode},
+		OwningScope:   "category[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
 		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCategoricalCodeV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
 	}
 
@@ -124,11 +126,10 @@ func TestResolveSemanticSelectionPlanStatusesAndTypedSources(t *testing.T) {
 		t.Fatalf("nested MedicationRequest binding = %#v", binding)
 	}
 	categoricalPlan := ResolveSemanticSelectionPlan(categorical)
-	if categoricalPlan.Source == nil || categoricalPlan.Source.Kind != SourceCodedValue || categoricalPlan.Source.Lookup == nil || categoricalPlan.Source.Lookup.Binding == nil || categoricalPlan.Source.Lookup.Key == nil {
+	if categoricalPlan.Source == nil || categoricalPlan.Source.Kind != SourceCategoricalBySystem || categoricalPlan.Source.Categorical == nil {
 		t.Fatalf("categorical source = %#v", categoricalPlan.Source)
 	}
-	categoricalBinding := categoricalPlan.Source.Lookup.Binding
-	if categoricalBinding.OwnerPath != "" || categoricalBinding.KeyPath != "category[].coding[]" || categoricalBinding.ValueScope != fhirschema.CorrelatedValueKeyItem || categoricalBinding.ValuePath != "code" || categoricalPlan.Source.FieldPath() != "category[].coding[].code" || categoricalPlan.LogicalType != "code" {
-		t.Fatalf("categorical binding = %#v", categoricalBinding)
+	if categoricalPlan.Source.Categorical.System != "urn:category" || categoricalPlan.Source.Categorical.Binding.KeyPath != "category[].coding[]" || categoricalPlan.Source.Categorical.Binding.ValuePath != "code" || categoricalPlan.Source.FieldPath() != "category[].coding[].code" || categoricalPlan.LogicalType != "string" {
+		t.Fatalf("categorical source = %#v", categoricalPlan.Source.Categorical)
 	}
 }

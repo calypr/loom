@@ -168,10 +168,22 @@ func (r *physicalPlanRenderer) renderSet(set ir.PhysicalSet, index int) ([]strin
 				lines = append(lines, fmt.Sprintf("%s  FILTER %s.%s == @%s", indent, t.EdgeVariable, t.EdgeTargetTypeField, t.TargetTypeBindKey))
 			}
 		}
-		lines = append(lines,
-			fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", indent, t.TargetVariable, t.EdgeVariable, t.EndpointJoinField),
-			fmt.Sprintf("%s  FILTER %s != null", indent, t.TargetVariable),
-		)
+		if targetType, scalarTargetType := r.bindVars[t.TargetTypeBindKey].(string); scalarTargetType && targetType != "" {
+			targetCollectionBindKey := r.newInternalBindKey("target_collection")
+			// Keep the bare name reserved for later sets while passing the
+			// collection value under Arango's required "@name" runtime key.
+			r.bindVars[targetCollectionBindKey] = targetType
+			r.bindVars["@"+targetCollectionBindKey] = targetType
+			lines = append(lines,
+				fmt.Sprintf("%sFOR %s IN @@%s", indent, t.TargetVariable, targetCollectionBindKey),
+				fmt.Sprintf("%s  FILTER %s._id == %s.%s", indent, t.TargetVariable, t.EdgeVariable, t.EndpointJoinField),
+			)
+		} else {
+			lines = append(lines,
+				fmt.Sprintf("%s  LET %s = DOCUMENT(%s.%s)", indent, t.TargetVariable, t.EdgeVariable, t.EndpointJoinField),
+				fmt.Sprintf("%s  FILTER %s != null", indent, t.TargetVariable),
+			)
+		}
 		if t.TargetTypeBindKey != "" {
 			if _, ok := r.bindVars[t.TargetTypeBindKey].([]string); ok {
 				lines = append(lines, fmt.Sprintf("%s  FILTER POSITION(@%s, %s.resourceType)", indent, t.TargetTypeBindKey, t.TargetVariable))

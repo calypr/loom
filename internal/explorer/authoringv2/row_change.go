@@ -110,7 +110,7 @@ func AssessRowChange(workspace Workspace, catalog CatalogSnapshot, request RowCh
 		RootOccurrenceID:     selected.OccurrenceID,
 		SourceDocumentDigest: documentDigest(document),
 		RouteRebase:          routeRebase,
-		PreservedFeatureKeys: append([]string(nil), assessment.PreservedFeatureKeys...),
+		PreservedFeatureKeys: append([]string{}, assessment.PreservedFeatureKeys...),
 	}
 	if _, err := applyRowChange(document, catalog, proposal); err != nil {
 		assessment.Unresolved = append(assessment.Unresolved, RowChangeUnresolvedReference{

@@ -80,6 +80,9 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		}
 		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: filter.FieldRef}, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}}})
 	}
+	if err := appendOptionalCorrelatedPivotKeyFilter(physical, &subplan, child, targetVariable, prefix); err != nil {
+		return ir.PhysicalSet{}, nil, err
+	}
 	subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: targetVariable}}
 	var output *ir.PhysicalSetOutput
 	if policy.RuleEnabled(ir.PhysicalOptimizationRuleCompactProjection) {
@@ -150,6 +153,54 @@ func buildOptionalChildPhysicalSet(physical *ir.PhysicalPlan, setIndex int, pare
 		prepareRichChildSet(&set, child.ResourceType, projections, policy)
 	}
 	return set, projections, nil
+}
+
+func appendOptionalCorrelatedPivotKeyFilter(physical *ir.PhysicalPlan, subplan *ir.PhysicalSubplan, child semantic.SemanticNode, targetVariable, prefix string) error {
+	pivot, eligible := isolatedOptionalCorrelatedPivot(child)
+	if !eligible {
+		return nil
+	}
+	suffix := sanitizeColumnName(pivot.Name)
+	systemBindKey := prefix + "_pivot_key_" + suffix + "_system"
+	codeBindKey := prefix + "_pivot_key_" + suffix + "_code"
+	physical.BindVars[systemBindKey] = pivot.CorrelationSystem
+	physical.BindVars[codeBindKey] = pivot.CorrelationCode
+	correlation, err := LowerCorrelatedBinding(child.ResourceType, *pivot.Correlation, ir.PhysicalValue{Variable: targetVariable, Path: []string{"payload"}}, systemBindKey, codeBindKey)
+	if err != nil {
+		return fmt.Errorf("child pivot %q correlation key filter: %w", pivot.Name, err)
+	}
+	keyMatch := ir.PhysicalCorrelationKeyMatch{
+		Source: correlation.Source, ResourceType: correlation.ResourceType,
+		OwnerResource: correlation.OwnerResource, OwnerSelector: correlation.OwnerSelector,
+		KeyResource: correlation.KeyResource, KeySelector: correlation.KeySelector,
+		SystemSelector: correlation.SystemSelector, CodeSelector: correlation.CodeSelector,
+		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,
+	}
+	semanticField := pivot.FieldRef
+	if strings.TrimSpace(semanticField) == "" {
+		semanticField = pivot.Name
+	}
+	predicate := ir.PhysicalPredicate{Operator: "EQUALS", CorrelationKeyMatch: &keyMatch}
+	subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalFilterOp,
+		Source: ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, SemanticField: semanticField},
+		Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalComparisonPredicate, Comparison: &predicate}},
+	})
+	return nil
+}
+
+func isolatedOptionalCorrelatedPivot(child semantic.SemanticNode) (semantic.SemanticPivot, bool) {
+	if (child.MatchMode != "" && child.MatchMode != spec.TraversalMatchOptional) || child.From != nil || len(child.Fields) != 0 || len(child.Pivots) != 1 || len(child.OwnerRecords) != 0 || len(child.Aggregates) != 0 || len(child.Slices) != 0 || len(child.Children) != 0 || len(child.DynamicMaps) != 0 {
+		return semantic.SemanticPivot{}, false
+	}
+	pivot := child.Pivots[0]
+	if pivot.Correlation == nil || pivot.ExtensionCorrelation != nil || pivot.Categorical != nil || len(pivot.Columns) != 1 {
+		return semantic.SemanticPivot{}, false
+	}
+	if strings.TrimSpace(pivot.CorrelationSystem) == "" || strings.TrimSpace(pivot.CorrelationCode) == "" || pivot.Columns[0] != pivot.CorrelationCode {
+		return semantic.SemanticPivot{}, false
+	}
+	return pivot, true
 }
 
 func buildPhysicalChildRouteScope(physical *ir.PhysicalPlan, child semantic.SemanticNode, edgeVariable, targetVariable, prefix string) ([]ir.PhysicalOperation, error) {

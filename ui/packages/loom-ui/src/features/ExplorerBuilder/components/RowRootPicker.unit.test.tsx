@@ -41,8 +41,10 @@ describe('RowRootPicker', () => {
     const onChoose = vi.fn();
     render(<RowRootPicker catalog={catalog} disabled={false} onChoose={onChoose} />);
 
-    expect(screen.getByText('1,234 authorized records')).toBeInTheDocument();
-    expect(screen.getByText('No authorized records in this dataset')).toBeInTheDocument();
+    expect(screen.getByText('1,234 records')).toBeInTheDocument();
+    expect(screen.getByText('No records')).toBeInTheDocument();
+    const picker = screen.getByRole('region', { name: 'Choose row type' });
+    expect(picker.querySelector('[class*="max-h-[28rem]"]')).toHaveClass('overflow-y-auto');
     expect(screen.queryByText('HiddenInternalType')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Choose Observation rows' })).toBeDisabled();
 

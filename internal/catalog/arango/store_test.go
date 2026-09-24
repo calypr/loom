@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -22,6 +23,9 @@ type fakeClient struct {
 type evidenceClient struct {
 	queries          []string
 	vars             []map[string]any
+	executedQueries  []string
+	executedVars     []map[string]any
+	bootstrapSpecs   []store.BootstrapSpec
 	rows             map[string][]map[string]any
 	rowsByCollection map[string][]map[string]any
 	collections      map[string]bool
@@ -41,7 +45,7 @@ func (f *evidenceClient) CollectionExists(_ context.Context, name string) (bool,
 	return f.collections[name], nil
 }
 
-func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars map[string]any, visit store.RowVisitor) error {
+func (f *evidenceClient) QueryRows(_ context.Context, query string, maxRows int, vars map[string]any, visit store.RowVisitor) error {
 	f.queries = append(f.queries, query)
 	copyVars := make(map[string]any, len(vars))
 	for key, value := range vars {
@@ -55,6 +59,20 @@ func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars 
 	if query == resourceInventoryAQL && f.rowsByCollection != nil {
 		rows = f.rowsByCollection[stringValue(vars["@resource_collection"])]
 	}
+	if query == semanticInventoryCandidateEntriesAQL {
+		afterKey := stringValue(vars["after_key"])
+		page := make([]map[string]any, 0, maxRows)
+		for _, row := range rows {
+			if stringValue(row["key"]) <= afterKey {
+				continue
+			}
+			page = append(page, row)
+			if len(page) == maxRows {
+				break
+			}
+		}
+		rows = page
+	}
 	for _, row := range rows {
 		if err := visit(row); err != nil {
 			return err
@@ -65,8 +83,19 @@ func (f *evidenceClient) QueryRows(_ context.Context, query string, _ int, vars 
 func (*evidenceClient) InsertBatchRaw(context.Context, string, []json.RawMessage, bool, string) error {
 	return nil
 }
-func (*evidenceClient) ExecuteAQL(context.Context, string, map[string]any) error { return nil }
-func (*evidenceClient) Bootstrap(context.Context, store.BootstrapSpec) error     { return nil }
+func (f *evidenceClient) ExecuteAQL(_ context.Context, query string, vars map[string]any) error {
+	f.executedQueries = append(f.executedQueries, query)
+	copyVars := make(map[string]any, len(vars))
+	for key, value := range vars {
+		copyVars[key] = value
+	}
+	f.executedVars = append(f.executedVars, copyVars)
+	return nil
+}
+func (f *evidenceClient) Bootstrap(_ context.Context, spec store.BootstrapSpec) error {
+	f.bootstrapSpecs = append(f.bootstrapSpecs, spec)
+	return nil
+}
 
 func (*fakeClient) CollectionExists(context.Context, string) (bool, error) { return true, nil }
 
@@ -305,7 +334,7 @@ func TestReadMissingRetainedSourceCollectionDoesNotQueryOrCreateIt(t *testing.T)
 		t.Fatal(err)
 	}
 	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
-	if err != nil || len(page.Rows) != 0 || len(client.queries) != 0 {
+	if err != nil || page.SourceState != RetainedSemanticSourceVerifiedEmpty || len(page.Rows) != 0 || len(client.queries) != 0 {
 		t.Fatalf("absent retained collection page=%+v err=%v queries=%d", page, err, len(client.queries))
 	}
 }
@@ -327,6 +356,18 @@ func TestReadMissingRetainedSourceFailsWhenGenerationFieldProfileProvesPopulatio
 	}
 	if len(client.queries) != 1 || client.queries[0] != retainedSemanticInventoryFieldProfileAQL {
 		t.Fatalf("missing source evidence queries = %v", client.queries)
+	}
+}
+
+func TestReadMissingRetainedSourceIsVerifiedEmptyWithoutPopulationEvidence(t *testing.T) {
+	client := &evidenceClient{collections: map[string]bool{catalog.FieldCatalogCollection: true}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
+	if err != nil || page.SourceState != RetainedSemanticSourceVerifiedEmpty || len(page.Rows) != 0 || page.HasMore {
+		t.Fatalf("missing retained source page=%+v err=%v, want verified empty", page, err)
 	}
 }
 
@@ -359,7 +400,7 @@ func TestReadEmptyRetainedSourceWithoutProfileEvidenceIsGenuinelyEmpty(t *testin
 		t.Fatal(err)
 	}
 	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "", 100)
-	if err != nil || !page.SourceExists || len(page.Rows) != 0 {
+	if err != nil || page.SourceState != RetainedSemanticSourcePresent || len(page.Rows) != 0 {
 		t.Fatalf("genuinely empty retained source page=%+v err=%v", page, err)
 	}
 	if len(client.queries) != 2 || client.queries[0] != retainedSemanticInventorySourcePageAQL || client.queries[1] != retainedSemanticInventoryFieldProfileAQL {
@@ -379,7 +420,7 @@ func TestReadExhaustedRetainedSourceDoesNotTreatPositiveProfileAsMissing(t *test
 		t.Fatal(err)
 	}
 	page, err := adapter.ReadRetainedSemanticInventoryPage(context.Background(), "project", "generation", "Observation", "source-z", 100)
-	if err != nil || !page.SourceExists || len(page.Rows) != 0 {
+	if err != nil || page.SourceState != RetainedSemanticSourcePresent || len(page.Rows) != 0 {
 		t.Fatalf("exhausted retained source page=%+v err=%v, want empty without rechecking source population", page, err)
 	}
 	if len(client.queries) != 1 || client.queries[0] != retainedSemanticInventorySourcePageAQL {
@@ -443,11 +484,18 @@ func TestSemanticInventoryBackfillMutationQueriesBindOnlyUsedVariables(t *testin
 			if err := test.call(adapter); err != nil {
 				t.Fatal(err)
 			}
-			if len(client.vars) != 1 {
-				t.Fatalf("bind variable captures = %d, want 1", len(client.vars))
+			queryIndex := -1
+			for i, query := range client.queries {
+				if query == test.query {
+					queryIndex = i
+					break
+				}
 			}
-			got := make([]string, 0, len(client.vars[0]))
-			for key := range client.vars[0] {
+			if queryIndex < 0 || queryIndex >= len(client.vars) {
+				t.Fatalf("mutation query %q not found in captures: %v", test.query, client.queries)
+			}
+			got := make([]string, 0, len(client.vars[queryIndex]))
+			for key := range client.vars[queryIndex] {
 				got = append(got, key)
 			}
 			sort.Strings(got)
@@ -461,6 +509,27 @@ func TestSemanticInventoryBackfillMutationQueriesBindOnlyUsedVariables(t *testin
 func TestRelationshipRebuildFiltersNonResourceEndpoints(t *testing.T) {
 	if !strings.Contains(relationshipRebuildAQL, "e.from_type IN @resource_types") || !strings.Contains(relationshipRebuildAQL, "e.to_type IN @resource_types") {
 		t.Fatal("relationship rebuild does not filter invalid resource endpoints")
+	}
+}
+
+func TestRelationshipRebuildBindsResourceTypesOnlyForQueriesThatUseThem(t *testing.T) {
+	client := &evidenceClient{}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.RebuildRelationshipCatalog(context.Background(), catalog.RelationshipRebuildOptions{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, query := range client.queries {
+		_, bound := client.vars[index]["resource_types"]
+		if query == relationshipClearAQL && bound {
+			t.Fatal("clear query received undeclared resource_types bind variable")
+		}
+		if query == relationshipRebuildAQL && !bound {
+			t.Fatal("rebuild query is missing resource_types bind variable")
+		}
 	}
 }
 
@@ -637,5 +706,285 @@ func TestPageSemanticInventoryTreatsMissingCollectionsAsUnknown(t *testing.T) {
 	}
 	if len(client.queries) != 0 {
 		t.Fatalf("queries = %d, want no AQL against absent legacy collections", len(client.queries))
+	}
+}
+
+func TestPrepareSemanticInventoryBackfillCreatesCatalogPagingIndexes(t *testing.T) {
+	client := &evidenceClient{}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.PrepareSemanticInventoryBackfill(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(client.bootstrapSpecs) != 1 {
+		t.Fatalf("bootstrap specs = %d, want 1", len(client.bootstrapSpecs))
+	}
+	var inventoryIndexes, entryIndexes [][]string
+	for _, collection := range client.bootstrapSpecs[0].Collections {
+		if collection.Name == catalog.SemanticInventoryCollection {
+			inventoryIndexes = collection.Indexes
+		}
+		if collection.Name == catalog.SemanticInventoryEntryCollection {
+			entryIndexes = collection.Indexes
+		}
+	}
+	if containsIndex(inventoryIndexes, []string{"project", "dataset_generation", "build_id", "source_id"}) {
+		t.Fatalf("semantic inventory indexes %#v retain unused source_id index", inventoryIndexes)
+	}
+	wantResourceIndex := []string{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "catalog_section", "sort_key", "auth_resource_path"}
+	wantAllResourcesIndex := []string{"project", "dataset_generation", "build_id", "source_kind", "catalog_section", "sort_key", "resource_type", "auth_resource_path"}
+	wantScopedResourceIndex := []string{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "catalog_section", "sort_key"}
+	wantScopedAllResourcesIndex := []string{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "catalog_section", "sort_key", "resource_type"}
+	if !containsIndex(entryIndexes, wantResourceIndex) || !containsIndex(entryIndexes, wantAllResourcesIndex) || !containsIndex(entryIndexes, wantScopedResourceIndex) || !containsIndex(entryIndexes, wantScopedAllResourcesIndex) {
+		t.Fatalf("semantic entry indexes = %#v, want scoped/unscoped resource and section/sort indexes", entryIndexes)
+	}
+}
+
+func containsIndex(indexes [][]string, target []string) bool {
+	for _, index := range indexes {
+		if reflect.DeepEqual(index, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPageSemanticInventoryUsesIndexedSectionAndKeysetForLargeCatalog(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	build.State = catalog.SemanticInventoryComplete
+	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	buildRow := semanticInventoryTestRow(t, build)
+	baseOptions := catalog.SemanticInventoryPageOptions{
+		Project:                       build.Project,
+		DatasetGeneration:             build.DatasetGeneration,
+		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+		ResourceType:                  "MedicationAdministration",
+		CatalogSection:                catalog.SemanticInventorySectionConcepts,
+		Limit:                         50,
+	}
+	client := &evidenceClient{
+		collections: map[string]bool{catalog.SemanticInventoryBuildCollection: true, catalog.SemanticInventoryEntryCollection: true},
+		rows:        map[string][]map[string]any{semanticInventoryBuildsAQL: {buildRow}},
+	}
+	firstQuery := semanticInventoryPageQuery(baseOptions, true, false)
+	firstRows := make([]map[string]any, 0, 51)
+	for i := range 51 {
+		firstRows = append(firstRows, semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{
+			BindingID: fmt.Sprintf("binding-%03d", i), ConceptID: fmt.Sprintf("concept-%03d", i),
+			Observation: catalog.SemanticObservation{Source: catalog.SemanticObservationSource{Type: "MedicationAdministration", Path: "medication[]"}},
+		}))
+	}
+	client.rows[firstQuery] = firstRows
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := adapter.PageSemanticInventory(context.Background(), baseOptions)
+	if err != nil || len(first.Entries) != 50 || first.NextCursor == "" {
+		t.Fatalf("first page entries=%d next=%q err=%v", len(first.Entries), first.NextCursor, err)
+	}
+	if first.Entries[0].BindingID != "binding-000" || first.Entries[49].BindingID != "binding-049" {
+		t.Fatalf("first page boundary = %q..%q", first.Entries[0].BindingID, first.Entries[49].BindingID)
+	}
+	firstVars := client.vars[len(client.vars)-1]
+	if firstVars["catalog_section"] != string(catalog.SemanticInventorySectionConcepts) || firstVars["resource_type"] != "MedicationAdministration" {
+		t.Fatalf("first page section/resource binds = %#v", firstVars)
+	}
+
+	secondOptions := baseOptions
+	secondOptions.Cursor = first.NextCursor
+	secondQuery := semanticInventoryPageQuery(secondOptions, true, true)
+	client.rows[secondQuery] = []map[string]any{semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{
+		BindingID: "binding-050", ConceptID: "concept-050",
+		Observation: catalog.SemanticObservation{Source: catalog.SemanticObservationSource{Type: "MedicationAdministration", Path: "medication[]"}},
+	})}
+	second, err := adapter.PageSemanticInventory(context.Background(), secondOptions)
+	if err != nil || len(second.Entries) != 1 || second.Entries[0].BindingID != "binding-050" || second.NextCursor != "" {
+		t.Fatalf("second page = %#v err=%v", second, err)
+	}
+	secondVars := client.vars[len(client.vars)-1]
+	if secondVars["after_sort_key"] != catalog.SemanticInventorySortKey("binding-049", "concept-049") {
+		t.Fatalf("second page keyset bind = %#v", secondVars)
+	}
+
+	searchOptions := baseOptions
+	searchOptions.Query = "rare-term"
+	searchQuery := semanticInventoryPageQuery(searchOptions, true, false)
+	client.rows[searchQuery] = []map[string]any{semanticInventoryTestRow(t, catalog.SemanticInventoryEntry{
+		BindingID: "binding-999", ConceptID: "concept-999",
+		Observation: catalog.SemanticObservation{Source: catalog.SemanticObservationSource{Type: "MedicationAdministration", Path: "medication[]"}},
+	})}
+	searchPage, err := adapter.PageSemanticInventory(context.Background(), searchOptions)
+	if err != nil || len(searchPage.Entries) != 1 || searchPage.Entries[0].BindingID != "binding-999" {
+		t.Fatalf("late sorted search hit = %#v err=%v", searchPage, err)
+	}
+	if got := client.vars[len(client.vars)-1]["query"]; got != "rare-term" {
+		t.Fatalf("search query bind = %#v, want rare-term", got)
+	}
+	searchFilter := strings.Index(searchQuery, "FILTER CONTAINS")
+	sortKey := strings.Index(searchQuery, "SORT candidate.sort_key")
+	limit := strings.Index(searchQuery, "LIMIT @limit")
+	if searchFilter < 0 || sortKey < 0 || limit < 0 || !(searchFilter < sortKey && sortKey < limit) {
+		t.Fatalf("search must filter before sort and page limit: %s", searchQuery)
+	}
+	for _, fragment := range []string{
+		"FILTER candidate.catalog_section == @catalog_section",
+		"FILTER candidate.resource_type == @resource_type",
+		"COLLECT binding_id = candidate.binding_id, concept_id = candidate.concept_id, sort_key = candidate.sort_key",
+		"partition_count = LENGTH(1)",
+		"source_records = MIN(d.source_records)",
+		"source_records: partition_count == 1 ? source_records : null",
+		"value: {selector: value_selector, type: value_type, presentation: value_presentation}",
+	} {
+		if !strings.Contains(firstQuery, fragment) {
+			t.Fatalf("indexed section query missing %q: %s", fragment, firstQuery)
+		}
+	}
+	if strings.Contains(firstQuery, "@resource_type == \"\"") || strings.Contains(firstQuery, "@query == \"\"") || strings.Contains(firstQuery, "@auth_resource_paths_unrestricted") {
+		t.Fatalf("indexed paging query retained optional OR filters: %s", firstQuery)
+	}
+}
+
+func TestEnsureSemanticInventoryEntriesStoresExactClassification(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	valid := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier[]"},
+		Key:           catalog.SemanticObservationKey{Selector: "identifier[].system", System: "urn:study:case-id"},
+		Value:         catalog.SemanticObservationValue{Selector: "identifier[].value", Type: "string"},
+		OwningScope:   "identifier[]", LogicalType: "string", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE", RuleVersion: fmt.Sprint(catalog.SemanticObservationRuleVersion),
+	}
+	invalidBinding := valid
+	invalidBinding.Value.Selector = "identifier[].notARealValue"
+	staleRule := valid
+	staleRule.RuleVersion = "3"
+	staleSchema := valid
+	staleSchema.SchemaVersion--
+	entries := []catalog.SemanticInventoryEntry{
+		{BindingID: "valid-binding", ConceptID: "valid-concept", Observation: valid},
+		{BindingID: "invalid-binding", ConceptID: "invalid-concept", Observation: invalidBinding},
+		{BindingID: "stale-rule-binding", ConceptID: "stale-rule-concept", Observation: staleRule},
+		{BindingID: "stale-schema-binding", ConceptID: "stale-schema-concept", Observation: staleSchema},
+	}
+	rows := make([]map[string]any, 0, len(entries))
+	for i, entry := range entries {
+		rows = append(rows, semanticInventoryTestRow(t, map[string]any{
+			"key": fmt.Sprintf("entry-%d", i), "observation": entry.Observation,
+		}))
+	}
+	client := &evidenceClient{rows: map[string][]map[string]any{semanticInventoryCandidateEntriesAQL: rows}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := adapter.EnsureSemanticInventoryEntries(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.EntryIndexVersion != catalog.SemanticInventoryEntryIndexVersion {
+		t.Fatalf("entry index version = %d, want %d", completed.EntryIndexVersion, catalog.SemanticInventoryEntryIndexVersion)
+	}
+	if len(client.executedQueries) != 3 || client.executedQueries[2] != updateSemanticInventoryEntryClassificationAQL {
+		t.Fatalf("classification writes = %v", client.executedQueries)
+	}
+	patches, ok := client.executedVars[2]["patches"].([]map[string]interface{})
+	if !ok || len(patches) != 4 {
+		t.Fatalf("classification patches = %#v", client.executedVars[2]["patches"])
+	}
+	want := map[string][3]string{
+		"entry-0": {string(catalog.SemanticInventorySectionConcepts), catalog.SemanticInventoryRecognitionRecognized, catalog.SemanticInventoryRecognitionRecognized},
+		"entry-1": {string(catalog.SemanticInventorySectionConcepts), catalog.SemanticInventoryRecognitionRecognized, catalog.SemanticInventoryRecognitionRecognized},
+		"entry-2": {string(catalog.SemanticInventorySectionNeedsReview), catalog.SemanticInventoryRecognitionNeedsReview, "SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED"},
+		"entry-3": {string(catalog.SemanticInventorySectionNeedsReview), catalog.SemanticInventoryRecognitionNeedsReview, "SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED"},
+	}
+	for _, patch := range patches {
+		key, _ := patch["key"].(string)
+		got := [3]string{stringValue(patch["catalog_section"]), stringValue(patch["recognition_status"]), stringValue(patch["recognition_code"])}
+		if got != want[key] {
+			t.Errorf("classification for %q = %v, want %v", key, got, want[key])
+		}
+	}
+	for _, fragment := range []string{
+		"FILTER d.source_kind == @source_kind",
+		"schema_version = MIN(d.observation.schema_version)",
+		"role = MIN(d.observation.role)",
+		"slot_label = MIN(d.observation.slot_label)",
+		"examples_min = MIN(d.observation.examples)",
+		"examples: examples_min == null ? [] : examples_min",
+		"source_records = COUNT_DISTINCT(d.source_id)",
+		"source_records: source_records",
+		"value_presentation = MIN(d.observation.value.presentation)",
+		"value: {selector: value_selector, type: value_type, presentation: value_presentation}",
+		"catalog_section: \"NEEDS_REVIEW\"",
+		"recognition_status: \"PENDING_CLASSIFICATION\"",
+		"sort_key: sort_key",
+	} {
+		if !strings.Contains(materializeSemanticInventoryEntriesAQL, fragment) {
+			t.Errorf("materialization AQL missing %q", fragment)
+		}
+	}
+	if strings.Contains(materializeSemanticInventoryEntriesAQL, "paired_value_exists") || strings.Contains(materializeSemanticInventoryEntriesAQL, "FOR paired IN") {
+		t.Fatal("schema-time semantic roles must remove per-contribution paired-value lookups")
+	}
+	if strings.Contains(materializeSemanticInventoryEntriesAQL, "NOT_NULL(d.source_kind") {
+		t.Fatal("materialization must leave indexed source identity fields bare")
+	}
+}
+
+func TestEnsureSemanticInventoryEntriesClassifiesEveryBoundedPage(t *testing.T) {
+	build := catalog.NewSemanticInventoryBuild("project", "generation", "")
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Patient", Path: "identifier[]"},
+		Completeness:  catalog.SemanticComplete, Status: "SUPPORTED", RuleHint: "IDENTIFIER_SYSTEM_VALUE",
+		RuleVersion: fmt.Sprint(catalog.SemanticObservationRuleVersion),
+	}
+	rows := make([]map[string]any, 0, 1001)
+	for i := range 1001 {
+		rows = append(rows, semanticInventoryTestRow(t, map[string]any{
+			"key": fmt.Sprintf("entry-%04d", i), "observation": observation,
+		}))
+	}
+	client := &evidenceClient{rows: map[string][]map[string]any{semanticInventoryCandidateEntriesAQL: rows}}
+	adapter, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.EnsureSemanticInventoryEntries(context.Background(), build); err != nil {
+		t.Fatal(err)
+	}
+	classified := 0
+	for index, query := range client.executedQueries {
+		if query != updateSemanticInventoryEntryClassificationAQL {
+			continue
+		}
+		patches, ok := client.executedVars[index]["patches"].([]map[string]interface{})
+		if !ok || len(patches) == 0 || len(patches) > 500 {
+			t.Fatalf("classification batch = %#v", client.executedVars[index]["patches"])
+		}
+		classified += len(patches)
+	}
+	if classified != len(rows) {
+		t.Fatalf("classified entries = %d, want %d", classified, len(rows))
+	}
+	var afterKeys []string
+	for index, query := range client.queries {
+		if query == semanticInventoryCandidateEntriesAQL {
+			afterKeys = append(afterKeys, stringValue(client.vars[index]["after_key"]))
+		}
+	}
+	if !reflect.DeepEqual(afterKeys, []string{"", "entry-0499", "entry-0999"}) {
+		t.Fatalf("classification page cursors = %#v", afterKeys)
+	}
+}
+
+func TestIndexedSemanticCountsDoNotLoadSourceIdentities(t *testing.T) {
+	for _, query := range []string{materializeSemanticInventoryEntriesAQL, semanticInventoryPageAQL, semanticInventoryResolveIndexedSelectionsAQL} {
+		if strings.Contains(query, "source_ids") {
+			t.Fatal("indexed catalog counts must not retain or read a list of every source identity")
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -17,6 +18,10 @@ const (
 	constructionRouteMaxHops       = 5
 	constructionRouteMaxExpansions = 30000
 	constructionRouteMaxResults    = 4096
+)
+
+var (
+	ErrCanonicalConstructionRouteUnavailable = errors.New("no observed construction route is available")
 )
 
 // ConstructionRouteSearch is an exact server-side route query. TargetNodeID
@@ -201,6 +206,123 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 		}
 	}
 	return page, nil
+}
+
+type canonicalRouteCandidate struct {
+	route    []ConstructionRouteStep
+	observed []int64
+	identity string
+}
+
+// PlanCanonicalConstructionRoute returns the ranked shortest route through
+// observed capability edges. It compares observed relationship counts from the
+// row root outward, then uses stable edge identity for reproducibility.
+func PlanCanonicalConstructionRoute(snapshot Snapshot, rootResource, targetNodeID string) ([]ConstructionRouteStep, error) {
+	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
+		return nil, err
+	}
+	root, ok := uniqueRootNode(snapshot, strings.TrimSpace(rootResource))
+	if !ok {
+		return nil, fmt.Errorf("row root %q is not unique in the capability snapshot", rootResource)
+	}
+	if _, ok := snapshot.Node(targetNodeID); !ok {
+		return nil, fmt.Errorf("route target node %q is not in the capability snapshot", targetNodeID)
+	}
+	if root.ID == targetNodeID {
+		return []ConstructionRouteStep{}, nil
+	}
+
+	adjacency := make(map[string][]Edge)
+	for _, edge := range snapshot.Edges {
+		if edge.BlockedReason != "" || edge.ObservedEdgeCount <= 0 || edge.ID == "" || edge.FromNodeID == "" || edge.ToNodeID == "" || edge.Label == "" {
+			continue
+		}
+		direction := strings.ToUpper(strings.TrimSpace(edge.StorageDirection))
+		if direction != "INBOUND" && direction != "OUTBOUND" {
+			continue
+		}
+		from, fromOK := snapshot.Node(edge.FromNodeID)
+		to, toOK := snapshot.Node(edge.ToNodeID)
+		if !fromOK || !toOK || from.ResourceType != edge.SourceResourceType || to.ResourceType != edge.TargetResourceType {
+			continue
+		}
+		adjacency[edge.FromNodeID] = append(adjacency[edge.FromNodeID], edge)
+	}
+	for nodeID := range adjacency {
+		sort.Slice(adjacency[nodeID], func(i, j int) bool {
+			return routeEdgeKey(adjacency[nodeID][i]) < routeEdgeKey(adjacency[nodeID][j])
+		})
+	}
+
+	best := map[string]canonicalRouteCandidate{root.ID: {route: []ConstructionRouteStep{}, observed: []int64{}, identity: ""}}
+	distance := map[string]int{root.ID: 0}
+	currentLayer := []string{root.ID}
+	targetDistance := -1
+	for depth := 0; len(currentLayer) > 0 && targetDistance < 0; depth++ {
+		if snapshot.Policy.Route.MaxHops > 0 && depth >= snapshot.Policy.Route.MaxHops {
+			break
+		}
+		nextLayer := make([]string, 0, len(currentLayer))
+		queued := make(map[string]bool, len(currentLayer))
+		for _, fromID := range currentLayer {
+			from := best[fromID]
+			for _, edge := range adjacency[fromID] {
+				toDistance := depth + 1
+				if snapshot.Policy.Route.MaxHops > 0 && toDistance > snapshot.Policy.Route.MaxHops {
+					continue
+				}
+				step := ConstructionRouteStep{
+					EdgeID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
+					FromResourceType: edge.SourceResourceType, ToResourceType: edge.TargetResourceType,
+					Relationship: edge.Label, StorageDirection: strings.ToUpper(strings.TrimSpace(edge.StorageDirection)), MatchMode: "OPTIONAL",
+				}
+				candidate := canonicalRouteCandidate{
+					route:    append(cloneConstructionRoute(from.route), step),
+					observed: append(append([]int64(nil), from.observed...), edge.ObservedEdgeCount),
+					identity: joinCanonicalRouteIdentity(from.identity, routeEdgeKey(edge)),
+				}
+				priorDistance, seen := distance[edge.ToNodeID]
+				if !seen {
+					distance[edge.ToNodeID] = toDistance
+					best[edge.ToNodeID] = candidate
+					if !queued[edge.ToNodeID] {
+						nextLayer = append(nextLayer, edge.ToNodeID)
+						queued[edge.ToNodeID] = true
+					}
+					if edge.ToNodeID == targetNodeID {
+						targetDistance = toDistance
+					}
+					continue
+				}
+				if priorDistance == toDistance && canonicalRouteBetter(candidate, best[edge.ToNodeID]) {
+					best[edge.ToNodeID] = candidate
+				}
+			}
+		}
+		currentLayer = nextLayer
+	}
+
+	candidate, found := best[targetNodeID]
+	if !found {
+		return nil, ErrCanonicalConstructionRouteUnavailable
+	}
+	return cloneConstructionRoute(candidate.route), nil
+}
+
+func canonicalRouteBetter(candidate, current canonicalRouteCandidate) bool {
+	for index := range candidate.observed {
+		if candidate.observed[index] != current.observed[index] {
+			return candidate.observed[index] > current.observed[index]
+		}
+	}
+	return candidate.identity < current.identity
+}
+
+func joinCanonicalRouteIdentity(prefix, edge string) string {
+	if prefix == "" {
+		return edge
+	}
+	return prefix + "\x00" + edge
 }
 
 func constructionRouteTargetKey(targetIDs []string) string {

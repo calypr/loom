@@ -235,7 +235,6 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 			reconciled.EmittedColumns = append(reconciled.EmittedColumns, emitted)
 			contract.Columns = append(contract.Columns, publicOutputColumnFromEmission(emitted))
 			publicEmissionIDs[recipeOutput.Name][emitted.EmissionID] = struct{}{}
-			mergeReconciledContractQuality(&contract, emitted)
 			publicOrder++
 		}
 		for name := range constructed {
@@ -260,6 +259,9 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 		sort.SliceStable(outputEmissions, func(i, j int) bool {
 			return publicOrderByName[outputEmissions[i].PublicColumn] < publicOrderByName[outputEmissions[j].PublicColumn]
 		})
+		for _, emitted := range outputEmissions {
+			mergeReconciledContractQuality(&contract, emitted)
+		}
 		reconciled.OutputContracts = append(reconciled.OutputContracts, contract)
 		reconciled.Presentations = append(reconciled.Presentations, finalPresentation)
 	}

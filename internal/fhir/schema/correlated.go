@@ -11,16 +11,17 @@ import (
 // and Code are relative to one Coding item, so they cannot be accidentally
 // paired from different array members.
 type CorrelatedBinding struct {
-	OwnerPath     string               `json:"ownerPath,omitempty"`
-	KeyPath       string               `json:"keyPath"`
-	SystemPath    string               `json:"systemPath"`
-	CodePath      string               `json:"codePath"`
-	ValueScope    CorrelatedValueScope `json:"valueScope,omitempty"`
-	ValuePath     string               `json:"valuePath"`
-	ValueFallback []string             `json:"valueFallback,omitempty"`
-	ChoiceArms    []string             `json:"choiceArms,omitempty"`
-	LogicalType   string               `json:"logicalType"`
-	UnitPath      string               `json:"unitPath,omitempty"`
+	OwnerPath         string               `json:"ownerPath,omitempty"`
+	KeyPath           string               `json:"keyPath"`
+	SystemPath        string               `json:"systemPath"`
+	CodePath          string               `json:"codePath"`
+	ValueScope        CorrelatedValueScope `json:"valueScope,omitempty"`
+	ValuePath         string               `json:"valuePath"`
+	ValueFallback     []string             `json:"valueFallback,omitempty"`
+	ValuePresentation string               `json:"valuePresentation,omitempty"`
+	ChoiceArms        []string             `json:"choiceArms,omitempty"`
+	LogicalType       string               `json:"logicalType"`
+	UnitPath          string               `json:"unitPath,omitempty"`
 }
 
 // CorrelatedValueScope identifies the object that owns a correlated value.
@@ -71,33 +72,36 @@ type CorrelatedKey struct {
 // flattened URL string. This keeps each ancestor identity in the same lexical
 // traversal scope as the value it owns.
 type ExtensionBinding struct {
-	OwnerPath     string   `json:"ownerPath,omitempty"`
-	URLPath       []string `json:"urlPath"`
-	ValuePath     string   `json:"valuePath"`
-	LogicalType   string   `json:"logicalType"`
-	ChoiceArms    []string `json:"choiceArms,omitempty"`
-	ValueFallback []string `json:"valueFallback,omitempty"`
-	UnitPath      string   `json:"unitPath,omitempty"`
+	OwnerPath         string   `json:"ownerPath,omitempty"`
+	URLPath           []string `json:"urlPath"`
+	ValuePath         string   `json:"valuePath"`
+	LogicalType       string   `json:"logicalType"`
+	ChoiceArms        []string `json:"choiceArms,omitempty"`
+	ValueFallback     []string `json:"valueFallback,omitempty"`
+	ValuePresentation string   `json:"valuePresentation,omitempty"`
+	UnitPath          string   `json:"unitPath,omitempty"`
 }
 
 // CorrelatedBindingSpec is the checked form consumed by semantic and physical
 // compilers. Selectors in this value are relative to the owning item unless
 // OwnerSelector is empty (the root resource is the owner).
 type CorrelatedBindingSpec struct {
-	ResourceType   string
-	OwnerSelector  Selector
-	OwnerResource  string
-	KeySelector    Selector
-	KeyResource    string
-	SystemSelector Selector
-	CodeSelector   Selector
-	ValueScope     CorrelatedValueScope
-	ValueSelector  Selector
-	ValueFallbacks []Selector
-	ChoiceArms     []string
-	LogicalType    string
-	ValuePrimitive PrimitiveKind
-	UnitSelector   *Selector
+	ResourceType      string
+	OwnerSelector     Selector
+	OwnerResource     string
+	KeySelector       Selector
+	KeyResource       string
+	SystemSelector    Selector
+	CodeSelector      Selector
+	ValueScope        CorrelatedValueScope
+	ValueSelector     Selector
+	ValueFallbacks    []Selector
+	ChoiceArms        []string
+	LogicalType       string
+	ValuePrimitive    PrimitiveKind
+	ValuePresentation string
+	ValueRepeated     bool
+	UnitSelector      *Selector
 }
 
 // ExtensionBindingSpec is the checked extension form consumed by semantic and
@@ -105,16 +109,18 @@ type CorrelatedBindingSpec struct {
 // before the first extension boundary; URLSelectors are each relative to the
 // current Extension item and therefore preserve nested parent identity.
 type ExtensionBindingSpec struct {
-	ResourceType   string
-	OwnerSelector  Selector
-	OwnerResource  string
-	URLSelectors   []Selector
-	ValueSelector  Selector
-	ValueFallbacks []Selector
-	ChoiceArms     []string
-	LogicalType    string
-	ValuePrimitive PrimitiveKind
-	UnitSelector   *Selector
+	ResourceType      string
+	OwnerSelector     Selector
+	OwnerResource     string
+	URLSelectors      []Selector
+	ValueSelector     Selector
+	ValueFallbacks    []Selector
+	ChoiceArms        []string
+	LogicalType       string
+	ValuePrimitive    PrimitiveKind
+	ValuePresentation string
+	ValueRepeated     bool
+	UnitSelector      *Selector
 }
 
 // ValidateCorrelatedBinding validates one binding against generated FHIR
@@ -127,8 +133,8 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	}
 	ownerPath := CanonicalizePath(binding.OwnerPath)
 	keyPath := CanonicalizePath(binding.KeyPath)
-	if keyPath == "" || !strings.Contains(keyPath, "[]") {
-		return CorrelatedBindingSpec{}, fmt.Errorf("correlated keyPath must identify a repeated Coding item")
+	if keyPath == "" {
+		return CorrelatedBindingSpec{}, fmt.Errorf("correlated keyPath must identify a Coding item")
 	}
 	if strings.TrimSpace(binding.SystemPath) == "" || strings.TrimSpace(binding.CodePath) == "" {
 		return CorrelatedBindingSpec{}, fmt.Errorf("correlated binding requires systemPath and codePath")
@@ -145,10 +151,16 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath: %w", err)
 		}
 		resolved, ok := ResolvePath(resourceType, ownerPath)
-		if !ok || resolved.Property.Kind != "array" || strings.TrimSpace(resolved.Property.ItemRef) == "" {
-			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath %q must resolve to a repeated object", ownerPath)
+		if !ok {
+			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath %q must resolve to an object", ownerPath)
 		}
-		ownerResource = resolved.Property.ItemRef
+		ownerResource = resolved.Property.Ref
+		if resolved.Property.Kind == "array" {
+			ownerResource = resolved.Property.ItemRef
+		}
+		if ownerResource == "" {
+			return CorrelatedBindingSpec{}, fmt.Errorf("ownerPath %q must resolve to an object", ownerPath)
+		}
 	}
 	if ownerPath != "" && keyPath != ownerPath && !strings.HasPrefix(keyPath, ownerPath+".") {
 		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q is outside ownerPath %q", keyPath, ownerPath)
@@ -158,10 +170,16 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 		keyRelative = strings.TrimPrefix(keyPath, ownerPath+".")
 	}
 	keyResolved, ok := ResolvePath(ownerResource, keyRelative)
-	if !ok || keyResolved.Property.Kind != "array" || strings.TrimSpace(keyResolved.Property.ItemRef) == "" {
-		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to a repeated object within owner scope", keyPath)
+	if !ok {
+		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to Coding within owner scope", keyPath)
 	}
-	keyResource := keyResolved.Property.ItemRef
+	keyResource := keyResolved.Property.Ref
+	if keyResolved.Property.Kind == "array" {
+		keyResource = keyResolved.Property.ItemRef
+	}
+	if keyResource != "Coding" {
+		return CorrelatedBindingSpec{}, fmt.Errorf("keyPath %q must resolve to Coding within owner scope", keyPath)
+	}
 	system, err := ParseSelector(binding.SystemPath)
 	if err != nil {
 		return CorrelatedBindingSpec{}, fmt.Errorf("systemPath: %w", err)
@@ -194,7 +212,42 @@ func ValidateCorrelatedBinding(resourceType string, binding CorrelatedBinding) (
 	if valueErr != nil {
 		return CorrelatedBindingSpec{}, valueErr
 	}
-	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueScope: valueScope, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	if err := validateValuePresentation(valueResource, binding.ValuePath, binding.ValuePresentation, binding.ValueFallback); err != nil {
+		return CorrelatedBindingSpec{}, err
+	}
+	return CorrelatedBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: ownerResource, KeySelector: mustParseSelector(keyRelative), KeyResource: keyResource, SystemSelector: system, CodeSelector: code, ValueScope: valueScope, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, ValuePresentation: binding.ValuePresentation, ValueRepeated: value.ValueRepeated, UnitSelector: value.UnitSelector}, nil
+}
+
+const ValuePresentationDisplayOrCode = "DISPLAY_OR_CODE"
+
+func validateValuePresentation(resourceType, path, presentation string, fallbacks []string) error {
+	if presentation == "" {
+		return nil
+	}
+	if presentation != ValuePresentationDisplayOrCode || len(fallbacks) != 0 {
+		return fmt.Errorf("unsupported value presentation %q or conflicting fallbacks", presentation)
+	}
+	parent, member, found := strings.Cut(path, ".")
+	if last := strings.LastIndex(path, "."); last >= 0 {
+		parent, member, found = path[:last], path[last+1:], true
+	}
+	owner := resourceType
+	if found {
+		resolved, ok := ResolvePath(resourceType, parent)
+		if !ok {
+			return fmt.Errorf("value presentation parent %q is unavailable", parent)
+		}
+		owner = resolved.Property.Ref
+		if resolved.Property.Kind == "array" {
+			owner = resolved.Property.ItemRef
+		}
+	} else {
+		member = path
+	}
+	if owner != "Coding" || member != "code" {
+		return fmt.Errorf("DISPLAY_OR_CODE requires the code member of a Coding, got %s.%s", resourceType, path)
+	}
+	return nil
 }
 
 type checkedBindingValue struct {
@@ -203,6 +256,7 @@ type checkedBindingValue struct {
 	ChoiceArms     []string
 	LogicalType    string
 	ValuePrimitive PrimitiveKind
+	ValueRepeated  bool
 	UnitSelector   *Selector
 }
 
@@ -229,8 +283,20 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		return checkedBindingValue{}, fmt.Errorf("logicalType %q is unsupported", requestedLogicalType)
 	}
 	valueMetadata, ok := ResolveTerminalScalarMetadata(valueResource, valuePath)
-	if !ok || valueMetadata.Primitive == PrimitiveUnknown {
+	if !ok {
 		return checkedBindingValue{}, fmt.Errorf("valuePath %q does not resolve to a scalar in owner resource %q", valuePath, valueResource)
+	}
+	if logicalType == "object" {
+		shape, found := ResolveFieldSemantics(valueResource, valuePath)
+		if !found || (shape.Kind != FieldKindObject && !(shape.Kind == FieldKindArray && shape.ElementKind == FieldKindObject)) {
+			return checkedBindingValue{}, fmt.Errorf("valuePath %q is not a structured value in %s", valuePath, valueResource)
+		}
+		if len(valueFallback) != 0 || unitPath != "" {
+			return checkedBindingValue{}, fmt.Errorf("structured values retain their complete object and cannot declare scalar fallbacks or units")
+		}
+		valueMetadata.Primitive = ""
+	} else if valueMetadata.Primitive == PrimitiveUnknown {
+		return checkedBindingValue{}, fmt.Errorf("valuePath %q requires object logicalType", valuePath)
 	}
 	choiceArms := append([]string(nil), requestedChoiceArms...)
 	for index, arm := range choiceArms {
@@ -264,7 +330,7 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 	if len(choiceArms) > 1 && logicalType != "string" {
 		return checkedBindingValue{}, fmt.Errorf("mixed choice arms require an explicit string logicalType")
 	}
-	if !correlatedPrimitiveCompatible(logicalType, valueMetadata.Primitive, len(choiceArms) > 1) {
+	if logicalType != "object" && !correlatedPrimitiveCompatible(logicalType, valueMetadata.Primitive, len(choiceArms) > 1) {
 		return checkedBindingValue{}, fmt.Errorf("logicalType %q is incompatible with valuePath %q primitive %q", logicalType, valuePath, valueMetadata.Primitive)
 	}
 	fallbacks := make([]Selector, 0, len(valueFallback))
@@ -306,7 +372,7 @@ func validateBindingValue(valueResource, valuePath string, valueFallback []strin
 		}
 		unit = &unitSelector
 	}
-	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, UnitSelector: unit}, nil
+	return checkedBindingValue{ValueSelector: value, ValueFallbacks: fallbacks, ChoiceArms: choiceArms, LogicalType: logicalType, ValuePrimitive: valueMetadata.Primitive, ValueRepeated: valueMetadata.Repeated, UnitSelector: unit}, nil
 }
 
 // inferQuantityUnitSelector retains the display unit owned by the same FHIR
@@ -419,17 +485,20 @@ func ValidateExtensionBinding(resourceType string, binding ExtensionBinding) (Ex
 	if err != nil {
 		return ExtensionBindingSpec{}, err
 	}
+	if err := validateValuePresentation("Extension", binding.ValuePath, binding.ValuePresentation, binding.ValueFallback); err != nil {
+		return ExtensionBindingSpec{}, err
+	}
 	urlSelectors := make([]Selector, extensionDepth)
 	for index := range urlSelectors {
 		urlSelectors[index], _ = ParseSelector("url")
 	}
-	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, UnitSelector: value.UnitSelector}, nil
+	return ExtensionBindingSpec{ResourceType: resourceType, OwnerSelector: ownerSelector, OwnerResource: "Extension", URLSelectors: urlSelectors, ValueSelector: value.ValueSelector, ValueFallbacks: value.ValueFallbacks, ChoiceArms: value.ChoiceArms, LogicalType: value.LogicalType, ValuePrimitive: value.ValuePrimitive, ValuePresentation: binding.ValuePresentation, ValueRepeated: value.ValueRepeated, UnitSelector: value.UnitSelector}, nil
 }
 
 func normalizeCorrelatedLogicalType(input string) (string, bool) {
 	value := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(input), "-", "_"))
 	switch value {
-	case "string", "code", "boolean", "integer", "decimal", "date", "date_time":
+	case "string", "code", "boolean", "integer", "decimal", "date", "date_time", "object":
 		return value, true
 	case "number":
 		return value, true

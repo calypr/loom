@@ -175,6 +175,44 @@ func TestNewSemanticConstructionChoicePinsObservationAndCompilerSource(t *testin
 	}
 }
 
+func TestRelatedCodedValueChoiceKeepsAllMatchingRecordsByDefault(t *testing.T) {
+	candidate := Candidate{
+		ID: "observation-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueQuantity.value", Cardinality: "optional_one",
+		ProjectionModes: []ProjectionMode{ProjectionScalar},
+	}
+	source := SemanticBindingChoiceSource{
+		ConceptID: "height", BindingID: "height-binding", ResourceType: "Observation",
+		SourcePath: "code", FieldPath: "valueQuantity.value",
+		KeySelector: "code.coding[]", System: "urn:measurement", Code: "height",
+		ValueSelector: "valueQuantity.value", LogicalType: "decimal",
+		RuleHint:    catalog.SemanticRuleHintCodedValueV1,
+		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion), SchemaVersion: 1,
+	}
+	route := []ConstructionRouteStep{{
+		EdgeID: "patient-observation", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	choice, err := NewSemanticConstructionChoiceForRoute("snapshot", "context", "build", route, source, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := constructionOption(t, choice, ConstructionChoiceAll); got.Decision != ConstructionChoiceDefault || got.Shape != ConstructionChoiceList || got.Preservation != ConstructionChoicePreserving {
+		t.Fatalf("related coded values must default to a preserving list: %#v", got)
+	}
+	if got := constructionOption(t, choice, ConstructionChoiceValue); got.Decision != ConstructionChoiceRequiresDecision {
+		t.Fatalf("related scalar form must be an explicit choice: %#v", got)
+	}
+	direct, err := NewSemanticConstructionChoice("snapshot", "context", "build", source, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := constructionOption(t, direct, ConstructionChoiceValue); got.Decision != ConstructionChoiceDefault {
+		t.Fatalf("one directly owned scalar should keep its scalar default: %#v", got)
+	}
+}
+
 func TestSemanticConstructionChoiceAdvertisesOwnerRecordsOnlyAfterExactProof(t *testing.T) {
 	candidate := Candidate{
 		ID: "component-value", NodeID: "observation", ResourceType: "Observation",
@@ -210,16 +248,21 @@ func TestSemanticConstructionChoiceAdvertisesOwnerRecordsOnlyAfterExactProof(t *
 		t.Fatalf("owner-record option = %#v", option)
 	}
 
-	withoutOwnerBoundary := candidate
-	withoutOwnerBoundary.RepeatedBoundaries = []RepeatedBoundary{{Path: "component[].code.coding[]", MaxItems: 8}}
-	notProved, err := NewSemanticConstructionChoice("snapshot", "context", "build", source, withoutOwnerBoundary, true)
+	rootCandidate := candidate
+	rootCandidate.FieldPath = "valueQuantity.value"
+	rootCandidate.RepeatedBoundaries = nil
+	rootCandidate.Cardinality = "optional_one"
+	rootSource := source
+	rootSource.SourcePath = "code"
+	rootSource.FieldPath = rootCandidate.FieldPath
+	rootSource.OwningScope = ""
+	rootSource.KeySelector = "code.coding[]"
+	rootProved, err := NewSemanticConstructionChoice("snapshot", "context", "build", rootSource, rootCandidate, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, option := range notProved.Options {
-		if option.Form == ConstructionChoiceOwnerRecords {
-			t.Fatal("owner records was advertised for an unrelated repeated boundary")
-		}
+	if option := constructionOption(t, rootProved, ConstructionChoiceOwnerRecords); option.Preservation != ConstructionChoicePreserving {
+		t.Fatalf("root owner evidence option = %#v", option)
 	}
 }
 

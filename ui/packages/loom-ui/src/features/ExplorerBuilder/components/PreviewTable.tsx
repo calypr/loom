@@ -143,6 +143,21 @@ export const PreviewTable = ({
     );
   });
   const rows = preview?.rows ?? [];
+  const sampleCoverage = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    const sampledRows = preview?.rows ?? [];
+    for (const emission of preview?.columns ?? []) {
+      let populated = 0;
+      for (const row of sampledRows) {
+        const value = row[emission.column];
+        if (value !== null && value !== undefined && (!Array.isArray(value) || value.length > 0)) {
+          populated += 1;
+        }
+      }
+      counts.set(emission.column, populated);
+    }
+    return counts;
+  }, [preview]);
   const columnRange = virtualRange({
     count: columns.length,
     offset: viewport.scrollLeft,
@@ -359,7 +374,7 @@ export const PreviewTable = ({
                     key={column.emissionId}
                     aria-label={column.resultUnit
                       ? `${column.label} (${column.resultUnit.code})`
-                      : undefined}
+                      : column.label}
                     className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
                     style={{
                       left: columnIndex * PREVIEW_COLUMN_WIDTH,
@@ -374,6 +389,11 @@ export const PreviewTable = ({
                         title={resultUnitTitle(column.resultUnit)}
                       >
                         {' '}({column.resultUnit.code})
+                      </span>
+                    ) : null}
+                    {rows.length > 0 ? (
+                      <span className="block font-normal normal-case tracking-normal text-slate-500" title="Non-empty cells in the current Preview rows, not exact dataset coverage">
+                        {sampleCoverage.get(column.publicColumn) ?? 0}/{rows.length} preview rows
                       </span>
                     ) : null}
                   </div>

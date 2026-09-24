@@ -94,7 +94,7 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(response.Body), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Entries) != 1 || result.Entries[0].Occurrences != 7 || result.Entries[0].Code != "glucose" || result.ContextToken == "" || result.Entries[0].ConstructionChoice == nil || len(result.Entries[0].ConstructionChoice.Options) != 1 || result.Entries[0].ConstructionChoice.Options[0].Form != loomapi.ConstructionChoiceOptionFormVALUE {
+	if len(result.Entries) != 1 || result.Entries[0].Occurrences != 7 || result.Entries[0].Code != "glucose" || result.ContextToken == "" || result.Entries[0].ConstructionChoice == nil || len(result.Entries[0].ConstructionChoice.Options) != 2 || result.Entries[0].ConstructionChoice.Options[0].Form != loomapi.ConstructionChoiceOptionFormVALUE || result.Entries[0].ConstructionChoice.Options[1].Form != loomapi.ConstructionChoiceOptionFormOWNERRECORDS {
 		t.Fatalf("result=%#v", result)
 	}
 	semanticSource, err := result.Entries[0].ConstructionChoice.Source.AsSemanticBindingChoiceSource()
@@ -105,7 +105,7 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 		body   string
 		status int
 	}{
-		{`{"snapshotToken":"snapshot","rowRoot":"Observation","limit":51}`, http.StatusBadRequest},
+		{`{"snapshotToken":"snapshot","rowRoot":"Observation","limit":501}`, http.StatusBadRequest},
 		{`{"snapshotToken":"snapshot","rowRoot":"Observation","query":"glucose","limit":2,"authResourcePaths":["/secret"]}`, http.StatusOK},
 		{`{"snapshotToken":"old","rowRoot":"Observation"}`, http.StatusConflict},
 	} {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -19,19 +20,25 @@ import (
 )
 
 type BrowseSemanticInventoryRequest struct {
-	Project       string
-	ExplorerID    string
-	SnapshotToken string
-	RowRoot       string
-	ResourceType  string
-	Query         string
-	Cursor        string
-	Limit         int
+	Project        string
+	ExplorerID     string
+	SnapshotToken  string
+	RowRoot        string
+	RowSetDigest   string
+	ResourceType   string
+	CatalogSection catalog.SemanticInventoryCatalogSection
+	Query          string
+	Cursor         string
+	Limit          int
+	available      availableColumnRoutes
 }
 
 type SemanticInventoryItem struct {
 	ConceptID          string                                 `json:"conceptId"`
 	BindingID          string                                 `json:"bindingId"`
+	Role               catalog.SemanticObservationRole        `json:"role"`
+	SlotLabel          string                                 `json:"slotLabel"`
+	SlotDescription    string                                 `json:"slotDescription"`
 	ResourceType       string                                 `json:"resourceType"`
 	SourcePath         string                                 `json:"sourcePath"`
 	System             string                                 `json:"system"`
@@ -42,6 +49,7 @@ type SemanticInventoryItem struct {
 	ValueType          string                                 `json:"valueType"`
 	OwningScope        string                                 `json:"owningScope"`
 	Occurrences        int64                                  `json:"occurrences"`
+	SourceRecords      *int64                                 `json:"sourceRecords,omitempty"`
 	Readiness          authoringv2.SemanticSelectionReadiness `json:"readiness"`
 	ConstructionChoice *capability.ConstructionChoice         `json:"constructionChoice,omitempty"`
 }
@@ -63,7 +71,7 @@ type semanticBrowseCursor struct {
 func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
 	var result BrowseSemanticInventoryResponse
 	if strings.TrimSpace(req.Project) == "" || strings.TrimSpace(req.ExplorerID) == "" || req.SnapshotToken == "" || req.RowRoot == "" || req.Limit < 0 || req.Limit > catalog.SemanticInventoryPageLimit || len(req.Query) > 256 || len(req.Cursor) > 4096 {
-		return result, malformed("catalog", "project, explorer, snapshotToken, rowRoot, and a page limit of at most 50 are required", nil)
+		return result, malformed("catalog", fmt.Sprintf("project, explorer, snapshotToken, rowRoot, and a page limit of at most %d are required", catalog.SemanticInventoryPageLimit), nil)
 	}
 	if s.config.SemanticInventory == nil || s.config.Capability.ForCompilation == nil {
 		return result, unavailable("catalog", "CATALOG_UNAVAILABLE", "semantic inventory browsing is not configured", nil)
@@ -102,7 +110,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	page, err := s.config.SemanticInventory(ctx, catalog.SemanticInventoryPageOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		AuthResourcePathsUnrestricted: &unrestricted, AuthResourcePaths: authorized.Scope.AuthResourcePaths,
-		ResourceType: req.ResourceType, Query: req.Query, Cursor: cursor.Page, Limit: req.Limit,
+		ResourceType: req.ResourceType, CatalogSection: req.CatalogSection, Query: req.Query, Cursor: cursor.Page, Limit: req.Limit,
 	})
 	if errors.Is(err, catalog.ErrSemanticInventoryCursorMismatch) {
 		return result, conflict("catalog", "STALE_CATALOG_CURSOR", "restart catalog search with an empty cursor", nil, err)
@@ -110,7 +118,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if err != nil {
 		return result, err
 	}
-	result.ContextToken, err = semanticInventoryContextToken(snapshot, req.ExplorerID, req.RowRoot, page.Build.BuildID)
+	result.ContextToken, err = semanticInventoryContextToken(snapshot, req.ExplorerID, req.RowRoot, page.Build.BuildID, req.RowSetDigest)
 	if err != nil {
 		return result, err
 	}
@@ -125,25 +133,60 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	result.Entries = make([]SemanticInventoryItem, 0, len(page.Entries))
 	for _, entry := range page.Entries {
 		observation := entry.Observation
+		var availableRoute []capability.ConstructionRouteStep
+		if req.available != nil {
+			var found bool
+			availableRoute, found = req.available[catalog.AvailabilityFeature{Kind: "SEMANTIC", ResourceType: observation.Source.Type, ConceptID: entry.ConceptID, BindingID: entry.BindingID}]
+			if !found {
+				continue
+			}
+		}
 		plan := authoringv2.ResolveSemanticSelectionPlan(observation)
 		item := SemanticInventoryItem{
-			ConceptID: entry.ConceptID, BindingID: entry.BindingID, ResourceType: observation.Source.Type,
-			SourcePath: observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
+			ConceptID: entry.ConceptID, BindingID: entry.BindingID,
+			Role: catalog.SemanticObservationRoleOf(observation), SlotLabel: observation.SlotLabel, SlotDescription: observation.SlotDescription,
+			ResourceType: observation.Source.Type,
+			SourcePath:   observation.Source.Path, System: observation.Key.System, Code: observation.Key.Code,
 			CodingVersion: observation.Key.Version, Display: observation.Key.Display,
 			ValueSelector: observation.Value.Selector, ValueType: observation.Value.Type,
 			OwningScope: observation.OwningScope, Occurrences: observation.Population,
 			Readiness: plan.Readiness,
 		}
+		if entry.SourceRecords > 0 {
+			sourceRecords := entry.SourceRecords
+			item.SourceRecords = &sourceRecords
+		}
 		if plan.Readiness.Addable() {
 			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
-				ownerRecordsProved := proveOwnerRecords(ctx, authorized, req.RowRoot, observation)
-				if choice, err := semanticInventoryConstructionChoice(snapshot, result.ContextToken, result.BuildID, entry, candidate, ownerRecordsProved); err == nil {
+				if req.available != nil {
+					proven, err := proveConstructionCandidate(ctx, authorized, req.RowRoot, candidate, availableRoute)
+					if err != nil {
+						return result, unavailable("feature-catalog", "AVAILABILITY_ROUTE_COMPILE_FAILED", "an observed concept route could not be compiled", err)
+					}
+					ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, req.RowRoot, observation, availableRoute)
+					choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, availableRoute, entry, proven, ownerRecords)
+					if err != nil {
+						return result, unavailable("feature-catalog", "AVAILABILITY_SOURCE_COMPILE_FAILED", "an observed concept could not be compiled", err)
+					}
 					item.ConstructionChoice = &choice
+				} else if !canonicalConstructionRouteAvailable(snapshot, req.RowRoot, candidate.NodeID) {
+					item.Readiness = sourceNotConnectedReadiness()
 				} else {
-					item.Readiness = compilerProofUnavailable()
+					ownerRecordsProved := proveOwnerRecords(ctx, authorized, req.RowRoot, observation)
+					if choice, err := semanticInventoryConstructionChoice(snapshot, result.ContextToken, result.BuildID, entry, candidate, ownerRecordsProved); err == nil {
+						item.ConstructionChoice = &choice
+					} else {
+						item.Readiness = compilerProofUnavailable()
+					}
 				}
 			} else {
 				item.Readiness = compilerProofUnavailable()
+			}
+		}
+		if page.Build.EntryIndexVersion < catalog.SemanticInventoryEntryIndexVersion && req.CatalogSection != "" {
+			addable := item.Readiness.Addable()
+			if req.CatalogSection == catalog.SemanticInventorySectionConcepts && !addable || req.CatalogSection == catalog.SemanticInventorySectionNeedsReview && addable {
+				continue
 			}
 		}
 		result.Entries = append(result.Entries, item)
@@ -265,8 +308,12 @@ func compilerProofUnavailable() authoringv2.SemanticSelectionReadiness {
 	}
 }
 
-func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string) (string, error) {
-	identity, err := json.Marshal([]string{"semantic-browse/v1", snapshot.Identity.Project, explorerID, snapshot.Token, snapshot.Identity.AuthorizationScopeDigest, rowRoot, "all-authorized", buildID})
+func semanticInventoryContextToken(snapshot capability.Snapshot, explorerID, rowRoot, buildID string, rowSetDigest ...string) (string, error) {
+	identityParts := []string{"semantic-browse/v1", snapshot.Identity.Project, explorerID, snapshot.Token, snapshot.Identity.AuthorizationScopeDigest, rowRoot, "all-authorized", buildID}
+	if len(rowSetDigest) > 0 && rowSetDigest[0] != "" {
+		identityParts = append(identityParts, rowSetDigest[0])
+	}
+	identity, err := json.Marshal(identityParts)
 	if err != nil {
 		return "", err
 	}

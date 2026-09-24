@@ -115,7 +115,7 @@ func ResolveWorkspaceInterpretations(project string, workspace authoringv2.Works
 				return inputs, fmt.Errorf("interpretation revision %q belongs to a different project", id)
 			}
 
-			resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
+			resolution, err := ResolveInterpretationCandidateForColumn(document, column, snapshot)
 			if err != nil {
 				return inputs, fmt.Errorf("interpretation %q for %s/%s: %w", id, document.Output.ID, column.Column, err)
 			}
@@ -152,6 +152,23 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	if !ok {
 		return nil, fmt.Errorf("occurrence %q is not present in route", column.OccurrenceID)
 	}
+	return resolveInterpretationCandidateAtOccurrence(column, occurrence, snapshot)
+}
+
+// ResolveInterpretationCandidateForColumn resolves only the route from the
+// table root to the configured column occurrence. Single-column authoring and
+// interpretation resolution must not fail because an unrelated saved route
+// branch is stale. Full-route validation remains available through
+// ResolveInterpretationCandidate.
+func ResolveInterpretationCandidateForColumn(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
+	occurrence, err := resolveSemanticOccurrencePath(document, column.OccurrenceID, snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve occurrence %q: %w", column.OccurrenceID, err)
+	}
+	return resolveInterpretationCandidateAtOccurrence(column, occurrence, snapshot)
+}
+
+func resolveInterpretationCandidateAtOccurrence(column authoringv2.Column, occurrence semanticOccurrence, snapshot capability.Snapshot) (InterpretationCandidateResolution, error) {
 	resourceType := occurrence.graph.ResourceType
 	paths := interpretationSourcePaths(column.Source)
 	if len(paths) == 0 {
@@ -197,10 +214,54 @@ func ResolveInterpretationCandidate(document authoringv2.Document, column author
 	}}, nil
 }
 
+func resolveSemanticOccurrencePath(document authoringv2.Document, occurrenceID string, snapshot capability.Snapshot) (semanticOccurrence, error) {
+	path, found := findSemanticRoutePath(document.Route, occurrenceID, nil)
+	if !found {
+		return semanticOccurrence{}, fmt.Errorf("occurrence %q is not present in route", occurrenceID)
+	}
+	scoped := document
+	scoped.Route = semanticRoutePathTree(path)
+	occurrences, _, err := resolveSemanticRoute(scoped, snapshot)
+	if err != nil {
+		return semanticOccurrence{}, err
+	}
+	occurrence, ok := occurrences[occurrenceID]
+	if !ok {
+		return semanticOccurrence{}, fmt.Errorf("occurrence %q is not present in route", occurrenceID)
+	}
+	return occurrence, nil
+}
+
+func findSemanticRoutePath(route authoringv2.RouteNode, occurrenceID string, prefix []authoringv2.RouteNode) ([]authoringv2.RouteNode, bool) {
+	path := append(append([]authoringv2.RouteNode(nil), prefix...), route)
+	if route.OccurrenceID == occurrenceID {
+		return path, true
+	}
+	for _, child := range route.Children {
+		if result, found := findSemanticRoutePath(child, occurrenceID, path); found {
+			return result, true
+		}
+	}
+	return nil, false
+}
+
+func semanticRoutePathTree(path []authoringv2.RouteNode) authoringv2.RouteNode {
+	root := path[0]
+	root.Children = nil
+	current := &root
+	for _, original := range path[1:] {
+		child := original
+		child.Children = nil
+		current.Children = []authoringv2.RouteNode{child}
+		current = &current.Children[0]
+	}
+	return root
+}
+
 // structuralCandidate adapts the closed resolution for compiler validation.
 // All source and concept matching remains in ResolveInterpretationCandidate.
 func structuralCandidate(document authoringv2.Document, column authoringv2.Column, snapshot capability.Snapshot) (explorer.InterpretationStructuralCandidate, error) {
-	resolution, err := ResolveInterpretationCandidate(document, column, snapshot)
+	resolution, err := ResolveInterpretationCandidateForColumn(document, column, snapshot)
 	if err != nil {
 		return explorer.InterpretationStructuralCandidate{}, err
 	}
@@ -249,6 +310,9 @@ func matchingConceptCandidates(values []capability.ConceptCandidate, source auth
 }
 
 func sourceSystem(source authoringv2.ColumnSource) string {
+	if source.Categorical != nil {
+		return strings.TrimSpace(source.Categorical.System)
+	}
 	if source.Lookup == nil {
 		return ""
 	}

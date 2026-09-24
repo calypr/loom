@@ -20,6 +20,8 @@ export type CatalogChoiceGroup = {
   readonly choices: ReadonlyArray<ConstructionChoice>;
   readonly complete: boolean;
   readonly truncated: boolean;
+  readonly requiresSourceChoice: boolean;
+  readonly rowsWithValue?: number;
 };
 
 export type CatalogItemAvailability =
@@ -50,6 +52,9 @@ export const catalogItemAvailability = (
       selectable: false,
       reason: 'This feature is unavailable until Loom finishes building the catalog.',
     };
+  }
+  if (item.coverage.state === 'INDEXED' && item.coverage.rowsWithValue === 0) {
+    return { selectable: false, reason: 'No current table rows have a value for this feature.' };
   }
   switch (item.readiness.status) {
     case 'READY':

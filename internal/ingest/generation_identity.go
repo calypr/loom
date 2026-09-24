@@ -82,6 +82,14 @@ func namespaceRowBuildResult(result rowBuildResult, project, datasetGeneration, 
 	if err != nil {
 		return rowBuildResult{}, err
 	}
+	vertexDocument, err := decodeTopLevelDocument(vertex)
+	if err != nil {
+		return rowBuildResult{}, fmt.Errorf("decode namespaced vertex %s/%s: %w", resourceType, logicalVertexKey, err)
+	}
+	physicalVertexKey, err := requiredDocumentString(vertexDocument, "_key")
+	if err != nil {
+		return rowBuildResult{}, fmt.Errorf("read namespaced vertex key %s/%s: %w", resourceType, logicalVertexKey, err)
+	}
 	edges := make([]json.RawMessage, len(result.edges))
 	for index, edge := range result.edges {
 		namespaced, err := namespaceEdgeDocument(edge, project, datasetGeneration)
@@ -91,9 +99,10 @@ func namespaceRowBuildResult(result rowBuildResult, project, datasetGeneration, 
 		edges[index] = namespaced
 	}
 	return rowBuildResult{
-		vertex:  vertex,
-		edges:   edges,
-		payload: result.payload,
+		vertex:   vertex,
+		edges:    edges,
+		payload:  result.payload,
+		vertexID: resourceType + "/" + physicalVertexKey,
 	}, nil
 }
 

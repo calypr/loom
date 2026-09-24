@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -83,6 +84,38 @@ func TestAssessAndApplyRowChangePreservesAuthoredTable(t *testing.T) {
 	}
 	if !reflect.DeepEqual(document.FixedFilters, workspace.Documents[0].FixedFilters) || !reflect.DeepEqual(document.Actions, workspace.Documents[0].Actions) {
 		t.Fatalf("filters/actions changed: %#v %#v", document.FixedFilters, document.Actions)
+	}
+}
+
+func TestAssessRowChangeSerializesEmptyPreservedFeatureKeysAsArray(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.Documents[0].Columns = []Column{}
+	workspace.Documents[0].FixedFilters = nil
+	workspace.Documents[0].Actions = nil
+
+	assessment, err := AssessRowChange(workspace, rowChangeCatalog(), RowChangeRequest{
+		OutputID: "patients", RootNodeID: "encounter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.Status != RowChangeReady || assessment.Proposal == nil {
+		t.Fatalf("assessment=%#v", assessment)
+	}
+	if assessment.Proposal.PreservedFeatureKeys == nil {
+		t.Fatal("proposal preserved feature keys must be a non-nil empty slice")
+	}
+
+	raw, err := json.Marshal(assessment.Proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(payload["preservedFeatureKeys"]); got != "[]" {
+		t.Fatalf("preservedFeatureKeys JSON = %s, want []", got)
 	}
 }
 

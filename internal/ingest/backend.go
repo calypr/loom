@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/calypr/loom/internal/catalog"
+	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -88,6 +89,23 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			},
 		},
 		arangostore.CollectionSpec{
+			Name:     catalog.FieldSourceMembershipCollection,
+			Truncate: false,
+			Indexes: [][]string{
+				// The path is the expanded-array anchor. Authorization remains an
+				// exact filter after this sparse lookup, so one posting index serves
+				// both unrestricted and auth-scoped reads without doubling postings.
+				{"project", "dataset_generation", "resource_type", "scalar_paths[*]"},
+			},
+		},
+		arangostore.CollectionSpec{
+			Name:     catalog.FieldSourceMembershipBuildCollection,
+			Truncate: false,
+			Indexes: [][]string{
+				{"project", "dataset_generation"},
+			},
+		},
+		arangostore.CollectionSpec{
 			Name:     catalog.RelationshipCatalogCollection,
 			Truncate: truncate,
 			Indexes: [][]string{
@@ -100,11 +118,9 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 		arangostore.CollectionSpec{
 			Name: catalog.SemanticInventoryCollection,
 			Indexes: [][]string{
-				{"project", "dataset_generation", "build_id"},
 				{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 				{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
 				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
-				{"project", "dataset_generation", "build_id", "source_id"},
 			},
 		},
 		arangostore.CollectionSpec{
@@ -112,6 +128,10 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			Indexes: [][]string{
 				{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 				{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "catalog_section", "sort_key", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "catalog_section", "sort_key", "resource_type", "auth_resource_path"},
+				{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "catalog_section", "sort_key"},
+				{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "catalog_section", "sort_key", "resource_type"},
 			},
 		},
 		arangostore.CollectionSpec{
@@ -121,6 +141,7 @@ func bootstrapSpecWithReporter(resourceTypes []string, truncate bool, reporter E
 			},
 		},
 	)
+	collections = append(collections, catalogarango.AvailableColumnWitnessCollectionSpecs()...)
 	return arangostore.BootstrapSpec{
 		Collections: collections,
 		Reporter: func(event string, fields map[string]any) {

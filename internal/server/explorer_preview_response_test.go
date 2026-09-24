@@ -101,6 +101,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"timeout", context.DeadlineExceeded, http.StatusGatewayTimeout, "PREVIEW_TIMEOUT"},
 		{"canceled", context.Canceled, 499, "CLIENT_CANCELED"},
 		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
+		{"oversized-source-page", dataframeerrors.NewError(dataframeerrors.CodePreviewResponseTooLarge, "private"), http.StatusRequestEntityTooLarge, "PREVIEW_RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
 		{"temporal-anchor", dataframeerrors.NewError(dataframeerrors.CodeTemporalAnchorInvalid, "private"), http.StatusUnprocessableEntity, "TEMPORAL_ANCHOR_INVALID"},

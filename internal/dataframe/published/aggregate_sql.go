@@ -456,7 +456,7 @@ func buildScalarSQL(dataset Materialization, req AggregateBatchRequest, statemen
 func aggregateAllowedColumns(dataset Materialization) map[string]struct{} {
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
-		if !internalAggregateColumn(column.Name) {
+		if !internalAggregateColumn(column.Name) && !isObjectColumn(column) {
 			allowed[column.Name] = struct{}{}
 		}
 	}

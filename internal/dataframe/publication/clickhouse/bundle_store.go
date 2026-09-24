@@ -13,6 +13,7 @@ import (
 	"time"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/objectvalue"
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
@@ -70,7 +71,8 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 var _ publication.Target = (*ClickHouseBundleStore)(nil)
 var _ publication.Transaction = (*clickHouseBundleTx)(nil)
 
-// SupportsObjectValues reports the native JSON support of this target.
+// SupportsObjectValues reports that this target can persist logical object
+// values through its lossless text representation.
 func (s *ClickHouseBundleStore) SupportsObjectValues() bool { return true }
 
 func (s *ClickHouseBundleStore) Begin(ctx context.Context, identity publication.PublicationIdentity, schemas []publication.OutputSchema) (publication.Transaction, error) {
@@ -321,6 +323,7 @@ type clickHouseBundleTx struct {
 	execution           publication.BundleExecution
 	expectedPointer     string
 	columns             map[string][]clickhouse.Column
+	logicalColumns      map[string][]publication.LogicalColumn
 	idempotent          bool
 	closed              bool
 	leaseLost           bool
@@ -509,9 +512,13 @@ func (t *clickHouseBundleTx) CreateOutput(ctx context.Context, name string, colu
 	if t.columns == nil {
 		t.columns = make(map[string][]clickhouse.Column)
 	}
+	if t.logicalColumns == nil {
+		t.logicalColumns = make(map[string][]publication.LogicalColumn)
+	}
 	// Keep the caller-facing schema separate from the physical row identity
 	// column. InsertRows adds generated identities when it receives this view.
 	t.columns[name] = logicalColumns
+	t.logicalColumns[name] = nil
 	return t.save(ctx)
 }
 
@@ -538,6 +545,10 @@ func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string,
 	if len(columns) == 0 {
 		return fmt.Errorf("bundle output %q has no metadata columns", name)
 	}
+	if t.logicalColumns == nil {
+		t.logicalColumns = make(map[string][]publication.LogicalColumn)
+	}
+	t.logicalColumns[name] = append([]publication.LogicalColumn(nil), columns...)
 	physical := make(map[string]publication.LogicalColumn, len(columns))
 	for _, column := range columns {
 		physical[column.Name] = column
@@ -711,11 +722,15 @@ func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, column
 			return fmt.Errorf("output %q schema changed after preflight", name)
 		}
 	}
-	if err := t.store.clickHouse.InsertRows(ctx, record.PhysicalTable, effectiveColumns, rows); err != nil {
+	encodedRows, err := encodeObjectColumns(t.logicalColumns[name], rows)
+	if err != nil {
+		return fmt.Errorf("output %q object encoding: %w", name, err)
+	}
+	if err := t.store.clickHouse.InsertRows(ctx, record.PhysicalTable, effectiveColumns, encodedRows); err != nil {
 		return err
 	}
-	record.RowCount += int64(len(rows))
-	for _, row := range rows {
+	record.RowCount += int64(len(encodedRows))
+	for _, row := range encodedRows {
 		encoded, _ := json.Marshal(row)
 		record.ByteCount += int64(len(encoded))
 	}
@@ -724,6 +739,43 @@ func (t *clickHouseBundleTx) InsertRows(ctx context.Context, name string, column
 		return errors.Join(ErrBundleCheckpointUncertain, err)
 	}
 	return nil
+}
+
+func encodeObjectColumns(columns []publication.LogicalColumn, rows []map[string]any) ([]map[string]any, error) {
+	objects := make(map[string]objectvalue.Shape)
+	for _, column := range columns {
+		if strings.EqualFold(strings.TrimSpace(column.Kind), "object") {
+			shape := objectvalue.ScalarObject
+			if column.Repeated {
+				shape = objectvalue.RepeatedObjects
+			}
+			objects[column.Name] = shape
+		}
+	}
+	if len(objects) == 0 {
+		result := make([]map[string]any, len(rows))
+		for index, row := range rows {
+			result[index] = cloneBundleRow(row)
+		}
+		return result, nil
+	}
+	result := make([]map[string]any, len(rows))
+	for index, row := range rows {
+		copy := cloneBundleRow(row)
+		for name, shape := range objects {
+			value, present := copy[name]
+			if !present {
+				continue
+			}
+			encoded, err := objectvalue.Encode(shape, value)
+			if err != nil {
+				return nil, fmt.Errorf("column %q: %w", name, err)
+			}
+			copy[name] = encoded
+		}
+		result[index] = copy
+	}
+	return result, nil
 }
 
 func withRowIdentityColumn(columns []clickhouse.Column) []clickhouse.Column {
@@ -992,9 +1044,9 @@ func toColumns(columns []publication.LogicalColumn) ([]clickhouse.Column, error)
 		case "code":
 			columnType = "String"
 		case "object":
-			columnType = "JSON"
+			columnType = "String"
 		}
-		if column.Repeated {
+		if kind != "object" && column.Repeated {
 			columnType = "Array(" + columnType + ")"
 		} else if column.Nullable {
 			columnType = "Nullable(" + columnType + ")"

@@ -39,6 +39,9 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	if err != nil {
 		return Page{}, err
 	}
+	if err := validateObjectColumns(materialization.Columns); err != nil {
+		return Page{}, err
+	}
 	first := req.First
 	if first <= 0 {
 		first = 100
@@ -154,6 +157,9 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 			return Page{}, fmt.Errorf("published row is missing its stable identity")
 		}
 		rowIDs = append(rowIDs, rowID)
+		if err := decodeObjectColumns(materialization.Columns, row); err != nil {
+			return Page{}, err
+		}
 		delete(row, "__loom_total")
 		delete(row, "__loom_row_id")
 		for _, column := range queryColumns {
@@ -175,6 +181,9 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 	}
 	columns, allowed, err := readerColumns(materialization.Columns, req.Columns, req.Sort)
 	if err != nil {
+		return err
+	}
+	if err := validateObjectColumns(materialization.Columns); err != nil {
 		return err
 	}
 	queryColumns := append([]string(nil), columns...)
@@ -211,7 +220,12 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 	} else {
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
+	var decodeErr error
 	if err := r.ClickHouse.QueryRowsArgsVisit(ctx, query, queryColumns, func(row map[string]any) error {
+		if err := decodeObjectColumns(materialization.Columns, row); err != nil {
+			decodeErr = err
+			return err
+		}
 		if !req.IncludeRowIdentity {
 			delete(row, "__loom_row_id")
 		}
@@ -222,6 +236,9 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		}
 		return visit(row)
 	}, args...); err != nil {
+		if decodeErr != nil {
+			return decodeErr
+		}
 		return backendCallError(err)
 	}
 	return nil
@@ -233,29 +250,37 @@ func readerColumns(source []Column, requested []string, sortBy *Sort) ([]string,
 			return nil, nil, invalidRequest()
 		}
 	}
-	allowed := make(map[string]struct{}, len(source))
+	selectionAllowed := make(map[string]struct{}, len(source))
+	filterAllowed := make(map[string]struct{}, len(source))
 	columns := append([]string(nil), requested...)
 	for _, column := range source {
 		if column.Name == "__loom_row_id" || column.Name == authResourcePathColumn {
 			continue
 		}
-		allowed[column.Name] = struct{}{}
+		selectionAllowed[column.Name] = struct{}{}
+		if !isObjectColumn(column) {
+			filterAllowed[column.Name] = struct{}{}
+		}
 		if len(requested) == 0 {
 			columns = append(columns, column.Name)
 		}
 	}
-	if err := validateReaderColumns(columns, allowed); err != nil {
+	if err := validateReaderColumns(columns, selectionAllowed); err != nil {
 		return nil, nil, err
 	}
 	if sortBy != nil {
 		if sortBy.Column == authResourcePathColumn {
 			return nil, nil, invalidRequest()
 		}
-		if err := validateReaderColumns([]string{sortBy.Column}, allowed); err != nil {
+		column, ok := findColumn(source, sortBy.Column)
+		if !ok || isObjectColumn(column) {
+			return nil, nil, invalidRequest()
+		}
+		if err := validateReaderColumns([]string{sortBy.Column}, filterAllowed); err != nil {
 			return nil, nil, err
 		}
 	}
-	return columns, allowed, nil
+	return columns, filterAllowed, nil
 }
 
 func (r *Reader) count(ctx context.Context, materialization Materialization, req PageRequest, allowed map[string]struct{}) (int64, error) {

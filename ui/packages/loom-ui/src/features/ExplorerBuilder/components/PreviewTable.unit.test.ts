@@ -100,6 +100,30 @@ describe('formatPreviewCell', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('shows sampled non-empty cells without treating zero, false, or empty string as missing', () => {
+    render(
+      React.createElement(PreviewTable, {
+        preview: {
+          ...preview,
+          rows: [
+            { first_column: 0, second_column: [] },
+            { first_column: false, second_column: null },
+            { first_column: '', second_column: 'value' },
+            { first_column: null, second_column: 0 },
+          ],
+          rowCount: 4,
+        },
+        table,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+    expect(screen.getByRole('columnheader', { name: 'First column' })).toHaveTextContent('3/4 preview rows');
+    expect(screen.getByRole('columnheader', { name: 'Second column' })).toHaveTextContent('2/4 preview rows');
+  });
+
   it('shows compiler-provided units in Preview headers while leaving unitless columns unchanged', () => {
     const previewWithUnit: ExplorerBuilderPreviewResult = {
       ...preview,

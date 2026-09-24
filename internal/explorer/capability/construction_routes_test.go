@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,101 @@ func TestPlanConstructionRoutesSupportsSeveralExactTerminalNodes(t *testing.T) {
 	}
 	if page.Routes[0][0].EdgeID != "a" || page.Routes[1][0].EdgeID != "b" {
 		t.Fatalf("terminal alternatives are not deterministic: %#v", page.Routes)
+	}
+}
+
+func TestPlanCanonicalConstructionRouteReturnsShortestObservedPath(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	observation := Node{ID: "observation", ResourceType: "Observation"}
+	specimen := Node{ID: "specimen", ResourceType: "Specimen"}
+	snapshot := routeSnapshot([]Node{root, observation, specimen}, []Edge{
+		{ID: "subject-inbound", FromNodeID: root.ID, ToNodeID: observation.ID, SourceResourceType: root.ResourceType, TargetResourceType: observation.ResourceType, Label: "subject_Patient", StorageDirection: "INBOUND", ObservedEdgeCount: 4},
+		{ID: "specimen-outbound", FromNodeID: observation.ID, ToNodeID: specimen.ID, SourceResourceType: observation.ResourceType, TargetResourceType: specimen.ResourceType, Label: "specimen", StorageDirection: "OUTBOUND", ObservedEdgeCount: 2},
+		{ID: "specimen-return", FromNodeID: specimen.ID, ToNodeID: observation.ID, SourceResourceType: specimen.ResourceType, TargetResourceType: observation.ResourceType, Label: "observation", StorageDirection: "OUTBOUND", ObservedEdgeCount: 2},
+	}, 0)
+
+	got, err := PlanCanonicalConstructionRoute(snapshot, root.ResourceType, observation.ID)
+	if err != nil || len(got) != 1 || got[0].EdgeID != "subject-inbound" || got[0].StorageDirection != "INBOUND" {
+		t.Fatalf("canonical shortest route = %#v, %v", got, err)
+	}
+}
+
+func TestPlanCanonicalConstructionRouteRanksObservedCountsAcrossMedicationStyleRoute(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	medication := Node{ID: "medication", ResourceType: "MedicationRequest"}
+	medicationValue := Node{ID: "medication-value", ResourceType: "Medication"}
+	snapshot := routeSnapshot([]Node{root, medication, medicationValue}, []Edge{
+		{ID: "patient-medication-weak", FromNodeID: root.ID, ToNodeID: medication.ID, SourceResourceType: root.ResourceType, TargetResourceType: medication.ResourceType, Label: "medicationRequest", StorageDirection: "OUTBOUND", ObservedEdgeCount: 1},
+		{ID: "patient-medication-strong", FromNodeID: root.ID, ToNodeID: medication.ID, SourceResourceType: root.ResourceType, TargetResourceType: medication.ResourceType, Label: "medicationRequest", StorageDirection: "OUTBOUND", ObservedEdgeCount: 9},
+		{ID: "medication-value", FromNodeID: medication.ID, ToNodeID: medicationValue.ID, SourceResourceType: medication.ResourceType, TargetResourceType: medicationValue.ResourceType, Label: "medication", StorageDirection: "OUTBOUND", ObservedEdgeCount: 1},
+	}, 0)
+
+	got, err := PlanCanonicalConstructionRoute(snapshot, root.ResourceType, medicationValue.ID)
+	if err != nil || len(got) != 2 || got[0].EdgeID != "patient-medication-strong" || got[1].EdgeID != "medication-value" {
+		t.Fatalf("ranked medication route = %#v, %v", got, err)
+	}
+}
+
+func TestPlanCanonicalConstructionRouteUsesLaterObservedCountAfterPrefixTie(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	left := Node{ID: "left", ResourceType: "Encounter"}
+	right := Node{ID: "right", ResourceType: "ResearchSubject"}
+	target := Node{ID: "observation", ResourceType: "Observation"}
+	snapshot := routeSnapshot([]Node{root, left, right, target}, []Edge{
+		{ID: "root-left", FromNodeID: root.ID, ToNodeID: left.ID, SourceResourceType: root.ResourceType, TargetResourceType: left.ResourceType, Label: "left", StorageDirection: "OUTBOUND", ObservedEdgeCount: 5},
+		{ID: "root-right", FromNodeID: root.ID, ToNodeID: right.ID, SourceResourceType: root.ResourceType, TargetResourceType: right.ResourceType, Label: "right", StorageDirection: "OUTBOUND", ObservedEdgeCount: 5},
+		{ID: "left-target", FromNodeID: left.ID, ToNodeID: target.ID, SourceResourceType: left.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND", ObservedEdgeCount: 2},
+		{ID: "right-target", FromNodeID: right.ID, ToNodeID: target.ID, SourceResourceType: right.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND", ObservedEdgeCount: 9},
+	}, 0)
+
+	got, err := PlanCanonicalConstructionRoute(snapshot, root.ResourceType, target.ID)
+	if err != nil || len(got) != 2 || got[0].EdgeID != "root-right" || got[1].EdgeID != "right-target" {
+		t.Fatalf("later-count route = %#v, %v", got, err)
+	}
+}
+
+func TestPlanCanonicalConstructionRouteBreaksExactCountTiesByStableIdentity(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	left := Node{ID: "left", ResourceType: "Encounter"}
+	right := Node{ID: "right", ResourceType: "ResearchSubject"}
+	target := Node{ID: "observation", ResourceType: "Observation"}
+	edges := []Edge{
+		{ID: "root-left", FromNodeID: root.ID, ToNodeID: left.ID, SourceResourceType: root.ResourceType, TargetResourceType: left.ResourceType, Label: "left", StorageDirection: "OUTBOUND", ObservedEdgeCount: 5},
+		{ID: "root-right", FromNodeID: root.ID, ToNodeID: right.ID, SourceResourceType: root.ResourceType, TargetResourceType: right.ResourceType, Label: "right", StorageDirection: "OUTBOUND", ObservedEdgeCount: 5},
+		{ID: "left-target", FromNodeID: left.ID, ToNodeID: target.ID, SourceResourceType: left.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND", ObservedEdgeCount: 3},
+		{ID: "right-target", FromNodeID: right.ID, ToNodeID: target.ID, SourceResourceType: right.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND", ObservedEdgeCount: 3},
+	}
+	want := "left-target"
+	for _, ordered := range [][]Edge{edges, {edges[3], edges[2], edges[1], edges[0]}} {
+		got, err := PlanCanonicalConstructionRoute(routeSnapshot([]Node{root, left, right, target}, ordered, 0), root.ResourceType, target.ID)
+		if err != nil || len(got) != 2 || got[1].EdgeID != want {
+			t.Fatalf("stable tie route = %#v, %v; want final edge %q", got, err, want)
+		}
+	}
+}
+
+func TestPlanCanonicalConstructionRouteRejectsUnobservedEdges(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	observation := Node{ID: "observation", ResourceType: "Observation"}
+	snapshot := routeSnapshot([]Node{root, observation}, []Edge{{
+		ID: "subject-inbound", FromNodeID: root.ID, ToNodeID: observation.ID,
+		SourceResourceType: root.ResourceType, TargetResourceType: observation.ResourceType,
+		Label: "subject_Patient", StorageDirection: "INBOUND",
+	}}, 0)
+
+	_, err := PlanCanonicalConstructionRoute(snapshot, root.ResourceType, observation.ID)
+	if !errors.Is(err, ErrCanonicalConstructionRouteUnavailable) {
+		t.Fatalf("unobserved route error = %v, want unavailable", err)
+	}
+}
+
+func TestPlanCanonicalConstructionRouteAllowsZeroHop(t *testing.T) {
+	root := Node{ID: "patient", ResourceType: "Patient", RowRootEligible: true}
+	snapshot := routeSnapshot([]Node{root}, nil, 0)
+
+	got, err := PlanCanonicalConstructionRoute(snapshot, root.ResourceType, root.ID)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("zero-hop canonical route = %#v, %v", got, err)
 	}
 }
 

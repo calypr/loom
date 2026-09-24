@@ -10,6 +10,7 @@ import {
   explorerBuilderSuggestionsResultSchema,
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
+  pivotProposalResponseSchema,
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
@@ -34,6 +35,8 @@ import {
   type ExplorerBuilderWorkspace,
   type ExplorerColumnSourceDescriptor,
   type ConstructionChoiceSearchResponse,
+  type ConstructionChoiceForm,
+  type PivotProposalResponse,
   type ConstructionChoiceSearchSource,
   type PopulationRoutesResponse,
   type RowDefinitionChoicesResponse,
@@ -288,7 +291,7 @@ export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs 
 
 export interface BrowseFeatureCatalogArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
-  readonly rowRoot: string;
+  readonly outputId: string;
   readonly section: FeatureCatalogSection;
   readonly resourceType?: string;
   readonly nodeId?: string;
@@ -312,6 +315,21 @@ export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArg
   readonly source: ConstructionChoiceSearchSource;
   readonly limit?: number;
   readonly cursor?: string;
+  readonly requestId?: string;
+}
+
+export interface ProposePivotArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly familyId: string;
+  readonly commandId: string;
+  readonly selections: ReadonlyArray<{
+    readonly choiceId: string;
+    readonly form: ConstructionChoiceForm;
+    readonly title?: string;
+  }>;
   readonly requestId?: string;
 }
 
@@ -535,6 +553,10 @@ export interface LoomClient {
     args: SearchConstructionChoicesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionChoiceSearchResponse>;
+  readonly proposePivot: (
+    args: ProposePivotArgs,
+    signal?: AbortSignal,
+  ) => Promise<PivotProposalResponse>;
   readonly searchPopulationRoutes: (
     args: SearchPopulationRoutesArgs,
     signal?: AbortSignal,
@@ -1093,7 +1115,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const browseFeatureCatalog = (args: BrowseFeatureCatalogArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/feature-catalog'), withJson({
       snapshotToken: args.snapshotToken,
-      rowRoot: args.rowRoot,
+      outputId: args.outputId,
       section: args.section,
       ...(args.resourceType ? { resourceType: args.resourceType } : {}),
       ...(args.nodeId ? { nodeId: args.nodeId } : {}),
@@ -1116,6 +1138,16 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => constructionChoiceSearchResponseSchema.parse(value));
+  const proposePivot = (args: ProposePivotArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/pivot-proposals'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      familyId: args.familyId,
+      commandId: args.commandId,
+      selections: args.selections,
+    }, signal, args.requestId)).then((value) => pivotProposalResponseSchema.parse(value));
   const searchPopulationRoutes = (args: SearchPopulationRoutesArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/population-routes'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1402,6 +1434,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     browseFeatureCatalog,
     inspectColumnSource,
     searchConstructionChoices,
+    proposePivot,
     searchPopulationRoutes,
     listRowDefinitionChoices,
     proposeRowDefinition,

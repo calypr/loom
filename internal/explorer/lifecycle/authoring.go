@@ -263,7 +263,7 @@ func (s *Service) compile(ctx context.Context, request compileRequest) (*explore
 		return nil, unprocessable("interpretation", "INVALID_INTERPRETATION", err.Error(), err)
 	}
 	resolvedInputs.Interpretations = resolvedInterpretations.Interpretations
-	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal)})
+	receipt, err := s.config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Purpose: request.Purpose, Workspace: workspace, SnapshotToken: snapshot.Token, RequestID: request.RequestID, Authorized: authorized, ResolvedInputs: resolvedInputs, SelectionMembersCollection: s.config.SelectionMembersCollection, RowDefinitionProposal: cloneRowDefinitionProposalBinding(request.RowDefinitionProposal), TableShapeProposal: cloneTableShapeProposalBinding(request.TableShapeProposal)})
 	if err != nil {
 		var compileErr *explorercompilation.Error
 		if errors.As(err, &compileErr) {
@@ -291,6 +291,7 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 		want string
 	}{
 		{"project", projectid.Canonical(receipt.Project), projectid.Canonical(request.Project)},
+		{"purpose", string(receipt.Purpose), string(request.Purpose)},
 		{"explorerId", receipt.ExplorerID, request.ExplorerID},
 		{"snapshotToken", receipt.SnapshotToken, request.SnapshotToken},
 		{"sourceGeneration", receipt.SourceGeneration, snapshot.Identity.Generation},

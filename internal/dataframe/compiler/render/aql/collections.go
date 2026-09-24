@@ -282,6 +282,9 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if len(correlation.ExtensionURLSelectors) > 0 {
 		return r.renderExtensionCorrelatedPivot(correlation, columnsBindKey, stringify, flattenSingle, projectionMode)
 	}
+	if correlation.NamespaceOnly {
+		return r.renderCategoricalNamespacePivot(correlation, columnsBindKey, stringify, flattenSingle, projectionMode)
+	}
 	if columnsBindKey == "" {
 		return "", fmt.Errorf("correlated pivot columns bind is required")
 	}
@@ -314,7 +317,7 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderPresentedCorrelationValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -347,9 +350,9 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
   )
   FOR __correlation_owner_pair IN (
     FOR __correlation_candidate IN __correlation_owner_pairs
-      COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group
-        LET __correlation_owner_values = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.values))
-        LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.unsupported))
+      COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group = { values: __correlation_candidate.values, unsupported: __correlation_candidate.unsupported }
+        LET __correlation_owner_values = UNIQUE(FLATTEN(__correlation_owner_group[*].values))
+        LET __correlation_owner_unsupported = UNIQUE(FLATTEN(__correlation_owner_group[*].unsupported))
         RETURN { key: __correlation_owner_key, values: __correlation_owner_values, unsupported: __correlation_owner_unsupported }
   )
     RETURN __correlation_owner_pair`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, columnsBindKey, values, unsupportedValues)
@@ -358,9 +361,9 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
 	  FOR __correlation_pair IN (
 	    %s
 	  )
-	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
-	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
-	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group = { values: __correlation_pair.values, unsupported: __correlation_pair.unsupported }
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].unsupported)
 	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
 	    RETURN %s
 )`, pairs, value), nil
@@ -369,12 +372,143 @@ func (r *physicalPlanRenderer) renderCorrelatedPivot(correlation ir.PhysicalCorr
   FOR __correlation_pair IN (
     %s
 	  )
-	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group
-	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].__correlation_pair.values)
-	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].__correlation_pair.unsupported)
+	  COLLECT __correlation_key = __correlation_pair.key INTO __correlation_group = { values: __correlation_pair.values, unsupported: __correlation_pair.unsupported }
+	    LET __correlation_flat_values = FLATTEN(__correlation_group[*].values)
+	    LET __correlation_unsupported_values = FLATTEN(__correlation_group[*].unsupported)
 	    FILTER LENGTH(__correlation_flat_values) > 0 OR LENGTH(__correlation_unsupported_values) > 0
 	    RETURN { [__correlation_key]: %s }
 )`, pairs, value), nil
+}
+
+func (r *physicalPlanRenderer) renderCategoricalNamespacePivot(correlation ir.PhysicalCorrelation, columnsBindKey string, stringify, flattenSingle bool, projectionMode string) (string, error) {
+	if columnsBindKey == "" {
+		return "", fmt.Errorf("categorical pivot columns bind is required")
+	}
+	columns, ok := r.bindVars[columnsBindKey].([]string)
+	if !ok || len(columns) == 0 {
+		return "", fmt.Errorf("categorical pivot columns bind %q is not a non-empty []string", columnsBindKey)
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("categorical_pivot_owner")
+	coding := r.newInternalVariable("categorical_pivot_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", err
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", err
+	}
+	value, err := r.renderCategoricalValue(coding, correlation)
+	if err != nil {
+		return "", err
+	}
+	reduction, err := renderCorrelatedReduction(projectionMode, stringify, correlation.ValuePrimitive)
+	if err != nil {
+		return "", err
+	}
+	if len(columns) == 1 {
+		return r.renderCategoricalNamespaceSingletonPivot(owner, owners, coding, codings, system, value, correlation.SystemBindKey, columnsBindKey, reduction, flattenSingle)
+	}
+	pairs := fmt.Sprintf(`FOR %s IN %s
+  LET __categorical_owner_pairs = (
+    FOR %s IN FLATTEN(%s)
+      LET __categorical_system = %s
+      FILTER __categorical_system != null AND __categorical_system != ""
+      FILTER __categorical_system == @%s
+      FILTER POSITION(@%s, __categorical_system)
+      LET __correlation_values = %s
+      LET __correlation_flat_values = FLATTEN(__correlation_values)
+      LET __correlation_unsupported_values = []
+      FILTER LENGTH(__correlation_flat_values) > 0
+      RETURN { key: __categorical_system, values: __correlation_values, unsupported: [] }
+  )
+  FOR __categorical_owner_pair IN (
+    FOR __categorical_candidate IN __categorical_owner_pairs
+      COLLECT __categorical_owner_key = __categorical_candidate.key INTO __categorical_owner_group
+        LET __categorical_owner_values = FLATTEN(__categorical_owner_group[*].__categorical_candidate.values)
+        RETURN { key: __categorical_owner_key, values: __categorical_owner_values, unsupported: [] }
+  )
+    RETURN __categorical_owner_pair`, owner, owners, coding, codings, system, correlation.SystemBindKey, columnsBindKey, value)
+	if flattenSingle {
+		return fmt.Sprintf(`FIRST(
+  FOR __categorical_pair IN (
+    %s
+  )
+  COLLECT __categorical_key = __categorical_pair.key INTO __categorical_group
+    LET __correlation_flat_values = FLATTEN(__categorical_group[*].__categorical_pair.values)
+    LET __correlation_unsupported_values = []
+    FILTER LENGTH(__correlation_flat_values) > 0
+    RETURN %s
+)`, pairs, reduction), nil
+	}
+	return fmt.Sprintf(`MERGE(
+  FOR __categorical_pair IN (
+    %s
+  )
+  COLLECT __categorical_key = __categorical_pair.key INTO __categorical_group
+    LET __correlation_flat_values = FLATTEN(__categorical_group[*].__categorical_pair.values)
+    LET __correlation_unsupported_values = []
+    FILTER LENGTH(__correlation_flat_values) > 0
+    RETURN { [__categorical_key]: %s }
+)`, pairs, reduction), nil
+}
+
+func (r *physicalPlanRenderer) renderCategoricalNamespaceSingletonPivot(owner, owners, coding, codings, system, value, systemBindKey, columnsBindKey, reduction string, flattenSingle bool) (string, error) {
+	pairs := fmt.Sprintf(`FOR %s IN %s
+  FOR %s IN FLATTEN(%s)
+    LET __categorical_system = %s
+    FILTER __categorical_system != null AND __categorical_system != ""
+    FILTER __categorical_system == @%s
+    FILTER POSITION(@%s, __categorical_system)
+    LET __categorical_candidate_values = %s
+    LET __categorical_candidate_flat_values = FLATTEN(__categorical_candidate_values)
+    LET __categorical_candidate_unsupported_values = []
+    FILTER LENGTH(__categorical_candidate_flat_values) > 0
+    RETURN { key: __categorical_system, values: __categorical_candidate_values, unsupported: __categorical_candidate_unsupported_values }`, owner, owners, coding, codings, system, systemBindKey, columnsBindKey, value)
+	result := fmt.Sprintf(`FIRST(
+  FOR __categorical_reduction_scope IN [1]
+    LET __categorical_reduction_pairs = (
+      %s
+    )
+    LET __correlation_flat_values = FLATTEN(__categorical_reduction_pairs[*].values)
+    LET __correlation_unsupported_values = FLATTEN(__categorical_reduction_pairs[*].unsupported)
+`, pairs)
+	if flattenSingle {
+		return result + fmt.Sprintf(`    FILTER LENGTH(__correlation_flat_values) > 0
+    RETURN %s
+)`, reduction), nil
+	}
+	return result + fmt.Sprintf(`    RETURN LENGTH(__categorical_reduction_pairs) == 0 ? {} : { [FIRST(__categorical_reduction_pairs[*].key)]: %s }
+)`, reduction), nil
+}
+
+func (r *physicalPlanRenderer) renderCategoricalValue(coding string, correlation ir.PhysicalCorrelation) (string, error) {
+	if correlation.ValuePresentation == "" {
+		return r.renderCorrelationValues(coding, correlation.ValueSelector, correlation.ValueFallbacks)
+	}
+	if correlation.ValuePresentation != "DISPLAY_OR_CODE" {
+		return "", fmt.Errorf("unsupported categorical value presentation %q", correlation.ValuePresentation)
+	}
+	displaySelector, err := spec.ParseSelector("display")
+	if err != nil {
+		return "", err
+	}
+	if len(correlation.ValueFallbacks) > 0 {
+		displaySelector = correlation.ValueFallbacks[0]
+	}
+	display, err := r.renderSelectorArrayFromSource(coding, displaySelector, false, true)
+	if err != nil {
+		return "", err
+	}
+	code, err := r.renderSelectorArrayFromSource(coding, correlation.ValueSelector, false, true)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`(LET __categorical_display = FIRST(%s) LET __categorical_code = FIRST(%s) RETURN IS_STRING(__categorical_display) AND LENGTH(TRIM(__categorical_display)) > 0 ? __categorical_display : __categorical_code)`, display, code), nil
 }
 
 // renderPivotSelector evaluates a selector against either the resource
@@ -731,7 +865,7 @@ func (r *physicalPlanRenderer) renderExtensionCorrelatedPivot(correlation ir.Phy
 		lines = append(lines, fmt.Sprintf("    FILTER %s != null AND %s == @%s", url, url, correlation.ExtensionURLBindKeys[index]))
 		current = extension
 	}
-	values, err := r.renderCorrelationValues(current, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderPresentedCorrelationValues(current, correlation)
 	if err != nil {
 		return "", err
 	}

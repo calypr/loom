@@ -28,10 +28,18 @@ type RetainedSemanticInventoryRow struct {
 	Payload          json.RawMessage `json:"payload"`
 }
 
+type RetainedSemanticSourceState string
+
+const (
+	RetainedSemanticSourceUnknown       RetainedSemanticSourceState = ""
+	RetainedSemanticSourcePresent       RetainedSemanticSourceState = "verified_present"
+	RetainedSemanticSourceVerifiedEmpty RetainedSemanticSourceState = "verified_empty"
+)
+
 type RetainedSemanticInventoryPage struct {
-	Rows         []RetainedSemanticInventoryRow
-	HasMore      bool
-	SourceExists bool
+	Rows        []RetainedSemanticInventoryRow
+	HasMore     bool
+	SourceState RetainedSemanticSourceState
 }
 
 // PrepareSemanticInventoryBackfill bootstraps only the derived inventory
@@ -41,11 +49,14 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "concept_id", "concept_slot_id", "observation.rule_hint"},
-			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
 		{Name: catalog.SemanticInventoryEntryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "binding_id", "concept_id", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "resource_type", "catalog_section", "sort_key", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "catalog_section", "sort_key", "resource_type", "auth_resource_path"},
+			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "catalog_section", "sort_key"},
+			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "catalog_section", "sort_key", "resource_type"},
 		}},
 		{Name: catalog.SemanticInventoryBuildCollection, Indexes: [][]string{
 			{"project", "dataset_generation"},
@@ -73,9 +84,9 @@ func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, 
 		if profileEvidence {
 			return RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s", ErrRetainedSemanticSourceMissing, project, generation, collection)
 		}
-		return RetainedSemanticInventoryPage{Rows: []RetainedSemanticInventoryRow{}}, nil
+		return RetainedSemanticInventoryPage{Rows: []RetainedSemanticInventoryRow{}, SourceState: RetainedSemanticSourceVerifiedEmpty}, nil
 	}
-	page := RetainedSemanticInventoryPage{Rows: make([]RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
+	page := RetainedSemanticInventoryPage{Rows: make([]RetainedSemanticInventoryRow, 0, limit), SourceState: RetainedSemanticSourcePresent}
 	err = s.client.QueryRows(ctx, retainedSemanticInventorySourcePageAQL, limit+1, map[string]interface{}{
 		"@collection":        collection,
 		"project":            project,
@@ -300,9 +311,6 @@ func (s *Store) EnsureSemanticInventoryEntries(ctx context.Context, build catalo
 		"dataset_generation": build.DatasetGeneration,
 		"build_id":           build.BuildID,
 		"source_kind":        sourceKind,
-		"observation_schema": build.ObservationSchema,
-		"categorical_rule":   catalog.SemanticRuleHintCategoricalCodeV1,
-		"coded_value_rule":   catalog.SemanticRuleHintCodedValueV1,
 	}
 	clearVars := map[string]interface{}{
 		"project":            build.Project,
@@ -316,11 +324,60 @@ func (s *Store) EnsureSemanticInventoryEntries(ctx context.Context, build catalo
 	if err := s.client.ExecuteAQL(ctx, materializeSemanticInventoryEntriesAQL, vars); err != nil {
 		return catalog.SemanticInventoryBuild{}, fmt.Errorf("materialize semantic inventory entries: %w", err)
 	}
+	if err := s.classifySemanticInventoryEntries(ctx, build, sourceKind); err != nil {
+		return catalog.SemanticInventoryBuild{}, err
+	}
 	build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
 	if err := s.writeSemanticInventoryBuild(ctx, build); err != nil {
 		return catalog.SemanticInventoryBuild{}, err
 	}
 	return build, nil
+}
+
+func (s *Store) classifySemanticInventoryEntries(ctx context.Context, build catalog.SemanticInventoryBuild, sourceKind string) error {
+	const pageSize = 500
+	type candidateEntry struct {
+		Key         string                      `json:"key"`
+		Observation catalog.SemanticObservation `json:"observation"`
+	}
+	afterKey := ""
+	for {
+		patches := make([]map[string]interface{}, 0, pageSize)
+		lastKey := ""
+		if err := s.client.QueryRows(ctx, semanticInventoryCandidateEntriesAQL, pageSize, map[string]interface{}{
+			"project": build.Project, "dataset_generation": build.DatasetGeneration,
+			"build_id": build.BuildID, "source_kind": sourceKind, "after_key": afterKey, "limit": pageSize,
+		}, func(row map[string]any) error {
+			var entry candidateEntry
+			if err := decodeInventoryRow(row, &entry); err != nil {
+				return err
+			}
+			if entry.Key == "" {
+				return fmt.Errorf("materialized semantic inventory candidate is missing _key")
+			}
+			classification := catalog.SemanticInventoryClassificationForObservation(entry.Observation)
+			patches = append(patches, map[string]interface{}{
+				"key": entry.Key, "catalog_section": string(classification.Section),
+				"recognition_status": classification.Status, "recognition_code": classification.Code,
+			})
+			lastKey = entry.Key
+			return nil
+		}); err != nil {
+			return fmt.Errorf("classify materialized semantic inventory entries: %w", err)
+		}
+		if len(patches) == 0 {
+			return nil
+		}
+		if err := s.client.ExecuteAQL(ctx, updateSemanticInventoryEntryClassificationAQL, map[string]interface{}{
+			"patches": patches,
+		}); err != nil {
+			return fmt.Errorf("store semantic inventory entry classification: %w", err)
+		}
+		if len(patches) < pageSize {
+			return nil
+		}
+		afterKey = lastKey
+	}
 }
 
 func (s *Store) FailSemanticInventoryBuild(ctx context.Context, build catalog.SemanticInventoryBuild, diagnostic string) error {
@@ -377,7 +434,7 @@ func (s *Store) WriteSemanticInventoryContributions(ctx context.Context, contrib
 }
 
 func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
-	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" {
+	if strings.TrimSpace(opts.Project) == "" || catalog.NormalizeDatasetGeneration(opts.DatasetGeneration) == "" || !validSemanticInventorySection(opts.CatalogSection) {
 		return catalog.SemanticInventoryPage{}, ErrInvalidSemanticInventoryPage
 	}
 	paths := append([]string(nil), opts.AuthResourcePaths...)
@@ -447,7 +504,35 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 		"after_concept_id":                 afterConceptID,
 		"limit":                            limit + 1,
 	}
-	if err := s.client.QueryRows(ctx, semanticInventoryPageAQL, limit+1, vars, func(row map[string]any) error {
+	query := semanticInventoryLegacyPageAQL
+	if build.EntryIndexVersion >= catalog.SemanticInventoryEntryIndexVersion {
+		query = semanticInventoryPageQuery(opts, unrestricted, afterBindingID != "")
+		vars = map[string]interface{}{
+			"@inventory":         inventoryCollection,
+			"project":            opts.Project,
+			"dataset_generation": catalog.NormalizeDatasetGeneration(opts.DatasetGeneration),
+			"build_id":           build.BuildID,
+			"source_kind":        sourceKind,
+			"observation_schema": build.ObservationSchema,
+			"limit":              limit + 1,
+		}
+		if !unrestricted {
+			vars["auth_resource_paths"] = paths
+		}
+		if opts.ResourceType != "" {
+			vars["resource_type"] = opts.ResourceType
+		}
+		if opts.CatalogSection != "" {
+			vars["catalog_section"] = string(opts.CatalogSection)
+		}
+		if opts.Query != "" {
+			vars["query"] = opts.Query
+		}
+		if afterBindingID != "" {
+			vars["after_sort_key"] = catalog.SemanticInventorySortKey(afterBindingID, afterConceptID)
+		}
+	}
+	if err := s.client.QueryRows(ctx, query, limit+1, vars, func(row map[string]any) error {
 		var entry catalog.SemanticInventoryEntry
 		if err := decodeInventoryRow(row, &entry); err != nil {
 			return err
@@ -463,6 +548,15 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 		page.NextCursor = catalog.EncodeSemanticInventoryCursor(opts, build.BuildID, last.BindingID, last.ConceptID)
 	}
 	return page, nil
+}
+
+func validSemanticInventorySection(section catalog.SemanticInventoryCatalogSection) bool {
+	switch section {
+	case "", catalog.SemanticInventorySectionConcepts, catalog.SemanticInventorySectionNeedsReview:
+		return true
+	default:
+		return false
+	}
 }
 
 // ResolveSemanticInventorySelections resolves only requested catalog identities
@@ -683,7 +777,7 @@ FOR d IN fhir_semantic_inventory_entries
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
   FILTER d.build_id == @build_id
-  FILTER NOT_NULL(d.source_kind, "file") == @source_kind
+  FILTER d.source_kind == @source_kind
   REMOVE d IN fhir_semantic_inventory_entries`
 
 const materializeSemanticInventoryEntriesAQL = `
@@ -691,28 +785,18 @@ FOR d IN fhir_semantic_inventory
   FILTER d.project == @project
   FILTER d.dataset_generation == @dataset_generation
   FILTER d.build_id == @build_id
-  FILTER NOT_NULL(d.source_kind, "file") == @source_kind
-  LET paired_value_exists = d.observation.rule_hint == @categorical_rule && LENGTH(
-    FOR paired IN fhir_semantic_inventory
-      FILTER paired.project == @project
-      FILTER paired.dataset_generation == @dataset_generation
-      FILTER paired.build_id == @build_id
-      FILTER NOT_NULL(paired.source_kind, "file") == @source_kind
-      FILTER NOT_NULL(paired.auth_resource_path, "") == NOT_NULL(d.auth_resource_path, "")
-      FILTER paired.resource_type == d.resource_type
-      FILTER paired.concept_id == d.concept_id
-      FILTER paired.concept_slot_id == d.concept_slot_id
-      FILTER paired.observation.rule_hint == @coded_value_rule
-      LIMIT 1
-      RETURN 1
-  ) > 0
-  FILTER !paired_value_exists
+  FILTER d.source_kind == @source_kind
   COLLECT auth_resource_path = NOT_NULL(d.auth_resource_path, ""),
     resource_type = d.resource_type,
     binding_id = d.binding_id,
     concept_id = d.concept_id
   AGGREGATE population = SUM(d.observation.population),
+    source_records = COUNT_DISTINCT(d.source_id),
     example = MIN(d.example),
+    examples_min = MIN(d.observation.examples),
+    role = MIN(d.observation.role),
+    slot_label = MIN(d.observation.slot_label),
+    slot_description = MIN(d.observation.slot_description),
     canonical = MIN(d.observation.source.canonical),
     profile = MIN(d.observation.source.profile),
     path = MIN(d.observation.source.path),
@@ -723,6 +807,7 @@ FOR d IN fhir_semantic_inventory
     display = MIN(d.observation.key.display),
     value_selector = MIN(d.observation.value.selector),
     value_type = MIN(d.observation.value.type),
+    value_presentation = MIN(d.observation.value.presentation),
     owning_scope = MIN(d.observation.owning_scope),
     extension_url_path = MIN(d.observation.extension_url_path),
     choice_arm = MIN(d.observation.choice_arm),
@@ -733,24 +818,34 @@ FOR d IN fhir_semantic_inventory
     status = MIN(d.observation.status),
     rule_hint = MIN(d.observation.rule_hint),
     rule_version = MIN(d.observation.rule_version),
-    examples_truncated = MAX(d.observation.examples_truncated ? 1 : 0)
+    examples_truncated = MAX(d.observation.examples_truncated ? 1 : 0),
+    schema_version = MIN(d.observation.schema_version)
   LET key = SHA256(CONCAT_SEPARATOR("|", @project, @dataset_generation, @build_id, @source_kind, auth_resource_path, binding_id, concept_id))
+  LET sort_key = CONCAT(binding_id, "|", concept_id)
   LET entry = {
     project: @project,
     dataset_generation: @dataset_generation,
     build_id: @build_id,
     source_kind: @source_kind,
     auth_resource_path: auth_resource_path,
+    source_records: source_records,
     resource_type: resource_type,
+    catalog_section: "NEEDS_REVIEW",
+    recognition_status: "PENDING_CLASSIFICATION",
+    recognition_code: "PENDING_CLASSIFICATION",
+    sort_key: sort_key,
     binding_id: binding_id,
     concept_id: concept_id,
-    search_text: LOWER(CONCAT_SEPARATOR(" ", resource_type, path, value_selector, owning_scope, system, code, display)),
+    search_text: LOWER(CONCAT_SEPARATOR(" ", resource_type, slot_label, slot_description, path, value_selector, owning_scope, system, code, display, TO_STRING(examples_min))),
     example: example,
     observation: {
-      schema_version: @observation_schema,
+      schema_version: schema_version,
+      role: role,
+      slot_label: slot_label,
+      slot_description: slot_description,
       source: {canonical: canonical, type: resource_type, profile: profile, path: path},
       key: {selector: key_selector, system: system, version: version, code: code, display: display},
-      value: {selector: value_selector, type: value_type},
+      value: {selector: value_selector, type: value_type, presentation: value_presentation},
       owning_scope: owning_scope,
       extension_url_path: extension_url_path,
       choice_arm: choice_arm,
@@ -760,7 +855,7 @@ FOR d IN fhir_semantic_inventory
       completeness: completeness,
       status: status,
       population: population,
-      examples: example == null || example == "" ? [] : [example],
+      examples: examples_min == null ? [] : examples_min,
       examples_truncated: examples_truncated > 0 OR population > 1,
       rule_hint: rule_hint,
       rule_version: rule_version
@@ -772,7 +867,26 @@ FOR d IN fhir_semantic_inventory
     IN fhir_semantic_inventory_entries
   RETURN NEW._key`
 
-const semanticInventoryPageAQL = `
+const semanticInventoryCandidateEntriesAQL = `
+FOR d IN fhir_semantic_inventory_entries
+  FILTER d.project == @project
+  FILTER d.dataset_generation == @dataset_generation
+  FILTER d.build_id == @build_id
+  FILTER d.source_kind == @source_kind
+  FILTER @after_key == "" OR d._key > @after_key
+  SORT d._key
+  LIMIT @limit
+  RETURN {key: d._key, observation: d.observation}`
+
+const updateSemanticInventoryEntryClassificationAQL = `
+FOR patch IN @patches
+  UPDATE patch.key WITH {
+    catalog_section: patch.catalog_section,
+    recognition_status: patch.recognition_status,
+    recognition_code: patch.recognition_code
+  } IN fhir_semantic_inventory_entries`
+
+const semanticInventoryLegacyPageAQL = `
 LET identities = (
   FOR candidate IN @@inventory
     FILTER candidate.project == @project
@@ -802,7 +916,12 @@ FOR identity IN identities
       FILTER d.binding_id == identity.binding_id
       FILTER d.concept_id == identity.concept_id
       COLLECT AGGREGATE population = SUM(d.observation.population),
+        source_records = COUNT_DISTINCT(d.source_id),
         example = MIN(d.example),
+        examples_min = MIN(d.observation.examples),
+        role = MIN(d.observation.role),
+        slot_label = MIN(d.observation.slot_label),
+        slot_description = MIN(d.observation.slot_description),
         canonical = MIN(d.observation.source.canonical),
         resource_type = MIN(d.observation.source.type),
         profile = MIN(d.observation.source.profile),
@@ -814,6 +933,7 @@ FOR identity IN identities
         display = MIN(d.observation.key.display),
         value_selector = MIN(d.observation.value.selector),
         value_type = MIN(d.observation.value.type),
+        value_presentation = MIN(d.observation.value.presentation),
         owning_scope = MIN(d.observation.owning_scope),
         extension_url_path = MIN(d.observation.extension_url_path),
         choice_arm = MIN(d.observation.choice_arm),
@@ -828,11 +948,105 @@ FOR identity IN identities
       RETURN {
         concept_id: identity.concept_id,
         binding_id: identity.binding_id,
+        source_records: source_records,
         observation: {
           schema_version: @observation_schema,
+          role: role,
+          slot_label: slot_label,
+          slot_description: slot_description,
           source: {canonical: canonical, type: resource_type, profile: profile, path: path},
           key: {selector: key_selector, system: system, version: version, code: code, display: display},
-          value: {selector: value_selector, type: value_type},
+          value: {selector: value_selector, type: value_type, presentation: value_presentation},
+          owning_scope: owning_scope,
+          extension_url_path: extension_url_path,
+          choice_arm: choice_arm,
+          logical_type: logical_type,
+          observed_units: units_min == null ? [] : units_min,
+          observed_units_truncated: units_min != units_max,
+          completeness: completeness,
+          status: status,
+          population: population,
+          examples: examples_min == null ? [] : examples_min,
+          examples_truncated: examples_truncated > 0 OR population > 1,
+          rule_hint: rule_hint,
+          rule_version: rule_version
+        }
+      }
+  )
+  RETURN FIRST(observation_rows)`
+
+const semanticInventoryPageAQL = `
+LET identities = (
+  FOR candidate IN @@inventory
+    FILTER candidate.project == @project
+    FILTER candidate.dataset_generation == @dataset_generation
+    FILTER candidate.build_id == @build_id
+    FILTER candidate.source_kind == @source_kind
+    /* candidate_auth_filter */
+    /* candidate_resource_filter */
+    /* candidate_section_filter */
+    /* candidate_search_filter */
+    /* candidate_after_filter */
+    SORT candidate.sort_key
+    COLLECT binding_id = candidate.binding_id, concept_id = candidate.concept_id, sort_key = candidate.sort_key
+    OPTIONS {method: "sorted"}
+    LIMIT @limit
+    RETURN {binding_id: binding_id, concept_id: concept_id, sort_key: sort_key}
+)
+FOR identity IN identities
+  LET observation_rows = (
+    FOR d IN @@inventory
+      FILTER d.project == @project
+      FILTER d.dataset_generation == @dataset_generation
+      FILTER d.build_id == @build_id
+      FILTER d.source_kind == @source_kind
+      /* observation_auth_filter */
+      /* observation_resource_filter */
+      /* observation_section_filter */
+      FILTER d.binding_id == identity.binding_id
+      FILTER d.concept_id == identity.concept_id
+      COLLECT AGGREGATE population = SUM(d.observation.population),
+        partition_count = LENGTH(1),
+        source_records = MIN(d.source_records),
+        role = MIN(d.observation.role),
+        slot_label = MIN(d.observation.slot_label),
+        slot_description = MIN(d.observation.slot_description),
+        example = MIN(d.example),
+        canonical = MIN(d.observation.source.canonical),
+        resource_type = MIN(d.observation.source.type),
+        profile = MIN(d.observation.source.profile),
+        path = MIN(d.observation.source.path),
+        key_selector = MIN(d.observation.key.selector),
+        system = MIN(d.observation.key.system),
+        version = MIN(d.observation.key.version),
+        code = MIN(d.observation.key.code),
+        display = MIN(d.observation.key.display),
+        value_selector = MIN(d.observation.value.selector),
+        value_type = MIN(d.observation.value.type),
+        value_presentation = MIN(d.observation.value.presentation),
+        owning_scope = MIN(d.observation.owning_scope),
+        extension_url_path = MIN(d.observation.extension_url_path),
+        choice_arm = MIN(d.observation.choice_arm),
+        logical_type = MIN(d.observation.logical_type),
+        units_min = MIN(d.observation.observed_units),
+        units_max = MAX(d.observation.observed_units),
+        completeness = MIN(d.observation.completeness),
+        status = MIN(d.observation.status),
+        rule_hint = MIN(d.observation.rule_hint),
+        rule_version = MIN(d.observation.rule_version),
+        examples_truncated = MAX(d.observation.examples_truncated ? 1 : 0)
+      RETURN {
+        concept_id: identity.concept_id,
+        binding_id: identity.binding_id,
+        source_records: partition_count == 1 ? source_records : null,
+        observation: {
+          schema_version: @observation_schema,
+          role: role,
+          slot_label: slot_label,
+          slot_description: slot_description,
+          source: {canonical: canonical, type: resource_type, profile: profile, path: path},
+          key: {selector: key_selector, system: system, version: version, code: code, display: display},
+          value: {selector: value_selector, type: value_type, presentation: value_presentation},
           owning_scope: owning_scope,
           extension_url_path: extension_url_path,
           choice_arm: choice_arm,
@@ -851,9 +1065,45 @@ FOR identity IN identities
   )
   RETURN FIRST(observation_rows)`
 
+func semanticInventoryPageQuery(opts catalog.SemanticInventoryPageOptions, unrestricted bool, hasCursor bool) string {
+	query := semanticInventoryPageAQL
+	replacements := map[string]string{
+		"/* candidate_auth_filter */":       "",
+		"/* candidate_resource_filter */":   "",
+		"/* candidate_section_filter */":    "",
+		"/* candidate_search_filter */":     "",
+		"/* candidate_after_filter */":      "",
+		"/* observation_auth_filter */":     "",
+		"/* observation_resource_filter */": "",
+		"/* observation_section_filter */":  "",
+	}
+	if !unrestricted {
+		replacements["/* candidate_auth_filter */"] = "FILTER candidate.auth_resource_path IN @auth_resource_paths"
+		replacements["/* observation_auth_filter */"] = "FILTER d.auth_resource_path IN @auth_resource_paths"
+	}
+	if opts.ResourceType != "" {
+		replacements["/* candidate_resource_filter */"] = "FILTER candidate.resource_type == @resource_type"
+		replacements["/* observation_resource_filter */"] = "FILTER d.resource_type == @resource_type"
+	}
+	if opts.CatalogSection != "" {
+		replacements["/* candidate_section_filter */"] = "FILTER candidate.catalog_section == @catalog_section"
+		replacements["/* observation_section_filter */"] = "FILTER d.catalog_section == @catalog_section"
+	}
+	if opts.Query != "" {
+		replacements["/* candidate_search_filter */"] = "FILTER CONTAINS(NOT_NULL(candidate.search_text, \"\"), LOWER(@query))"
+	}
+	if hasCursor {
+		replacements["/* candidate_after_filter */"] = "FILTER candidate.sort_key > @after_sort_key"
+	}
+	for marker, filter := range replacements {
+		query = strings.ReplaceAll(query, marker, filter)
+	}
+	return query
+}
+
 const semanticInventoryResolveSelectionsAQL = `
 FOR requested IN @references
-  LET authorized_observations = (
+  LET authorized_rows = (
     FOR d IN fhir_semantic_inventory
       FILTER d.project == @project
       FILTER d.dataset_generation == @dataset_generation
@@ -863,14 +1113,15 @@ FOR requested IN @references
       FILTER d.binding_id == requested.binding_id
       FILTER d.concept_id == requested.concept_id
       SORT d._key
-      LIMIT 1
-      RETURN d.observation
+      RETURN d
   )
-  FILTER LENGTH(authorized_observations) > 0
+  FILTER LENGTH(authorized_rows) > 0
+  LET source_ids = UNIQUE(FOR d IN authorized_rows FILTER d.source_id != "" RETURN d.source_id)
   RETURN {
     concept_id: requested.concept_id,
     binding_id: requested.binding_id,
-    observation: FIRST(authorized_observations)
+    source_records: LENGTH(source_ids) == 0 ? null : LENGTH(source_ids),
+    observation: FIRST(FOR d IN authorized_rows RETURN d.observation)
   }`
 
 const semanticInventoryResolveIndexedSelectionsAQL = `
@@ -880,7 +1131,7 @@ FOR requested IN @references
       FILTER d.project == @project
       FILTER d.dataset_generation == @dataset_generation
       FILTER d.build_id == @build_id
-      FILTER NOT_NULL(d.source_kind, "file") == @source_kind
+      FILTER d.source_kind == @source_kind
       FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
       FILTER d.binding_id == requested.binding_id
       FILTER d.concept_id == requested.concept_id
@@ -891,6 +1142,11 @@ FOR requested IN @references
   LET aggregate_rows = (
     FOR d IN authorized_rows
       COLLECT AGGREGATE population = SUM(d.observation.population),
+        partition_count = LENGTH(1),
+        source_records = MIN(d.source_records),
+        role = MIN(d.observation.role),
+        slot_label = MIN(d.observation.slot_label),
+        slot_description = MIN(d.observation.slot_description),
         example = MIN(d.example),
         canonical = MIN(d.observation.source.canonical),
         resource_type = MIN(d.observation.source.type),
@@ -902,6 +1158,7 @@ FOR requested IN @references
         code = MIN(d.observation.key.code),
         value_selector = MIN(d.observation.value.selector),
         value_type = MIN(d.observation.value.type),
+        value_presentation = MIN(d.observation.value.presentation),
         owning_scope = MIN(d.observation.owning_scope),
         extension_url_path = MIN(d.observation.extension_url_path),
         choice_arm = MIN(d.observation.choice_arm),
@@ -916,11 +1173,15 @@ FOR requested IN @references
       RETURN {
         concept_id: requested.concept_id,
         binding_id: requested.binding_id,
+        source_records: partition_count == 1 ? source_records : null,
         observation: {
           schema_version: @observation_schema,
+          role: role,
+          slot_label: slot_label,
+          slot_description: slot_description,
           source: {canonical: canonical, type: resource_type, profile: profile, path: path},
           key: {selector: key_selector, system: system, version: version, code: code, display: MIN(displays)},
-          value: {selector: value_selector, type: value_type},
+          value: {selector: value_selector, type: value_type, presentation: value_presentation},
           owning_scope: owning_scope,
           extension_url_path: extension_url_path,
           choice_arm: choice_arm,
@@ -959,8 +1220,14 @@ FOR d IN fhir_field_catalog
 
 const claimSemanticInventoryBackfillAQL = `
 LET current_build = DOCUMENT("fhir_semantic_inventory_builds", @key)
+LET repair_legacy_coverage = (
+  current_build != null
+  AND current_build.state == "complete"
+  AND current_build.source_kind == @source_kind
+  AND current_build.source_availability == "unproven"
+)
 FILTER current_build == null OR (
-  current_build.state != "complete"
+  (current_build.state != "complete" OR repair_legacy_coverage)
   AND (NOT_NULL(current_build.lease_expires_at, 0) <= @now OR current_build.lease_token == @token)
 )
 UPSERT {_key: @key}
@@ -975,10 +1242,10 @@ UPSERT {_key: @key}
   UPDATE MERGE(OLD, {
     state: "running",
     source_kind: @source_kind,
-    source_availability: OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_availability, "unknown") : "unknown",
-    scanned_resources: OLD.source_kind == @source_kind ? NOT_NULL(OLD.scanned_resources, 0) : 0,
+    source_availability: repair_legacy_coverage ? "unknown" : (OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_availability, "unknown") : "unknown"),
+    scanned_resources: repair_legacy_coverage ? 0 : (OLD.source_kind == @source_kind ? NOT_NULL(OLD.scanned_resources, 0) : 0),
     checkpoint: "",
-    source_checkpoint: OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_checkpoint, {collection: "", key: ""}) : {collection: "", key: ""},
+    source_checkpoint: repair_legacy_coverage ? {collection: "", key: ""} : (OLD.source_kind == @source_kind ? NOT_NULL(OLD.source_checkpoint, {collection: "", key: ""}) : {collection: "", key: ""}),
     diagnostics: [],
     lease_token: @token,
     lease_expires_at: @lease_expires_at

@@ -64,6 +64,10 @@ type SemanticPivot struct {
 	// ExtensionCorrelation carries the checked ancestor-aware extension
 	// binding. It shares the physical correlation IR with terminology pivots.
 	ExtensionCorrelation *fhirschema.ExtensionBinding
+	// Categorical is a namespace-only Coding binding. CategoricalSystem is
+	// the selected namespace; code/display remain projected values.
+	Categorical       *fhirschema.CategoricalBinding
+	CategoricalSystem string
 }
 
 type SemanticOwnerRecords struct {

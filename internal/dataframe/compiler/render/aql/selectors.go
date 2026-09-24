@@ -211,6 +211,15 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 	if len(selector.Steps) == 0 {
 		return "", fmt.Errorf("selector is required")
 	}
+	if !setSource && selector.Filter == nil && selectorHasNoArrays(selector) {
+		value := compileDirectExpr(source, selector.Steps)
+		return "(" + value + " == null ? [] : [" + value + "])", nil
+	}
+	if !setSource && !firstOnly && selector.Filter == nil {
+		if values, ok := renderInlineSelectorArrayExpansion(source, selector); ok {
+			return values, nil
+		}
+	}
 	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
 	lines, current := []string{"FOR __root IN [" + source + "]"}, "__root"
 	if setSource {
@@ -239,6 +248,40 @@ func (r *physicalPlanRenderer) renderSelectorArrayFromSource(source string, sele
 	}
 	lines = append(lines, "  RETURN __value")
 	return "(\n    " + strings.Join(lines, "\n    ") + "\n  )", nil
+}
+
+func renderInlineSelectorArrayExpansion(source string, selector spec.Selector) (string, bool) {
+	if len(selector.Steps) < 2 {
+		return "", false
+	}
+
+	prefix, last := selector.Steps[:len(selector.Steps)-1], selector.Steps[len(selector.Steps)-1]
+	if last.Iterate || last.Index != nil {
+		return "", false
+	}
+
+	iterateIndex := -1
+	for index, step := range prefix {
+		if step.Index != nil {
+			return "", false
+		}
+		if step.Iterate {
+			if iterateIndex >= 0 {
+				return "", false
+			}
+			iterateIndex = index
+		}
+	}
+	if iterateIndex < 0 {
+		return "", false
+	}
+
+	arrayPath := compileDirectExpr(source, prefix[:iterateIndex]) + "." + prefix[iterateIndex].Field
+	valuePath := "CURRENT"
+	for _, step := range selector.Steps[iterateIndex+1:] {
+		valuePath += "." + step.Field
+	}
+	return fmt.Sprintf("(%s ? %s[* FILTER %s != null RETURN %s] : [])", arrayPath, arrayPath, valuePath, valuePath), true
 }
 
 func (r *physicalPlanRenderer) renderDerivedLet(derived ir.PhysicalDerivedLet) (string, error) {

@@ -47,27 +47,30 @@ const table: DraftTable = {
 afterEach(cleanup);
 
 describe('RowDefinitionPanel', () => {
-  it('offers every eligible authored occurrence as an explicit row choice', () => {
+  it('offers every eligible resource type without requiring an authored traversal', () => {
     const onChange = vi.fn();
     render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={onChange} />);
 
     const select = screen.getByRole('combobox', { name: 'One row per' });
     expect(screen.getByRole('option', { name: 'Specimen' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'Observation via observations' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'Encounter via encounter' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Observation' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Encounter' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /Patient/ })).toBeNull();
 
-    fireEvent.change(select, { target: { value: 'labs' } });
-    expect(onChange).toHaveBeenCalledWith('observation', 'labs');
+    fireEvent.change(select, { target: { value: 'observation' } });
+    expect(onChange).toHaveBeenCalledWith('observation');
   });
 
-  it('disables the selector when the current root is the only safe row definition', () => {
+  it('offers a resource that is not on the current table route', () => {
     const rootOnly = {
       ...table,
       document: { ...table.document, route: { occurrenceId: 'base', resourceType: 'Specimen' } },
     } as DraftTable;
-    render(<RowDefinitionPanel catalog={catalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
-    expect(screen.getByRole('combobox', { name: 'One row per' })).toBeDisabled();
-    expect(screen.getByText(/Add a related resource/)).toBeTruthy();
+    const onChange = vi.fn();
+    render(<RowDefinitionPanel catalog={catalog} table={rootOnly} disabled={false} onChange={onChange} />);
+    const select = screen.getByRole('combobox', { name: 'One row per' });
+    expect(select).not.toBeDisabled();
+    fireEvent.change(select, { target: { value: 'encounter' } });
+    expect(onChange).toHaveBeenCalledWith('encounter');
   });
 });

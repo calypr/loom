@@ -27,7 +27,7 @@ import (
 const (
 	explorerCapabilityCompilerVersion = "loom-dataframe-compiler-v4"
 	explorerCapabilityProtocolVersion = "loom.calypr.org/explorer-authoring/v2"
-	explorerTraversalPolicyVersion    = "finite-unbounded-v1"
+	explorerTraversalPolicyVersion    = "ranked-observed-v1"
 	explorerProjectionPolicyVersion   = "compiler-probed-v2"
 )
 
@@ -275,18 +275,13 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 		// dataframe compiler proves whether either generated traversal is
 		// legal. Publish both observations here and let ProbeEdge remove any
 		// direction the generated schema cannot lower.
-		for _, route := range []struct {
-			from, to, direction string
-		}{
-			{item.StorageFromType, item.StorageToType, "OUTBOUND"},
-			{item.StorageToType, item.StorageFromType, "INBOUND"},
-		} {
-			key := strings.Join([]string{route.from, item.Label, route.to, route.direction}, "\x00")
+		for _, route := range catalog.RelationshipTraversalCandidates(item) {
+			key := strings.Join([]string{route.FromResourceType, route.Relationship, route.ToResourceType, route.StorageDirection}, "\x00")
 			observation := relationships[key]
-			observation.SourceResourceType = route.from
-			observation.TargetResourceType = route.to
-			observation.Label = item.Label
-			observation.StorageDirection = route.direction
+			observation.SourceResourceType = route.FromResourceType
+			observation.TargetResourceType = route.ToResourceType
+			observation.Label = route.Relationship
+			observation.StorageDirection = route.StorageDirection
 			observation.ObservedEdgeCount += item.EdgeCount
 			observation.AllowsRepeatedTarget = true
 			relationships[key] = observation
@@ -350,8 +345,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			if targetPath == "" {
 				continue
 			}
-			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(item.ResourceType, targetPath)
-			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
+			if _, represented := fhirschema.ResolveTerminalLogicalType(item.ResourceType, targetPath); !represented {
 				continue
 			}
 			targetKey := item.ResourceType + "\x00" + targetPath
@@ -365,11 +359,8 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 			if !ok {
 				continue
 			}
-			metadata, scalar := fhirschema.ResolveTerminalScalarMetadata(resourceType, targetPath)
-			if !scalar || metadata.Primitive == fhirschema.PrimitiveUnknown {
-				// A semantic observation with no generated scalar value path is
-				// retained only in the source catalog. Never turn an object or
-				// unresolved structural path into a projectable capability.
+			logicalType, represented := fhirschema.ResolveTerminalLogicalType(resourceType, targetPath)
+			if !represented {
 				continue
 			}
 			maxPopulation := int64(0)
@@ -379,7 +370,7 @@ func capabilityEvidenceFromCatalog(value catalog.CapabilityEvidence) capability.
 				}
 			}
 			aggregate = &fieldAggregate{observation: capability.FieldObservation{
-				ResourceType: resourceType, Path: targetPath, Label: targetPath, LogicalType: string(metadata.Primitive),
+				ResourceType: resourceType, Path: targetPath, Label: targetPath, LogicalType: logicalType,
 				Observed: true, ObservedDocumentCount: maxPopulation, Populated: maxPopulation > 0,
 				SuggestionsComplete: true,
 			}, values: map[string]struct{}{}}
@@ -476,7 +467,11 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	if result.Candidate == nil {
 		return capability.CandidateProof{}, fmt.Errorf("compiler returned no candidate proof")
 	}
-	proof := capability.CandidateProof{Allowed: true, LogicalType: string(result.Candidate.Primitive), Cardinality: string(result.Candidate.Cardinality), SupportedOperations: []capability.Operation{capability.OperationSelect}}
+	logicalType, represented := fhirschema.ResolveTerminalLogicalType(candidate.ResourceType, candidate.FieldPath)
+	if !represented {
+		return capability.CandidateProof{}, fmt.Errorf("compiler candidate has no schema value type")
+	}
+	proof := capability.CandidateProof{Allowed: true, LogicalType: logicalType, Cardinality: string(result.Candidate.Cardinality), SupportedOperations: []capability.Operation{capability.OperationSelect}}
 	for _, mode := range result.Candidate.ProjectionModes {
 		proof.ProjectionModes = append(proof.ProjectionModes, capability.ProjectionMode(strings.ToUpper(string(mode))))
 	}
@@ -497,7 +492,7 @@ func (c explorerCapabilityCompiler) ProbeCandidate(ctx context.Context, candidat
 	// derives the same contract again from the selected occurrence and rejects
 	// related-only operations at the row root.
 	input := capability.AggregateInput{
-		LogicalType:     string(result.Candidate.Primitive),
+		LogicalType:     logicalType,
 		Cardinality:     string(result.Candidate.Cardinality),
 		HasField:        true,
 		RelatedResource: true,

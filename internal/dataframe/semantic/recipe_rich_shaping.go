@@ -75,6 +75,25 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 		if input.Correlation != nil && input.ExtensionCorrelation != nil {
 			return nil, fmt.Errorf("%s cannot carry both terminology and extension correlation", path)
 		}
+		if input.Categorical != nil && (input.Correlation != nil || input.ExtensionCorrelation != nil) {
+			return nil, fmt.Errorf("%s categorical binding cannot be combined with another correlation", path)
+		}
+		if input.Categorical != nil {
+			checked, bindingErr := fhirschema.ValidateCategoricalBinding(resourceType, *input.Categorical)
+			if bindingErr != nil {
+				return nil, fmt.Errorf("%s categorical: %w", path, bindingErr)
+			}
+			if strings.TrimSpace(input.CategoricalSystem) == "" {
+				return nil, fmt.Errorf("%s categorical requires selected system", path)
+			}
+			out = append(out, SemanticPivot{
+				Name: input.Name, FieldRef: input.FieldRef, Columns: columns, ColumnAliases: columnAliases, ProjectionMode: projectionMode,
+				Family: "categorical_namespace", Categorical: cloneCategoricalBinding(input.Categorical), CategoricalSystem: input.CategoricalSystem,
+				ValueKind: correlatedValueKind(checked.LogicalType), StringifyValue: checked.LogicalType == "string",
+				Discovered: input.Discovered,
+			})
+			continue
+		}
 		if input.ExtensionCorrelation != nil {
 			checked, bindingErr := fhirschema.ValidateExtensionBinding(resourceType, *input.ExtensionCorrelation)
 			if bindingErr != nil {
@@ -231,6 +250,15 @@ func cloneCorrelatedBinding(input *fhirschema.CorrelatedBinding) *fhirschema.Cor
 	copy := *input
 	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
 	copy.ChoiceArms = append([]string(nil), input.ChoiceArms...)
+	return &copy
+}
+
+func cloneCategoricalBinding(input *fhirschema.CategoricalBinding) *fhirschema.CategoricalBinding {
+	if input == nil {
+		return nil
+	}
+	copy := *input
+	copy.ValueFallback = append([]string(nil), input.ValueFallback...)
 	return &copy
 }
 

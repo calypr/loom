@@ -321,9 +321,6 @@ func ProbeOwnerRecords(ctx context.Context, request OwnerRecordsRequest, options
 	if err != nil {
 		return Result{}, fmt.Errorf("owner records binding: %w", err)
 	}
-	if checked.OwnerSelector.CanonicalPath() == "" {
-		return Result{}, fmt.Errorf("owner records require a repeated owner selector")
-	}
 	if strings.TrimSpace(request.Key.System) == "" || strings.TrimSpace(request.Key.Code) == "" {
 		return Result{}, fmt.Errorf("owner records require a terminology system and code")
 	}

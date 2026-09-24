@@ -226,6 +226,9 @@ const (
 // the storage envelope.
 type SemanticObservation struct {
 	SchemaVersion          int                             `json:"schema_version"`
+	Role                   SemanticObservationRole         `json:"role,omitempty"`
+	SlotLabel              string                          `json:"slot_label,omitempty"`
+	SlotDescription        string                          `json:"slot_description,omitempty"`
 	Source                 SemanticObservationSource       `json:"source"`
 	Key                    SemanticObservationKey          `json:"key"`
 	Value                  SemanticObservationValue        `json:"value"`
@@ -265,8 +268,9 @@ type SemanticObservationKey struct {
 }
 
 type SemanticObservationValue struct {
-	Selector string `json:"selector,omitempty"`
-	Type     string `json:"type,omitempty"`
+	Selector     string `json:"selector,omitempty"`
+	Type         string `json:"type,omitempty"`
+	Presentation string `json:"presentation,omitempty"`
 }
 
 // ExtensionValueObservation preserves the correlation between an Extension

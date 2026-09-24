@@ -93,7 +93,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		runtimeKeyFields = append(runtimeKeyFields, ir.PhysicalExpressionProjection{Name: runtimeName, Expression: runtimeKey})
 		projectionPrefix := ""
 		if dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
-			projectionPrefix = dynamic.ScopeAlias + "__"
+			projectionPrefix = traversalColumnNamePrefix(traversalColumnPrefix(output.TraversalColumnNaming, "", dynamic.ScopeAlias))
 		}
 		for index, column := range columns {
 			outputName := projectionPrefix + column.Column.Name

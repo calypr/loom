@@ -55,6 +55,38 @@ func TestCompilationReceiptIdentityExcludesMutableMetadata(t *testing.T) {
 	}
 }
 
+func TestCompilationReceiptPurposeSeparatesPreviewFromPublishableArtifacts(t *testing.T) {
+	publishable := testReceipt()
+	preview := publishable
+	preview.Purpose = ReceiptPurposePreviewOnly
+	key, err := CompilationKey(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key == publishable.CompilationKey {
+		t.Fatal("preview-only compilation reused a publishable compilation key")
+	}
+	preview.CompilationKey = key
+	preview.ID, err = ReceiptID(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishable.ID, err = ReceiptID(publishable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.ID == publishable.ID {
+		t.Fatal("preview-only receipt reused a publishable receipt ID")
+	}
+	if err := preview.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	preview.Purpose = "UNKNOWN"
+	if err := preview.Validate(); err == nil {
+		t.Fatal("unsupported receipt purpose was accepted")
+	}
+}
+
 func TestCompilationReceiptIdentityIncludesDurableColumnProvenance(t *testing.T) {
 	base := testReceipt()
 	first, err := ReceiptID(base)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,10 +27,37 @@ type Client struct {
 	client *http.Client
 }
 
+// PersistentIndexName resolves an already-built index by its exact field
+// sequence. Callers can use the name as a forced AQL hint when Arango's cost
+// estimate would otherwise choose a broad prefix index.
+func (c *Client) PersistentIndexName(ctx context.Context, collection string, fields []string) (string, error) {
+	col, err := c.db.GetCollection(ctx, collection, nil)
+	if err != nil {
+		return "", err
+	}
+	indexes, err := col.Indexes(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, index := range indexes {
+		if index.Type == driver.PersistentIndexType && index.RegularIndex != nil && slices.Equal(index.RegularIndex.Fields, fields) && index.Name != "" {
+			return index.Name, nil
+		}
+	}
+	return "", fmt.Errorf("persistent index %s%v is unavailable", collection, fields)
+}
+
 // RowQueryer is the narrow row-query surface shared by Arango adapters. It is
 // also the only capability exposed to transaction callbacks.
 type RowQueryer interface {
 	QueryRows(context.Context, string, int, map[string]interface{}, RowVisitor) error
+}
+
+// QueryRowsOptions controls optional per-query execution settings. A zero
+// MaxNumberOfPlans leaves ArangoDB's configured default unchanged.
+type QueryRowsOptions struct {
+	MaxNumberOfPlans int
+	Stream           bool
 }
 
 // BatchInserter is the narrow raw-document write surface shared by Arango
@@ -215,7 +243,23 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
+// QueryRowsWithOptions streams rows with the requested per-query execution
+// settings. QueryRows keeps using ArangoDB's configured defaults.
+func (c *Client) QueryRowsWithOptions(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, options QueryRowsOptions, visit RowVisitor) error {
+	return queryRowsWithOptions(ctx, c.db, query, batchSize, bindVars, options, visit)
+}
+
 func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
+	return c.withTransaction(ctx, collections, QueryRowsOptions{}, fn)
+}
+
+// WithStreamingReadTransaction delivers scan results a batch at a time instead
+// of materializing every result in Arango before returning the first batch.
+func (c *Client) WithStreamingReadTransaction(ctx context.Context, collections []string, fn TransactionFunc) error {
+	return c.withTransaction(ctx, TransactionCollections{Read: collections}, QueryRowsOptions{Stream: true}, fn)
+}
+
+func (c *Client) withTransaction(ctx context.Context, collections TransactionCollections, options QueryRowsOptions, fn TransactionFunc) error {
 	if fn == nil {
 		return fmt.Errorf("Arango transaction callback is required")
 	}
@@ -223,23 +267,37 @@ func (c *Client) WithTransaction(ctx context.Context, collections TransactionCol
 		Read:  collections.Read,
 		Write: collections.Write,
 	}, nil, nil, nil, func(txCtx context.Context, tx driver.Transaction) error {
-		return fn(txCtx, transactionClient{queryer: tx})
+		return fn(txCtx, transactionClient{queryer: tx, options: options})
 	})
 }
 
 type transactionClient struct {
 	queryer driver.DatabaseQuery
+	options QueryRowsOptions
 }
 
 func (t transactionClient) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
-	return queryRows(ctx, t.queryer, query, batchSize, bindVars, visit)
+	return queryRowsWithOptions(ctx, t.queryer, query, batchSize, bindVars, t.options, visit)
 }
 
-func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) (resultErr error) {
+func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
+	return queryRowsWithOptions(ctx, queryer, query, batchSize, bindVars, QueryRowsOptions{}, visit)
+}
+
+func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, options QueryRowsOptions, visit RowVisitor) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cursor, err := queryer.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
+	queryOptions := &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars}
+	queryOptions.Options.Stream = options.Stream
+	if options.MaxNumberOfPlans > 0 {
+		maxNumberOfPlans := options.MaxNumberOfPlans
+		queryOptions.Options.MaxNumberOfPlans = &maxNumberOfPlans
+	}
+	if options.Stream {
+		return queryRowsByBatch(ctx, queryer, query, queryOptions, visit)
+	}
+	cursor, err := queryer.Query(ctx, query, queryOptions)
 	if err != nil {
 		return fmt.Errorf("arango query: %w", err)
 	}

@@ -25,48 +25,94 @@ type CompiledOutputPage struct {
 	RowsQuery        string
 	RowsBindVars     map[string]any
 	RowsDiagnostics  ir.CompilerPlanDiagnostics
+	executionQuery   CompiledQuery
+}
+
+// ExecutionQuery returns metadata for the selected-root rows query. The
+// execution package uses it instead of separately compiling the full output.
+func (p CompiledOutputPage) ExecutionQuery() CompiledQuery {
+	return p.executionQuery
+}
+
+// CompileRecipeOutputPageShardsWithPolicy returns one selected-root page
+// template per bounded flat projection shard. RootKeysQuery and its binds are
+// intentionally identical across the returned pages; execution must discover
+// one root-key page and apply it to every shard.
+func CompileRecipeOutputPageShardsWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) ([]CompiledOutputPage, error) {
+	if pageSize < 1 {
+		return nil, fmt.Errorf("root page size must be positive")
+	}
+	physical, err := optimizedOutputPlan(output, policy)
+	if err != nil {
+		return nil, err
+	}
+	keysPlan, err := rootKeysPagePlan(physical, pageSize)
+	if err != nil {
+		return nil, fmt.Errorf("build root-key page: %w", err)
+	}
+	rowsPlan, err := selectedRootsPlan(physical)
+	if err != nil {
+		return nil, fmt.Errorf("build selected-root page: %w", err)
+	}
+	rowsPlan, err = withGenericPhysicalExecutionWindow(rowsPlan, 0)
+	if err != nil {
+		return nil, fmt.Errorf("apply selected-root execution window: %w", err)
+	}
+	if bindings.IncludeAuthResourcePath {
+		if err := appendAuthResourcePathProjection(&rowsPlan); err != nil {
+			return nil, err
+		}
+	}
+	rowsPlans, names, err := projectionShardPhysicalPlans(rowsPlan, output, DefaultProjectionShardPolicy())
+	if err != nil {
+		return nil, err
+	}
+	keys, err := aql.RenderPhysicalPlan(keysPlan)
+	if err != nil {
+		return nil, fmt.Errorf("render root-key page: %w", err)
+	}
+	pages := make([]CompiledOutputPage, 0, len(rowsPlans))
+	for index, shardPlan := range rowsPlans {
+		rows, err := aql.RenderPhysicalPlan(shardPlan)
+		if err != nil {
+			return nil, fmt.Errorf("render selected-root projection shard %d: %w", index+1, err)
+		}
+		columns, pivotFields := physicalProjectionMetadata(shardPlan)
+		if len(output.Columns) != 0 {
+			columns = append([]string(nil), output.Columns...)
+		}
+		outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
+		publicColumns := publicOutputColumns(outputSchema)
+		if len(names) > index {
+			publicColumns = append([]string(nil), names[index]...)
+		}
+		query := CompiledQuery{
+			Project: bindings.Project, DatasetGeneration: normalizeDatasetGeneration(bindings.DatasetGeneration), RootResourceType: output.RootResourceType,
+			TranslationVersion: output.TranslationVersion, AuthResourcePaths: cloneStrings(bindings.AuthResourcePaths), PlanMode: "physical", PlanProfile: "generic_fhir_graph_recipe",
+			TraversalCount: physicalTraversalCount(shardPlan), RowIdentity: output.RowIdentity.Clone(), OptimizationRules: recipeOptimizationRules(shardPlan), Query: rows.Query,
+			BindVars: rows.BindVars, Columns: columns, OutputSchema: outputSchema, PublicColumns: publicColumns, PivotFields: pivotFields,
+			PlanDiagnostics: physicalPlanDiagnostics(shardPlan),
+		}
+		pages = append(pages, CompiledOutputPage{
+			RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
+			RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsDiagnostics: query.PlanDiagnostics, executionQuery: query,
+		})
+	}
+	return pages, nil
 }
 
 // CompileRecipeOutputPageWithPolicy builds typed key-discovery and selected-
 // root templates. Page binds are compiler-owned and callers may only replace
 // their values between executions.
 func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) (CompiledOutputPage, error) {
-	if pageSize < 1 {
-		return CompiledOutputPage{}, fmt.Errorf("root page size must be positive")
-	}
-	physical, err := optimizedOutputPlan(output, policy)
+	pages, err := CompileRecipeOutputPageShardsWithPolicy(output, bindings, pageSize, policy)
 	if err != nil {
 		return CompiledOutputPage{}, err
 	}
-	keysPlan, err := rootKeysPagePlan(physical, pageSize)
-	if err != nil {
-		return CompiledOutputPage{}, fmt.Errorf("build root-key page: %w", err)
+	if len(pages) != 1 {
+		return CompiledOutputPage{}, fmt.Errorf("output %q requires %d projection shards; use CompileRecipeOutputPageShardsWithPolicy", output.Name, len(pages))
 	}
-	rowsPlan, err := selectedRootsPlan(physical)
-	if err != nil {
-		return CompiledOutputPage{}, fmt.Errorf("build selected-root page: %w", err)
-	}
-	rowsPlan, err = withGenericPhysicalExecutionWindow(rowsPlan, 0)
-	if err != nil {
-		return CompiledOutputPage{}, fmt.Errorf("apply selected-root execution window: %w", err)
-	}
-	if bindings.IncludeAuthResourcePath {
-		if err := appendAuthResourcePathProjection(&rowsPlan); err != nil {
-			return CompiledOutputPage{}, err
-		}
-	}
-	keys, err := aql.RenderPhysicalPlan(keysPlan)
-	if err != nil {
-		return CompiledOutputPage{}, fmt.Errorf("render root-key page: %w", err)
-	}
-	rows, err := aql.RenderPhysicalPlan(rowsPlan)
-	if err != nil {
-		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
-	}
-	return CompiledOutputPage{
-		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
-		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsDiagnostics: physicalPlanDiagnostics(rowsPlan),
-	}, nil
+	return pages[0], nil
 }
 
 func optimizedOutputPlan(output lower.CompiledRecipeOutput, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {

@@ -34,7 +34,7 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 		datasetGeneration:  NormalizeDatasetGeneration(datasetGeneration),
 		authResourcePath:   authResourcePath,
 		resourceType:       resourceType,
-		semanticSourceKind: SemanticInventorySourceFile,
+		semanticSourceKind: SemanticInventorySourceRetained,
 		limits:             limits,
 		shapeCache:         cache,
 		stats:              make(map[string]*fieldCatalogStats),
@@ -42,19 +42,47 @@ func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResource
 	}
 }
 
-func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) {
-	p.observePayload(payload, timings, "", nil)
+func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]float64) error {
+	return p.observePayload(payload, timings, "", nil)
 }
 
 // ObservePayloadWithInventory profiles a source record and emits each semantic
 // observation through the same extractor used by the bounded field summary.
-func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
-	p.observePayload(payload, timings, sourceID, sink)
+func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
+	return p.observePayload(payload, timings, sourceID, sink)
 }
 
-func (p *Profiler) observePayload(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) {
+// ObservePayloadWithFieldSourceMembership extracts the sidecar from the same
+// full shape plan used for profiling, before bounded profiler retention can
+// discard field statistics.
+func (p *Profiler) ObservePayloadWithFieldSourceMembership(payload map[string]any, timings map[string]float64, semanticSourceID string, semanticSink SemanticInventoryObservationSink, vertexID string) (FieldSourceMembership, error) {
+	contributions := make([]SemanticInventoryContribution, 0)
+	collect := func(contribution SemanticInventoryContribution) {
+		contributions = append(contributions, contribution)
+		if semanticSink != nil {
+			semanticSink(contribution)
+		}
+	}
+	plan, err := p.observePayloadWithPlan(payload, timings, semanticSourceID, collect)
+	if err != nil {
+		return FieldSourceMembership{}, err
+	}
+	membership, err := newFieldSourceMembership(p.project, p.datasetGeneration, p.authResourcePath, p.resourceType, vertexID, scalarPathsPresentFromPlan(payload, plan))
+	if err != nil {
+		return FieldSourceMembership{}, err
+	}
+	membership.SemanticFeatures = SemanticFeatureReferences(contributions)
+	return membership, nil
+}
+
+func (p *Profiler) observePayload(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
+	_, err := p.observePayloadWithPlan(payload, timings, sourceID, sink)
+	return err
+}
+
+func (p *Profiler) observePayloadWithPlan(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) (*shapePlan, error) {
 	if payload == nil {
-		return
+		return nil, nil
 	}
 	fingerprintStart := time.Now()
 	fingerprint := shapeFingerprintForValue(payload)
@@ -98,8 +126,9 @@ func (p *Profiler) observePayload(payload map[string]any, timings map[string]flo
 	}
 	p.observeObservationCodePivot(payload)
 	p.observeExtensionValues(payload)
-	p.observeSemanticObservations(payload, sourceID, sink)
+	err := p.observeSemanticObservations(payload, sourceID, sink)
 	timings["field_profile"] += time.Since(observeStart).Seconds()
+	return plan, err
 }
 
 // ErrProfilerIdentityMismatch reports an attempted merge between independently

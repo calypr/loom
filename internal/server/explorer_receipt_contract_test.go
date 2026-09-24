@@ -114,6 +114,12 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 
 func TestReconcileFinalOutputMetadataUsesAuthoredPresentationOrderAndCompilerTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
+	translated.EmittedColumns[0].Lossless = false
+	translated.EmittedColumns[0].MLReady = false
+	translated.EmittedColumns[0].StructuralSuitability = "requires-review"
+	translated.EmittedColumns[0].LossReasons = []string{"patient-source-loss"}
+	translated.OutputContracts[0].Columns[0] = receiptTestPublicColumn(translated.EmittedColumns[0])
+	translated.OutputContracts[0].LossReasons = []string{"patient-source-loss", "source-loss", "dropped-loss"}
 	translated.Presentations[0].Columns[0].Order = 2
 	translated.Presentations[0].Columns[1].Order = 0
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
@@ -138,7 +144,7 @@ func TestReconcileFinalOutputMetadataUsesAuthoredPresentationOrderAndCompilerTyp
 	}
 
 	id := reconciled.EmittedColumns[1]
-	if id.NodeID != "node-patient" || id.CandidateID != "candidate-id" || id.SourcePath != "id" || !id.Lossless || !id.MLReady {
+	if id.NodeID != "node-patient" || id.CandidateID != "candidate-id" || id.SourcePath != "id" || id.Lossless || id.MLReady {
 		t.Fatalf("source metadata was not preserved: %#v", id)
 	}
 	score := reconciled.EmittedColumns[0]
@@ -165,7 +171,7 @@ func TestReconcileFinalOutputMetadataUsesAuthoredPresentationOrderAndCompilerTyp
 	if got := publicContractColumnNames(contract.Columns); !reflect.DeepEqual(got, wantColumns) {
 		t.Fatalf("contract columns = %#v, want %#v", got, wantColumns)
 	}
-	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) {
+	if contract.Lossless || contract.MLReady || contract.StructuralSuitability != "requires-review" || !reflect.DeepEqual(contract.LossReasons, []string{"source-loss", "patient-source-loss", "TABLE_SHAPE_DERIVED_MULTIPLY_NON_LOSSLESS", "TABLE_SHAPE_ML_READINESS_UNASSESSED"}) {
 		t.Fatalf("aggregate contract quality = %#v", contract)
 	}
 	if err := (explorer.PublicOutputContracts{Outputs: reconciled.OutputContracts}).ValidateAgainst(reconciled.Bundle, reconciled.EmittedColumns); err != nil {

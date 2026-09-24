@@ -572,6 +572,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const previewButton = await screen.findByRole('button', {
       name: 'Preview',
     });
+    const previewRegion = await screen.findByRole('region', { name: 'Preview' });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(previewRegion, 'scrollIntoView', { value: scrollIntoView });
     await waitFor(() => expect(previewButton).toBeEnabled());
     await waitFor(() => expect(resolveContext).toHaveBeenCalledTimes(1));
     expect(resolveContext).toHaveBeenCalledWith({
@@ -585,6 +588,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(reconcile).not.toHaveBeenCalled();
 
     fireEvent.click(previewButton);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
@@ -687,6 +691,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
+    const rowOptions = screen.getByText('Row settings & starting collection').closest('details');
+    expect(rowOptions).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Row settings & starting collection'));
+    expect(rowOptions).toHaveAttribute('open');
     const panel = await screen.findByRole('region', { name: 'Starting collection' });
     expect(panel).toHaveAttribute('data-selection-revision-id', 'selection-2');
     expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
@@ -721,6 +729,34 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         }),
       }],
     })));
+  });
+
+  it('changes the basic row type without assessing or preserving a graph route', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: {
+        ...builderState,
+        catalog: {
+          ...catalog,
+          nodes: [
+            ...catalog.nodes,
+            { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 42 },
+          ],
+        },
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'One row per' }), {
+      target: { value: 'patient-node' },
+    });
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{ type: 'RESET_TABLE_ROOT', outputId: 'specimens', rootNodeId: 'patient-node' }],
+    })));
+    expect(assessRowChange).not.toHaveBeenCalled();
   });
 
   it('reassesses an ambiguous row change with the relationship chosen by the user', async () => {
@@ -1088,7 +1124,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 
-  it('places table-shape settings after feature meanings and applies only the reviewed receipt command', async () => {
+  it('places Preview after the feature builder and table-shape settings after feature meanings', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -1100,8 +1136,8 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     const settings = await screen.findByTestId('ui04-table-shape-settings');
     const featureMeanings = screen.getByRole('heading', { name: 'Feature meanings' });
     const preview = screen.getByText('Preview table');
+    expect(preview.compareDocumentPosition(featureMeanings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(featureMeanings.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(settings.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('ui04-open-table-shape-settings'));
     await screen.findByTestId('ui04-reshape-mode');

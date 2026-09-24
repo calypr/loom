@@ -212,6 +212,21 @@ func (p Pivot) validateAt(path string, budget *int) error {
 	if p.Correlation != nil && p.ExtensionCorrelation != nil {
 		return validationError("ambiguous_correlation", path, "pivot cannot carry both terminology and extension correlation")
 	}
+	if p.Categorical != nil && (p.Correlation != nil || p.ExtensionCorrelation != nil) {
+		return validationError("ambiguous_correlation", path, "pivot cannot carry categorical and another correlation")
+	}
+	if p.Categorical != nil {
+		if p.Discovery != nil {
+			return validationError("ambiguous_correlation", path, "categorical pivot cannot use discovery")
+		}
+		if strings.TrimSpace(p.CategoricalSystem) == "" {
+			return validationError("invalid_categorical", path+".categorical", "selected system is required")
+		}
+		if strings.TrimSpace(p.CorrelationSystem) != "" || strings.TrimSpace(p.CorrelationCode) != "" || p.ItemResourceType != "" || !p.ColumnExpr.zero() || !p.ValueExpr.zero() || !p.ItemSource.zero() || len(p.ValueFallbacks) != 0 {
+			return validationError("ambiguous_correlation", path, "categorical pivot must not carry coded-value or legacy selector fields")
+		}
+		return nil
+	}
 	if p.Correlation != nil {
 		if p.Discovery != nil {
 			return validationError("ambiguous_correlation", path, "correlated pivot cannot use discovery")
@@ -538,8 +553,8 @@ func validateNodeShape(fields []Field, filters []Filter, pivots []Pivot, ownerRe
 		if err := check(projection.Name, p); err != nil {
 			return err
 		}
-		if strings.TrimSpace(projection.Binding.OwnerPath) == "" || strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {
-			return validationError("invalid_owner_records", p, "binding.ownerPath and key.system/code are required")
+		if strings.TrimSpace(projection.Key.System) == "" || strings.TrimSpace(projection.Key.Code) == "" {
+			return validationError("invalid_owner_records", p, "key.system/code are required")
 		}
 	}
 	for i, aggregate := range aggregates {

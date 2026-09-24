@@ -24,7 +24,7 @@ const (
 	SemanticStatusUnsupportedValueProjection = "UNSUPPORTED_VALUE_PROJECTION"
 )
 
-func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) {
+func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID string, sink SemanticInventoryObservationSink) error {
 	ordinal := 0
 	emit := func(observation SemanticObservation, examples []any) {
 		if sourceID != "" && sink != nil {
@@ -35,22 +35,26 @@ func (p *Profiler) observeSemanticObservations(payload map[string]any, sourceID 
 	profile := semanticProfileForPayload(payload)
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		return
+		return err
 	}
-	_ = p.observeSchemaSemantics(index, payload, profile, emit)
+	return p.observeSchemaSemantics(index, payload, profile, emit)
 }
 
 type semanticChoiceValue struct {
-	Arm      string
-	Selector string
-	Type     string
-	Status   string
-	Value    any
+	Arm          string
+	Selector     string
+	Type         string
+	Status       string
+	Value        any
+	Presentation string
 }
 
 func semanticExampleValue(value semanticChoiceValue) any {
 	object, ok := value.Value.(map[string]any)
 	if !ok {
+		return value.Value
+	}
+	if value.Selector == value.Arm {
 		return value.Value
 	}
 	// Keep a bounded scalar example for structured FHIR choice values while
@@ -223,8 +227,8 @@ func semanticObservationKey(observation SemanticObservation) string {
 		observation.Source.Canonical, observation.Source.Profile, observation.Source.Path,
 		observation.OwningScope, strings.Join(observation.ExtensionURLPath, "\x1f"),
 		observation.Key.Selector, observation.Key.System, observation.Key.Version, observation.Key.Code, observation.Key.Display,
-		observation.Value.Selector, observation.Value.Type, observation.ChoiceArm, observation.LogicalType,
-		observation.RuleHint, observation.RuleVersion,
+		observation.Value.Selector, observation.Value.Type, observation.Value.Presentation, observation.ChoiceArm, observation.LogicalType,
+		string(observation.Role), observation.RuleHint, observation.RuleVersion,
 	}, "\x00")
 }
 

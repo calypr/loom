@@ -11,11 +11,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/eval"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -32,9 +36,10 @@ const (
 	// DefaultPreviewLimit is used when a preview request omits its limit.
 	DefaultPreviewLimit = 25
 	// MaxPreviewLimit bounds rows accumulated by one output preview.
-	MaxPreviewLimit    = 1000
-	previewPlanMode    = "physical"
-	previewPlanProfile = "generic_fhir_graph_recipe"
+	MaxPreviewLimit      = 1000
+	minSourcePreviewRows = 100
+	previewPlanMode      = "physical"
+	previewPlanProfile   = "generic_fhir_graph_recipe"
 )
 
 // PreviewRequest selects one compiled output and bounds its preview rows.
@@ -52,6 +57,7 @@ type PreviewSummary struct {
 	RowCount         int
 	PlanMode         string
 	PlanProfile      string
+	ExecutionPath    string
 	PlanFingerprint  string
 	TraversalCount   int
 	LoweringDuration time.Duration
@@ -128,6 +134,16 @@ type OutputStream struct {
 	stream        QueryRows
 	batchSize     int
 	rootPageRows  int
+	page          *compiler.CompiledOutputPage
+	shards        []outputStreamShard
+	sourcePage    *compiler.CompiledOutputSourcePage
+	sourceProgram sourceRowEvaluator
+}
+
+type outputStreamShard struct {
+	query         string
+	bindVars      map[string]any
+	publicColumns []string
 	page          *compiler.CompiledOutputPage
 }
 
@@ -439,26 +455,87 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 		if output.Name != name {
 			continue
 		}
-		query, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
-		if err != nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
+		rootPageRows := e.rootPageRows
+		if rootPageRows > 0 && limit > 0 && limit < rootPageRows {
+			rootPageRows = limit
 		}
-		stream := OutputStream{
-			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(),
-			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
-		}
-		// Group rows are a terminal source rather than a root scan; their query
-		// limit bounds output directly and cannot use root-key paging.
 		terminalGroupRows := len(output.Plan.Operations) == 1 &&
 			output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
-		if e.rootPageRows > 0 && !terminalGroupRows {
-			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+		publicColumnCount := len(compiler.PublicOutputColumns(output.OutputSchema))
+		sourcePageWidthEligible := publicColumnCount >= 64
+		if rootPageRows > 0 && limit >= minSourcePreviewRows && !terminalGroupRows &&
+			!resolved.Semantic.SemanticPlan.Bindings.IncludeAuthResourcePath &&
+			output.OptimizedPlan != nil && sourcePageWidthEligible {
+			if program, programErr := eval.Compile(*output.OptimizedPlan); programErr == nil {
+				page, pageErr := compiler.CompileRecipeOutputSourcePageWithPolicy(output,
+					resolved.Semantic.SemanticPlan.Bindings, rootPageRows,
+					ir.DefaultPhysicalOptimizationPolicy(), program.SourceSetVariables())
+				if pageErr == nil {
+					query := page.ExecutionQuery
+					query.Limit = limit
+					return OutputStream{
+						Name: output.Name, Columns: append([]string(nil), query.PublicColumns...),
+						RowIdentity: query.RowIdentity.Clone(), DynamicChecks: dynamicChecks(output.DynamicColumns),
+						bindVars: query.BindVars, stream: e.queryRows, batchSize: e.batchSize,
+						rootPageRows: rootPageRows, sourcePage: &page, sourceProgram: program,
+					}, query, nil
+				}
+			}
+		}
+		var queries []compiler.CompiledQuery
+		var pages []compiler.CompiledOutputPage
+		var err error
+		if rootPageRows > 0 && !terminalGroupRows {
+			var pageErr error
+			pages, pageErr = compiler.CompileRecipeOutputPageShardsWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 			if pageErr != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 			}
-			stream.page = &page
-			query.PlanDiagnostics = page.RowsDiagnostics
+			if len(pages) == 0 {
+				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging compiled to no projection queries", output.Name)
+			}
+			queries = make([]compiler.CompiledQuery, len(pages))
+			for index, page := range pages {
+				queries[index] = page.ExecutionQuery()
+				queries[index].Limit = limit
+			}
+		} else {
+			queries, err = compiler.CompileRecipeOutputShardsWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
+			}
+			if len(queries) == 0 {
+				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q compiled to no projection queries", output.Name)
+			}
+		}
+		query := queries[0]
+		columns := append([]string(nil), query.PublicColumns...)
+		if fullColumns := compiler.PublicOutputColumns(output.OutputSchema); len(fullColumns) > 0 {
+			columns = fullColumns
+		} else if len(queries) > 1 {
+			columns = columns[:0]
+			for _, shard := range queries {
+				columns = append(columns, shard.PublicColumns...)
+			}
+		}
+		stream := OutputStream{
+			Name: output.Name, Columns: columns, RowIdentity: query.RowIdentity.Clone(),
+			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
+			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
+		}
+		if len(pages) > 0 {
+			stream.page = &pages[0]
+		}
+		if len(queries) > 1 {
+			stream.shards = make([]outputStreamShard, 0, len(queries))
+			for index, shard := range queries {
+				streamShard := outputStreamShard{query: shard.Query, bindVars: shard.BindVars, publicColumns: append([]string(nil), shard.PublicColumns...)}
+				if len(pages) > 0 {
+					page := pages[index]
+					streamShard.page = &page
+				}
+				stream.shards = append(stream.shards, streamShard)
+			}
 		}
 		return stream, query, nil
 	}
@@ -553,7 +630,11 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := validatePreviewPlan(query, limit); err != nil {
 		return PreviewSummary{}, err
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
+	executionPath := "aql"
+	if stream.sourcePage != nil {
+		executionPath = "source_page"
+	}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, ExecutionPath: executionPath, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
@@ -696,6 +777,12 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 }
 
 func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+	if s.sourcePage != nil {
+		return s.streamSourcePage(ctx, visit)
+	}
+	if len(s.shards) > 0 {
+		return s.streamSharded(ctx, visit)
+	}
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}
@@ -730,6 +817,198 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 			return nil
 		}
 	}
+}
+
+func (s OutputStream) streamSharded(ctx context.Context, visit func(map[string]any) error) error {
+	if len(s.shards) == 0 {
+		return fmt.Errorf("sharded output has no query shards")
+	}
+	owners := make(map[string]int)
+	for shardIndex, shard := range s.shards {
+		for _, column := range shard.publicColumns {
+			if prior, exists := owners[column]; exists {
+				return fmt.Errorf("projection shard %d duplicates public column %q from shard %d", shardIndex+1, column, prior+1)
+			}
+			owners[column] = shardIndex
+		}
+	}
+	if s.rootPageRows == 0 || s.shards[0].page == nil {
+		return s.streamShardedRows(ctx, nil, visit)
+	}
+	after := ""
+	for {
+		keys := make([]string, 0, s.rootPageRows)
+		keyBinds := cloneBindVars(s.shards[0].page.RootKeysBindVars)
+		keyBinds[compiler.RootPageAfterKeyBind] = after
+		if err := s.stream(ctx, s.shards[0].page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+			key, ok := row["_key"].(string)
+			if !ok || key == "" {
+				return fmt.Errorf("root-key page returned an invalid _key")
+			}
+			if len(keys) != 0 && key <= keys[len(keys)-1] {
+				return fmt.Errorf("root-key page is not strictly ordered")
+			}
+			keys = append(keys, key)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(keys) == 0 {
+			return nil
+		}
+		if err := s.streamShardedRows(ctx, keys, visit); err != nil {
+			return err
+		}
+		after = keys[len(keys)-1]
+		if len(keys) < s.rootPageRows {
+			return nil
+		}
+	}
+}
+
+func (s OutputStream) streamShardedRows(ctx context.Context, keys []string, visit func(map[string]any) error) error {
+	rowsByShard := make([][]map[string]any, len(s.shards))
+	group, queryCtx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for index, shard := range s.shards {
+		group.Go(func() error {
+			query, binds := shard.query, shard.bindVars
+			if shard.page != nil {
+				query, binds = shard.page.RowsQuery, cloneBindVars(shard.page.RowsBindVars)
+				binds[compiler.RootPageKeysBind] = keys
+			}
+			rows := make([]map[string]any, 0)
+			if err := s.stream(queryCtx, query, s.batchSize, binds, func(row map[string]any) error {
+				if err := ensureStableRowIdentity(row, s.RowIdentity, binds); err != nil {
+					return fmt.Errorf("projection shard %d: %w", index+1, err)
+				}
+				rows = append(rows, row)
+				return nil
+			}); err != nil {
+				return err
+			}
+			rowsByShard[index] = rows
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	merged, err := mergeShardedRows(rowsByShard)
+	if err != nil {
+		return err
+	}
+	for _, row := range merged {
+		if err := visit(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func mergeShardedRows(rowsByShard [][]map[string]any) ([]map[string]any, error) {
+	if len(rowsByShard) == 0 {
+		return nil, fmt.Errorf("cannot merge zero projection shards")
+	}
+	merged := make([]map[string]any, len(rowsByShard[0]))
+	identityKeys := make([]string, len(rowsByShard[0]))
+	firstSeen := make(map[string]struct{}, len(rowsByShard[0]))
+	for index, row := range rowsByShard[0] {
+		key, err := shardRowIdentity(row, 1, index+1)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := firstSeen[key]; duplicate {
+			return nil, fmt.Errorf("projection shard 1 returned duplicate row identity at row %d", index+1)
+		}
+		firstSeen[key] = struct{}{}
+		identityKeys[index] = key
+		merged[index] = cloneShardedRow(row)
+	}
+	for shardIndex := 1; shardIndex < len(rowsByShard); shardIndex++ {
+		rows := rowsByShard[shardIndex]
+		if len(rows) != len(merged) {
+			return nil, fmt.Errorf("projection shard %d row count %d does not match shard 1 row count %d", shardIndex+1, len(rows), len(merged))
+		}
+		seen := make(map[string]struct{}, len(rows))
+		for rowIndex, row := range rows {
+			key, err := shardRowIdentity(row, shardIndex+1, rowIndex+1)
+			if err != nil {
+				return nil, err
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return nil, fmt.Errorf("projection shard %d returned duplicate row identity at row %d", shardIndex+1, rowIndex+1)
+			}
+			seen[key] = struct{}{}
+			if key != identityKeys[rowIndex] {
+				return nil, fmt.Errorf("projection shard %d row identity/order mismatch at row %d: got %s, want %s", shardIndex+1, rowIndex+1, key, identityKeys[rowIndex])
+			}
+			if err := mergeShardRow(merged[rowIndex], row, shardIndex+1, rowIndex+1); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return merged, nil
+}
+
+func shardRowIdentity(row map[string]any, shardIndex, rowIndex int) (string, error) {
+	value, ok := row["__loom_row_id"]
+	if !ok || value == nil {
+		return "", fmt.Errorf("projection shard %d row %d is missing __loom_row_id", shardIndex, rowIndex)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("projection shard %d row %d has an unencodable __loom_row_id: %w", shardIndex, rowIndex, err)
+	}
+	return string(encoded), nil
+}
+
+func mergeShardRow(dst, src map[string]any, shardIndex, rowIndex int) error {
+	for key, value := range src {
+		if key == "__loom_row_id" {
+			if !reflect.DeepEqual(dst[key], value) {
+				return fmt.Errorf("projection shard %d row %d has mismatched __loom_row_id", shardIndex, rowIndex)
+			}
+			continue
+		}
+		if existing, exists := dst[key]; !exists {
+			dst[key] = value
+		} else if key == "__loom_dynamic_runtime_keys" {
+			if err := mergeDynamicRuntimeKeys(dst, existing, value, shardIndex, rowIndex); err != nil {
+				return err
+			}
+		} else if !reflect.DeepEqual(existing, value) {
+			return fmt.Errorf("projection shard %d row %d has conflicting internal field %q", shardIndex, rowIndex, key)
+		}
+	}
+	return nil
+}
+
+func mergeDynamicRuntimeKeys(dst map[string]any, existing, incoming any, shardIndex, rowIndex int) error {
+	left, leftOK := existing.(map[string]any)
+	right, rightOK := incoming.(map[string]any)
+	if !leftOK || !rightOK {
+		if !reflect.DeepEqual(existing, incoming) {
+			return fmt.Errorf("projection shard %d row %d has conflicting dynamic runtime keys", shardIndex, rowIndex)
+		}
+		return nil
+	}
+	for key, value := range right {
+		if prior, exists := left[key]; exists && !reflect.DeepEqual(prior, value) {
+			return fmt.Errorf("projection shard %d row %d has conflicting dynamic runtime family %q", shardIndex, rowIndex, key)
+		}
+		left[key] = value
+	}
+	dst["__loom_dynamic_runtime_keys"] = left
+	return nil
+}
+
+func cloneShardedRow(row map[string]any) map[string]any {
+	clone := make(map[string]any, len(row))
+	for key, value := range row {
+		clone[key] = value
+	}
+	return clone
 }
 
 func cloneBindVars(input map[string]any) map[string]any {

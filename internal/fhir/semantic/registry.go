@@ -10,7 +10,7 @@ import (
 )
 
 // DatatypeRegistryVersion versions the generated-schema semantic descriptors.
-const DatatypeRegistryVersion = 1
+const DatatypeRegistryVersion = 3
 
 // Disposition is the closed semantic treatment for a generated complex datatype.
 type Disposition string
@@ -47,8 +47,9 @@ type MemberRoleDescriptor struct {
 
 // ScalarProjection selects one scalar preview from a structured datatype.
 type ScalarProjection struct {
-	Path        string
-	LogicalType string
+	Path         string
+	LogicalType  string
+	Presentation string
 }
 
 // DatatypeDescriptor describes how one generated complex datatype participates
@@ -63,10 +64,35 @@ type DatatypeDescriptor struct {
 	RuleHint         string
 }
 
+// ScopePairingDescriptor proves that one categorical member discriminates a
+// value carried by the same owner scope. Datatype descriptors describe the
+// shape of one reusable FHIR datatype; scope pairings describe the small
+// number of generated backbone/resource shapes whose members form one
+// correlated observation. Keeping this data declarative avoids resource-name
+// switches in the semantic walker.
+type ScopePairingDescriptor struct {
+	OwnerType        schema.DefinitionName
+	CategoricalPath  string
+	ValuePath        string
+	ValueChoiceGroup string
+	Rule             string
+}
+
 // DatatypeRegistry is an immutable, versioned view of datatype semantics.
 type DatatypeRegistry struct {
-	version int
-	entries map[schema.DefinitionName]DatatypeDescriptor
+	version          int
+	entries          map[schema.DefinitionName]DatatypeDescriptor
+	scopePairings    map[schema.DefinitionName][]ScopePairingDescriptor
+	unresolvedValues map[schema.DefinitionName]bool
+}
+
+// ScopePairings returns the generated-schema pairing proofs for one owner
+// definition. The returned descriptors are detached from the registry.
+func (r *DatatypeRegistry) ScopePairings(owner schema.DefinitionName) []ScopePairingDescriptor {
+	if r == nil {
+		return nil
+	}
+	return append([]ScopePairingDescriptor(nil), r.scopePairings[owner]...)
 }
 
 // Version reports the registry version carried by this snapshot.
@@ -132,6 +158,44 @@ func (r *DatatypeRegistry) Validate(index *schema.Index) error {
 			return fmt.Errorf("validate semantic datatype registry: %w", err)
 		}
 	}
+	for owner, pairings := range r.scopePairings {
+		if _, ok := index.Definition(owner); !ok {
+			return fmt.Errorf("validate semantic datatype registry: pairing owner %q is absent from generated schema", owner)
+		}
+		for _, pairing := range pairings {
+			if strings.TrimSpace(pairing.CategoricalPath) == "" {
+				return fmt.Errorf("validate semantic datatype registry: pairing owner %q has no categorical path", owner)
+			}
+			if (strings.TrimSpace(pairing.ValuePath) == "") == (strings.TrimSpace(pairing.ValueChoiceGroup) == "") {
+				return fmt.Errorf("validate semantic datatype registry: pairing owner %q must define exactly one value path or choice group", owner)
+			}
+			category, err := resolveDatatypeMember(index, owner, pairing.CategoricalPath)
+			if err != nil {
+				return fmt.Errorf("validate semantic datatype registry: pairing owner %q categorical path %q: %w", owner, pairing.CategoricalPath, err)
+			}
+			if category.ReferencedType != "CodeableConcept" && category.ReferencedType != "Coding" {
+				return fmt.Errorf("validate semantic datatype registry: pairing owner %q categorical path %q is not CodeableConcept or Coding", owner, pairing.CategoricalPath)
+			}
+			if pairing.ValuePath != "" {
+				if _, err := resolveDatatypeMember(index, owner, pairing.ValuePath); err != nil {
+					return fmt.Errorf("validate semantic datatype registry: pairing owner %q value path %q: %w", owner, pairing.ValuePath, err)
+				}
+			}
+			if pairing.ValueChoiceGroup != "" {
+				definition, _ := index.Definition(owner)
+				found := false
+				for _, element := range definition.Elements {
+					if element.ChoiceGroup == pairing.ValueChoiceGroup {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return fmt.Errorf("validate semantic datatype registry: pairing owner %q has no value choice group %q", owner, pairing.ValueChoiceGroup)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -144,8 +208,10 @@ func NewDatatypeRegistry(index *schema.Index) (*DatatypeRegistry, error) {
 		return nil, fmt.Errorf("create semantic datatype registry: schema index is nil")
 	}
 	registry := &DatatypeRegistry{
-		version: DatatypeRegistryVersion,
-		entries: make(map[schema.DefinitionName]DatatypeDescriptor),
+		version:          DatatypeRegistryVersion,
+		entries:          make(map[schema.DefinitionName]DatatypeDescriptor),
+		scopePairings:    make(map[schema.DefinitionName][]ScopePairingDescriptor),
+		unresolvedValues: make(map[schema.DefinitionName]bool),
 	}
 	for _, definition := range index.Definitions() {
 		if len(definition.Elements) == 0 {
@@ -158,11 +224,44 @@ func NewDatatypeRegistry(index *schema.Index) (*DatatypeRegistry, error) {
 	}
 	for _, descriptor := range curatedDatatypeDescriptors() {
 		if _, ok := index.Definition(descriptor.Datatype); !ok {
-			return nil, fmt.Errorf("create semantic datatype registry: curated datatype %q is absent from schema", descriptor.Datatype)
+			continue
 		}
 		registry.entries[descriptor.Datatype] = cloneDatatypeDescriptor(descriptor)
 	}
+	for _, pairing := range curatedScopePairingDescriptors() {
+		if _, ok := index.Definition(pairing.OwnerType); !ok {
+			continue
+		}
+		registry.scopePairings[pairing.OwnerType] = append(registry.scopePairings[pairing.OwnerType], pairing)
+	}
+	for _, definition := range index.Definitions() {
+		if len(registry.scopePairings[definition.Name]) != 0 {
+			continue
+		}
+		if pairing, ok := structuralScopePairing(definition); ok {
+			registry.scopePairings[definition.Name] = []ScopePairingDescriptor{pairing}
+		} else if registry.entries[definition.Name].Disposition == DispositionAdvancedOnly {
+			for _, element := range definition.Elements {
+				if element.ChoiceGroup == "value" {
+					registry.unresolvedValues[definition.Name] = true
+				}
+			}
+		}
+	}
 	return registry, nil
+}
+
+// RegistryForIndex reuses the generated plan; alternate schema indexes own
+// their descriptors instead of borrowing decisions from the generated schema.
+func RegistryForIndex(index *schema.Index) (*DatatypeRegistry, error) {
+	generated, err := schema.GeneratedIndex()
+	if err != nil {
+		return nil, err
+	}
+	if generated == index {
+		return GeneratedDatatypeRegistry()
+	}
+	return NewDatatypeRegistry(index)
 }
 
 // GeneratedDatatypeRegistry returns the process-wide registry validated
@@ -221,7 +320,7 @@ func curatedDatatypeDescriptors() []DatatypeDescriptor {
 				{Path: "code", Role: MemberCategoryCode},
 				{Path: "display", Role: MemberCategoryDisplay},
 			},
-			RuleHint: "CATEGORICAL_CODE_V1",
+			RuleHint: "CATEGORICAL_SLOT_V1",
 		},
 		{
 			Datatype:    "CodeableConcept",
@@ -234,8 +333,8 @@ func curatedDatatypeDescriptors() []DatatypeDescriptor {
 				{Path: "coding[].display", Role: MemberCategoryDisplay},
 				{Path: "text", Role: MemberCategoryText},
 			},
-			ScalarProjection: &ScalarProjection{Path: "text", LogicalType: "string"},
-			RuleHint:         "CATEGORICAL_CODE_V1",
+			ScalarProjection: &ScalarProjection{Path: "coding[].code", LogicalType: "string", Presentation: schema.ValuePresentationDisplayOrCode},
+			RuleHint:         "CATEGORICAL_SLOT_V1",
 		},
 		{
 			Datatype:    "Quantity",
@@ -248,29 +347,31 @@ func curatedDatatypeDescriptors() []DatatypeDescriptor {
 		{
 			Datatype:    "Period",
 			Disposition: DispositionCompositeValue,
-			MemberRoles: []MemberRoleDescriptor{
-				{Path: "start", Role: MemberValueProjection},
-			},
-			ScalarProjection: &ScalarProjection{Path: "start", LogicalType: "date_time"},
 		},
 		{
 			Datatype:    "Range",
 			Disposition: DispositionCompositeValue,
-			MemberRoles: []MemberRoleDescriptor{
-				{Path: "low.value", Role: MemberValueProjection},
-			},
-			ScalarProjection: &ScalarProjection{Path: "low.value", LogicalType: "decimal"},
 		},
 		{
 			Datatype:    "Ratio",
 			Disposition: DispositionCompositeValue,
-			MemberRoles: []MemberRoleDescriptor{
-				{Path: "numerator.value", Role: MemberValueProjection},
-			},
-			ScalarProjection: &ScalarProjection{Path: "numerator.value", LogicalType: "decimal"},
 		},
 		{Datatype: "Reference", Disposition: DispositionNavigationOnly},
 		{Datatype: "Resource", Disposition: DispositionNavigationOnly},
+	}
+}
+
+func curatedScopePairingDescriptors() []ScopePairingDescriptor {
+	// The generated SubstanceDefinition representation backbone has a
+	// CodeableConcept `format` sibling and a primitive `representation` sibling,
+	// but the latter is not a value[x] choice group. The generic walker cannot
+	// prove that relationship from the datatype descriptors alone, so retain
+	// this schema-owned proof rather than guessing from a resource name in the
+	// semantic extractor.
+	return []ScopePairingDescriptor{
+		{OwnerType: "SubstanceDefinitionStructureRepresentation", CategoricalPath: "format", ValuePath: "representation", Rule: "FORMAT_REPRESENTATION"},
+		{OwnerType: "DosageDoseAndRate", CategoricalPath: "type", ValueChoiceGroup: "dose", Rule: "DOSE_AND_RATE_TYPE"},
+		{OwnerType: "DosageDoseAndRate", CategoricalPath: "type", ValueChoiceGroup: "rate", Rule: "DOSE_AND_RATE_TYPE"},
 	}
 }
 
@@ -309,9 +410,6 @@ func validateDatatypeDescriptor(index *schema.Index, descriptor DatatypeDescript
 		if keyCount != 1 || (valueCount != 1 && descriptor.ValueChoiceGroup == "") || (valueCount == 1 && descriptor.ValueChoiceGroup != "") {
 			return fmt.Errorf("datatype %q must describe one key and either one value member or one value choice group", descriptor.Datatype)
 		}
-	}
-	if descriptor.Disposition == DispositionCompositeValue && descriptor.ScalarProjection == nil {
-		return fmt.Errorf("composite datatype %q has no scalar projection", descriptor.Datatype)
 	}
 	if descriptor.Disposition == DispositionCategorical {
 		if len(memberPathsForRole(descriptor, MemberCategoryCode)) != 1 {
@@ -401,6 +499,8 @@ const (
 	DirectFieldPrimitiveLeaf    DirectFieldReason = "PRIMITIVE_LEAF"
 	DirectFieldSemanticDatatype DirectFieldReason = "SEMANTIC_DATATYPE_MEMBER"
 	DirectFieldNonPrimitive     DirectFieldReason = "NON_PRIMITIVE_LEAF"
+	DirectFieldPairedValue      DirectFieldReason = "ASSOCIATED_VALUE_MEMBER"
+	DirectFieldCategorical      DirectFieldReason = "CATEGORICAL_SLOT"
 )
 
 // DirectFieldClassification says whether a generated-schema path can stand as
@@ -425,7 +525,7 @@ func ClassifyDirectField(index *schema.Index, resourceType schema.DefinitionName
 	if err != nil {
 		return DirectFieldClassification{}, err
 	}
-	registry, err := GeneratedDatatypeRegistry()
+	registry, err := RegistryForIndex(index)
 	if err != nil {
 		return DirectFieldClassification{}, err
 	}
@@ -469,6 +569,16 @@ func ClassifyDirectField(index *schema.Index, resourceType schema.DefinitionName
 		if segment.repeated != (element.JSONType == schema.JSONTypeArray) {
 			return DirectFieldClassification{}, fmt.Errorf("classify direct FHIR field %q: repeated marker does not match member %q", canonicalPath, segment.name)
 		}
+		if semanticOwner == "" {
+			if registry.HasUnresolvedValueGroup(currentType) && element.ChoiceGroup == "value" {
+				return DirectFieldClassification{Reason: DirectFieldPairedValue, OwningDatatype: currentType, Disposition: DispositionAdvancedOnly}, nil
+			}
+			for _, pairing := range registry.ScopePairings(currentType) {
+				if pairingOwnsValue(pairing, element) {
+					return DirectFieldClassification{Reason: DirectFieldPairedValue, OwningDatatype: currentType, Disposition: DispositionValueAssociation}, nil
+				}
+			}
+		}
 		if partIndex == len(segments)-1 {
 			owner := currentType
 			if semanticOwner != "" {
@@ -485,7 +595,14 @@ func ClassifyDirectField(index *schema.Index, resourceType schema.DefinitionName
 				} else if element.ArrayElementType != "" {
 					owner = element.ArrayElementType
 				}
-				return DirectFieldClassification{Reason: DirectFieldNonPrimitive, OwningDatatype: owner}, nil
+				disposition := Disposition("")
+				if descriptor, ok := registry.Lookup(owner); ok {
+					disposition = descriptor.Disposition
+				}
+				return DirectFieldClassification{Reason: DirectFieldNonPrimitive, OwningDatatype: owner, Disposition: disposition}, nil
+			}
+			if element.BindingURI != "" && element.ChoiceGroup == "" {
+				return DirectFieldClassification{Reason: DirectFieldCategorical, OwningDatatype: owner, Disposition: DispositionCategorical}, nil
 			}
 			return DirectFieldClassification{
 				Eligible:       true,

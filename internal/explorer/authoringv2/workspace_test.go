@@ -264,6 +264,23 @@ func TestCurrentWorkspaceRejectsRawStructuralFieldSource(t *testing.T) {
 	}
 }
 
+func TestCurrentWorkspaceAllowsLosslessCategoricalMemberProjection(t *testing.T) {
+	visible := true
+	workspace := Workspace{
+		APIVersion: APIVersion, Kind: WorkspaceKind, SemanticsVersion: CurrentSemanticsVersion,
+		Explorer: ExplorerMetadata{Title: "Conditions"},
+		Documents: []Document{{
+			Kind: Kind, Output: Output{ID: "conditions", Title: "Conditions"}, RootResourceType: "Condition",
+			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Condition"}, Rows: RecordsRowDefinition(),
+			Columns: []Column{{Column: "diagnosis", Label: "Diagnosis", OccurrenceID: RootOccurrenceID, Source: ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "code.coding[].code", ProjectionMode: "ALL"}}, Table: &TablePresentation{Visible: &visible}}},
+		}},
+		Tabs: []Tab{{ID: "conditions", Title: "Conditions", OutputID: "conditions", Order: 0, Visible: true}},
+	}
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("categorical scalar member should be a valid advanced/lossless projection: %v", err)
+	}
+}
+
 func TestDecodeLegacySourceMigratesIdempotentlyAndAddsRelatedDecision(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","semanticsVersion":0,"explorer":{"title":"Persisted"},"documents":[{"kind":"` + Kind + `","output":{"id":"patients","title":"Patients"},"rootResourceType":"Patient","route":{"occurrenceId":"base","resourceType":"Patient"},"columns":[{"column":"names","label":"Names","occurrenceId":"base","source":{"kind":"field","fieldPath":"name[].family","projectionMode":"FIRST"}}]}],"tabs":[{"id":"patients","title":"Patients","outputId":"patients","order":0,"visible":true}]}`
 	decoded, err := DecodeWorkspace([]byte(raw))

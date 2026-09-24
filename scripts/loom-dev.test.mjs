@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01FeatureConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01FeatureCatalogRequest, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01FeatureCatalogPages, collectJ01FeatureConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01CategoricalNamespace, externalJ01CategoricalNamespaceValues, externalJ01CategoricalSlot, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01FeatureCatalogRequest, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01ViewerCellText, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, selectExternalPivotManifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract, verifyJ01AttachOnly } from './loom-dev.mjs';
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -521,6 +521,37 @@ test('external J01 source guard rejects a changed fixture file', async () => {
   }
 });
 
+test('external CDA pivot selector requires two recurring codes and one overlapping Patient row', async () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'loom-dev-cda-pivot-manifest-'));
+  const patients = ['7e39d9c9-6d9f-57ef-b328-072c36db3e8f', '712656ce-d3c2-5ae1-9ab4-eb8c98e287b5'];
+  const observations = [
+    ['542ca620-897d-5e71-9e2f-0c24f477eab3', patients[0], '1222593009', 'Not Reported'],
+    ['a263156f-7f9c-56f1-aa2b-aa5ca83b4807', patients[0], '1222593009', 'Not Reported'],
+    ['6eb0686d-93a8-502c-aaab-d6b4ac899168', patients[0], '1222591006', 'M0'],
+    ['6b283f96-c51e-5fa5-ba4e-33ae1c2fafe2', patients[1], '1222591006', 'M1a'],
+  ];
+  const observationSource = (rows) => rows.map(([id, patient, code, value]) => JSON.stringify({
+    resourceType: 'Observation', id, subject: { reference: `Patient/${patient}` },
+    code: { coding: [{ system: 'http://snomed.info/sct', code }] },
+    valueCodeableConcept: { coding: [{ system: 'http://snomed.info/sct', code, display: value }] },
+  })).join('\n') + '\n';
+  try {
+    writeFileSync(join(fixture, 'Patient.ndjson'), patients.map((id) => JSON.stringify({ resourceType: 'Patient', id })).join('\n') + '\n');
+    writeFileSync(join(fixture, 'Observation.ndjson'), observationSource(observations));
+    const manifest = await selectExternalPivotManifest(fixture);
+    assert.deepEqual(manifest.summary.observations.map(({ code, value }) => [code, value]), [
+      ['1222593009', 'Not Reported'], ['1222593009', 'Not Reported'], ['1222591006', 'M0'], ['1222591006', 'M1a'],
+    ]);
+    assert.equal(manifest.files.reduce((count, file) => count + file.records.length, 0), 6);
+    const broken = observations.map((record) => [...record]);
+    broken[2][1] = patients[1];
+    writeFileSync(join(fixture, 'Observation.ndjson'), observationSource(broken));
+    await assert.rejects(selectExternalPivotManifest(fixture), /same-patient overlap/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test('external J01 Patient scalar comes from the selected live catalog', () => {
   const patientNode = { nodeId: 'patient-node', resourceType: 'Patient' };
   const state = {
@@ -542,9 +573,123 @@ test('external J01 Patient scalar comes from the selected live catalog', () => {
     },
   };
   assert.deepEqual(externalJ01PatientScalar(state), {
-    fieldPath: 'resourceType', label: 'resourceType', checkboxLabel: 'Select Patient.resourceType',
+    fieldPath: 'resourceType', label: 'resourceType',
   });
   assert.throws(() => externalJ01PatientScalar({ catalog: { nodes: [patientNode], candidates: [] } }), /does not expose a supported scalar Patient\.resourceType/);
+});
+
+test('J01 attach-only mode is explicit and narrowly scoped', () => {
+  assert.equal(verifyJ01AttachOnly('verify-j01', {}), false);
+  assert.equal(verifyJ01AttachOnly('verify-j01', { LOOM_DEV_ATTACH_ONLY: '1' }), true);
+  assert.throws(
+    () => verifyJ01AttachOnly('verify-j01', { LOOM_DEV_ATTACH_ONLY: 'yes' }),
+    /LOOM_DEV_ATTACH_ONLY must be 1 when set/,
+  );
+  assert.throws(
+    () => verifyJ01AttachOnly('verify-fast', { LOOM_DEV_ATTACH_ONLY: '1' }),
+    /supported only for verify-j01/,
+  );
+});
+
+test('external J01 bound primitive status comes from the categorical concept source', () => {
+  const sourceDetails = [
+    { label: 'FHIR resource', value: 'Observation' },
+    { label: 'FHIR semantic role', value: 'CATEGORICAL_SLOT' },
+    { label: 'FHIR source', value: 'status' },
+    { label: 'Value member', value: 'status' },
+  ];
+  const status = externalJ01CategoricalSlot({ entries: [{
+    kind: 'SEMANTIC_FEATURE', featureId: 'semantic:status', title: 'Observation status',
+    description: 'A categorical FHIR field.', resourceType: 'Observation', valueType: 'code', cardinality: 'optional_one',
+    occurrences: 32, readiness: { status: 'READY', code: 'READY', message: 'ready' },
+    source: { kind: 'SEMANTIC', conceptId: 'status-concept', bindingId: 'status-binding' }, sourceDetails,
+    constructionChoice: {
+      choiceId: 'choice-status',
+      source: { kind: 'SEMANTIC', conceptId: 'status-concept', bindingId: 'status-binding', candidateId: 'status-candidate', nodeId: 'observation-node', resourceType: 'Observation', sourcePath: 'status', fieldPath: 'status', valueSelector: 'status', logicalType: 'code', ruleVersion: '9', schemaVersion: 2, cardinality: 'optional_one' },
+      route: [], presentation: { summary: 'Observation.status', facts: sourceDetails },
+      options: [{ form: 'VALUE', shape: 'SCALAR', decision: 'DEFAULT', preservation: 'PRESERVING', rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED', reason: 'Keep the scalar value.' }],
+    },
+  }] }, { resourceType: 'Observation', sourcePath: 'status' });
+  assert.deepEqual(status, {
+    featureId: 'semantic:status', title: 'Observation status', valueType: 'code', checkboxLabel: 'Select Observation status',
+    source: { kind: 'SEMANTIC', conceptId: 'status-concept', bindingId: 'status-binding' },
+    choice: { choiceId: 'choice-status', form: 'VALUE', formLabel: 'SCALAR · PRESERVING · VALUE', fieldPath: 'status', sourceKind: 'SEMANTIC' },
+    sourceDetails,
+  });
+  assert.throws(() => externalJ01CategoricalSlot({ entries: [] }, { resourceType: 'Observation', sourcePath: 'status' }), /exactly one categorical Observation\.status concept/);
+});
+
+test('external J01 code namespace binds the observed system and keeps display-or-code values', () => {
+  const sourceDetails = [
+    { label: 'FHIR resource', value: 'Observation' },
+    { label: 'FHIR semantic role', value: 'CATEGORICAL_SLOT' },
+    { label: 'FHIR source', value: 'code' },
+    { label: 'Code system', value: 'urn:example:a' },
+  ];
+  const entry = {
+    kind: 'SEMANTIC_FEATURE', featureId: 'semantic:code:a', title: 'Observation code',
+    resourceType: 'Observation',
+    source: { kind: 'SEMANTIC', conceptId: 'code-concept', bindingId: 'code-binding' }, sourceDetails,
+    constructionChoice: {
+      choiceId: 'choice-code-a',
+      source: {
+        kind: 'SEMANTIC', fieldPath: 'code.coding[].code', keySelector: 'code.coding[]', valueSelector: 'code.coding[].code',
+      },
+      options: [{ form: 'VALUE', shape: 'LIST', decision: 'DEFAULT', preservation: 'PRESERVING', rowEffect: 'PRESERVES_ROW_GRAIN', support: 'SUPPORTED' }],
+    },
+  };
+  const slot = externalJ01CategoricalNamespace({ entries: [entry] }, {
+    resourceType: 'Observation', sourcePath: 'code', system: 'urn:example:a',
+  });
+  assert.equal(slot.system, 'urn:example:a');
+  assert.deepEqual(slot.binding, {
+    fieldPath: 'code.coding[].code', keySelector: 'code.coding[]', valueSelector: 'code.coding[].code', sourcePath: 'code',
+  });
+  const manifest = {
+    files: [{ name: 'Observation.ndjson', contents: Buffer.from([
+      JSON.stringify({ resourceType: 'Observation', id: 'o-1', code: { coding: [
+        { system: 'urn:example:a', code: 'same', display: 'A display' },
+        { system: 'urn:example:b', code: 'same', display: 'B display' },
+      ] } }),
+      JSON.stringify({ resourceType: 'Observation', id: 'o-2', code: { coding: [
+        { system: 'urn:example:a', code: 'fallback' },
+        { system: 'urn:example:a', code: 'same', display: 'A second' },
+      ] } }),
+    ].join('\n') + '\n') }],
+  };
+  assert.deepEqual(externalJ01CategoricalNamespaceValues(manifest, { system: 'urn:example:a' }), {
+    resourceType: 'Observation', sourcePath: 'code.coding', system: 'urn:example:a',
+    systems: ['urn:example:a', 'urn:example:b'],
+    valuesByID: { 'o-1': ['A display'], 'o-2': ['fallback', 'A second'] },
+  });
+  assert.throws(() => externalJ01CategoricalNamespace({ entries: [entry] }, {
+    resourceType: 'Observation', sourcePath: 'code', system: 'urn:example:b',
+  }), /namespace urn:example:b/);
+});
+
+test('J01 automatic catalog paging follows the current 500-entry request contract', async () => {
+  const requests = [];
+  const pages = [
+    [{ featureId: 'semantic:status', kind: 'SEMANTIC_FEATURE' }],
+    [{ featureId: 'semantic:category', kind: 'SEMANTIC_FEATURE' }],
+  ];
+  const inventory = await collectJ01FeatureCatalogPages(async (body) => {
+    requests.push(body);
+    const index = requests.length - 1;
+    return {
+      response: { ok: true, status: 200 },
+      value: {
+        contextToken: 'ctx-cda', buildId: 'build-cda', state: 'complete', sourceAvailability: 'verified', section: 'CONCEPTS', entries: pages[index],
+        ...(index === 0 ? { nextCursor: 'cursor-cda-2' } : {}),
+      },
+    };
+  }, { snapshotToken: 'snapshot-cda', outputId: 'observations', resourceType: 'Observation', query: 'status' });
+  assert.deepEqual(requests.map((request) => ({ cursor: request.cursor, limit: request.limit })), [
+    { cursor: undefined, limit: 500 }, { cursor: 'cursor-cda-2', limit: 500 },
+  ]);
+  assert.equal(inventory.count, 2);
+  assert.equal(inventory.pages.length, 2);
+  assert.deepEqual(inventory.entries.map((entry) => entry.featureId), ['semantic:status', 'semantic:category']);
 });
 
 test('timing summaries use actual samples and reject invalid durations', () => {
@@ -586,6 +731,13 @@ test('J01 typed artifact values treat omitted nullable fields as null', () => {
   ), true);
   assert.equal(j01JSONValuesEquivalent({ value: 0 }, { value: null }), false);
   assert.equal(j01JSONValuesEquivalent([1, 2], [2, 1]), false);
+});
+
+test('J01 Viewer formatting matches empty and populated repeated values', () => {
+  assert.equal(j01ViewerCellText([]), '—');
+  assert.equal(j01ViewerCellText([null]), '—');
+  assert.equal(j01ViewerCellText(['alpha', 'beta']), 'alpha; beta');
+  assert.equal(j01ViewerCellText([{ display: 'Readable' }]), 'Readable');
 });
 
 test('J01 Viewer comparison accepts rows outside the bounded Preview only when the complete artifact agrees', () => {
@@ -866,13 +1018,13 @@ test('J01 fixture generation rejects invalid counts and incomplete identity meta
 test('J01 feature catalog requests use the saved snapshot and omit an absent cursor', () => {
   assert.deepEqual(j01FeatureCatalogRequest({
     snapshotToken: 'snapshot-1',
-    rowRoot: 'observation-node',
+    outputId: 'observations',
     section: 'CONCEPTS',
     resourceType: 'Observation',
     query: 'J01 concept',
   }), {
     snapshotToken: 'snapshot-1',
-    rowRoot: 'observation-node',
+    outputId: 'observations',
     section: 'CONCEPTS',
     resourceType: 'Observation',
     query: 'J01 concept',
@@ -880,17 +1032,17 @@ test('J01 feature catalog requests use the saved snapshot and omit an absent cur
   });
   assert.deepEqual(j01FeatureCatalogRequest({
     snapshotToken: 'snapshot-1',
-    rowRoot: 'observation-node',
+    outputId: 'observations',
     section: 'CONCEPTS',
     cursor: 'cursor-2',
   }), {
     snapshotToken: 'snapshot-1',
-    rowRoot: 'observation-node',
+    outputId: 'observations',
     section: 'CONCEPTS',
     cursor: 'cursor-2',
     limit: 50,
   });
-  assert.throws(() => j01FeatureCatalogRequest({ rowRoot: 'observation-node' }), /requires a catalog snapshot/);
+  assert.throws(() => j01FeatureCatalogRequest({ outputId: 'observations' }), /requires a catalog snapshot/);
 });
 
 test('J01 feature catalog pagination retains one context identity and finds each expected code exactly once', async () => {
@@ -933,7 +1085,7 @@ test('J01 feature catalog pagination retains one context identity and finds each
     };
   }, {
     snapshotToken: 'snapshot-1',
-    rowRoot: 'observation-node',
+    outputId: 'observations',
     resourceType: 'Observation',
     query: fixture.displayPrefix,
   }, fixture);
@@ -952,7 +1104,7 @@ test('J01 feature catalog pagination retains one context identity and finds each
 
 test('J01 feature catalog pagination rejects failure, identity drift, duplicate pages, and examples', async (t) => {
   const fixture = { count: 2, system: 'urn:loom:j01:catalog', codePrefix: 'concept-', displayPrefix: 'J01 concept' };
-  const request = { snapshotToken: 'snapshot-1', rowRoot: 'observation-node', query: fixture.displayPrefix };
+  const request = { snapshotToken: 'snapshot-1', outputId: 'observations', query: fixture.displayPrefix };
   const entry = (suffix, extra = {}) => ({
     kind: 'SEMANTIC_FEATURE',
     featureId: `feature-${suffix}`,

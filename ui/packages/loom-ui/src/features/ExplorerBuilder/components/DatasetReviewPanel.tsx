@@ -207,6 +207,8 @@ const authoredReductions = (
       case 'extensionByUrl':
       case 'codedValue':
         return source.lookup.projectionMode;
+      case 'categoricalBySystem':
+        return source.categorical.projectionMode;
       case 'ownerRecords':
       case 'aggregate':
       case 'projectId':
@@ -271,6 +273,11 @@ const sourcePaths = (column: DraftTable['document']['columns'][number]): Readonl
     }
     case 'ownerRecords':
       return [source.ownerRecords.binding.ownerPath ?? '', source.ownerRecords.binding.valuePath];
+    case 'categoricalBySystem':
+      return [
+        `${source.categorical.binding.keyPath}.${source.categorical.binding.valuePath}`,
+        source.categorical.system,
+      ];
     case 'projectId':
       return [];
     default: {

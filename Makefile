@@ -178,6 +178,12 @@ verify-j04-patient:
 verify-j05:
 	node scripts/loom-dev.mjs verify-j05
 
+verify-pivot:
+	node scripts/loom-dev.mjs verify-pivot
+
+verify-pivot-cda:
+	node scripts/loom-dev.mjs verify-pivot-cda
+
 dev-down:
 	node scripts/loom-dev.mjs dev-down
 

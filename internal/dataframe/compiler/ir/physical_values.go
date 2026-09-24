@@ -252,30 +252,51 @@ const (
 // owner payload, except SystemSelector and CodeSelector which are relative to
 // one item produced by KeySelector.
 type PhysicalCorrelation struct {
-	Source          PhysicalValue
-	ResourceType    string
-	OwnerResource   string
-	OwnerSelector   spec.Selector
-	KeyResource     string
-	KeySelector     spec.Selector
-	SystemSelector  spec.Selector
-	CodeSelector    spec.Selector
-	ValueScope      PhysicalCorrelationValueScope
-	ValueSelector   spec.Selector
-	ValueFallbacks  []spec.Selector
-	ChoiceArms      []string
-	ChoiceSelectors []spec.Selector
-	LogicalType     string
-	ValuePrimitive  string
-	UnitSelector    *spec.Selector
-	SystemBindKey   string
-	CodeBindKey     string
+	Source            PhysicalValue
+	ResourceType      string
+	OwnerResource     string
+	OwnerSelector     spec.Selector
+	KeyResource       string
+	KeySelector       spec.Selector
+	SystemSelector    spec.Selector
+	CodeSelector      spec.Selector
+	ValueScope        PhysicalCorrelationValueScope
+	ValueSelector     spec.Selector
+	ValueFallbacks    []spec.Selector
+	ChoiceArms        []string
+	ChoiceSelectors   []spec.Selector
+	LogicalType       string
+	ValuePrimitive    string
+	ValuePresentation string
+	ValueRepeated     bool
+	UnitSelector      *spec.Selector
+	SystemBindKey     string
+	CodeBindKey       string
+	// NamespaceOnly selects a Coding system without binding an observed code.
+	// Code and display are values emitted from the same Coding item.
+	NamespaceOnly bool
 	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
 	// aware extension correlation. Each selector is relative to the current
 	// Extension item and each bind is matched before descending to the next
 	// nested extension. When non-empty, coding fields above are unused.
 	ExtensionURLSelectors []spec.Selector
 	ExtensionURLBindKeys  []string
+}
+
+// PhysicalCorrelationKeyMatch tests only whether one Coding item matches a
+// selected system and code inside the same repeated owner. It deliberately
+// carries no value selector so it cannot hide unsupported value[x] arms.
+type PhysicalCorrelationKeyMatch struct {
+	Source         PhysicalValue
+	ResourceType   string
+	OwnerResource  string
+	OwnerSelector  spec.Selector
+	KeyResource    string
+	KeySelector    spec.Selector
+	SystemSelector spec.Selector
+	CodeSelector   spec.Selector
+	SystemBindKey  string
+	CodeBindKey    string
 }
 
 type PhysicalObjectLookup struct {

@@ -170,11 +170,12 @@ const ConfiguredColumnRow = ({
           Column details
         </button>
       </div>
-      <label className="flex justify-center" title="Display in table">
+      <label className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500" title="Display in table">
         <span className="sr-only">Table</span>
         <input
           aria-label={`Display ${column.label} in table`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={visible}
           disabled={disabled}
           onChange={(event) =>
@@ -190,7 +191,7 @@ const ConfiguredColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500"
         title={
           filterable
             ? 'Use as filter'
@@ -201,6 +202,7 @@ const ConfiguredColumnRow = ({
         <input
           aria-label={`Use ${column.label} as filter`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={Boolean(column.filter)}
           disabled={disabled || (!filterable && !column.filter)}
           onChange={(event) =>
@@ -214,7 +216,7 @@ const ConfiguredColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500"
         title={
           chartable
             ? 'Use as chart'
@@ -225,6 +227,7 @@ const ConfiguredColumnRow = ({
         <input
           aria-label={`Use ${column.label} as chart`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={Boolean(column.chart)}
           disabled={disabled || (!chartable && !column.chart)}
           onChange={(event) =>
@@ -313,11 +316,12 @@ const AvailableColumnRow = ({
           {candidate.repeated ? ' · repeated' : ''}
         </div>
       </div>
-      <label className="flex justify-center" title="Add to table">
+      <label className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500" title="Add to table">
         <span className="sr-only">Table</span>
         <input
           aria-label={`Add ${normalizedDisplayName || candidate.label} to table`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={false}
           disabled={disabled || !normalizedDisplayName}
           onChange={(event) =>
@@ -326,7 +330,7 @@ const AvailableColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500"
         title={
           candidate.filterable
             ? 'Add as filter'
@@ -336,6 +340,7 @@ const AvailableColumnRow = ({
         <input
           aria-label={`Add ${normalizedDisplayName || candidate.label} as filter`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={false}
           disabled={disabled || !normalizedDisplayName || !candidate.filterable}
           onChange={(event) =>
@@ -345,7 +350,7 @@ const AvailableColumnRow = ({
         />
       </label>
       <label
-        className="flex justify-center"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-500"
         title={
           candidate.chartable
             ? 'Add as chart'
@@ -355,6 +360,7 @@ const AvailableColumnRow = ({
         <input
           aria-label={`Add ${normalizedDisplayName || candidate.label} as chart`}
           type="checkbox"
+          className="h-5 w-5 rounded border-slate-300 text-blue-700"
           checked={false}
           disabled={disabled || !normalizedDisplayName || !candidate.chartable}
           onChange={(event) =>

@@ -165,11 +165,17 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 			if readErr != nil {
 				return failSemanticInventoryBackfill(backend, build, token, report, readErr)
 			}
-			if !page.SourceExists {
+			if page.SourceState == catalogarango.RetainedSemanticSourceUnknown {
 				build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
 				report.SourceAvailability = build.SourceAvailability
 				report.MissingCollections = append(report.MissingCollections, collection)
 				break
+			}
+			if page.SourceState != catalogarango.RetainedSemanticSourcePresent && page.SourceState != catalogarango.RetainedSemanticSourceVerifiedEmpty {
+				return failSemanticInventoryBackfill(backend, build, token, report, fmt.Errorf("retained %s source returned invalid state %q", collection, page.SourceState))
+			}
+			if page.SourceState == catalogarango.RetainedSemanticSourceVerifiedEmpty && (len(page.Rows) != 0 || page.HasMore) {
+				return failSemanticInventoryBackfill(backend, build, token, report, fmt.Errorf("retained %s source marked verified empty with rows", collection))
 			}
 			if len(page.Rows) == 0 {
 				break
@@ -198,7 +204,7 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 					authPath = *source.AuthResourcePath
 				}
 				sourceID := "retained:" + collection + "/" + source.Key
-				emitter.ObservePayload(payload, collection, authPath, sourceID, func(contribution catalog.SemanticInventoryContribution) {
+				observeErr := emitter.ObservePayload(payload, collection, authPath, sourceID, func(contribution catalog.SemanticInventoryContribution) {
 					if persistErr != nil {
 						return
 					}
@@ -207,6 +213,9 @@ func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBac
 						flush()
 					}
 				})
+				if observeErr != nil && persistErr == nil {
+					persistErr = fmt.Errorf("extract semantic inventory for %s: %w", sourceID, observeErr)
+				}
 				if persistErr != nil {
 					break
 				}

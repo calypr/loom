@@ -143,7 +143,7 @@ func TestPublishPrunesOnlyUnpopulatedDiscoveredColumns(t *testing.T) {
 	for _, column := range target.tx.finalized[0].Columns {
 		got = append(got, column.Name)
 	}
-	want := []string{"auth_resource_path", "project_id", "id", "false_value", "zero_value", "empty_string", "nonempty_array"}
+	want := []string{"auth_resource_path", "project_id", "id", "nil_value", "false_value", "zero_value", "empty_string", "nonempty_array"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("retained columns = %v, want %v", got, want)
 	}

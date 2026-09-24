@@ -96,7 +96,7 @@ func Publish(ctx context.Context, target Target, identity PublicationIdentity, o
 					continue
 				}
 				value, ok := row[column.Name]
-				if ok && populatedValue(column, value) {
+				if ok && (value == nil || populatedValue(column, value)) {
 					populated[output.Name][column.Name] = true
 				}
 			}

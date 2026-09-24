@@ -43,6 +43,10 @@ const (
 // execution request because doing so would reinterpret authoring intent.
 var ErrReceiptRecompileRequired = errors.New("RECEIPT_RECOMPILE_REQUIRED")
 
+type ReceiptPurpose string
+
+const ReceiptPurposePreviewOnly ReceiptPurpose = "PREVIEW_ONLY"
+
 // ReceiptContractSupportedForExecution distinguishes read compatibility from
 // execution compatibility. The immediately previous v3/v13 artifact is
 // executable because it already contains a complete frozen recipe; older
@@ -73,6 +77,7 @@ func CompilationArtifactDigest(raw json.RawMessage) (string, error) {
 // field contains a physical IR or rendered query.
 type CompilationReceipt struct {
 	ID                       string                   `json:"id"`
+	Purpose                  ReceiptPurpose           `json:"purpose,omitempty"`
 	ReceiptFormatVersion     int                      `json:"receiptFormatVersion"`
 	CompilerContractVersion  string                   `json:"compilerContractVersion"`
 	Project                  string                   `json:"project"`
@@ -203,6 +208,7 @@ type CompilationWarning struct {
 // this permits a repository lookup before doing the expensive compilation.
 func CompilationKey(r CompilationReceipt) (string, error) {
 	identity := struct {
+		Purpose                 ReceiptPurpose                `json:"purpose,omitempty"`
 		ReceiptFormatVersion    int                           `json:"receiptFormatVersion"`
 		CompilerContractVersion string                        `json:"compilerContractVersion"`
 		Project                 string                        `json:"project"`
@@ -224,6 +230,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		return "", fmt.Errorf("canonical normalized bundle: %w", err)
 	}
 	identity = struct {
+		Purpose                 ReceiptPurpose                `json:"purpose,omitempty"`
 		ReceiptFormatVersion    int                           `json:"receiptFormatVersion"`
 		CompilerContractVersion string                        `json:"compilerContractVersion"`
 		Project                 string                        `json:"project"`
@@ -240,7 +247,7 @@ func CompilationKey(r CompilationReceipt) (string, error) {
 		RowDefinitionProposal   *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal      *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	}{
-		r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
+		r.Purpose, r.ReceiptFormatVersion, r.CompilerContractVersion, r.Project, r.ExplorerID,
 		r.IntentDigest, r.ResolvedInputsDigest, r.ResolvedInterpretations, normalized, r.SnapshotToken,
 		r.AuthorizationScopeDigest, r.CapabilitySchemaDigest, r.ShapeDigest, r.SourceGeneration, r.RowDefinitionProposal, r.TableShapeProposal,
 	}
@@ -263,6 +270,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		return "", fmt.Errorf("canonical public output contract: %w", err)
 	}
 	identity := struct {
+		Purpose                 ReceiptPurpose                `json:"purpose,omitempty"`
 		CompilationKey          string                        `json:"compilationKey"`
 		RecipeDigest            string                        `json:"recipeDigest"`
 		ResolvedRecipeDigest    string                        `json:"resolvedRecipeDigest,omitempty"`
@@ -280,7 +288,7 @@ func ReceiptID(r CompilationReceipt) (string, error) {
 		RowDefinitionProposal   *RowDefinitionProposalBinding `json:"rowDefinitionProposal,omitempty"`
 		TableShapeProposal      *TableShapeProposalBinding    `json:"tableShapeProposal,omitempty"`
 	}{
-		key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
+		r.Purpose, key, r.RecipeDigest, r.ResolvedRecipeDigest, r.ResolvedSchemaDigest,
 		r.OutputContractDigest, r.Bundle, compiledConfig,
 		publicContract, r.IdentityMappings, r.EmittedColumns,
 		r.OutputFingerprints, r.OutputColumnProvenance, r.ResolvedInterpretations, r.Warnings, r.RowDefinitionProposal, r.TableShapeProposal,
@@ -313,6 +321,9 @@ func canonicalRaw(raw json.RawMessage) ([]byte, error) {
 
 // Validate checks that a receipt is a supported, executable artifact.
 func (r CompilationReceipt) Validate() error {
+	if r.Purpose != "" && r.Purpose != ReceiptPurposePreviewOnly {
+		return fmt.Errorf("unsupported receipt purpose %q", r.Purpose)
+	}
 	if r.RowDefinitionProposal != nil {
 		if err := r.RowDefinitionProposal.Validate(r.IntentDigest, r.SnapshotToken); err != nil {
 			return err

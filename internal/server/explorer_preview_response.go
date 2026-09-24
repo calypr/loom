@@ -42,7 +42,7 @@ func classifyReceiptPreviewResolutionError(receiptID string, err error) error {
 // uses this form directly.
 func previewRouteError(err error) error {
 	if errors.Is(err, ErrPreviewResponseTooLarge) {
-		return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "preview response exceeds the maximum size"}, Cause: err}
+		return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "RESPONSE_TOO_LARGE", Message: "Preview is too large. Try fewer rows or exclude large repeated-value columns."}, Cause: err}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err}
@@ -57,7 +57,7 @@ func previewRouteError(err error) error {
 		case string(dataframeerrors.CodePreviewTimeout):
 			return &explorer.AuthoringError{Status: 504, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_TIMEOUT", Message: "preview exceeded its execution deadline"}, Cause: err}
 		case string(dataframeerrors.CodePreviewResponseTooLarge):
-			return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: dataframeerrors.PublicMessage(err)}, Cause: err}
+			return &explorer.AuthoringError{Status: 413, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: "PREVIEW_RESPONSE_TOO_LARGE", Message: "Preview is too large. Try fewer rows or exclude large repeated-value columns.", Details: userErr.Details()}, Cause: err}
 		case string(dataframeerrors.CodePlanTooExpensive):
 			return &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeRelationshipCardinalityViolation),

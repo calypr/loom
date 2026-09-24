@@ -144,6 +144,20 @@ const envValue = (env, key, fallback) => {
   return value || fallback;
 };
 
+// Attach mode is deliberately a J01-only guard. It exists for a running,
+// operator-owned stack: the journey may inspect it and seed its isolated
+// verification project, but must not turn a verification command into an
+// implicit Compose restart or stable-fixture bootstrap.
+export const verifyJ01AttachOnly = (command, env = process.env) => {
+  const raw = String(env.LOOM_DEV_ATTACH_ONLY ?? '').trim();
+  if (raw && raw !== '1') throw new Error('LOOM_DEV_ATTACH_ONLY must be 1 when set');
+  const attachOnly = raw === '1';
+  if (attachOnly && command !== 'verify-j01') {
+    throw new Error('LOOM_DEV_ATTACH_ONLY is supported only for verify-j01');
+  }
+  return attachOnly;
+};
+
 const portValue = (env, key, fallback) => {
   const value = envValue(env, key, fallback);
   if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) {
@@ -435,6 +449,85 @@ export const selectExternalJ01Manifest = async (fixtureDir) => {
   };
 };
 
+export const selectExternalPivotManifest = async (fixtureDir) => {
+  const required = {
+    Patient: [
+      '7e39d9c9-6d9f-57ef-b328-072c36db3e8f',
+      '712656ce-d3c2-5ae1-9ab4-eb8c98e287b5',
+    ],
+    Observation: [
+      '542ca620-897d-5e71-9e2f-0c24f477eab3',
+      'a263156f-7f9c-56f1-aa2b-aa5ca83b4807',
+      '6eb0686d-93a8-502c-aaab-d6b4ac899168',
+      '6b283f96-c51e-5fa5-ba4e-33ae1c2fafe2',
+    ],
+  };
+  const files = [];
+  for (const [resourceType, ids] of Object.entries(required)) {
+    const sourcePath = join(fixtureDir, `${resourceType}.ndjson`);
+    const sourceStat = statSync(sourcePath);
+    const wanted = new Set(ids);
+    const found = new Map();
+    let sourceLine = 0;
+    for await (const line of createInterface({ input: createReadStream(sourcePath), crlfDelay: Infinity })) {
+      sourceLine += 1;
+      if (!line.trim()) continue;
+      const resource = JSON.parse(line);
+      if (resource.resourceType !== resourceType || !wanted.has(resource.id)) continue;
+      if (found.has(resource.id)) throw new Error(`duplicate CDA pivot source ${resourceType}/${resource.id}`);
+      found.set(resource.id, { line, sourceLine, resource });
+      if (found.size === wanted.size) break;
+      if (sourceLine >= 150_000) break;
+    }
+    if (found.size !== wanted.size) {
+      throw new Error(`CDA pivot source ${resourceType} is missing ${ids.filter((id) => !found.has(id)).join(', ')}`);
+    }
+    const records = ids.map((id) => found.get(id));
+    const contents = Buffer.from(`${records.map((record) => record.line).join('\n')}\n`);
+    files.push({
+      name: `${resourceType}.ndjson`, sourcePath, contents,
+      sourceStat: { sizeBytes: sourceStat.size, modifiedMs: sourceStat.mtimeMs, inode: sourceStat.ino },
+      records: records.map((record) => ({ sourceLine: record.sourceLine, id: record.resource.id })),
+      contentSHA256: createHash('sha256').update(contents).digest('hex'),
+    });
+  }
+  const observationFile = files.find((file) => file.name === 'Observation.ndjson');
+  const observationLines = observationFile.contents.toString('utf8').trimEnd().split('\n');
+  const patientIDs = new Set(required.Patient);
+  const observations = observationFile.records.map((record, index) => {
+    const resource = JSON.parse(observationLines[index]);
+    const coding = resource.code?.coding?.[0];
+    const value = resource.valueCodeableConcept?.coding?.[0]?.display;
+    if (coding?.system !== 'http://snomed.info/sct' ||
+      !['1222593009', '1222591006'].includes(coding.code) ||
+      !patientIDs.has(String(resource.subject?.reference ?? '').replace(/^Patient\//, '')) ||
+      typeof value !== 'string') {
+      throw new Error(`CDA pivot Observation/${record.id} no longer has the expected coded value`);
+    }
+    return { id: record.id, patient: resource.subject?.reference, code: coding.code, value };
+  });
+  if (observations.filter((record) => record.code === '1222593009').length !== 2 ||
+    observations.filter((record) => record.code === '1222591006').length !== 2 ||
+    new Set(observations.filter((record) => record.patient === `Patient/${required.Patient[0]}`).map((record) => record.code)).size !== 2) {
+    throw new Error('CDA pivot source no longer has two recurring codes and a same-patient overlap');
+  }
+  const manifestHash = createHash('sha256');
+  for (const file of files) manifestHash.update(file.name).update('\0').update(file.contents).update('\0');
+  const sourceSHA256 = `sha256:${manifestHash.digest('hex')}`;
+  return {
+    files,
+    summary: {
+      version: 'cda-fhir-meta-pivot-v1', sourceDirectory: resolve(fixtureDir), sourceSHA256,
+      sourceFiles: files.map((file) => ({
+        name: file.name, sourcePath: file.sourcePath, sourceFileSizeBytes: file.sourceStat.sizeBytes,
+        sourceFileModifiedMs: file.sourceStat.modifiedMs, sourceFileInode: file.sourceStat.inode,
+        selectedContentSHA256: `sha256:${file.contentSHA256}`, records: file.records,
+      })),
+      observations,
+    },
+  };
+};
+
 export const assertExternalJ01SourcesUnchanged = (manifest) => {
   for (const file of manifest.files) {
     const sourceStat = statSync(file.sourcePath);
@@ -459,7 +552,6 @@ export const externalJ01PatientScalar = (builderState) => {
   return {
     fieldPath: candidate.fieldPath,
     label: candidate.label,
-    checkboxLabel: `Select Patient.${candidate.fieldPath}`,
   };
 };
 
@@ -522,6 +614,28 @@ export const j01JSONValuesEquivalent = (left, right) => {
   return Object.is(left, right);
 };
 
+export const j01ViewerCellText = (value) => {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'string') return value.trim() || JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) {
+    const items = value.map(j01ViewerCellText).filter((item) => item !== '—');
+    return items.length > 0 ? items.join('; ') : '—';
+  }
+  if (typeof value === 'object') {
+    for (const key of ['text', 'display', 'value', 'code', 'reference']) {
+      const preferred = value[key];
+      if (preferred === undefined) continue;
+      if (typeof preferred === 'string' && preferred.trim()) return preferred.trim();
+      if (typeof preferred === 'number' || typeof preferred === 'boolean' || typeof preferred === 'bigint') return String(preferred);
+      if (key === 'value' || key === 'reference') return j01ViewerCellText(preferred);
+    }
+    if (value.coding !== undefined) return j01ViewerCellText(value.coding);
+    return JSON.stringify(value) ?? String(value);
+  }
+  return String(value);
+};
+
 export const j01ViewerValuesAgree = ({ viewerTable, columns, previewByID, artifactByID, idColumn, structuredColumn }) => {
   const idLabel = columns.find((column) => column.column === idColumn)?.label;
   const idIndex = viewerTable.headers.indexOf(idLabel);
@@ -538,30 +652,32 @@ export const j01ViewerValuesAgree = ({ viewerTable, columns, previewByID, artifa
       if (!column) return false;
       if (column.column === structuredColumn) continue;
       const artifactValue = artifactRow[column.column] ?? null;
-      const displayed = artifactValue == null ? '—' : String(artifactValue);
+      const displayed = j01ViewerCellText(artifactValue);
       if (row[index] !== displayed) return false;
       if (previewRow && !j01JSONValuesEquivalent(artifactValue, previewRow[column.column] ?? null)) return false;
     }
   }
   return previewOverlap > 0;
 };
-export const j01FeatureCatalogRequest = ({ snapshotToken, rowRoot, resourceType, query, cursor }) => {
+export const j01FeatureCatalogRequest = ({ snapshotToken, outputId, resourceType, query, cursor, limit = 50 }) => {
   if (typeof snapshotToken !== 'string' || snapshotToken.length === 0) throw new Error('J01 feature catalog request requires a catalog snapshot');
-  if (typeof rowRoot !== 'string' || rowRoot.length === 0) throw new Error('J01 feature catalog request requires a row root');
+  if (typeof outputId !== 'string' || outputId.length === 0) throw new Error('J01 feature catalog request requires a saved output');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('J01 feature catalog request limit must be an integer between 1 and 500');
   return {
     snapshotToken,
-    rowRoot,
+    outputId,
     section: 'CONCEPTS',
     ...(resourceType ? { resourceType } : {}),
     ...(query ? { query } : {}),
     ...(cursor ? { cursor } : {}),
-    limit: 50,
+    limit,
   };
 };
 
 const featureCatalogFact = (entry, label) => entry?.sourceDetails?.find((fact) => fact?.label === label)?.value;
 
-export const collectJ01FeatureConceptPages = async (readPage, request, fixture) => {
+export const collectJ01FeatureConceptPages = async (readPage, request, fixture, { pageLimit = 50 } = {}) => {
+  if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 500) throw new Error('J01 feature catalog page limit must be an integer between 1 and 500');
   const seenCursors = new Set();
   const seenCodes = new Set();
   const pages = [];
@@ -572,7 +688,7 @@ export const collectJ01FeatureConceptPages = async (readPage, request, fixture) 
   let sourceAvailability;
   let entries = [];
   do {
-    const body = j01FeatureCatalogRequest({ ...request, cursor });
+    const body = j01FeatureCatalogRequest({ ...request, cursor, limit: pageLimit });
     const { response, value } = await readPage(body);
     if (!response?.ok) throw new Error(`J01 feature catalog returned HTTP ${response?.status ?? 'unknown'}`);
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 feature catalog response is not an object');
@@ -593,7 +709,7 @@ export const collectJ01FeatureConceptPages = async (readPage, request, fixture) 
     } else if (value.contextToken !== contextToken || value.buildId !== buildId || value.sourceAvailability !== sourceAvailability) {
       throw new Error('J01 feature catalog page changed its context, build identity, or source availability');
     }
-    if (!Array.isArray(value.entries) || value.entries.length > 50) throw new Error('J01 feature catalog page exceeds its 50-entry contract');
+    if (!Array.isArray(value.entries) || value.entries.length > pageLimit) throw new Error(`J01 feature catalog page exceeds its ${pageLimit}-entry contract`);
     for (const item of value.entries) {
       const code = featureCatalogFact(item, 'Code');
       const system = featureCatalogFact(item, 'Code system');
@@ -631,6 +747,163 @@ export const collectJ01FeatureConceptPages = async (readPage, request, fixture) 
     throw new Error(`J01 feature catalog returned ${actualCodes.length} of ${fixture.count} expected concepts`);
   }
   return { contextToken, buildId, sourceAvailability, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
+};
+
+export const collectJ01FeatureCatalogPages = async (readPage, request, { pageLimit = 500 } = {}) => {
+  if (!Number.isInteger(pageLimit) || pageLimit < 1 || pageLimit > 500) throw new Error('J01 feature catalog page limit must be an integer between 1 and 500');
+  const seenCursors = new Set();
+  const seenFeatures = new Set();
+  const pages = [];
+  const entries = [];
+  let cursor;
+  let contextToken;
+  let buildId;
+  let sourceAvailability;
+  do {
+    const body = j01FeatureCatalogRequest({ ...request, cursor, limit: pageLimit });
+    const { response, value } = await readPage(body);
+    if (!response?.ok) throw new Error(`J01 feature catalog returned HTTP ${response?.status ?? 'unknown'}`);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('J01 feature catalog response is not an object');
+    if (value.state !== 'complete' || value.sourceAvailability !== 'verified') {
+      throw new Error(`J01 feature catalog is not complete with verified sources: ${value.state ?? 'unknown'}/${value.sourceAvailability ?? 'missing'}`);
+    }
+    if (value.section !== 'CONCEPTS') throw new Error(`J01 feature catalog returned section ${value.section ?? 'missing'}`);
+    if (Object.keys(value).some((key) => /example|total.?count/i.test(key))) {
+      throw new Error('J01 feature catalog exposed an example or global count field');
+    }
+    if (typeof value.contextToken !== 'string' || !value.contextToken || typeof value.buildId !== 'string' || !value.buildId) {
+      throw new Error('J01 feature catalog response is missing its context identity');
+    }
+    if (contextToken === undefined) {
+      contextToken = value.contextToken;
+      buildId = value.buildId;
+      sourceAvailability = value.sourceAvailability;
+    } else if (value.contextToken !== contextToken || value.buildId !== buildId || value.sourceAvailability !== sourceAvailability) {
+      throw new Error('J01 feature catalog page changed its context, build identity, or source availability');
+    }
+    if (!Array.isArray(value.entries) || value.entries.length > pageLimit) throw new Error(`J01 feature catalog page exceeds its ${pageLimit}-entry contract`);
+    for (const entry of value.entries) {
+      const featureID = entry?.featureId;
+      if (typeof featureID !== 'string' || !featureID) throw new Error('J01 feature catalog entry is missing its stable feature identity');
+      if (seenFeatures.has(featureID)) throw new Error(`J01 feature catalog repeated feature identity ${featureID}`);
+      seenFeatures.add(featureID);
+      entries.push(entry);
+    }
+    pages.push({ cursor, nextCursor: value.nextCursor, count: value.entries.length });
+    cursor = value.nextCursor;
+    if (cursor) {
+      if (typeof cursor !== 'string' || seenCursors.has(cursor)) throw new Error('J01 feature catalog repeated a pagination cursor');
+      seenCursors.add(cursor);
+    }
+  } while (cursor);
+  return { contextToken, buildId, sourceAvailability, pages, entries, count: entries.length, countBasis: 'exact-paginated' };
+};
+
+export const externalJ01CategoricalSlot = (catalogPage, { resourceType, sourcePath, allowAlternativeChoices = false }) => {
+  const normalizedPath = String(sourcePath ?? '').replace(/^root\./, '').trim();
+  const matches = (catalogPage?.entries ?? []).filter((entry) => {
+    if (entry?.kind !== 'SEMANTIC_FEATURE' || entry.resourceType !== resourceType) return false;
+    if (entry.source?.kind !== 'SEMANTIC' || !entry.source.conceptId || !entry.source.bindingId) return false;
+    const source = entry.constructionChoice?.source;
+    const observedPath = String(entry.sourcePath ?? entry.source?.path ?? featureCatalogFact(entry, 'FHIR source') ?? '').replace(/^root\./, '').trim();
+    return source?.kind === 'SEMANTIC'
+      && (source.fieldPath?.replace(/^root\./, '') === normalizedPath || observedPath === normalizedPath)
+      && featureCatalogFact(entry, 'FHIR semantic role') === 'CATEGORICAL_SLOT'
+      && featureCatalogFact(entry, 'FHIR source') === normalizedPath;
+  });
+  if (matches.length !== 1) {
+    throw new Error(`CDA J01 catalog must expose exactly one categorical ${resourceType}.${normalizedPath} concept (found ${matches.length})`);
+  }
+  const [entry] = matches;
+  const choice = entry.constructionChoice;
+  const defaults = choice.options.filter((option) => option.decision === 'DEFAULT');
+  if (defaults.length !== 1 || (!allowAlternativeChoices && choice.options.length !== 1)) {
+    throw new Error(`CDA J01 categorical ${resourceType}.${normalizedPath} concept does not expose one compiler-issued default choice`);
+  }
+  return {
+    featureId: entry.featureId,
+    title: entry.title,
+    valueType: entry.valueType,
+    checkboxLabel: `Select ${entry.title}`,
+    source: { kind: entry.source.kind, conceptId: entry.source.conceptId, bindingId: entry.source.bindingId },
+    choice: {
+      choiceId: choice.choiceId,
+      form: defaults[0].form,
+      formLabel: defaults[0].form === 'OWNER_RECORDS'
+        ? 'Keep each matching record'
+        : `${defaults[0].shape} · ${defaults[0].preservation} · ${defaults[0].form}`,
+      fieldPath: choice.source.fieldPath,
+      sourceKind: choice.source.kind,
+    },
+    sourceDetails: entry.sourceDetails,
+  };
+};
+
+export const externalJ01CategoricalNamespace = (catalogPage, { resourceType, sourcePath, system }) => {
+  const normalizedPath = String(sourcePath ?? '').replace(/^root\./, '').trim();
+  const normalizedSystem = String(system ?? '').trim();
+  if (!normalizedPath || !normalizedSystem) throw new Error('CDA J01 categorical namespace requires an observed source path and system');
+  const matches = (catalogPage?.entries ?? []).filter((entry) => {
+    if (entry?.kind !== 'SEMANTIC_FEATURE' || entry.resourceType !== resourceType) return false;
+    if (entry.source?.kind !== 'SEMANTIC' || !entry.source.conceptId || !entry.source.bindingId) return false;
+    if (String(entry.system ?? featureCatalogFact(entry, 'Code system') ?? '').trim() !== normalizedSystem) return false;
+    if (featureCatalogFact(entry, 'FHIR semantic role') !== 'CATEGORICAL_SLOT') return false;
+    const observedPath = String(entry.sourcePath ?? entry.source?.path ?? featureCatalogFact(entry, 'FHIR source') ?? '').replace(/^root\./, '').trim();
+    if (observedPath !== normalizedPath) return false;
+    const source = entry.constructionChoice?.source;
+    const valuePath = String(source?.fieldPath ?? source?.valueSelector ?? '').replace(/^root\./, '').trim();
+    const keyPath = String(source?.keySelector ?? '').replace(/^root\./, '').trim();
+    return valuePath.endsWith('.code') && keyPath.endsWith('coding[]');
+  });
+  if (matches.length !== 1) {
+    throw new Error(`CDA J01 catalog must expose exactly one categorical ${resourceType}.${normalizedPath} namespace ${normalizedSystem} (found ${matches.length})`);
+  }
+  const entry = matches[0];
+  const slot = externalJ01CategoricalSlot({ entries: [entry] }, { resourceType, sourcePath: normalizedPath, allowAlternativeChoices: true });
+  const source = entry.constructionChoice.source;
+  return {
+    ...slot,
+    system: normalizedSystem,
+    binding: {
+      fieldPath: source.fieldPath,
+      keySelector: source.keySelector,
+      valueSelector: source.valueSelector,
+      sourcePath: entry.sourcePath ?? entry.source?.path ?? normalizedPath,
+    },
+  };
+};
+
+const externalJ01PathValue = (value, path) => {
+  let current = value;
+  for (const segment of String(path ?? '').replace(/^root\./, '').split('.').filter(Boolean)) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = current[segment];
+  }
+  return current;
+};
+
+export const externalJ01CategoricalNamespaceValues = (manifest, { resourceType = 'Observation', sourcePath = 'code.coding', system }) => {
+  const normalizedSystem = String(system ?? '').trim();
+  const file = manifest?.files?.find((candidate) => candidate.name === `${resourceType}.ndjson`);
+  if (!file) throw new Error(`CDA J01 manifest has no ${resourceType}.ndjson source`);
+  const valuesByID = {};
+  const systems = new Set();
+  for (const line of file.contents.toString('utf8').split(/\r?\n/).filter(Boolean)) {
+    const resource = JSON.parse(line);
+    const codings = externalJ01PathValue(resource, sourcePath);
+    if (!Array.isArray(codings)) throw new Error(`CDA J01 ${resourceType}.${sourcePath} is not a Coding array`);
+    const values = [];
+    for (const coding of codings) {
+      const codingSystem = String(coding?.system ?? '').trim();
+      if (codingSystem) systems.add(codingSystem);
+      if (!normalizedSystem || codingSystem !== normalizedSystem) continue;
+      const display = typeof coding?.display === 'string' ? coding.display.trim() : '';
+      const code = typeof coding?.code === 'string' ? coding.code.trim() : '';
+      if (display || code) values.push(display || code);
+    }
+    valuesByID[resource.id] = values;
+  }
+  return { resourceType, sourcePath, system: normalizedSystem, systems: [...systems].sort(), valuesByID };
 };
 
 const j01ColumnSourceIdentity = (column) => {
@@ -1172,6 +1445,29 @@ const createJ03ThreeMemberFixture = (sourceDirectory) => {
   }
 };
 
+const createPivotFixture = (sourceDirectory) => {
+  const directory = mkdtempSync(join(tmpdir(), 'loom-dev-pivot-fixture-'));
+  try {
+    for (const name of readdirSync(sourceDirectory)) {
+      const sourcePath = join(sourceDirectory, name);
+      if (statSync(sourcePath).isFile()) writeFileSync(join(directory, name), readFileSync(sourcePath), { mode: 0o600 });
+    }
+    const observationPath = join(directory, 'Observation.ndjson');
+    const added = {
+      resourceType: 'Observation', id: 'dev-pivot-weight-001', status: 'final',
+      subject: { reference: 'Patient/dev-patient-001' },
+      code: { coding: [{ system: 'https://example.test/codes', code: 'weight', display: 'Weight' }] },
+      valueQuantity: { value: 70, unit: 'kg' },
+    };
+    const original = readFileSync(observationPath, 'utf8').trimEnd();
+    writeFileSync(observationPath, `${original}\n${JSON.stringify(added)}\n`, { mode: 0o600 });
+    return directory;
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+};
+
 const ensureDev = async (target, report, rebuild = false, fixtureManifest) => {
   const started = Date.now();
   report.status = 'building';
@@ -1199,6 +1495,22 @@ const ensureDev = async (target, report, rebuild = false, fixtureManifest) => {
   report.target.bootstrapWorkspace = seed.bootstrapWorkspace?.seeded ? 'seeded' : 'reused';
   writeJSON(join(target.artifacts, 'dev-session.json'), { ...target, fixtureSeed: report.target.fixtureSeed, bootstrapExplorerId: seed.bootstrapExplorerId, bootstrapWorkspace: report.target.bootstrapWorkspace, fixtureManifest: seed.fixtureManifest });
   return seed;
+};
+
+const ensureDevAttached = async (target, report) => {
+  const started = Date.now();
+  report.status = 'building';
+  const owned = await inspectOwnedResources(target, { requirePorts: true });
+  report.target.attachOnly = true;
+  report.target.attachedResources = { containers: owned.ids.length, volumes: owned.volumes.length };
+  await waitForHTTP(`${target.apiUrl}/readyz`, (response) => response.ok, 120000);
+  report.timings.api_build_barrier_ms = await waitForFreshBuild(target, 120000);
+  await waitForHTTP(target.uiUrl, (response) => response.ok, 120000);
+  report.status = 'ready';
+  report.timings.startup_ms = Date.now() - started;
+  report.target.fixtureSeed = 'not-touched';
+  report.target.bootstrapWorkspace = 'not-touched';
+  return { attached: true, reused: true, fresh: false };
 };
 
 const findChrome = () => {
@@ -1304,6 +1616,21 @@ const clickButton = (name) => {
   element.click();
   return name;
 };
+const choosePivotCodes = (titles) => {
+  const row = [...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')]
+    .find((candidate) => titles.every((title) => norm(candidate.textContent).includes(title)));
+  if (!row) throw new Error('code set not found for: ' + titles.join(', '));
+  const expand = [...row.querySelectorAll('button')].find((button) => norm(button.textContent) === 'Choose codes');
+  if (expand) expand.click();
+  for (const title of titles) {
+    const input = [...row.querySelectorAll('input[type="checkbox"]')]
+      .find((candidate) => candidate.getAttribute('aria-label') === 'Select ' + title + ' as a column');
+    if (!input) throw new Error('code value not found: ' + title);
+    if (input.disabled) throw new Error('code value is unavailable: ' + title);
+    if (!input.checked) input.click();
+  }
+  return row.innerText;
+};
 const inputByLabel = (label) => {
   const escaped = label.replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"');
   return document.querySelector('[aria-label="' + escaped + '"]') || document.getElementById(label);
@@ -1316,6 +1643,14 @@ const setInput = (label, value) => {
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
   return value;
+};
+const chooseRowType = (resourceType) => {
+  const button = buttonByName('Choose ' + resourceType + ' rows');
+  if (button) return clickButton('Choose ' + resourceType + ' rows');
+  const select = inputByLabel('One row per');
+  const option = [...(select?.options ?? [])].find((item) => norm(item.textContent) === resourceType);
+  if (!option) throw new Error('row type not found: ' + resourceType);
+  return setInput('One row per', option.value);
 };
 const scrollVirtualTableToRow = (testId, rowIndex) => {
   const scroll = document.querySelector('[data-testid="' + testId + '"]');
@@ -1387,7 +1722,7 @@ const waitForBrowser = async (cdp, predicate, timeout = 30000) => {
     }
     await sleep(200);
   }
-  throw new Error(`timed out waiting for browser condition: ${lastError}`);
+  throw new Error(`timed out waiting for browser condition ${predicate.slice(0, 240)}: ${lastError}`);
 };
 
 const snapshot = async (cdp, path) => {
@@ -2399,6 +2734,332 @@ const routeOccurrences = (root) => {
   return result;
 };
 
+const verifyPivotBrowserScenario = async (target, report, entryTarget = target) => {
+  const evidenceDirectory = join(target.artifacts, `pivot-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+  const downloadDirectory = join(evidenceDirectory, 'downloads');
+  mkdirSync(downloadDirectory, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDirectory;
+  recordEvidence(report, evidenceDirectory);
+  const browser = await launchBrowser(downloadDirectory);
+  const cdp = browser.cdp;
+  const valuePair = (row, heightColumn, weightColumn) => {
+    const list = (value) => {
+      if (value == null) return [];
+      const decoded = typeof value === 'string' ? JSON.parse(value) : value;
+      if (!Array.isArray(decoded) || decoded.some((item) => typeof item !== 'number')) {
+        throw new Error(`pivot numeric list has an unexpected value: ${JSON.stringify(value)}`);
+      }
+      return decoded;
+    };
+    return { height: list(row[heightColumn]), weight: list(row[weightColumn]) };
+  };
+  const sortedPairs = (rows) => rows.map((row) => JSON.stringify(row)).sort();
+  try {
+    const bootstrapURL = `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.bootstrapExplorerId)}&mode=builder`;
+    await navigate(cdp, bootstrapURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('New explorer')`, 60000);
+    const title = `Pivot verification ${target.fixtureProject.slice(-12)}`;
+    await browserEval(cdp, `clickText('summary', 'New explorer')`);
+    await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
+    await browserEval(cdp, `clickButton('Create blank')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`, 60000);
+    const explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+    if (!explorerId) throw new Error('pivot browser did not select its new Explorer');
+    report.target.explorerId = explorerId;
+    await browserEval(cdp, `setInput('first-table-name', 'Patient code pivot')`);
+    await browserEval(cdp, `clickButton('Create table')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]') || document.querySelector('select[aria-label="One row per"]'))`, 60000);
+    await browserEval(cdp, `chooseRowType('Patient')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="pivot-family-catalog-row"]')) && document.body.innerText.includes('Weight')`, 90000);
+    const suggestion = await evaluate(cdp, `(() => {
+      const row = [...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].find((candidate) => candidate.innerText.includes('Height') && candidate.innerText.includes('Weight'));
+      return { visible: Boolean(row), text: row?.innerText ?? '', choices: row?.querySelectorAll('button').length ?? 0 };
+    })()`);
+    recordAssertion(report, 'pivot-recommendation-is-visible-for-observed-related-codes', true,
+      suggestion.visible && suggestion.text.includes('Height') && suggestion.text.includes('Weight') && suggestion.choices > 0);
+    await snapshot(cdp, join(evidenceDirectory, 'pivot-code-set-row.html'));
+    recordEvidence(report, join(evidenceDirectory, 'pivot-code-set-row.html'));
+    await browserEval(cdp, `choosePivotCodes(['Height', 'Weight'])`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Height') && document.body.innerText.includes('Weight') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 2 columns'))`, 30000);
+    const beforeAnalysis = await fetchBuilderState(target, explorerId);
+    const analysisStarted = performance.now();
+    await browserEval(cdp, `clickButton('Check row coverage')`);
+    await waitForBrowser(cdp, `document.querySelector('[data-testid="pivot-analysis"]')?.innerText.includes('2 preview rows checked') && ![...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 2 columns')?.disabled`, 90000);
+    report.timings.analysis_ms = Math.round(performance.now() - analysisStarted);
+    const analysis = await evaluate(cdp, `document.querySelector('[data-testid="pivot-analysis"]')?.innerText ?? ''`);
+    recordAssertion(report, 'pivot-analysis-previews-both-codes-at-current-row-grain', true,
+      analysis.includes('1 of 2 checked rows have a value') && analysis.includes('2 of 2 checked rows have a value') && analysis.includes('multiple selected codes'));
+    const afterAnalysis = await fetchBuilderState(target, explorerId);
+    recordAssertion(report, 'pivot-analysis-does-not-mutate-saved-draft', beforeAnalysis.draftDigest, afterAnalysis.draftDigest);
+    const proposalOutputId = afterAnalysis.workspace.documents[0].output.id;
+    const catalog = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ snapshotToken: afterAnalysis.catalog.snapshotToken, outputId: proposalOutputId, section: 'CONCEPTS', limit: 500 }),
+    });
+    if (!catalog.response.ok) throw new Error(`pivot catalog check failed: HTTP ${catalog.response.status}`);
+    const proposalEntries = catalog.value.entries.filter((entry) => ['height', 'weight'].includes(entry.pivotFamily?.code));
+    if (proposalEntries.length !== 2) throw new Error(`pivot catalog did not expose both code choices: ${proposalEntries.length}`);
+    const proposalBody = {
+      snapshotToken: afterAnalysis.catalog.snapshotToken,
+      expectedDraftVersion: afterAnalysis.draftVersion,
+      expectedDraftDigest: afterAnalysis.draftDigest,
+      outputId: proposalOutputId,
+      familyId: proposalEntries[0].pivotFamily.id,
+      commandId: randomUUID(),
+      selections: proposalEntries.map((entry) => ({ choiceId: entry.constructionChoice.choiceId, form: entry.pivotFamily.form, title: entry.title })),
+    };
+    const staleProposal = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/pivot-proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ ...proposalBody, expectedDraftDigest: 'sha256:stale' }),
+    });
+    recordAssertion(report, 'pivot-proposal-rejects-stale-draft-without-mutation', 409, staleProposal.response.status);
+    const candidateProposal = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/pivot-proposals`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify(proposalBody),
+    });
+    if (!candidateProposal.response.ok || !candidateProposal.value?.receiptId) throw new Error(`pivot proposal failed: HTTP ${candidateProposal.response.status} ${JSON.stringify(candidateProposal.value).slice(0, 600)}`);
+    const prematurePublish = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/publish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ receiptId: candidateProposal.value.receiptId }),
+    });
+    recordAssertion(report, 'pivot-preview-only-receipt-cannot-be-published', { status: 422, code: 'PREVIEW_ONLY_RECEIPT' },
+      { status: prematurePublish.response.status, code: prematurePublish.value?.error?.code });
+    await snapshot(cdp, join(evidenceDirectory, 'pivot-analysis.html'));
+    recordEvidence(report, join(evidenceDirectory, 'pivot-analysis.html'));
+    const analysisScreenshot = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const analysisScreenshotPath = join(evidenceDirectory, 'pivot-analysis.png');
+    writeFileSync(analysisScreenshotPath, Buffer.from(analysisScreenshot.data, 'base64'), { mode: 0o600 });
+    recordEvidence(report, analysisScreenshotPath);
+    await browserEval(cdp, `clickButton('Add 2 columns')`);
+    const deadline = Date.now() + 60000;
+    let state;
+    let codedColumns;
+    while (Date.now() < deadline) {
+      state = await fetchBuilderState(target, explorerId);
+      codedColumns = state.workspace?.documents?.[0]?.columns?.filter((column) => column.source?.kind === 'codedValue') ?? [];
+      if (codedColumns.length >= 2) break;
+      await sleep(250);
+    }
+    const byCode = new Map(codedColumns.map((column) => [column.source.lookup?.key?.code, column]));
+    recordAssertion(report, 'pivot-selection-persists-two-all-value-columns', ['height', 'weight'],
+      [...byCode.keys()].sort());
+    recordAssertion(report, 'pivot-columns-use-related-all-projection', true,
+      [...byCode.values()].every((column) => column.source.lookup?.projectionMode === 'ALL' && column.occurrenceId !== 'base'));
+    const outputId = state.workspace.documents[0].output.id;
+    report.target.outputId = outputId;
+    report.target.columns = [...byCode].map(([code, column]) => ({ code, column: column.column, label: column.label }));
+    await navigate(cdp, `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Patient code pivot') && document.body.innerText.includes('Your columns')`, 60000);
+    const reloaded = await fetchBuilderState(target, explorerId);
+    recordAssertion(report, 'pivot-reload-retains-exact-saved-column-identities', report.target.columns,
+      reloaded.workspace.documents[0].columns.filter((column) => column.source?.kind === 'codedValue').map((column) => ({
+        code: column.source.lookup.key.code, column: column.column, label: column.label,
+      })));
+    await waitForBrowser(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].some((row) => row.innerText.includes('2 already added'))`, 60000);
+    const savedGroup = await evaluate(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].find((row) => row.innerText.includes('2 already added'))?.innerText ?? ''`);
+    recordAssertion(report, 'pivot-reload-marks-saved-codes-as-added', true,
+      savedGroup.includes('2 already added') && savedGroup.includes('Edit these columns in Preview'));
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`, 60000);
+    await browserEval(cdp, `clickButton('Preview')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure')`, 90000);
+    const preview = await fetchJ01Preview(target, explorerId, outputId, await fetchBuilderState(target, explorerId), 1000);
+    const heightColumn = byCode.get('height').column;
+    const weightColumn = byCode.get('weight').column;
+    const valueRows = preview.rows.map((row) => valuePair(row, heightColumn, weightColumn));
+    report.target.previewValues = valueRows;
+    recordAssertion(report, 'pivot-preview-has-two-patient-rows', 2, valueRows.length);
+    recordAssertion(report, 'pivot-preview-retains-two-heights-on-one-row', true,
+      valueRows.some((row) => Array.isArray(row.height) && row.height.includes(172.5) && row.height.includes(180)));
+    recordAssertion(report, 'pivot-preview-has-a-genuinely-empty-height-cell', true,
+      valueRows.some((row) => row.height == null || Array.isArray(row.height) && row.height.length === 0));
+    await snapshot(cdp, join(evidenceDirectory, 'pivot-preview.html'));
+    recordEvidence(report, join(evidenceDirectory, 'pivot-preview.html'));
+    const current = await fetchBuilderState(target, explorerId);
+    const reconciled = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/reconcile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ snapshotToken: current.catalog.snapshotToken, draftVersion: current.draftVersion, draftDigest: current.draftDigest }),
+    });
+    if (!reconciled.response.ok || !reconciled.value?.receiptId) throw new Error(`pivot reconcile failed: HTTP ${reconciled.response.status} ${JSON.stringify(reconciled.value).slice(0, 700)}`);
+    const published = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/publish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ receiptId: reconciled.value.receiptId }),
+    });
+    if (!published.response.ok || !published.value?.revisionId) throw new Error(`pivot publish failed: HTTP ${published.response.status} ${JSON.stringify(published.value).slice(0, 700)}`);
+    const runtimeState = await fetchExplorerState(target, explorerId);
+    const runtimeOutput = (runtimeState.runtime?.outputs ?? runtimeState.outputs ?? []).find((output) => output.outputId === outputId);
+    if (!runtimeOutput?.selector) throw new Error('pivot publication has no Viewer output selector');
+    const viewer = await graphQLRows(target, runtimeOutput.selector, runtimeOutput.columns.map((column) => column.column));
+    recordAssertion(report, 'pivot-viewer-has-the-same-row-count-as-preview', preview.rows.length, viewer.totalCount);
+    const viewerRows = readJ05OutputRows(viewer.rows, runtimeOutput.columns.map((column) => column.column))
+      .map((row) => valuePair(row, heightColumn, weightColumn));
+    recordAssertion(report, 'pivot-viewer-values-agree-with-preview', sortedPairs(valueRows), sortedPairs(viewerRows));
+    const prepared = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/artifacts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ revisionId: published.value.revisionId, outputId, idempotencyKey: `pivot-${randomUUID()}` }),
+    });
+    if (!prepared.response.ok || prepared.value?.state !== 'COMPLETE') throw new Error(`pivot artifact preparation failed: HTTP ${prepared.response.status} ${JSON.stringify(prepared.value).slice(0, 700)}`);
+    const archiveResponse = await fetch(`${bootstrapAuthoringURL(target, explorerId)}/artifacts/${encodeURIComponent(prepared.value.id)}`, { headers: { Accept: 'application/zip' } });
+    if (!archiveResponse.ok) throw new Error(`pivot artifact download failed: HTTP ${archiveResponse.status}`);
+    const archivePath = join(evidenceDirectory, 'pivot-artifact.zip');
+    writeFileSync(archivePath, Buffer.from(await archiveResponse.arrayBuffer()), { mode: 0o600 });
+    recordEvidence(report, archivePath);
+    const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
+    recordAssertion(report, 'pivot-typed-artifact-retains-the-preview-row-count', preview.rows.length, artifact.rows.length);
+    const artifactRows = artifact.rows.map((row) => valuePair(row.values, heightColumn, weightColumn));
+    recordAssertion(report, 'pivot-typed-artifact-values-agree-with-preview', sortedPairs(valueRows), sortedPairs(artifactRows));
+    report.target.artifact = { format: artifact.manifest.format, rows: artifact.rows.length, columns: artifact.schema.columns.map((column) => ({ name: column.name, logicalType: column.logicalType, repeated: column.repeated })) };
+  } finally {
+    try {
+      const finalDOM = join(evidenceDirectory, 'final.html');
+      await snapshot(cdp, finalDOM);
+      recordEvidence(report, finalDOM);
+    } catch { /* browser may already have closed after a failed navigation */ }
+    await browser.close();
+  }
+};
+
+const verifyPivotCDABrowserScenario = async (target, report, manifest, entryTarget = target) => {
+  const evidenceDirectory = join(target.artifacts, `pivot-cda-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+  mkdirSync(evidenceDirectory, { recursive: true, mode: 0o700 });
+  report.target.evidenceDirectory = evidenceDirectory;
+  recordEvidence(report, evidenceDirectory);
+  const browser = await launchBrowser(join(evidenceDirectory, 'downloads'));
+  const cdp = browser.cdp;
+  const codes = ['1222593009', '1222591006'];
+  const values = (value) => {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const decoded = JSON.parse(value);
+        return Array.isArray(decoded) ? decoded : [decoded];
+      } catch { return [value]; }
+    }
+    return [value];
+  };
+  const sortedRows = (rows) => rows.map((row) => JSON.stringify(row)).sort();
+  try {
+    const bootstrapURL = `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(report.target.bootstrapExplorerId)}&mode=builder`;
+    await navigate(cdp, bootstrapURL);
+    await waitForBrowser(cdp, `document.body.innerText.includes('New explorer')`, 60000);
+    const title = `CDA pivot verification ${target.fixtureProject.slice(-12)}`;
+    await browserEval(cdp, `clickText('summary', 'New explorer')`);
+    await browserEval(cdp, `setInput('new-explorer-name', ${JSON.stringify(title)})`);
+    await browserEval(cdp, `clickButton('Create blank')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim() === ${JSON.stringify(title)} && document.body.innerText.includes('Create your first table')`, 60000);
+    const explorerId = await evaluate(cdp, `document.querySelector('select[aria-label="Explorer"]')?.value || ''`);
+    if (!explorerId) throw new Error('CDA pivot browser did not select its new Explorer');
+    report.target.explorerId = explorerId;
+    await browserEval(cdp, `setInput('first-table-name', 'CDA code pivot')`);
+    await browserEval(cdp, `clickButton('Create table')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]') || document.querySelector('select[aria-label="One row per"]'))`, 60000);
+    await browserEval(cdp, `chooseRowType('Patient')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="pivot-family-catalog-row"]'))`, 90000);
+    const state = await fetchBuilderState(target, explorerId);
+    const outputId = state.workspace.documents[0].output.id;
+    const catalog = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ snapshotToken: state.catalog.snapshotToken, outputId, section: 'CONCEPTS', limit: 500 }),
+    });
+    if (!catalog.response.ok) throw new Error(`CDA pivot catalog failed: HTTP ${catalog.response.status} ${JSON.stringify(catalog.value).slice(0, 600)}`);
+    const entries = catalog.value.entries.filter((entry) => codes.includes(entry.pivotFamily?.code));
+    recordAssertion(report, 'cda-pivot-has-two-ready-codes-in-one-observed-family', true,
+      entries.length === 2 && entries.every((entry) => entry.pivotFamily.id === entries[0].pivotFamily.id && entry.constructionChoice?.route.length === 1));
+    report.target.catalogCodes = entries.map((entry) => ({ code: entry.pivotFamily.code, title: entry.title, valueSelector: entry.constructionChoice.source.valueSelector, form: entry.pivotFamily.form }));
+    const familyTitle = entries[0].pivotFamily.title;
+    await waitForBrowser(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].some((row) => row.innerText.includes(${JSON.stringify(familyTitle)}))`, 30000);
+    recordAssertion(report, 'cda-pivot-family-is-recommended-in-browser', true,
+      Boolean(await evaluate(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].some((row) => row.innerText.includes(${JSON.stringify(familyTitle)}))`)));
+    await snapshot(cdp, join(evidenceDirectory, 'recommendation.html'));
+    recordEvidence(report, join(evidenceDirectory, 'recommendation.html'));
+    await browserEval(cdp, `choosePivotCodes(${JSON.stringify(entries.map((entry) => entry.title))})`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 2 columns'))`, 30000);
+    const beforeAnalysis = await fetchBuilderState(target, explorerId);
+    await browserEval(cdp, `clickButton('Check row coverage')`);
+    await waitForBrowser(cdp, `document.querySelector('[data-testid="pivot-analysis"]')?.innerText.includes('2 preview rows checked') && ![...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 2 columns')?.disabled`, 90000);
+    const analysis = await evaluate(cdp, `document.querySelector('[data-testid="pivot-analysis"]')?.innerText ?? ''`);
+    recordAssertion(report, 'cda-pivot-analysis-proves-same-row-overlap-without-draft-write', true,
+      analysis.includes('1 of 2 checked rows have more than one selected value') &&
+      (await fetchBuilderState(target, explorerId)).draftDigest === beforeAnalysis.draftDigest);
+    await snapshot(cdp, join(evidenceDirectory, 'analysis.html'));
+    recordEvidence(report, join(evidenceDirectory, 'analysis.html'));
+    await browserEval(cdp, `clickButton('Add 2 columns')`);
+    let saved;
+    let columns;
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      saved = await fetchBuilderState(target, explorerId);
+      columns = saved.workspace.documents[0].columns.filter((column) => column.source?.kind === 'codedValue');
+      if (columns.length >= 2) break;
+      await sleep(250);
+    }
+    const byCode = new Map(columns.map((column) => [column.source.lookup.key.code, column]));
+    recordAssertion(report, 'cda-pivot-saves-two-code-columns-with-preserving-form', true,
+      codes.every((code) => byCode.get(code)?.source.lookup.projectionMode === 'ALL'));
+    report.target.outputId = outputId;
+    report.target.columns = [...byCode].map(([code, column]) => ({ code, column: column.column, label: column.label }));
+    await navigate(cdp, `${entryTarget.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`);
+    await waitForBrowser(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].some((row) => row.innerText.includes('2 already added'))`, 60000);
+    recordAssertion(report, 'cda-pivot-reload-shows-both-codes-as-added', true,
+      Boolean(await evaluate(cdp, `[...document.querySelectorAll('[data-testid="pivot-family-catalog-row"]')].some((row) => row.innerText.includes('2 already added'))`)));
+    const preview = await fetchJ01Preview(target, explorerId, outputId, await fetchBuilderState(target, explorerId), 1000);
+    const rowValues = preview.rows.map((row) => ({
+      stage: values(row[byCode.get('1222593009').column]),
+      mCategory: values(row[byCode.get('1222591006').column]),
+    }));
+    const expectedRows = [
+      { stage: ['Not Reported', 'Not Reported'], mCategory: ['M0'] },
+      { stage: [], mCategory: ['M1a'] },
+    ];
+    recordAssertion(report, 'cda-pivot-preview-matches-open-source-literals', sortedRows(expectedRows), sortedRows(rowValues));
+    report.target.previewValues = rowValues;
+    const current = await fetchBuilderState(target, explorerId);
+    const reconciled = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/reconcile`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ snapshotToken: current.catalog.snapshotToken, draftVersion: current.draftVersion, draftDigest: current.draftDigest }),
+    });
+    if (!reconciled.response.ok || !reconciled.value?.receiptId) throw new Error(`CDA pivot reconcile failed: HTTP ${reconciled.response.status} ${JSON.stringify(reconciled.value).slice(0, 700)}`);
+    const published = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/publish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ receiptId: reconciled.value.receiptId }),
+    });
+    if (!published.response.ok || !published.value?.revisionId) throw new Error(`CDA pivot publish failed: HTTP ${published.response.status} ${JSON.stringify(published.value).slice(0, 700)}`);
+    const runtimeState = await fetchExplorerState(target, explorerId);
+    const runtimeOutput = (runtimeState.runtime?.outputs ?? runtimeState.outputs ?? []).find((output) => output.outputId === outputId);
+    if (!runtimeOutput?.selector) throw new Error('CDA pivot publication has no Viewer output selector');
+    const viewer = await graphQLRows(target, runtimeOutput.selector, runtimeOutput.columns.map((column) => column.column));
+    const viewerRows = readJ05OutputRows(viewer.rows, runtimeOutput.columns.map((column) => column.column)).map((row) => ({
+      stage: values(row[byCode.get('1222593009').column]), mCategory: values(row[byCode.get('1222591006').column]),
+    }));
+    recordAssertion(report, 'cda-pivot-viewer-matches-preview', sortedRows(expectedRows), sortedRows(viewerRows));
+    const prepared = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/artifacts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 90000,
+      body: JSON.stringify({ revisionId: published.value.revisionId, outputId, idempotencyKey: `pivot-cda-${randomUUID()}` }),
+    });
+    if (!prepared.response.ok || prepared.value?.state !== 'COMPLETE') throw new Error(`CDA pivot artifact preparation failed: HTTP ${prepared.response.status} ${JSON.stringify(prepared.value).slice(0, 700)}`);
+    const archiveResponse = await fetch(`${bootstrapAuthoringURL(target, explorerId)}/artifacts/${encodeURIComponent(prepared.value.id)}`, { headers: { Accept: 'application/zip' } });
+    if (!archiveResponse.ok) throw new Error(`CDA pivot artifact download failed: HTTP ${archiveResponse.status}`);
+    const archivePath = join(evidenceDirectory, 'pivot-cda-artifact.zip');
+    writeFileSync(archivePath, Buffer.from(await archiveResponse.arrayBuffer()), { mode: 0o600 });
+    recordEvidence(report, archivePath);
+    const artifact = inspectJ05ArtifactPackage(readStoredZip(archivePath));
+    const artifactRows = artifact.rows.map((row) => ({
+      stage: values(row.values[byCode.get('1222593009').column]), mCategory: values(row.values[byCode.get('1222591006').column]),
+    }));
+    recordAssertion(report, 'cda-pivot-typed-artifact-matches-preview-and-viewer', sortedRows(expectedRows), sortedRows(artifactRows));
+    report.target.artifact = { format: artifact.manifest.format, rows: artifact.rows.length };
+    recordAssertion(report, 'cda-pivot-source-manifest-has-six-unaltered-records', 6,
+      manifest.summary.sourceFiles.reduce((count, file) => count + file.records.length, 0));
+  } finally {
+    try {
+      const finalDOM = join(evidenceDirectory, 'final.html');
+      await snapshot(cdp, finalDOM);
+      recordEvidence(report, finalDOM);
+    } catch { /* browser may already have closed after a failed navigation */ }
+    await browser.close();
+  }
+};
+
 const verifyJ02BrowserScenario = async (target, report, entryTarget = target) => {
   const runID = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const evidenceDir = join(target.artifacts, runID);
@@ -3329,6 +3990,9 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
   const browser = await launchBrowser(downloadDir);
   const cdp = browser.cdp;
   const network = [];
+  const parseJSON = (raw) => {
+    try { return JSON.parse(raw ?? ''); } catch { return undefined; }
+  };
   cdp.on('Network.requestWillBeSent', (event) => {
     if (!event.request.url.includes('/authoring/v2/')) return;
     network.push({
@@ -3407,23 +4071,126 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
     recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-does-not-open-advanced-graph`, false, await evaluate(cdp, `Boolean(document.querySelector('.react-flow__node'))`));
     return { state, table };
   };
-  const chooseFeature = async ({ explorerId, outputId, query, checkboxLabel, columnCount, label, ownerRecords = false, articleMatch }) => {
+  const loadCategoricalStatus = async (explorerId, state) => {
+    const requestID = `j01-cda-status-catalog-${randomUUID()}`;
+    const inventory = await collectJ01FeatureCatalogPages(async (body) => {
+      const page = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestID },
+        body: JSON.stringify(body),
+        timeout: 30000,
+      });
+      report.requests.push({ requestId: requestID, kind: 'cda-observation-status-catalog', status: page.response.status, request: body, result: page.value });
+      return page;
+    }, {
+      snapshotToken: state.catalog.snapshotToken,
+      outputId: state.workspace.documents.find((document) => document.rootResourceType === 'Observation')?.output?.id,
+      resourceType: 'Observation',
+      query: 'status',
+    });
+    const statusSlot = externalJ01CategoricalSlot(inventory, { resourceType: 'Observation', sourcePath: 'status' });
+    report.target.cdaSelection.observationStatus = {
+      featureId: statusSlot.featureId,
+      title: statusSlot.title,
+      source: statusSlot.source,
+      choice: statusSlot.choice,
+      sourceDetails: statusSlot.sourceDetails,
+      catalog: { contextToken: inventory.contextToken, buildId: inventory.buildId, pageCount: inventory.pages.length, count: inventory.count },
+    };
+    return statusSlot;
+  };
+  const loadCategoricalCode = async (explorerId, state) => {
+    const observedValues = externalJ01CategoricalNamespaceValues(externalManifest, { resourceType: 'Observation', sourcePath: 'code.coding' });
+    const system = observedValues.systems[0];
+    if (!system) throw new Error('CDA J01 selected Observations expose no code Coding system');
+    const sourceValues = externalJ01CategoricalNamespaceValues(externalManifest, { resourceType: 'Observation', sourcePath: 'code.coding', system });
+    const requestID = `j01-cda-code-catalog-${randomUUID()}`;
+    const inventory = await collectJ01FeatureCatalogPages(async (body) => {
+      const page = await requestJSON(`${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Request-ID': requestID },
+        body: JSON.stringify(body),
+        timeout: 30000,
+      });
+      report.requests.push({ requestId: requestID, kind: 'cda-observation-code-catalog', status: page.response.status, request: body, result: page.value });
+      return page;
+    }, {
+      snapshotToken: state.catalog.snapshotToken,
+      outputId: state.workspace.documents.find((document) => document.rootResourceType === 'Observation')?.output?.id,
+      resourceType: 'Observation',
+      query: 'code',
+    });
+    const codeSlot = externalJ01CategoricalNamespace(inventory, { resourceType: 'Observation', sourcePath: 'code', system });
+    report.target.cdaSelection.observationCode = {
+      featureId: codeSlot.featureId,
+      title: codeSlot.title,
+      system: codeSlot.system,
+      source: codeSlot.source,
+      choice: codeSlot.choice,
+      binding: codeSlot.binding,
+      sourceDetails: codeSlot.sourceDetails,
+      catalog: { contextToken: inventory.contextToken, buildId: inventory.buildId, pageCount: inventory.pages.length, count: inventory.count },
+      sourceValues,
+    };
+    return { ...codeSlot, sourceValues };
+  };
+  const chooseFeature = async ({ explorerId, outputId, query, checkboxLabel, columnCount, label, ownerRecords = false, articleMatch, articleSourceDetails, section, articleTitle, choiceFormLabel }) => {
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(query)})`);
-    await browserEval(cdp, `clickButton('Search')`);
-    await waitForBrowser(cdp, articleMatch
-      ? `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes(${JSON.stringify(articleMatch)}) && article.querySelector('input[type="checkbox"]:not(:disabled)')))`
+    const articleSelector = section === 'CONCEPTS'
+      ? 'section[aria-labelledby="feature-catalog-concepts-title"] article'
+      : section === 'FIELDS'
+        ? 'section[aria-labelledby="feature-catalog-fields-title"] article'
+        : 'article';
+    const sourceDetailPredicate = articleSourceDetails?.length
+      ? ` && ${JSON.stringify(articleSourceDetails)}.every((expected) => [...candidate.querySelectorAll('dd')].some((detail) => detail.textContent?.trim() === expected))`
+      : '';
+    const articlePredicate = articleTitle
+      ? `(candidate.querySelector('h4')?.textContent?.trim() === ${JSON.stringify(articleTitle)}${sourceDetailPredicate})`
+      : `(candidate.textContent.includes(${JSON.stringify(articleMatch)}) )`;
+    const alreadyVisible = await evaluate(cdp, articleMatch || articleTitle
+      ? `Boolean([...document.querySelectorAll(${JSON.stringify(articleSelector)})].find((candidate) => ${articlePredicate} && candidate.querySelector('input[type="checkbox"]:not(:disabled)')))`
+      : `Boolean(document.querySelector('input[aria-label="${checkboxLabel}"]:not(:disabled)'))`);
+    if (!alreadyVisible) {
+      await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 30000);
+      await browserEval(cdp, `clickButton('Search')`);
+    }
+    await sleep(1000);
+    await saveDOM(`j01-cda-${explorerId}-${columnCount}-catalog`);
+    await waitForBrowser(cdp, articleMatch || articleTitle
+      ? `Boolean([...document.querySelectorAll(${JSON.stringify(articleSelector)})].find((candidate) => ${articlePredicate} && candidate.querySelector('input[type="checkbox"]:not(:disabled)')))`
       : `Boolean(document.querySelector('input[aria-label="${checkboxLabel}"]:not(:disabled)'))`, 60000);
-    if (articleMatch) {
-      await browserEval(cdp, `(() => { const article = [...document.querySelectorAll('article')].find((candidate) => candidate.textContent.includes(${JSON.stringify(articleMatch)})); const input = article?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('CDA J01 exact semantic feature is unavailable'); input.click(); })()`);
+    if (articleMatch || articleTitle) {
+      await browserEval(cdp, `(() => { const article = [...document.querySelectorAll(${JSON.stringify(articleSelector)})].find((candidate) => ${articlePredicate}); const input = article?.querySelector('input[type="checkbox"]'); if (!input || input.disabled) throw new Error('CDA J01 exact semantic feature is unavailable'); input.click(); })()`);
     } else {
       await browserEval(cdp, `const input = inputByLabel(${JSON.stringify(checkboxLabel)}); if (!input || input.disabled) throw new Error('CDA J01 field choice is unavailable: ' + ${JSON.stringify(checkboxLabel)}); input.click();`);
     }
     await browserEval(cdp, `clickButton('Add 1 selected feature')`);
     if (ownerRecords) {
-      const formLabel = `${label}: Keep each matching record`;
-      await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.querySelector('input[aria-label="${formLabel}"]'))`);
-      await browserEval(cdp, `const form = inputByLabel(${JSON.stringify(formLabel)}); if (!form) throw new Error('CDA J01 OWNER_RECORDS form is unavailable'); form.click();`);
-      await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      let appliedDirectly = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const current = await fetchBuilderState(target, explorerId);
+        appliedDirectly = current.workspace?.documents?.find((document) => document.output?.id === outputId)?.columns.length === columnCount;
+        if (appliedDirectly || await evaluate(cdp, `Boolean(document.querySelector('[role="dialog"]'))`)) break;
+        await sleep(100);
+      }
+      if (!appliedDirectly) {
+        const formLabel = `${label}: Keep each matching record`;
+        await saveDOM(`j01-cda-${explorerId}-${columnCount}-choice`);
+        await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"]') && document.querySelector('input[aria-label="${formLabel}"]'))`);
+        await browserEval(cdp, `const form = inputByLabel(${JSON.stringify(formLabel)}); if (!form) throw new Error('CDA J01 OWNER_RECORDS form is unavailable'); form.click();`);
+        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      }
+    } else if (choiceFormLabel) {
+      let dialogVisible = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        dialogVisible = await evaluate(cdp, `Boolean(document.querySelector('[role="dialog"]'))`);
+        if (dialogVisible) break;
+        await sleep(100);
+      }
+      if (dialogVisible) {
+        await browserEval(cdp, `const form = inputByLabel(${JSON.stringify(`${label}: ${choiceFormLabel}`)}); if (!form) throw new Error('CDA J01 semantic categorical form is unavailable'); form.click();`);
+        await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+      }
     }
     return waitForState(explorerId, (value) => value.workspace?.documents?.find((document) => document.output?.id === outputId)?.columns.length === columnCount, `${label} selection`);
   };
@@ -3436,10 +4203,11 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       order: column.table?.order,
       kind: column.source?.kind,
       fieldPath: column.source?.field?.path,
-      system: column.source?.ownerRecords?.key?.system,
-      code: column.source?.ownerRecords?.key?.code,
-      ownerPath: column.source?.ownerRecords?.binding?.ownerPath,
-      valuePath: column.source?.ownerRecords?.binding?.valuePath,
+      system: column.source?.ownerRecords?.key?.system ?? column.source?.lookup?.key?.system,
+      code: column.source?.ownerRecords?.key?.code ?? column.source?.lookup?.key?.code,
+      ownerPath: column.source?.ownerRecords?.binding?.ownerPath ?? column.source?.lookup?.binding?.ownerPath,
+      valuePath: column.source?.ownerRecords?.binding?.valuePath ?? column.source?.lookup?.binding?.valuePath,
+      projectionMode: column.source?.lookup?.projectionMode,
       logicalType: column.logicalType,
     }));
   };
@@ -3465,7 +4233,7 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
     }
     throw new Error(`CDA J01 authoring response did not complete for ${pathSuffix}`);
   };
-  const publishAndExport = async ({ resourceType, title, explorerId, outputId, columns, preview }) => {
+  const publishAndExport = async ({ resourceType, title, explorerId, outputId, columns, preview, literalValueExpectation }) => {
     const startIndex = network.length;
     await browserEval(cdp, `clickButton('Publish')`);
     const publishRequest = await waitForAuthoringResponse('/publish', startIndex);
@@ -3597,11 +4365,28 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       if (!artifactRow || !previewRow) return false;
       return columns.every((column, index) => {
         if (column.kind === 'ownerRecords') return true;
-        const expected = previewRow[column.id] == null ? '—' : String(previewRow[column.id]);
+        const expected = j01ViewerCellText(previewRow[column.id]);
         return values[index] === expected && j01JSONValuesEquivalent(artifactRow[column.id], previewRow[column.id] ?? null);
       });
     });
     recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-viewer-rows-agree-with-preview-and-artifact`, true, viewerRows.rows.length > 0 && viewerMatchesArtifacts);
+    if (literalValueExpectation) {
+      const expectedLiteralByID = Object.fromEntries(Object.entries(literalValueExpectation.valuesByID)
+        .filter(([id]) => previewByID.has(id)));
+      const previewLiteralByID = Object.fromEntries(Object.entries(expectedLiteralByID).map(([id]) => [id, previewByID.get(id)?.[literalValueExpectation.columnID]]));
+      const artifactLiteralByID = Object.fromEntries(Object.entries(expectedLiteralByID).map(([id]) => [id, exportedByID.get(id)?.[literalValueExpectation.columnID]]));
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-preview-preserves-display-or-code-arrays`, expectedLiteralByID, previewLiteralByID);
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-typed-artifact-preserves-display-or-code-arrays`, expectedLiteralByID,
+        Object.fromEntries(Object.entries(artifactLiteralByID).map(([id, value]) => [id, value])));
+      const viewerIDIndex = columns.findIndex((column) => column.id === idColumn.id);
+      const literalIndex = columns.findIndex((column) => column.id === literalValueExpectation.columnID);
+      const viewerLiteralByID = Object.fromEntries(viewerRows.rows
+        .map((values) => [values[viewerIDIndex], values[literalIndex]])
+        .filter(([id]) => Object.hasOwn(expectedLiteralByID, id)));
+		const expectedViewerLiteralByID = Object.fromEntries(Object.keys(viewerLiteralByID)
+			.map((id) => [id, j01ViewerCellText(expectedLiteralByID[id])]));
+      recordAssertion(report, `j01-cda-${resourceType.toLowerCase()}-viewer-renders-display-or-code-arrays`, expectedViewerLiteralByID, viewerLiteralByID);
+    }
     report.target.externalTasks.push({
       explorerId, outputId, revisionId, rowRoot: resourceType, draftVersion: builderAfterPublish.draftVersion,
       columns, previewRows: preview.rows.length, previewRowCount: preview.rowCount,
@@ -3622,10 +4407,14 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       const { table } = await createTableRoot(explorerId, 'Patient', 'CDA Patient task');
       const outputId = table.output.id;
       const patientScalar = externalJ01PatientScalar(await readState(explorerId));
-      let state = await chooseFeature({ explorerId, outputId, query: 'id', checkboxLabel: 'Select Patient.id', columnCount: 1, label: 'id' });
+      let state = await chooseFeature({
+        explorerId, outputId, query: 'id', columnCount: 1, label: 'id', section: 'FIELDS', articleTitle: 'id',
+        articleSourceDetails: ['Patient', 'id'],
+      });
       state = await chooseFeature({
-        explorerId, outputId, query: patientScalar.fieldPath, checkboxLabel: patientScalar.checkboxLabel,
-        columnCount: 2, label: patientScalar.label,
+        explorerId, outputId, query: patientScalar.fieldPath, columnCount: 2, label: patientScalar.label,
+        section: 'FIELDS', articleTitle: patientScalar.label,
+        articleSourceDetails: ['Patient', patientScalar.fieldPath],
       });
       const identities = columnSnapshot(state, outputId);
       const patientURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
@@ -3655,25 +4444,81 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       const explorerId = await createBlankExplorer(`J01 CDA Observation ${target.fixtureProject.slice(-8)}`);
       const { table } = await createTableRoot(explorerId, 'Observation', 'CDA Observation task');
       const outputId = table.output.id;
-      let state = await chooseFeature({ explorerId, outputId, query: 'id', checkboxLabel: 'Select Observation.id', columnCount: 1, label: 'id' });
-      state = await chooseFeature({ explorerId, outputId, query: 'status', checkboxLabel: 'Select Observation.status', columnCount: 2, label: 'status' });
+      const statusSlot = await loadCategoricalStatus(explorerId, await readState(explorerId));
+      const codeSlot = await loadCategoricalCode(explorerId, await readState(explorerId));
+      let state = await chooseFeature({
+        explorerId, outputId, query: 'id', columnCount: 1, label: 'id', section: 'FIELDS', articleTitle: 'id',
+        articleSourceDetails: ['Observation', 'id'],
+      });
+      state = await chooseFeature({
+        explorerId, outputId, query: 'status', checkboxLabel: statusSlot.checkboxLabel, columnCount: 2,
+        label: statusSlot.title, section: 'CONCEPTS', articleTitle: statusSlot.title,
+        choiceFormLabel: statusSlot.choice.formLabel,
+      });
+      recordAssertion(report, 'j01-cda-observation-status-comes-from-categorical-concept-source', {
+        kind: 'SEMANTIC', conceptId: statusSlot.source.conceptId, bindingId: statusSlot.source.bindingId,
+      }, statusSlot.source);
+      const statusCommandChoiceID = network
+        .map((item) => parseJSON(item.postData))
+        .flatMap((body) => body?.commands ?? [])
+        .map((command) => command?.constructionChoice?.choiceId)
+        .find((choiceID) => choiceID === statusSlot.choice.choiceId);
+      recordAssertion(report, 'j01-cda-observation-status-applies-the-live-catalog-choice-id', statusSlot.choice.choiceId, statusCommandChoiceID);
+      const statusColumn = state.workspace.documents.find((document) => document.output?.id === outputId)?.columns[1];
+      recordAssertion(report, 'j01-cda-observation-status-persists-as-schema-derived-primitive-source', {
+        kind: 'field', fieldPath: 'status', logicalType: statusSlot.valueType,
+      }, {
+        kind: statusColumn?.source?.kind,
+        fieldPath: statusColumn?.source?.field?.path,
+        logicalType: statusColumn?.logicalType,
+      });
+      state = await chooseFeature({
+        explorerId, outputId, query: 'code', checkboxLabel: codeSlot.checkboxLabel, columnCount: 3,
+        label: codeSlot.title, section: 'CONCEPTS', articleTitle: codeSlot.title,
+        choiceFormLabel: codeSlot.choice.formLabel,
+      });
+      const codeCommandChoiceID = network
+        .map((item) => parseJSON(item.postData))
+        .flatMap((body) => body?.commands ?? [])
+        .map((command) => command?.constructionChoice?.choiceId)
+        .find((choiceID) => choiceID === codeSlot.choice.choiceId);
+      recordAssertion(report, 'j01-cda-observation-code-applies-the-live-catalog-choice-id', codeSlot.choice.choiceId, codeCommandChoiceID);
+      const codeColumn = state.workspace.documents.find((document) => document.output?.id === outputId)?.columns[2];
+      const codeCategorical = codeColumn?.source?.categorical;
+      recordAssertion(report, 'j01-cda-observation-code-uses-the-live-categorical-namespace-binding', {
+        kind: 'categoricalBySystem', system: codeSlot.system,
+        keyPath: codeSlot.binding.keySelector,
+        valuePath: 'code', valuePresentation: 'DISPLAY_OR_CODE',
+      }, {
+        kind: codeColumn?.source?.kind,
+        system: codeCategorical?.system,
+        keyPath: codeCategorical?.binding?.keyPath,
+        valuePath: codeCategorical?.binding?.valuePath,
+        valuePresentation: codeCategorical?.binding?.valuePresentation,
+      });
+      const codeBindingAtSelection = codeCategorical?.binding;
       const repeatedLabel = String(repeatedFeature.display || repeatedFeature.code);
       state = await chooseFeature({
-        explorerId, outputId, query: repeatedFeature.code, checkboxLabel: `Select ${repeatedLabel}`,
-        articleMatch: `${repeatedFeature.system} · ${repeatedFeature.code}`, columnCount: 3,
+        explorerId, outputId, query: repeatedFeature.code,
+        section: 'CONCEPTS', articleTitle: repeatedLabel,
+        articleSourceDetails: [repeatedFeature.system, repeatedFeature.code], columnCount: 4,
         label: repeatedLabel, ownerRecords: true,
       });
       const identities = columnSnapshot(state, outputId);
-      const repeatedColumn = identities.find((column) => column.kind === 'ownerRecords' && column.system === repeatedFeature.system && column.code === repeatedFeature.code);
+      const repeatedColumn = identities.find((column) => ['ownerRecords', 'codedValue'].includes(column.kind) && column.system === repeatedFeature.system && column.code === repeatedFeature.code);
       if (!repeatedColumn || repeatedColumn.ownerPath !== 'component[]') throw new Error('CDA J01 selected feature is not a preserving repeated-component output');
+      recordAssertion(report, 'j01-cda-repeated-code-uses-a-lossless-output-form', true,
+        repeatedColumn.kind === 'ownerRecords' || repeatedColumn.kind === 'codedValue' && repeatedColumn.projectionMode === 'ALL');
       await measureJ01CatalogRequests(target, report, {
-        explorerId, snapshotToken: state.catalog.snapshotToken, rowRoot: 'Observation', resourceType: 'Observation', query: repeatedFeature.code,
+        explorerId, outputId, snapshotToken: state.catalog.snapshotToken, rowRoot: 'Observation', resourceType: 'Observation', query: repeatedFeature.code,
       });
       const observationURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
       await navigate(cdp, observationURL);
       await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Display name for configured id"]'))`, 60000);
-      const reloaded = await waitForState(explorerId, (value) => value.workspace?.documents?.some((document) => document.output?.id === outputId && document.columns.length === 3), 'reloaded Observation task');
+      const reloaded = await waitForState(explorerId, (value) => value.workspace?.documents?.some((document) => document.output?.id === outputId && document.columns.length === 4), 'reloaded Observation task');
       recordAssertion(report, 'j01-cda-observation-reload-preserves-column-identities', identities, columnSnapshot(reloaded, outputId));
+      const reloadedCodeColumn = reloaded.workspace.documents.find((document) => document.output?.id === outputId)?.columns[2];
+      recordAssertion(report, 'j01-cda-observation-reload-preserves-categorical-namespace-binding', codeBindingAtSelection, reloadedCodeColumn?.source?.categorical?.binding);
       recordAssertion(report, 'j01-cda-observation-reload-preserves-records-row-definition',
         { kind: 'RECORDS', records: {} }, reloaded.workspace.documents.find((document) => document.output?.id === outputId)?.rows);
       await browserEval(cdp, `clickButton('Preview')`);
@@ -3684,11 +4529,21 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       const expectedIDs = externalManifest.files.find((file) => file.name === 'Observation.ndjson').records.map((record) => record.id).sort();
       const idColumn = identities.find((column) => column.fieldPath?.replace(/^root\./, '') === 'id');
       recordAssertion(report, 'j01-cda-observation-preview-has-exact-selected-source-membership', expectedIDs, preview.rows.map((row) => row[idColumn.id]).sort());
-      recordAssertion(report, 'j01-cda-observation-preview-has-exactly-three-selected-columns', 3, preview.columns.length);
-      const repeatedRowIndex = preview.rows.findIndex((row) => Array.isArray(row[repeatedColumn.id]) && row[repeatedColumn.id].some((record) => record.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code)));
-      if (repeatedRowIndex < 0) throw new Error(`CDA J01 Preview has no literal ${repeatedFeature.system} · ${repeatedFeature.code} owner record`);
-      const matchingOwner = preview.rows[repeatedRowIndex][repeatedColumn.id].find((record) => record.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code));
-      recordAssertion(report, 'j01-cda-repeated-preview-keeps-exact-source-owner-and-status', {
+      recordAssertion(report, 'j01-cda-observation-preview-has-exactly-four-selected-columns', 4, preview.columns.length);
+      const repeatedComponent = repeatedJSON.component.find((component) => component.code?.coding?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code));
+      const expectedRepeatedValue = repeatedComponent?.valueString;
+      if (typeof expectedRepeatedValue !== 'string') throw new Error('CDA J01 selected repeated code has no source valueString');
+      const repeatedRowIndex = preview.rows.findIndex((row) => row[idColumn.id] === repeatedRecord.id);
+      if (repeatedRowIndex < 0) throw new Error(`CDA J01 Preview has no source Observation ${repeatedRecord.id}`);
+      const repeatedValues = preview.rows[repeatedRowIndex][repeatedColumn.id];
+      recordAssertion(report, 'j01-cda-repeated-preview-retains-source-component-value', true,
+        Array.isArray(repeatedValues) && repeatedValues.some((value) => repeatedColumn.kind === 'ownerRecords'
+          ? value.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code) && value.value === expectedRepeatedValue
+          : value === expectedRepeatedValue));
+      const matchingOwner = repeatedColumn.kind === 'ownerRecords'
+        ? repeatedValues.find((record) => record.codings?.some((coding) => coding.system === repeatedFeature.system && coding.code === repeatedFeature.code))
+        : undefined;
+      if (matchingOwner) recordAssertion(report, 'j01-cda-repeated-preview-keeps-exact-source-owner-and-status', {
         resourceId: repeatedRecord.id, ownerPath: 'component[]', system: repeatedFeature.system, code: repeatedFeature.code,
       }, {
         resourceId: matchingOwner.source?.resourceId, ownerPath: matchingOwner.source?.ownerPath,
@@ -3698,8 +4553,10 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       report.target.cdaObservationLiteralValues = {
         id: preview.rows[repeatedRowIndex][idColumn.id],
         status: preview.rows[repeatedRowIndex][identities[1].id] ?? null,
-        ownerRecord: matchingOwner,
+        code: preview.rows[repeatedRowIndex][identities[2].id] ?? null,
+        value: repeatedValues,
       };
+      if (matchingOwner) {
       const inspectorLabel = repeatedColumn.label;
       await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${repeatedRowIndex})`);
       await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect ${inspectorLabel} for row ${repeatedRowIndex + 1}"]'))`, 60000);
@@ -3719,13 +4576,18 @@ const verifyJ01ExternalBrowserScenario = async (target, report, entryTarget, ext
       report.timings.uiAcknowledgements = summarizeTimingSamples(acknowledgementSamples);
       report.target.uiAcknowledgementSamples = acknowledgementSamples;
       recordAssertion(report, 'j01-cda-captures-thirty-ui-acknowledgements', 30, acknowledgementSamples.length);
-      const published = await publishAndExport({ resourceType: 'Observation', title: 'CDA Observation task', explorerId, outputId, columns: identities, preview });
+      }
+      const published = await publishAndExport({
+        resourceType: 'Observation', title: 'CDA Observation task', explorerId, outputId, columns: identities, preview,
+        literalValueExpectation: { columnID: identities[2].id, valuesByID: codeSlot.sourceValues.valuesByID },
+      });
       report.target.externalTasks.at(-1).draftVersion = published.builderAfterPublish.draftVersion;
     });
 
     recordAssertion(report, 'j01-cda-runs-two-different-row-roots', ['Patient', 'Observation'], report.target.externalTasks.map((task) => task.rowRoot));
     recordAssertion(report, 'j01-cda-includes-a-preserving-repeated-feature', true,
-      report.target.externalTasks.some((task) => task.columns.some((column) => column.kind === 'ownerRecords' && column.ownerPath === 'component[]')));
+      report.target.externalTasks.some((task) => task.columns.some((column) => column.ownerPath === 'component[]' &&
+        (column.kind === 'ownerRecords' || column.kind === 'codedValue' && column.projectionMode === 'ALL'))));
     recordAssertion(report, 'j01-cda-source-files-remain-read-only', true, assertExternalJ01SourcesUnchanged(externalManifest));
     const finalManifest = await selectExternalJ01Manifest(externalManifest.summary.sourceDirectory);
     const sourceDigestStable = externalManifest.summary.sourceSHA256 === finalManifest.summary.sourceSHA256;
@@ -3909,34 +4771,37 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', ${JSON.stringify(fixture.displayPrefix)})`);
     await browserEval(cdp, `clickButton('Search')`);
     const pageCodes = [];
-    const expectedPageCount = Math.ceil(fixture.count / 50);
     let semanticPageCursor = -1;
-    for (let pageNumber = 1; pageNumber <= expectedPageCount; pageNumber += 1) {
+    let pageLimit;
+    let pageNumber = 0;
+    for (;;) {
+      pageNumber += 1;
       const pageResponse = await waitForNetworkResponse('/feature-catalog', semanticPageCursor, 60000,
         (item) => parseJSON(item.postData)?.query === fixture.displayPrefix && parseJSON(item.postData)?.section === 'CONCEPTS');
       semanticPageCursor = network.indexOf(pageResponse);
       const requestBody = parseJSON(pageResponse.postData);
-      if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.resourceType || requestBody?.limit !== 50) {
+      if (requestBody?.query !== fixture.displayPrefix || requestBody?.rowRoot !== rootNode.resourceType
+        || !Number.isInteger(requestBody?.limit) || requestBody.limit < 1 || requestBody.limit > 500) {
         throw new Error(`J01 catalog page ${pageNumber} was not loaded through the expected visible search request: ${JSON.stringify(requestBody)}`);
       }
+      pageLimit ??= requestBody.limit;
+      if (requestBody.limit !== pageLimit) throw new Error('J01 catalog changed its page limit while loading the generated concepts');
       if (Object.keys(pageResponse.responseBody ?? {}).some((key) => /example|total.?count/i.test(key))) {
         throw new Error(`J01 feature catalog page ${pageNumber} returned an example or global count field`);
       }
-      await waitForBrowser(cdp, `document.body.innerText.includes('Page ${pageNumber}') && (document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) > 0`, 60000);
+      const expectedPageEntries = Math.min(pageLimit, fixture.count - pageCodes.length);
+      await waitForBrowser(cdp, `(document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.querySelectorAll('article').length || 0) >= ${Math.min(fixture.count, pageCodes.length + expectedPageEntries)}`, 60000);
       const visibleEntries = await evaluate(cdp, `(() => {
         const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]');
         return [...(section?.querySelectorAll('article') || [])].map((article) => article.querySelector('h4')?.textContent?.trim()).filter(Boolean);
       })()`);
-      recordAssertion(report, `j01-catalog-page-${pageNumber}-renders-exactly-fifty-features`, 50, visibleEntries.length);
+      recordAssertion(report, `j01-catalog-page-${pageNumber}-renders-current-page-features`, Math.min(fixture.count, pageCodes.length + expectedPageEntries), visibleEntries.length);
       const responseCodes = (pageResponse.responseBody?.entries ?? [])
         .map((entry) => featureCatalogFact(entry, 'Code'))
         .filter(Boolean);
-      recordAssertion(report, `j01-catalog-page-${pageNumber}-has-exactly-fifty-identities`, 50, responseCodes.length);
+      recordAssertion(report, `j01-catalog-page-${pageNumber}-has-current-page-identities`, expectedPageEntries, responseCodes.length);
       pageCodes.push(...responseCodes);
-      if (pageNumber < expectedPageCount) {
-        await browserEval(cdp, `const section = document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]'); const next = [...(section?.querySelectorAll('button') || [])].find((button) => button.textContent.trim() === 'Next'); if (!next || next.disabled) throw new Error('Concept catalog Next is unavailable'); next.click();`);
-        await waitForBrowser(cdp, `document.querySelector('section[aria-labelledby="feature-catalog-concepts-title"]')?.innerText.includes('Page ${pageNumber + 1}')`, 60000);
-      }
+      if (!pageResponse.responseBody?.nextCursor) break;
     }
     const expectedCodes = Array.from({ length: fixture.count }, (_, index) => `${fixture.codePrefix}${String(index).padStart(4, '0')}`);
     recordAssertion(report, 'j01-browser-discovers-every-generated-code-once-across-pages', expectedCodes, [...pageCodes].sort());
@@ -3952,9 +4817,9 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
       return { response: { ok: item.response?.status === 200, status: item.response?.status }, value: item.responseBody };
     }, {
       snapshotToken: state.catalog.snapshotToken,
-      rowRoot: rootNode.resourceType,
+      outputId,
       query: fixture.displayPrefix,
-    }, fixture);
+    }, fixture, { pageLimit });
     report.timings.j01_catalog_pagination_ms = Date.now() - catalogSearchStarted;
     const collectedCodes = collectedInventory.entries.map((entry) => entry.code).sort();
     report.target.inventory = {
@@ -3966,7 +4831,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     };
     recordAssertion(report, 'j01-paginated-inventory-reports-exact-fixture-identity-coverage', {
       discovered: fixture.count,
-      pageCount: expectedPageCount,
+      pageCount: Math.ceil(fixture.count / pageLimit),
       countBasis: 'exact-paginated',
       firstCode: `${fixture.codePrefix}0000`,
       lastCode: `${fixture.codePrefix}${String(fixture.count - 1).padStart(4, '0')}`,
@@ -3974,7 +4839,7 @@ const verifyJ01BrowserScenario = async (target, report, entryTarget = target, ex
     await measureJ01CatalogRequests(target, report, {
       explorerId: report.target.explorerId,
       snapshotToken: state.catalog.snapshotToken,
-      rowRoot: rootNode.resourceType,
+      outputId,
       resourceType: rootNode.resourceType,
       query: fixture.displayPrefix,
     });
@@ -4431,13 +5296,13 @@ const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000
   return preview.value;
 };
 
-const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotToken, rowRoot, resourceType, query }, sampleCount = 30) => {
+const measureJ01CatalogRequests = async (target, report, { explorerId, snapshotToken, outputId, resourceType, query }, sampleCount = 30) => {
   const samples = [];
   const requests = [];
   const url = `${bootstrapAuthoringURL(target, explorerId)}/feature-catalog`;
   for (let index = 0; index < sampleCount; index += 1) {
     const requestId = `j01-authoring-timing-${index + 1}-${randomUUID()}`;
-    const body = j01FeatureCatalogRequest({ snapshotToken, rowRoot, resourceType, query });
+    const body = j01FeatureCatalogRequest({ snapshotToken, outputId, resourceType, query });
     const started = performance.now();
     const { response, value } = await requestJSON(url, {
       method: 'POST',
@@ -4876,8 +5741,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `setInput('first-table-name', 'Observation owner records')`);
     await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Observation owner records')`);
-    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (!button || button.disabled) throw new Error('Observation row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `(document.querySelector('button[aria-label="Choose Observation rows"]') || document.querySelector('select[aria-label="One row per"]')) && document.body.innerText.includes('Observation owner records')`);
+    await browserEval(cdp, `chooseRowType('Observation')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
     await browserEval(cdp, `clickButton('Search')`);
@@ -4892,9 +5757,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       if (!input || input.disabled) throw new Error('repeated coded Quantity is not selectable');
       input.click();
     `);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Choose output forms') && Boolean(document.querySelector('[aria-label="shared: Keep each matching record"]'))`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Advanced choices' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Advanced choices')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"] [aria-label="shared: Keep each matching record"]'))`);
     await browserEval(cdp, `const input = inputByLabel('shared: Keep each matching record'); if (!input) throw new Error('OWNER_RECORDS form is missing'); input.click();`);
     await browserEval(cdp, `clickButton('Add 1 selected feature')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured shared"]'))`);
@@ -4914,10 +5779,23 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
     });
     await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-001'))) && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-002')))`, 60000);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean(document.querySelector('[data-testid="preview-table-scroll"]'))`, 60000);
+    await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+    await waitForBrowser(cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value === '1000'`, 60000);
+    const ownerRecordsOutputId = ownerRecordsBuilder.workspace.documents[0].output.id;
+    const ownerRecordsPreview = await fetchJ01Preview(target, ownerRecordsExplorerId, ownerRecordsOutputId, ownerRecordsBuilder, 1000);
+    const ownerRecordRowIndex = (resourceId) => ownerRecordsPreview.rows.findIndex((row) =>
+      JSON.stringify(row[ownerRecordsColumn.column] ?? []).includes(resourceId));
+    const invalidOwnerIndex = ownerRecordRowIndex('dev-pair-002');
+    const validOwnerIndex = ownerRecordRowIndex('dev-pair-001');
+    if (invalidOwnerIndex < 0 || validOwnerIndex < 0) {
+      throw new Error(`OWNER_RECORDS preview omitted fixture sources: valid=${validOwnerIndex} invalid=${invalidOwnerIndex}`);
+    }
+    await waitForBrowser(cdp, `Number(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')) >= ${Math.max(invalidOwnerIndex, validOwnerIndex) + 2}`, 60000);
+    await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${invalidOwnerIndex})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect shared for row ${invalidOwnerIndex + 1}"]'))`);
     await browserEval(cdp, `
-      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
-        .find((candidate) => candidate.title.includes('dev-pair-002'));
+      const button = document.querySelector('button[aria-label="Inspect shared for row ${invalidOwnerIndex + 1}"]');
       if (!button) throw new Error('invalid owner-record preview cell is missing');
       button.click();
     `);
@@ -4927,9 +5805,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       invalidOwnerRecordEvidence.includes('INVALID_CHOICE_ARM') &&
       invalidOwnerRecordEvidence.includes('dev-pair-002'));
     await browserEval(cdp, `clickButton('Close')`);
+    await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${validOwnerIndex})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect shared for row ${validOwnerIndex + 1}"]'))`);
     await browserEval(cdp, `
-      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
-        .find((candidate) => candidate.title.includes('dev-pair-001'));
+      const button = document.querySelector('button[aria-label="Inspect shared for row ${validOwnerIndex + 1}"]');
       if (!button) throw new Error('valid owner-record preview cell is missing');
       button.click();
     `);
@@ -4960,10 +5839,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `setInput('first-table-name', 'Patients with observations')`);
     await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Patients with observations')`);
-    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Patient rows"]'); if (!button || button.disabled) throw new Error('Patient row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `(document.querySelector('button[aria-label="Choose Patient rows"]') || document.querySelector('select[aria-label="One row per"]')) && document.body.innerText.includes('Patients with observations')`);
+    await browserEval(cdp, `chooseRowType('Patient')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts')`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'id')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Search')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
     await browserEval(cdp, `
@@ -5573,12 +6453,31 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
       !document.body.innerText.includes('Loading Explorer') &&
       !document.body.innerText.includes('Loading the selected Explorer configuration')
     `, 120000);
+    const hasFeatureCatalog = await evaluate(browser.cdp,
+      `Boolean(document.querySelector('[aria-label="Search features by field name, concept, or code"]'))`);
+    if (hasFeatureCatalog) {
+      await waitForBrowser(browser.cdp, `
+        !document.body.innerText.includes('Loading all') &&
+        [...document.querySelectorAll('section[aria-labelledby^="feature-catalog-"]')]
+          .every((section) => section.innerText.includes('available'))
+      `, 120000);
+    }
     const state = await browserEval(browser.cdp, `
       const text = norm(document.body.innerText);
+      const catalogSections = [...document.querySelectorAll('section[aria-labelledby^="feature-catalog-"]')]
+        .map((section) => ({
+          title: norm(section.querySelector('h3')?.textContent),
+          count: norm([...section.querySelectorAll('span')].find((span) => span.textContent.includes('available'))?.textContent),
+          errors: [...section.querySelectorAll('[role="alert"]')].map((error) => norm(error.textContent)),
+        }));
       return {
         title: document.title,
         text,
         hasLoadFailure: text.includes('Builder state could not be loaded') || text.includes('no V1 fallback'),
+        catalogSections,
+        catalogPaginationControls: [...document.querySelectorAll('section[aria-labelledby^="feature-catalog-"] button')]
+          .filter((button) => ['Previous', 'Next'].includes(norm(button.textContent)))
+          .map((button) => norm(button.textContent)),
         renderedValues: [
           ...document.querySelectorAll('input, textarea, select'),
         ].map((element) => norm(element.value)).filter(Boolean),
@@ -5588,7 +6487,10 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
     const domPath = join(evidenceDirectory, 'builder.html');
     await snapshot(browser.cdp, domPath);
     recordEvidence(report, domPath);
-    const screenshot = await browser.cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const screenshot = await browser.cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      captureBeyondViewport: !hasFeatureCatalog,
+    });
     const screenshotPath = join(evidenceDirectory, 'builder.png');
     writeFileSync(screenshotPath, Buffer.from(screenshot.data, 'base64'), { mode: 0o600 });
     recordEvidence(report, screenshotPath);
@@ -5602,6 +6504,14 @@ const verifyCurrentBuilderDOM = async (target, report, explorerId, builderState)
     recordAssertion(report, 'current-builder-has-no-load-failure', false, state.hasLoadFailure);
     recordAssertion(report, 'current-builder-shows-current-workspace', true,
       expectedTableTitles.length > 0 && expectedTableTitles.every((title) => renderedText.includes(title)));
+    if (hasFeatureCatalog) {
+      recordAssertion(report, 'current-builder-catalog-loads-every-section', true,
+        state.catalogSections.length === 3 && state.catalogSections.every((section) => section.count.endsWith(' available')));
+      recordAssertion(report, 'current-builder-catalog-has-no-load-errors', [],
+        state.catalogSections.flatMap((section) => section.errors));
+      recordAssertion(report, 'current-builder-catalog-has-no-pagination-controls', [], state.catalogPaginationControls);
+      report.target.catalogSections = state.catalogSections;
+    }
     report.target.workspaceTables = expectedTableTitles;
     await measureHotReload(target, report, browser.cdp);
   } finally {
@@ -5709,26 +6619,32 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     throw new Error(`timed out waiting for J03 ${path}: ${JSON.stringify(network.filter((item) => item.url.endsWith(path)).map((item) => ({ status: item.response?.status, error: item.responseBodyError })))}`);
   };
   const selectExpandedPolicy = async (policy) => {
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="New row definition"] option')].some((option) => option.textContent.includes('EXPANDED') && option.textContent.includes(${JSON.stringify(policy)})))`, 30000);
-    return browserEval(cdp, `(() => {
-    const select = document.querySelector('select[aria-label="New row definition"]');
-    const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('EXPANDED') && candidate.textContent.includes(${JSON.stringify(policy)}));
-    if (!select || !option) throw new Error('server offered no EXPANDED row choice with policy ' + ${JSON.stringify(policy)});
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="Make each row"] option')].some((option) => option.value.startsWith('expanded:')))`, 30000);
+    const label = await browserEval(cdp, `(() => {
+    const select = document.querySelector('select[aria-label="Make each row"]');
+    const option = [...(select?.options || [])].find((candidate) => candidate.value.startsWith('expanded:'));
+    if (!select || !option) throw new Error('server offered no expanded row choice');
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return option.textContent.trim();
     })()`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[name="row-missing-policy"][value=${JSON.stringify(policy)}]'))`, 30000);
+    await browserEval(cdp, `document.querySelector('input[name="row-missing-policy"][value=${JSON.stringify(policy)}]').click()`);
+    return label;
   };
   const selectExplicitGroupPolicy = async (policy, revisionId) => {
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('select[aria-label="New row definition"] option')].some((option) => option.textContent.includes('Explicit group') && option.textContent.includes(${JSON.stringify(revisionId.slice(0, 12))}) && option.textContent.includes(${JSON.stringify(policy)})))`, 30000);
-    return browserEval(cdp, `(() => {
-    const select = document.querySelector('select[aria-label="New row definition"]');
-    const option = [...(select?.options || [])].find((candidate) => candidate.textContent.includes('Explicit group') && candidate.textContent.includes(${JSON.stringify(revisionId.slice(0, 12))}) && candidate.textContent.includes(${JSON.stringify(policy)}));
-    if (!select || !option) throw new Error('server offered no explicit group row choice with policy ' + ${JSON.stringify(policy)});
+    await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Make each row"] option[value=${JSON.stringify(`explicit:${revisionId}`)}]'))`, 30000);
+    const label = await browserEval(cdp, `(() => {
+    const select = document.querySelector('select[aria-label="Make each row"]');
+    const option = [...(select?.options || [])].find((candidate) => candidate.value === ${JSON.stringify(`explicit:${revisionId}`)});
+    if (!select || !option) throw new Error('server offered no explicit group row choice for ' + ${JSON.stringify(revisionId)});
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, option.value);
     select.dispatchEvent(new Event('change', { bubbles: true }));
     return option.textContent.trim();
     })()`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[name="row-missing-policy"][value=${JSON.stringify(policy)}]'))`, 30000);
+    await browserEval(cdp, `document.querySelector('input[name="row-missing-policy"][value=${JSON.stringify(policy)}]').click()`);
+    return label;
   };
   const readExpandedSelection = async (state, policy) => {
     const query = new URLSearchParams({ outputId: report.target.outputId, snapshotToken: state.catalog.snapshotToken });
@@ -5813,11 +6729,12 @@ const verifyJ03BrowserScenario = async (target, report, entryTarget = target) =>
     const renderedChanges = await evaluate(cdp, `JSON.stringify([...document.querySelectorAll('ul[aria-label="Membership changes"] li')].map((item) => item.innerText.trim()).filter((item) => !item.startsWith('Unchanged · ')))`);
     const expectedChanges = membershipChanges.map((item) => `${item.candidatePresent ? 'Added' : 'Removed'} · ${item.rowIdentity}`);
     recordAssertion(report, 'j03-preview-shows-literal-membership-changes', expectedChanges, JSON.parse(renderedChanges));
-    const explicitOptionCount = await evaluate(cdp, `document.querySelector('[role="dialog"] select[aria-label="New row definition"]') ? [...document.querySelector('[role="dialog"] select[aria-label="New row definition"]').options].filter((option) => option.textContent.includes('Explicit group')).length : -1`);
+    await browserEval(cdp, `clickText('summary', 'Create custom groups')`);
+    const explicitOptionCount = await evaluate(cdp, `document.querySelector('[role="dialog"] select[aria-label="Make each row"]') ? [...document.querySelector('[role="dialog"] select[aria-label="Make each row"]').options].filter((option) => option.value.startsWith('explicit:')).length : -1`);
     recordAssertion(report, 'j03-explicit-group-choice-is-server-provided', {
-      serverReason: true, explicitGroupOptions: 0,
+      noSavedGroups: true, explicitGroupOptions: 0,
     }, {
-      serverReason: dialogText.includes('The server has no complete explicit group revisions for this table.'),
+      noSavedGroups: String(await evaluate(cdp, `document.querySelector('[role="dialog"]')?.innerText || ''`)).includes('No saved groups are available for this table yet.'),
       explicitGroupOptions: explicitOptionCount,
     });
     report.target.rowDefinitionComparison = { base: proposal.comparison.base, candidate: proposal.comparison.candidate, examples, membershipChanges };
@@ -8335,6 +9252,7 @@ const cleanup = async (target, purge = false) => {
 const main = async (argv) => {
   const commandStarted = Date.now();
   const command = argv[0] ?? 'dev-doctor';
+  const attachOnly = verifyJ01AttachOnly(command);
   const target = createDevSession();
   const j01Scenario = target.fixtureDir === FIXTURE_DIR
     ? 'S01-J01-three-column-choice-preview-persistence-export'
@@ -8346,6 +9264,8 @@ const main = async (argv) => {
       : command === 'verify-j03' ? 'S03-J03-row-definition-settings-preview-stale-apply-persistence'
             : command === 'verify-j04' || command === 'verify-j04-patient' ? 'S04-J04-values-time-shape-typed-pivot-derived'
             : command === 'verify-j05' ? 'S05-UI05-builder-review-viewer-dataset-artifact'
+              : command === 'verify-pivot' ? 'suggested-code-pivot-browser-preview-publish-artifact'
+              : command === 'verify-pivot-cda' ? 'cda-code-pivot-browser-preview-publish-artifact'
           : undefined);
   let activeReport = report;
   mkdirSync(target.artifacts, { recursive: true, mode: 0o700 });
@@ -8391,6 +9311,52 @@ const main = async (argv) => {
       report.timings.total_ms = Date.now() - commandStarted;
       writeJSON(join(target.artifacts, 'report.json'), report);
       console.log(`DEV_CURRENT_VERIFY_PASSED project=${target.fixtureProject} evidence=${report.evidencePaths[0] ? dirname(report.evidencePaths[0]) : target.artifacts}`);
+      return;
+    }
+    if (command === 'verify-pivot') {
+      await ensureDev(target, report);
+      const sourceDigest = fixtureSourceDigest(target.fixtureDir);
+      const fixtureDirectory = createPivotFixture(target.fixtureDir);
+      try {
+        const verificationTarget = Object.freeze({
+          ...createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`),
+          fixtureDir: fixtureDirectory,
+        });
+        const verificationReport = createVerificationReport(verificationTarget, 'suggested-code-pivot-browser-preview-publish-artifact');
+        activeReport = verificationReport;
+        const seeded = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: true });
+        if (seeded.reused || !seeded.fresh || !seeded.bootstrapExplorerId) throw new Error('pivot fixture was not freshly seeded');
+        verificationReport.target.bootstrapExplorerId = seeded.bootstrapExplorerId;
+        await verifyPivotBrowserScenario(verificationTarget, verificationReport, target);
+        recordAssertion(verificationReport, 'pivot-journey-does-not-edit-source-fixture', sourceDigest, fixtureSourceDigest(target.fixtureDir));
+        verificationReport.status = 'passed';
+        verificationReport.timings.total_ms = Date.now() - commandStarted;
+        writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+        console.log(`DEV_PIVOT_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
+        return;
+      } finally {
+        rmSync(fixtureDirectory, { recursive: true, force: true });
+      }
+    }
+    if (command === 'verify-pivot-cda') {
+      if (target.fixtureDir === FIXTURE_DIR) throw new Error('verify-pivot-cda requires LOOM_DEV_FIXTURE_DIR to point at the open CDA-FHIR/META directory');
+      const manifest = await selectExternalPivotManifest(target.fixtureDir);
+      await ensureDevAttached(target, report);
+      const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
+      const verificationReport = createVerificationReport(verificationTarget, 'cda-code-pivot-browser-preview-publish-artifact');
+      activeReport = verificationReport;
+      verificationReport.target.externalManifest = manifest.summary;
+      const seed = await seedFixture(verificationTarget, { requireFresh: true, populateBootstrap: false, fixtureManifest: manifest });
+      if (seed.reused || !seed.fresh || !seed.bootstrapExplorerId) throw new Error('CDA pivot fixture was not freshly seeded');
+      verificationReport.target.bootstrapExplorerId = seed.bootstrapExplorerId;
+      await verifyPivotCDABrowserScenario(verificationTarget, verificationReport, manifest, target);
+      assertExternalJ01SourcesUnchanged(manifest);
+      const after = await selectExternalPivotManifest(target.fixtureDir);
+      recordAssertion(verificationReport, 'cda-pivot-source-selection-is-unchanged', manifest.summary.sourceSHA256, after.summary.sourceSHA256);
+      verificationReport.status = 'passed';
+      verificationReport.timings.total_ms = Date.now() - commandStarted;
+      writeJSON(join(verificationReport.target.evidenceDirectory, 'report.json'), verificationReport);
+      console.log(`DEV_PIVOT_CDA_VERIFY_PASSED project=${verificationTarget.fixtureProject} evidence=${verificationReport.target.evidenceDirectory}`);
       return;
     }
     if (command === 'verify-j02') {
@@ -8542,7 +9508,11 @@ const main = async (argv) => {
         assertExternalJ01SourcesUnchanged(externalManifest);
         report.target.externalManifest = externalManifest.summary;
       }
-      await ensureDev(target, report, false, externalManifest);
+      if (attachOnly) {
+        await ensureDevAttached(target, report);
+      } else {
+        await ensureDev(target, report, false, externalManifest);
+      }
       if (externalManifest) assertExternalJ01SourcesUnchanged(externalManifest);
       const verificationTarget = createVerificationTarget(target, `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`);
       const verificationReport = createVerificationReport(verificationTarget, report.scenario);
@@ -8595,7 +9565,7 @@ const main = async (argv) => {
       console.log(`Loom development target ${target.composeProject} stopped${argv.includes('--purge') ? ' and its volumes were removed' : ''}`);
       return;
     }
-    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j04-patient, verify-j05, dev-rebuild, or dev-down [--purge]`);
+    throw new Error(`unknown command ${command}; use dev, dev-doctor, verify-current, verify-fast, verify-full, verify-j01, verify-j02, verify-j03, verify-j04, verify-j04-patient, verify-j05, verify-pivot, verify-pivot-cda, dev-rebuild, or dev-down [--purge]`);
   } catch (error) {
     activeReport.status = 'failed';
     activeReport.error = error instanceof Error ? error.message : String(error);

@@ -21,7 +21,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%s-%d", scope.Mode, len(scope.AuthResourcePaths)), func(t *testing.T) {
 			snapshot := readySnapshot("project-a", "generation-a", "token", scope)
-			snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}, {ResourceType: "Specimen", RowRootEligible: true}}
+			snapshot.Nodes = []capability.Node{{ID: "n_observation", ResourceType: "Observation", RowRootEligible: true}, {ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true}}
 			snapshot.Candidates = []capability.Candidate{{
 				ID: "observation-value", NodeID: "n_observation", ResourceType: "Observation",
 				FieldPath: "valueQuantity.value", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
@@ -43,14 +43,14 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 						t.Fatalf("cursor was not unwrapped: %q", opts.Cursor)
 					}
 					return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: buildID, SourceAvailability: catalog.SemanticInventorySourceAvailabilityUnproven, Checkpoint: "private", ScannedResources: 9000}, Entries: []catalog.SemanticInventoryEntry{
-						{ConceptID: "ready-concept", BindingID: "ready-binding", Observation: readyObservation},
+						{ConceptID: "ready-concept", BindingID: "ready-binding", SourceRecords: 2, Observation: readyObservation},
 						{ConceptID: "unsupported-concept", BindingID: "unsupported-binding", Observation: catalog.SemanticObservation{Key: catalog.SemanticObservationKey{System: "system", Code: "code", Version: "v1"}, Population: 3}},
 					}, NextCursor: "inner-page"}, nil
 				},
 			}}
 			req := BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation", Limit: 50}
 			first, err := service.BrowseSemanticInventory(context.Background(), req)
-			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
+			if err != nil || len(first.Entries) != 2 || first.Entries[0].Occurrences != 3 || first.Entries[0].SourceRecords == nil || *first.Entries[0].SourceRecords != 2 || first.Entries[1].SourceRecords != nil || first.Entries[0].Readiness.Status != authoringv2.SemanticReadinessReady || first.Entries[0].Readiness.Code != "READY" || first.Entries[0].Readiness.Message == "" || first.Entries[0].ConstructionChoice == nil || first.Entries[1].Readiness.Status != authoringv2.SemanticReadinessUnsupported || first.Entries[1].Readiness.Code == "" || first.Entries[1].Readiness.Message == "" || first.Entries[1].ConstructionChoice != nil || first.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven || first.ContextToken == "" || first.NextCursor == "" {
 				t.Fatalf("first=%#v err=%v", first, err)
 			}
 			semanticSource, ok := first.Entries[0].ConstructionChoice.Source.(capability.SemanticBindingChoiceSource)
@@ -60,6 +60,23 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			wire, err := json.Marshal(first)
 			if err != nil {
 				t.Fatal(err)
+			}
+			var wireEntries []map[string]json.RawMessage
+			var wireEnvelope struct {
+				Entries []map[string]json.RawMessage `json:"entries"`
+			}
+			if err := json.Unmarshal(wire, &wireEnvelope); err != nil {
+				t.Fatal(err)
+			}
+			wireEntries = wireEnvelope.Entries
+			if len(wireEntries) != 2 {
+				t.Fatalf("serialized entries = %#v", wireEntries)
+			}
+			if _, ok := wireEntries[0]["sourceRecords"]; !ok {
+				t.Fatal("serialized source record count was omitted")
+			}
+			if _, ok := wireEntries[1]["sourceRecords"]; ok {
+				t.Fatal("serialized legacy source record count claimed zero")
 			}
 			var decoded struct {
 				Entries []struct {
@@ -75,7 +92,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 					} `json:"readiness"`
 				} `json:"entries"`
 			}
-			if err := json.Unmarshal(wire, &decoded); err != nil || len(decoded.Entries) != 2 || decoded.Entries[0].ConstructionChoice == nil || decoded.Entries[0].ConstructionChoice.ChoiceID == "" || len(decoded.Entries[0].ConstructionChoice.Options) != 1 || decoded.Entries[0].ConstructionChoice.Options[0].Form != capability.ConstructionChoiceValue || decoded.Entries[0].Readiness.Status != "READY" || decoded.Entries[0].Readiness.Code != "READY" || decoded.Entries[0].Readiness.Message == "" || decoded.Entries[1].Readiness.Status != "UNSUPPORTED" {
+			if err := json.Unmarshal(wire, &decoded); err != nil || len(decoded.Entries) != 2 || decoded.Entries[0].ConstructionChoice == nil || decoded.Entries[0].ConstructionChoice.ChoiceID == "" || len(decoded.Entries[0].ConstructionChoice.Options) != 2 || decoded.Entries[0].ConstructionChoice.Options[0].Form != capability.ConstructionChoiceValue || decoded.Entries[0].ConstructionChoice.Options[1].Form != capability.ConstructionChoiceOwnerRecords || decoded.Entries[0].Readiness.Status != "READY" || decoded.Entries[0].Readiness.Code != "READY" || decoded.Entries[0].Readiness.Message == "" || decoded.Entries[1].Readiness.Status != "UNSUPPORTED" {
 				t.Fatalf("serialized readiness = %s decoded=%#v err=%v", wire, decoded, err)
 			}
 			var serializedSource struct {
@@ -134,7 +151,7 @@ func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testi
 
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
-	snapshot.Nodes = []capability.Node{{ResourceType: "MedicationRequest", RowRootEligible: true}}
+	snapshot.Nodes = []capability.Node{{ID: "n_medication_request", ResourceType: "MedicationRequest", RowRootEligible: true}}
 	snapshot.Candidates = []capability.Candidate{{
 		ID: "daily-dose", NodeID: "n_medication_request", ResourceType: "MedicationRequest",
 		FieldPath: "dosageInstruction[].doseAndRate[].doseQuantity.value", Cardinality: "optional_many",
@@ -181,6 +198,38 @@ func TestBrowseSemanticInventoryMarksMissingCompilerProofUnsupported(t *testing.
 	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{Project: "project-a", ExplorerID: "explorer", SnapshotToken: "token", RowRoot: "Observation"})
 	if err != nil || len(result.Entries) != 1 || result.Entries[0].ConstructionChoice != nil || result.Entries[0].Readiness.Status != authoringv2.SemanticReadinessUnsupported || result.Entries[0].Readiness.Code != "COMPILER_PROOF_UNAVAILABLE" {
 		t.Fatalf("result=%#v error=%v", result, err)
+	}
+}
+
+func TestBrowseSemanticInventoryMarksDisconnectedSourceUnavailable(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
+	snapshot.Nodes = []capability.Node{
+		{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+		{ID: "observation", ResourceType: "Observation"},
+	}
+	snapshot.Candidates = []capability.Candidate{{
+		ID: "observation-value", NodeID: "observation", ResourceType: "Observation", FieldPath: "valueQuantity.value",
+		LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}}
+	entry := semanticAuthoringEntry("height", "height-binding", "http://loinc.org", "8302-2", "")
+	service := &Service{config: Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: catalog.SemanticInventoryBuild{BuildID: "build-a", State: catalog.SemanticInventoryComplete}, Entries: []catalog.SemanticInventoryEntry{*entry}}, nil
+		},
+	}}
+	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Patient",
+	})
+	if err != nil || len(result.Entries) != 1 {
+		t.Fatalf("disconnected semantic catalog = %#v, %v", result, err)
+	}
+	item := result.Entries[0]
+	if item.Readiness.Status != authoringv2.SemanticReadinessUnsupported || item.Readiness.Code != "SOURCE_NOT_CONNECTED" || item.Readiness.Message == "" || item.ConstructionChoice != nil {
+		t.Fatalf("disconnected semantic source = %#v", item)
 	}
 }
 

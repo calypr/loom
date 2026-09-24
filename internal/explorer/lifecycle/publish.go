@@ -29,6 +29,9 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
 		return PublishResult{}, err
 	}
+	if receipt.Purpose == explorer.ReceiptPurposePreviewOnly {
+		return PublishResult{}, unprocessable("publish", "PREVIEW_ONLY_RECEIPT", "a preview proposal cannot be published; apply the choices and reconcile the saved table", nil)
+	}
 	authorized, snapshot, err := s.resolveExecutionCapability(ctx, receipt.Project, receipt.SnapshotToken)
 	if err != nil || strings.TrimSpace(snapshot.Identity.Generation) != strings.TrimSpace(receipt.SourceGeneration) {
 		return PublishResult{}, conflict("publish", "RECEIPT_STALE", "the receipt's capability snapshot is no longer authorized or retained", nil, err)

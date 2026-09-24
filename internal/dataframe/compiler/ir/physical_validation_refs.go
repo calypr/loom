@@ -368,7 +368,11 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 	if primitive := strings.TrimSpace(correlation.ValuePrimitive); primitive != "" && primitive != string(fhirschema.PrimitiveString) && primitive != string(fhirschema.PrimitiveBoolean) && primitive != string(fhirschema.PrimitiveInteger) && primitive != string(fhirschema.PrimitiveDecimal) && primitive != string(fhirschema.PrimitiveDate) && primitive != string(fhirschema.PrimitiveDateTime) {
 		return fmt.Errorf("correlation value primitive %q is unsupported", correlation.ValuePrimitive)
 	}
-	for name, key := range map[string]string{"system": correlation.SystemBindKey, "code": correlation.CodeBindKey} {
+	binds := map[string]string{"system": correlation.SystemBindKey}
+	if !correlation.NamespaceOnly {
+		binds["code"] = correlation.CodeBindKey
+	}
+	for name, key := range binds {
 		if strings.TrimSpace(key) == "" {
 			return fmt.Errorf("correlation %s bind key is required", name)
 		}
@@ -377,6 +381,52 @@ func validatePhysicalCorrelation(correlation PhysicalCorrelation, defined map[st
 		}
 		if _, ok := bindVars[key].(string); !ok {
 			return fmt.Errorf("correlation %s bind %q must be a string", name, key)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalCorrelationKeyMatch(match PhysicalCorrelationKeyMatch, defined map[string]bool, bindVars map[string]any) error {
+	if err := validatePhysicalValue(match.Source, defined, bindVars); err != nil {
+		return err
+	}
+	if strings.TrimSpace(match.ResourceType) == "" || !schemaDefinitionExists(match.ResourceType) {
+		return fmt.Errorf("correlation key-match resource type %q is not represented by generated FHIR schema", match.ResourceType)
+	}
+	ownerResource := match.OwnerResource
+	if ownerResource == "" {
+		ownerResource = match.ResourceType
+	}
+	if !schemaDefinitionExists(ownerResource) {
+		return fmt.Errorf("correlation key-match owner resource %q is not represented by generated FHIR schema", ownerResource)
+	}
+	if match.OwnerSelector.CanonicalPath() != "" {
+		if err := validatePhysicalSelector(match.ResourceType, match.OwnerSelector); err != nil {
+			return fmt.Errorf("correlation key-match owner selector: %w", err)
+		}
+	}
+	if strings.TrimSpace(match.KeyResource) == "" || !schemaDefinitionExists(match.KeyResource) {
+		return fmt.Errorf("correlation key-match key resource %q is not represented by generated FHIR schema", match.KeyResource)
+	}
+	if err := validatePhysicalSelector(ownerResource, match.KeySelector); err != nil {
+		return fmt.Errorf("correlation key-match key selector: %w", err)
+	}
+	if err := validatePhysicalSelector(match.KeyResource, match.SystemSelector); err != nil {
+		return fmt.Errorf("correlation key-match system selector: %w", err)
+	}
+	if err := validatePhysicalSelector(match.KeyResource, match.CodeSelector); err != nil {
+		return fmt.Errorf("correlation key-match code selector: %w", err)
+	}
+	if strings.TrimSpace(match.SystemBindKey) == "" || strings.TrimSpace(match.CodeBindKey) == "" || match.SystemBindKey == match.CodeBindKey {
+		return fmt.Errorf("correlation key-match requires distinct system and code bind keys")
+	}
+	for name, key := range map[string]string{"system": match.SystemBindKey, "code": match.CodeBindKey} {
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+		value, ok := bindVars[key].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("correlation key-match %s bind %q must be a non-empty string", name, key)
 		}
 	}
 	return nil

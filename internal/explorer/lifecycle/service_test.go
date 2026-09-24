@@ -892,6 +892,38 @@ func TestPublishCommitsReleaseAndRevisionTogether(t *testing.T) {
 	}
 }
 
+func TestPublishRejectsPreviewOnlyReceiptBeforeMaterialization(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	receipt := nativeReceipt(snapshot)
+	receipt.Purpose = explorer.ReceiptPurposePreviewOnly
+	var err error
+	receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = explorer.ReceiptID(*receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{receipt: receipt}
+	config := testConfig(snapshot)
+	config.ValidateReleaseGeneration = func(context.Context, string, string) error { return nil }
+	config.PrepareRelease = func(context.Context, string, string, []dataset.DataframeSelector) (dataset.ProjectRelease, int64, error) {
+		return dataset.ProjectRelease{}, 0, nil
+	}
+	materialized := false
+	config.MaterializeReceipt = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings) (Execution, error) {
+		materialized = true
+		return Execution{}, nil
+	}
+	service := newTestService(t, store, config)
+	_, err = service.Publish(context.Background(), PublishRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ONLY_RECEIPT" || materialized || store.published {
+		t.Fatalf("preview-only publish = %v, materialized=%t published=%t", err, materialized, store.published)
+	}
+}
+
 func TestPublishRejectsInvalidQualityEvidenceBeforeReleasePreparation(t *testing.T) {
 	snapshot := readySnapshot("project-a", "generation-a", "token", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
 	receipt := nativeReceipt(snapshot)

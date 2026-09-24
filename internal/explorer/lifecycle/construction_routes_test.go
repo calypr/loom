@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	catalogdata "github.com/calypr/loom/internal/catalog"
+	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -21,7 +24,7 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 	}
 	snapshot.Edges = []capability.Edge{{
 		ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
-		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
+		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND", ObservedEdgeCount: 1,
 	}}
 	candidate := capability.Candidate{
 		ID: "observation-status", NodeID: "observation", ResourceType: "Observation",
@@ -38,7 +41,7 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
 		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
 		Nodes: []authoringv2.CatalogNode{{ID: "patient", ResourceType: "Patient", RowRootEligible: true}, {ID: "observation", ResourceType: "Observation"}},
-		Edges: []authoringv2.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient"}},
+		Edges: []authoringv2.CatalogEdge{{ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation", Label: "subject_Patient", Populated: true}},
 		Candidates: []authoringv2.CatalogCandidate{{
 			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
 			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, ProjectionModes: []string{"VALUE"},
@@ -46,12 +49,26 @@ func inboundPatientObservationRouteFixture(t *testing.T) (*fakeStore, *Service, 
 		}},
 	}
 	store := semanticAuthoringStore(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.Documents[0].FixedFilters = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
 	config := Config{Capability: CapabilityResolver{
 		ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
 			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		},
 		Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog },
-	}}
+	}, HasRouteValue: func(context.Context, catalogdata.RouteCoverageOptions) (bool, error) { return true, nil }}
 	return store, newTestService(t, store, config), snapshot, catalog, candidate
 }
 
@@ -61,7 +78,7 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
-	if err != nil || !search.Complete || len(search.Choices) != 1 {
+	if err != nil || !search.Complete || search.Truncated || search.NextCursor != "" || len(search.Choices) != 1 {
 		t.Fatalf("route-bound search = %#v, %v", search, err)
 	}
 	choice := search.Choices[0]
@@ -94,24 +111,13 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.T) {
 	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
-	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
-		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
-		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	setSavedConstructionRoute(t, store, authoringv2.RouteNode{
+		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient",
+		Children: []authoringv2.RouteNode{
+			{OccurrenceID: "saved-observation-primary", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "subject-patient", MatchMode: authoringv2.RouteMatchOptional},
+			{OccurrenceID: "saved-observation-parallel", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "subject-patient-parallel", MatchMode: authoringv2.RouteMatchOptional},
+		},
 	})
-	if err != nil || len(search.Choices) != 2 {
-		t.Fatalf("parallel route choices = %#v, %v", search.Choices, err)
-	}
-	choices := map[string]string{}
-	for _, choice := range search.Choices {
-		identity, decodeErr := capability.DecodeConstructionChoiceID(choice.ChoiceID)
-		if decodeErr != nil || len(identity.Route) != 1 {
-			t.Fatalf("route choice identity = %#v, %v", identity, decodeErr)
-		}
-		choices[identity.Route[0].EdgeID] = choice.ChoiceID
-	}
-	if choices["subject-patient"] == "" || choices["subject-patient-parallel"] == "" {
-		t.Fatalf("parallel choices did not retain both exact edge IDs: %#v", choices)
-	}
 	initialWorkspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -119,16 +125,30 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 	initialRouteChildren := len(initialWorkspace.Documents[0].Route.Children)
 
 	var document authoringv2.Document
-	for index, edgeID := range []string{"subject-patient", "subject-patient-parallel"} {
-		request := constructionChoiceRequest(snapshot, "parallel-choice-"+edgeID, choices[edgeID], capability.ConstructionChoiceValue)
+	for index, route := range []struct{ edgeID, occurrenceID string }{
+		{edgeID: "subject-patient", occurrenceID: "saved-observation-primary"},
+		{edgeID: "subject-patient-parallel", occurrenceID: "saved-observation-parallel"},
+	} {
+		search, searchErr := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: route.occurrenceID,
+			Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+		})
+		if searchErr != nil || len(search.Choices) != 1 {
+			t.Fatalf("advanced route search for %q = %#v, %v", route.edgeID, search, searchErr)
+		}
+		identity, decodeErr := capability.DecodeConstructionChoiceID(search.Choices[0].ChoiceID)
+		if decodeErr != nil || len(identity.Route) != 1 || identity.Route[0].EdgeID != route.edgeID {
+			t.Fatalf("advanced route identity = %#v, %v; want edge %q", identity.Route, decodeErr, route.edgeID)
+		}
+		request := constructionChoiceRequest(snapshot, "parallel-choice-"+route.edgeID, search.Choices[0].ChoiceID, capability.ConstructionChoiceValue)
 		request.ExpectedDraftVersion = store.created.DraftVersion
 		response, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
 		if applyErr != nil {
-			t.Fatalf("apply exact route %q: %v", edgeID, applyErr)
+			t.Fatalf("apply exact route %q: %v", route.edgeID, applyErr)
 		}
 		document = response.Workspace.Documents[0]
-		if index == 1 && len(document.Route.Children) != initialRouteChildren+2 {
-			t.Fatalf("parallel routes produced %d total occurrences after starting with %d, want two new siblings", len(document.Route.Children), initialRouteChildren)
+		if index == 1 && len(document.Route.Children) != initialRouteChildren {
+			t.Fatalf("advanced route application changed the saved graph: got %d children, want %d", len(document.Route.Children), initialRouteChildren)
 		}
 	}
 	if len(document.Columns) < 3 || document.Columns[len(document.Columns)-2].OccurrenceID == document.Columns[len(document.Columns)-1].OccurrenceID {
@@ -148,8 +168,8 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 	if err := json.Unmarshal(store.created.DraftConfig, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if len(persisted.Documents) != 1 || len(persisted.Documents[0].Route.Children) != initialRouteChildren+2 {
-		t.Fatalf("reloaded workspace lost parallel route occurrences: %#v", persisted)
+	if len(persisted.Documents) != 1 || len(persisted.Documents[0].Route.Children) != initialRouteChildren {
+		t.Fatalf("reloaded workspace changed the explicitly saved route occurrences: %#v", persisted)
 	}
 	occurrences := map[string]string{}
 	for _, child := range persisted.Documents[0].Route.Children {
@@ -194,37 +214,405 @@ func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.
 	}
 }
 
-func TestConstructionChoiceRejectsAmbiguousLegacyPrefix(t *testing.T) {
+func TestConstructionChoiceSearchOffersEqualShortestRoutes(t *testing.T) {
 	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
-	setSavedConstructionRoute(t, store, authoringv2.RouteNode{
-		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient",
-		Children: []authoringv2.RouteNode{{OccurrenceID: "legacy-observation", ResourceType: "Observation", Relationship: "subject_Patient"}},
-	})
 	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
 		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
 	})
-	if err != nil || len(search.Choices) != 2 {
-		t.Fatalf("route search = %#v, %v", search, err)
+	if err != nil || !search.Complete || search.Truncated || len(search.Choices) != 2 {
+		t.Fatalf("equal shortest route choices = %#v, %v; want both pinned edges", search, err)
 	}
+	if search.Choices[0].Route[0].EdgeID != "subject-patient" || search.Choices[1].Route[0].EdgeID != "subject-patient-parallel" {
+		t.Fatalf("equal shortest route order = %#v; want stable edge ordering", search.Choices)
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatalf("normal catalog search mutated workspace: saves=%d", store.saveDraftCalls)
+	}
+}
+
+func TestConstructionChoiceSearchDoesNotTreatGlobalEdgeCountAsRowCoverage(t *testing.T) {
+	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
+	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
+	snapshot.Edges[0].ObservedEdgeCount = 1
+	snapshot.Edges[1].ObservedEdgeCount = 9
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}
+	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalog }
+	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || len(result.Choices) != 2 || result.Choices[0].Route[0].EdgeID != "subject-patient" || result.Choices[1].Route[0].EdgeID != "subject-patient-parallel" {
+		t.Fatalf("row-backed choices must ignore global edge ranking: %#v, %v", result, err)
+	}
+	if store.saveDraftCalls != 0 {
+		t.Fatalf("construction-choice search mutated workspace: saves=%d", store.saveDraftCalls)
+	}
+}
+
+func TestConstructionChoiceSearchAndApplyPreferRowsWithValuesOverGlobalEdgeCount(t *testing.T) {
+	store, service, snapshot, catalogSnapshot, candidate := inboundPatientObservationRouteFixture(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionRecords, Records: &authoringv2.RecordRows{}}
+	workspace.Documents[0].FixedFilters = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Edges[0].ObservedEdgeCount = 100
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "specimen", ResourceType: "Specimen"})
+	snapshot.Edges = append(snapshot.Edges,
+		capability.Edge{ID: "specimen-subject", FromNodeID: "patient", ToNodeID: "specimen", SourceResourceType: "Patient", TargetResourceType: "Specimen", Label: "subject_Patient", StorageDirection: "INBOUND", ObservedEdgeCount: 2},
+		capability.Edge{ID: "observation-specimen", FromNodeID: "specimen", ToNodeID: "observation", SourceResourceType: "Specimen", TargetResourceType: "Observation", Label: "specimen_Specimen", StorageDirection: "INBOUND", ObservedEdgeCount: 2},
+	)
+	catalogSnapshot.Nodes = append(catalogSnapshot.Nodes, authoringv2.CatalogNode{ID: "specimen", ResourceType: "Specimen"})
+	catalogSnapshot.Edges = append(catalogSnapshot.Edges,
+		authoringv2.CatalogEdge{ID: "specimen-subject", FromNodeID: "patient", ToNodeID: "specimen", Label: "subject_Patient", Populated: true},
+		authoringv2.CatalogEdge{ID: "observation-specimen", FromNodeID: "specimen", ToNodeID: "observation", Label: "specimen_Specimen", Populated: true},
+	)
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	service.config.Capability.Catalog = func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot }
+	service.config.HasRouteValue = func(_ context.Context, options catalogdata.RouteCoverageOptions) (bool, error) {
+		if options.RootResourceType != "Patient" || options.SourceResourceType != "Observation" || options.Source.Kind != catalogdata.RouteCoverageField || options.Source.FieldPath != "status" {
+			t.Fatalf("coverage measured unrelated source: %#v", options)
+		}
+		if len(options.Route) == 2 && options.Route[0].Relationship == "subject_Patient" && options.Route[1].Relationship == "specimen_Specimen" {
+			return true, nil
+		}
+		return false, nil
+	}
+	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || len(search.Choices) != 1 {
+		t.Fatalf("measured search = %#v, %v", search, err)
+	}
+	choice := search.Choices[0]
+	if len(choice.Route) != 2 || choice.Route[0].EdgeID != "specimen-subject" || choice.Route[1].EdgeID != "observation-specimen" {
+		t.Fatalf("selected route = %#v, want the only route with current values", choice.Route)
+	}
+	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", constructionChoiceRequest(snapshot, "value-backed-route", choice.ChoiceID, capability.ConstructionChoiceValue), "alice")
+	if err != nil || store.saveDraftCalls != 1 || len(response.Workspace.Documents[0].Columns) == 0 {
+		t.Fatalf("apply measured route: response=%#v saves=%d err=%v", response, store.saveDraftCalls, err)
+	}
+}
+
+func TestConstructionChoiceSearchRejectsObservedEdgeWithoutRowValues(t *testing.T) {
+	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Rows = authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionRecords, Records: &authoringv2.RecordRows{}}
+	workspace.Documents[0].FixedFilters = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.config.HasRouteValue = func(context.Context, catalogdata.RouteCoverageOptions) (bool, error) {
+		return false, nil
+	}
+	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || len(result.Choices) != 0 {
+		t.Fatalf("globally observed but empty route = %#v, %v", result, err)
+	}
+}
+
+func TestConstructionChoiceSearchUsesIndexedDirectRootCoverage(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.Documents[0].FixedFilters = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootCandidate := capability.Candidate{ID: "patient-id", NodeID: "patient", ResourceType: "Patient", FieldPath: "id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, ObservedDocumentCount: 3}
+	snapshot.Candidates = append(snapshot.Candidates, rootCandidate)
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	service.config.HasRouteValue = func(_ context.Context, options catalogdata.RouteCoverageOptions) (bool, error) {
+		if options.RootResourceType != "Patient" || options.SourceResourceType != "Patient" || len(options.Route) != 0 {
+			t.Fatalf("direct root existence options = %#v", options)
+		}
+		return true, nil
+	}
+	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: rootCandidate.ID},
+	})
+	if err != nil || len(result.Choices) != 1 || len(result.Choices[0].Route) != 0 {
+		t.Fatalf("indexed direct coverage = %#v, %v", result, err)
+	}
+}
+
+func TestConstructionChoiceSearchPinsDirectAndSharedStudyRoutesAndForms(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "shared-study-route-snapshot", scope)
+	snapshot.Nodes = []capability.Node{
+		{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true},
+		{ID: "research-study", ResourceType: "ResearchStudy"},
+		{ID: "observation", ResourceType: "Observation"},
+	}
+	rootToObservation := compilerProvedRouteDirection(t, snapshot, scope, "Specimen", "specimen_Specimen", "Observation")
+	rootToStudy := compilerProvedRouteDirection(t, snapshot, scope, "Specimen", "focus_reference_Specimen", "ResearchStudy")
+	studyToObservation := compilerProvedRouteDirection(t, snapshot, scope, "ResearchStudy", "focus_ResearchStudy", "Observation")
+	snapshot.Edges = []capability.Edge{
+		{ID: "specimen-observation", FromNodeID: "specimen", ToNodeID: "observation", SourceResourceType: "Specimen", TargetResourceType: "Observation", Label: "specimen_Specimen", StorageDirection: rootToObservation, ObservedEdgeCount: 1},
+		{ID: "specimen-study", FromNodeID: "specimen", ToNodeID: "research-study", SourceResourceType: "Specimen", TargetResourceType: "ResearchStudy", Label: "focus_reference_Specimen", StorageDirection: rootToStudy, ObservedEdgeCount: 2},
+		{ID: "study-observation", FromNodeID: "research-study", ToNodeID: "observation", SourceResourceType: "ResearchStudy", TargetResourceType: "Observation", Label: "focus_ResearchStudy", StorageDirection: studyToObservation, ObservedEdgeCount: 2},
+	}
+	candidate := capability.Candidate{
+		ID: "observation-notes", NodeID: "observation", ResourceType: "Observation", FieldPath: "note[].text",
+		Label: "Observation note", LogicalType: "string", Cardinality: "many",
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "note[]"}},
+		ProjectionModes:    []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+	}
+	snapshot.Candidates = []capability.Candidate{candidate}
+	baseChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSnapshot := authoringv2.CatalogSnapshot{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.CatalogKind, Project: "project-a", ExplorerID: "patients",
+		SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		SnapshotToken: snapshot.Token, Complete: true, RoutePolicy: authoringv2.RoutePolicy{Unbounded: true},
+		Nodes: []authoringv2.CatalogNode{
+			{ID: "specimen", ResourceType: "Specimen", RowRootEligible: true},
+			{ID: "research-study", ResourceType: "ResearchStudy"},
+			{ID: "observation", ResourceType: "Observation"},
+		},
+		Edges: []authoringv2.CatalogEdge{
+			{ID: "specimen-observation", FromNodeID: "specimen", ToNodeID: "observation", Label: "specimen_Specimen", Populated: true},
+			{ID: "specimen-study", FromNodeID: "specimen", ToNodeID: "research-study", Label: "focus_reference_Specimen", Populated: true},
+			{ID: "study-observation", FromNodeID: "research-study", ToNodeID: "observation", Label: "focus_ResearchStudy", Populated: true},
+		},
+		Candidates: []authoringv2.CatalogCandidate{{
+			ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Label: candidate.Label,
+			LogicalType: candidate.LogicalType, Cardinality: candidate.Cardinality, ProjectionModes: []string{"FIRST", "ALL"},
+			DefaultProjectionMode: "ALL", ConstructionChoice: &baseChoice,
+		}},
+	}
+	store := semanticAuthoringStore(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].RootResourceType = "Specimen"
+	workspace.Documents[0].Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Specimen"}
+	workspace.Documents[0].Rows = authoringv2.RecordsRowDefinition()
+	workspace.Documents[0].FixedFilters = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	config := Config{
+		Capability: CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+				return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+		},
+		HasRouteValue: func(_ context.Context, options catalogdata.RouteCoverageOptions) (bool, error) {
+			checks++
+			if options.Project != "project-a" || options.DatasetGeneration != "generation-a" || !options.AuthResourcePathsUnrestricted {
+				t.Fatalf("route value check lost current generation or authorization: %#v", options)
+			}
+			if options.RootResourceType != "Specimen" || options.SourceResourceType != "Observation" || options.Source.FieldPath != candidate.FieldPath {
+				t.Fatalf("route value check used another source: %#v", options)
+			}
+			if len(options.Route) == 1 && options.Route[0].Relationship == "specimen_Specimen" {
+				return true, nil // Specimen A reaches its direct Observation A.
+			}
+			if len(options.Route) == 2 && options.Route[0].Relationship == "focus_reference_Specimen" && options.Route[1].Relationship == "focus_ResearchStudy" {
+				return true, nil // The shared Study also reaches Observation B from another specimen.
+			}
+			return false, nil
+		},
+	}
+	service := newTestService(t, store, config)
+	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || !search.Complete || search.Truncated || len(search.Choices) != 2 || checks != 2 {
+		t.Fatalf("direct and shared-Study route choices = %#v checks=%d err=%v", search, checks, err)
+	}
+	choicesByFirstEdge := map[string]capability.ConstructionChoice{}
+	for _, choice := range search.Choices {
+		if len(choice.Route) > 0 {
+			choicesByFirstEdge[choice.Route[0].EdgeID] = choice
+		}
+	}
+	direct := choicesByFirstEdge["specimen-observation"]
+	shared := choicesByFirstEdge["specimen-study"]
+	if len(direct.Route) != 1 || len(shared.Route) != 2 || shared.Route[1].EdgeID != "study-observation" {
+		t.Fatalf("routes were not separately pinned: direct=%#v shared=%#v", direct.Route, shared.Route)
+	}
+	if !hasConstructionForm(direct, capability.ConstructionChoiceFirst) || !hasConstructionForm(shared, capability.ConstructionChoiceAll) {
+		t.Fatalf("compiler-proved FIRST/ALL forms missing: direct=%#v shared=%#v", direct.Options, shared.Options)
+	}
+	beforeFailure := append([]byte(nil), store.created.DraftConfig...)
+	beforeFailureVersion, beforeFailureDigest := store.created.DraftVersion, store.created.DraftDigest
+	service.config.HasRouteValue = func(context.Context, catalogdata.RouteCoverageOptions) (bool, error) { return false, nil }
+	failedRequest := constructionChoiceRequest(snapshot, "reject-empty-route", direct.ChoiceID, capability.ConstructionChoiceFirst)
+	failedRequest.ExpectedDraftVersion = beforeFailureVersion
+	failedRequest.ExpectedDraftDigest = beforeFailureDigest
+	if _, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", failedRequest, "alice"); applyErr == nil || !strings.Contains(applyErr.Error(), "NO_VALUES_ON_TABLE_ROWS") {
+		t.Fatalf("route with no current value error = %v", applyErr)
+	}
+	if store.saveDraftCalls != 0 || store.created.DraftVersion != beforeFailureVersion || store.created.DraftDigest != beforeFailureDigest || string(store.created.DraftConfig) != string(beforeFailure) {
+		t.Fatalf("failed value check mutated draft: saves=%d version=%d digest=%q", store.saveDraftCalls, store.created.DraftVersion, store.created.DraftDigest)
+	}
+	service.config.HasRouteValue = config.HasRouteValue
+
+	apply := func(commandID string, choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) authoringv2.Document {
+		request := constructionChoiceRequest(snapshot, commandID, choice.ChoiceID, form)
+		request.ExpectedDraftVersion = store.created.DraftVersion
+		request.ExpectedDraftDigest = store.created.DraftDigest
+		response, applyErr := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
+		if applyErr != nil {
+			t.Fatalf("apply %s route with %s: %v", commandID, form, applyErr)
+		}
+		return response.Workspace.Documents[0]
+	}
+	apply("add-direct-source", direct, capability.ConstructionChoiceFirst)
+	document := apply("add-shared-study-source", shared, capability.ConstructionChoiceAll)
+	if len(document.Columns) != 3 {
+		t.Fatalf("two route choices did not add two columns: %#v", document.Columns)
+	}
+	gotForms := map[string]string{}
+	for _, column := range document.Columns[1:] {
+		if column.Source.Field == nil {
+			t.Fatalf("route choice output is not a field: %#v", column)
+		}
+		gotForms[column.Source.Field.ProjectionMode] = column.OccurrenceID
+	}
+	if gotForms["FIRST"] == "" || gotForms["ALL"] == "" || gotForms["FIRST"] == gotForms["ALL"] {
+		t.Fatalf("source and output-form choices were not persisted independently: %#v", gotForms)
+	}
+	if _, err := authoringv2.DecodeWorkspace(store.created.DraftConfig); err != nil {
+		t.Fatalf("reload persisted route choices: %v", err)
+	}
+	for columnID, want := range map[string][]string{
+		document.Columns[1].Column: {"specimen-observation"},
+		document.Columns[2].Column: {"specimen-study", "study-observation"},
+	} {
+		resolved, sourceErr := service.ColumnSource(context.Background(), ColumnSourceRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", Column: columnID,
+		})
+		if sourceErr != nil {
+			t.Fatalf("reload pinned column %q: %v", columnID, sourceErr)
+		}
+		if len(resolved.Route) != len(want)+1 {
+			t.Fatalf("reloaded column %q route = %#v; want %v", columnID, resolved.Route, want)
+		}
+		for index, edgeID := range want {
+			if resolved.Route[index+1].CatalogEdgeID != edgeID {
+				t.Fatalf("reloaded column %q route = %#v; want edge %q", columnID, resolved.Route, edgeID)
+			}
+		}
+	}
+}
+
+func compilerProvedRouteDirection(t *testing.T, snapshot capability.Snapshot, scope authscope.ReadScope, from, label, to string) string {
+	t.Helper()
+	proof, err := compilerprobe.ProbeTraversal(context.Background(), compilerprobe.TraversalRequest{
+		Scope: constructionCompilerScope(AuthorizedCapability{Snapshot: snapshot, Scope: scope}), RootResourceType: from,
+		Traversal: compilerprobe.Traversal{FromResourceType: from, EdgeLabel: label, ToResourceType: to, MatchMode: spec.TraversalMatchOptional},
+	})
+	if err != nil || proof.Traversal == nil {
+		t.Fatalf("compiler route proof %s -[%s]-> %s = %#v, %v", from, label, to, proof, err)
+	}
+	return string(proof.Traversal.StorageDirection)
+}
+
+func hasConstructionForm(choice capability.ConstructionChoice, form capability.ConstructionChoiceForm) bool {
+	for _, option := range choice.Options {
+		if option.Form == form {
+			return true
+		}
+	}
+	return false
+}
+
+func TestConstructionChoiceRejectsAmbiguousLegacyPrefix(t *testing.T) {
+	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
+	snapshot, _ = addParallelObservationRoute(service, snapshot, catalog)
+	setSavedConstructionRoute(t, store, authoringv2.RouteNode{
+		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient",
+		Children: []authoringv2.RouteNode{{OccurrenceID: "legacy-observation", ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: authoringv2.RouteMatchOptional}},
+	})
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	choice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := constructionChoiceRequest(snapshot, "ambiguous-legacy-prefix", choice.ChoiceID, capability.ConstructionChoiceValue)
 	before := append([]byte(nil), store.created.DraftConfig...)
 	version, digest := store.created.DraftVersion, store.created.DraftDigest
-	request := constructionChoiceRequest(snapshot, "ambiguous-legacy-prefix", search.Choices[0].ChoiceID, capability.ConstructionChoiceValue)
-	request.ExpectedDraftVersion = version
-	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil {
-		t.Fatal("construction choice reused an ambiguous legacy occurrence")
+	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err == nil || !strings.Contains(err.Error(), "ambiguous legacy occurrence") {
+		t.Fatalf("ambiguous legacy route error = %v, want explicit legacy-route rejection", err)
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
-		t.Fatalf("rejected ambiguous legacy route mutated workspace: saves=%d", store.saveDraftCalls)
+		t.Fatalf("ambiguous legacy route mutated workspace: saves=%d", store.saveDraftCalls)
+	}
+}
+
+func TestConstructionChoiceSearchRejectsUnobservedRoute(t *testing.T) {
+	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	snapshot.Edges[0].ObservedEdgeCount = 0
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	search, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID},
+	})
+	if err != nil || !search.Complete || search.Truncated {
+		t.Fatalf("unobserved route search = %#v, %v; want an empty, complete result", search, err)
+	}
+	if len(search.Choices) != 0 || store.saveDraftCalls != 0 {
+		t.Fatalf("unobserved route returned choices or mutated workspace: choices=%d saves=%d", len(search.Choices), store.saveDraftCalls)
 	}
 }
 
 func TestConstructionChoiceSearchScopesToSavedOccurrenceRoute(t *testing.T) {
 	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	snapshot, _ = addParallelObservationRoute(service, snapshot, service.config.Capability.Catalog(snapshot, "patients"))
 	setSavedConstructionRoute(t, store, authoringv2.RouteNode{
 		OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient",
-		Children: []authoringv2.RouteNode{{OccurrenceID: "saved-observation", ResourceType: "Observation", Relationship: "subject_Patient", MatchMode: authoringv2.RouteMatchOptional}},
+		Children: []authoringv2.RouteNode{{OccurrenceID: "saved-observation", ResourceType: "Observation", Relationship: "subject_Patient", CatalogEdgeID: "subject-patient-parallel", MatchMode: authoringv2.RouteMatchOptional}},
 	})
 	result, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients", OccurrenceID: "saved-observation",
@@ -234,7 +622,7 @@ func TestConstructionChoiceSearchScopesToSavedOccurrenceRoute(t *testing.T) {
 		t.Fatalf("occurrence-scoped search = %#v, %v", result, err)
 	}
 	choice := result.Choices[0]
-	if len(choice.Route) != 1 || choice.Route[0].EdgeID != "subject-patient" || choice.Route[0].StorageDirection != "INBOUND" {
+	if len(choice.Route) != 1 || choice.Route[0].EdgeID != "subject-patient-parallel" || choice.Route[0].StorageDirection != "INBOUND" {
 		t.Fatalf("occurrence did not resolve to exact saved inbound route: %#v", choice.Route)
 	}
 	if store.saveDraftCalls != 0 {
@@ -397,6 +785,32 @@ func TestConstructionChoiceRejectsTamperedRouteAtomically(t *testing.T) {
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
 		t.Fatalf("tampered route choice mutated draft: saves=%d", store.saveDraftCalls)
+	}
+}
+
+func TestApplyConstructionChoiceRejectsNoncanonicalUnsavedRouteWithoutValueProof(t *testing.T) {
+	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
+	service.config.HasRouteValue = nil
+	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "subject-patient-parallel", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	choice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := constructionChoiceRequest(snapshot, "noncanonical-unsaved-route", choice.ChoiceID, capability.ConstructionChoiceValue)
+	before := append([]byte(nil), store.created.DraftConfig...)
+	version, digest := store.created.DraftVersion, store.created.DraftDigest
+
+	_, err = service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice")
+	if got := lifecycleErrorCode(err); got != "INVALID_CONSTRUCTION_CHOICE" {
+		t.Fatalf("noncanonical unsaved route error = %s (%v), want invalid construction choice", got, err)
+	}
+	if store.saveDraftCalls != 0 || store.created.DraftVersion != version || store.created.DraftDigest != digest || string(before) != string(store.created.DraftConfig) {
+		t.Fatalf("rejected noncanonical route mutated workspace: saves=%d", store.saveDraftCalls)
 	}
 }
 

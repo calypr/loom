@@ -19,18 +19,20 @@ const optionLabel = (option: ConstructionChoice['options'][number]): string => {
 export const CatalogSelectionDialog = ({
   groups,
   busy,
+  showRouteDetails,
   onCancel,
   onConfirm,
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
   readonly busy: boolean;
+  readonly showRouteDetails: boolean;
   readonly onCancel: () => void;
   readonly onConfirm: (selections: ReadonlyArray<CatalogChoiceIntent>) => void;
 }) => {
   const [choiceIDs, setChoiceIDs] = useState<ReadonlyMap<string, string>>(
     () => new Map(
       groups.flatMap((group) =>
-        group.choices.length === 1
+        group.choices.length === 1 && !group.requiresSourceChoice
           ? [[catalogItemKey(group.item), group.choices[0]!.choiceId]]
           : [],
       ),
@@ -86,10 +88,10 @@ export const CatalogSelectionDialog = ({
         role="dialog"
       >
         <h2 id="catalog-selection-dialog-title" className="text-xl font-semibold text-slate-950">
-          Choose output forms
+          Choose column sources and output forms
         </h2>
         <p className="mt-1 text-sm text-slate-600">
-          Loom provides the available forms and source details. The default form is selected when the compiler marks exactly one option as DEFAULT.
+          Choose where each column gets its values, then choose whether Loom keeps or reduces them. Each route follows every relationship shown; if a shared resource links to multiple rows, its connected values may appear for each row. Loom lists only routes with values in the current table data.
         </p>
         <div className="mt-4 space-y-3">
           {groups.map((group) => {
@@ -102,7 +104,11 @@ export const CatalogSelectionDialog = ({
               return (
                 <article key={key} className="rounded-lg border border-slate-200 p-3">
                   <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
-                  <p className="mt-2 text-sm text-amber-900">No compiler-proved route and output form were provided.</p>
+                  <p className="mt-2 text-sm text-amber-900">
+                    {group.truncated
+                      ? 'No route with current values was found within the automatic search limit. Review the full route graph in Advanced.'
+                      : 'No authorized route with current values was found for this column.'}
+                  </p>
                 </article>
               );
             }
@@ -110,14 +116,19 @@ export const CatalogSelectionDialog = ({
             return (
               <article key={key} className="rounded-lg border border-slate-200 p-3">
                 <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
+                {group.rowsWithValue === undefined ? null : (
+                  <p className="mt-2 text-sm font-medium text-emerald-900">
+                    {group.rowsWithValue.toLocaleString()} current table rows contain a value through this route.
+                  </p>
+                )}
                 {group.truncated ? (
                   <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
-                    Loom reached the automatic route-search limit. The choices below are valid, but more routes may exist in Advanced graph.
+                    Loom reached the automatic route-search limit. These routes have values, but other routes may also exist. Review the full route graph in Advanced.
                   </p>
                 ) : null}
-                {group.choices.length > 1 ? (
+                {group.requiresSourceChoice || group.choices.length > 1 ? (
                   <fieldset className="mt-3 space-y-2" disabled={busy}>
-                    <legend className="text-sm font-medium text-slate-800">Choose where this column comes from</legend>
+                    <legend className="text-sm font-medium text-slate-800">Choose where this column gets its values</legend>
                     {group.choices.map((routeChoice, routeIndex) => (
                       <label key={routeChoice.choiceId} className="flex cursor-pointer items-start gap-2 rounded-md border border-slate-200 p-2.5">
                         <input
@@ -132,8 +143,8 @@ export const CatalogSelectionDialog = ({
                           <span className="block text-sm font-semibold text-slate-900">{routeChoice.presentation.summary}</span>
                           <span className="mt-1 block text-xs text-slate-600">
                             {routeChoice.route.length === 0
-                              ? 'Same resource as each table row'
-                              : routeChoice.route.map((step) => `${step.fromResourceType} → ${step.toResourceType} via ${step.relationship}`).join(' · ')}
+                              ? 'Value is on the same record as each table row.'
+                              : routeChoice.route.map((step) => `${step.toResourceType} records connected to ${step.fromResourceType}`).join(' · ')}
                           </span>
                         </span>
                       </label>
@@ -154,7 +165,7 @@ export const CatalogSelectionDialog = ({
                     ))}
                   </dl>
                 </details> : null}
-                {choice ? <div className="mt-2 rounded-md bg-blue-50 p-2 text-xs text-slate-700">
+                {showRouteDetails && choice ? <div className="mt-2 rounded-md bg-blue-50 p-2 text-xs text-slate-700">
                   <span className="font-semibold text-blue-900">Route: </span>
                   {choice.route.length === 0
                     ? 'Same resource as each table row'

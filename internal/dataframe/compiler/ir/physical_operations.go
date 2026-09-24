@@ -378,6 +378,9 @@ type PhysicalPredicate struct {
 	Quantifier     spec.ArrayQuantifier
 	ValueKind      spec.FilterValueKind
 	Correlation    *PhysicalCorrelation
+	// CorrelationKeyMatch is a key-only existence check used to prune
+	// correlated pivot inputs without evaluating their value selectors.
+	CorrelationKeyMatch *PhysicalCorrelationKeyMatch
 }
 
 type PhysicalPredicateKind string

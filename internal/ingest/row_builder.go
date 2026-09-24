@@ -32,9 +32,10 @@ const (
 )
 
 type rowBuildResult struct {
-	vertex  json.RawMessage
-	edges   []json.RawMessage
-	payload map[string]any
+	vertex   json.RawMessage
+	edges    []json.RawMessage
+	payload  map[string]any
+	vertexID string
 }
 
 type RowBuilder interface {

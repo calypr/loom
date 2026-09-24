@@ -255,13 +255,13 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
-	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: constructionOptions(candidate)}
-	if len(ownerRecordsProved) > 0 && ownerRecordsProved[0] && ownerRecordsSourceSupported(source, candidate) {
+	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: semanticChoicePresentation(source, candidate), Options: semanticConstructionOptions(candidate, source, route)}
+	if len(ownerRecordsProved) > 0 && ownerRecordsProved[0] && ownerRecordsSourceSupported(source) {
 		choice.Options = append(choice.Options, ConstructionChoiceOption{
 			Form: ConstructionChoiceOwnerRecords, Shape: ConstructionChoiceList,
 			Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoicePreserving,
 			RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
-			Reason: "Keep each repeated FHIR owner as an ordered record with its value and source evidence.",
+			Reason: "Keep each FHIR owner as an ordered record with its value and source evidence.",
 		})
 	}
 	if len(choice.Options) == 0 {
@@ -270,18 +270,42 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	return choice, nil
 }
 
-func ownerRecordsSourceSupported(source SemanticBindingChoiceSource, candidate Candidate) bool {
-	ownerPath := canonicalSemanticPath(source.OwningScope)
-	if ownerPath == "" || strings.TrimSpace(source.System) == "" || strings.TrimSpace(source.Code) == "" ||
-		strings.TrimSpace(source.KeySelector) == "" || strings.TrimSpace(source.ValueSelector) == "" {
-		return false
+func semanticConstructionOptions(candidate Candidate, source SemanticBindingChoiceSource, route []ConstructionRouteStep) []ConstructionChoiceOption {
+	options := constructionOptions(candidate)
+	if len(route) == 0 || strings.TrimSpace(source.KeySelector) == "" ||
+		strings.TrimSpace(source.System) == "" || strings.TrimSpace(source.Code) == "" ||
+		IsRepeatedCardinality(candidate.Cardinality) {
+		return options
 	}
-	for _, boundary := range candidate.RepeatedBoundaries {
-		if canonicalSemanticPath(boundary.Path) == ownerPath {
-			return true
+	// A scalar value on one related resource is not necessarily scalar at the
+	// table row grain. Several related resources may carry the same code.
+	// The correlated pivot compiler can preserve those matches as a typed list.
+	allFound := false
+	for index := range options {
+		switch options[index].Form {
+		case ConstructionChoiceValue:
+			options[index].Decision = ConstructionChoiceRequiresDecision
+			options[index].Reason = "Use a scalar only when this table row reaches exactly one matching value."
+		case ConstructionChoiceAll:
+			allFound = true
+			options[index].Decision = ConstructionChoiceDefault
+			options[index].Reason = "Keep every matching value across related FHIR records."
 		}
 	}
-	return false
+	if !allFound {
+		options = append(options, ConstructionChoiceOption{
+			Form: ConstructionChoiceAll, Shape: ConstructionChoiceList,
+			Decision: ConstructionChoiceDefault, Preservation: ConstructionChoicePreserving,
+			RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
+			Reason: "Keep every matching value across related FHIR records.",
+		})
+	}
+	return options
+}
+
+func ownerRecordsSourceSupported(source SemanticBindingChoiceSource) bool {
+	return strings.TrimSpace(source.System) != "" && strings.TrimSpace(source.Code) != "" &&
+		strings.TrimSpace(source.KeySelector) != "" && strings.TrimSpace(source.ValueSelector) != ""
 }
 
 // DecodeConstructionChoiceID validates the token envelope and returns the

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	"github.com/calypr/loom/internal/catalog"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -71,12 +72,16 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 			var documents []json.RawMessage
 			var collections []string
 			var overwrites []bool
+			var vertexDocument json.RawMessage
 			insert := func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
 				mu.Lock()
 				defer mu.Unlock()
 				collections = append(collections, collection)
 				overwrites = append(overwrites, overwrite)
 				documents = append(documents, docs...)
+				if collection == "Patient" {
+					vertexDocument = docs[0]
+				}
 				return nil
 			}
 			result, err := loadFile(context.Background(), opts, nil, schema, file, test.generation, false, time.Now(), 0, 0, insert)
@@ -86,11 +91,11 @@ func TestLoadFilePreservesGenerationWrites(t *testing.T) {
 			if result.Rows != 1 || result.VerticesInserted != 1 || result.ValidationErrors != 0 || len(result.Catalog.Documents()) == 0 {
 				t.Fatalf("result = %+v", result)
 			}
-			if len(collections) != 1 || collections[0] != "Patient" || len(overwrites) != 1 || overwrites[0] || len(documents) != 1 {
+			if len(collections) != 2 || len(overwrites) != 2 || len(documents) != 2 || vertexDocument == nil || !((collections[0] == "Patient" && !overwrites[0] && collections[1] == catalog.FieldSourceMembershipCollection && overwrites[1]) || (collections[1] == "Patient" && !overwrites[1] && collections[0] == catalog.FieldSourceMembershipCollection && overwrites[0])) {
 				t.Fatalf("writes collections=%v overwrite=%v documents=%d", collections, overwrites, len(documents))
 			}
 			var vertex map[string]any
-			if err := json.Unmarshal(documents[0], &vertex); err != nil {
+			if err := json.Unmarshal(vertexDocument, &vertex); err != nil {
 				t.Fatal(err)
 			}
 			if vertex["id"] != "patient-1" {
@@ -172,7 +177,7 @@ func TestLoadFileBatchesAndPropagatesWriterFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.VerticesInserted != 3 || result.VertexBatches != 3 || atomic.LoadInt64(&inserted) != 3 {
+	if result.VerticesInserted != 3 || result.VertexBatches != 3 || result.FieldSourceMembershipBatches != 3 || atomic.LoadInt64(&inserted) != 6 {
 		t.Fatalf("result=%+v inserted=%d", result, inserted)
 	}
 

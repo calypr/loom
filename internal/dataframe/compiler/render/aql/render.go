@@ -225,13 +225,87 @@ func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]strin
 // so only values referenced by the final rendered AQL may cross the execution
 // boundary.
 func pruneUnusedRuntimeBindVars(bindVars map[string]any, query string) map[string]any {
+	referenced := referencedRuntimeBindKeys(query)
 	pruned := make(map[string]any, len(bindVars))
 	for key, value := range bindVars {
-		if strings.Contains(query, "@"+key) {
+		if _, ok := referenced[key]; ok {
 			pruned[key] = value
 		}
 	}
 	return pruned
+}
+
+func referencedRuntimeBindKeys(query string) map[string]struct{} {
+	referenced := make(map[string]struct{})
+	for index := 0; index < len(query); {
+		switch query[index] {
+		case '\'', '"', '`':
+			quote := query[index]
+			index++
+			for index < len(query) {
+				if query[index] == '\\' {
+					index += 2
+					continue
+				}
+				if query[index] == quote {
+					index++
+					break
+				}
+				index++
+			}
+		case '/':
+			if index+1 >= len(query) {
+				index++
+				continue
+			}
+			switch query[index+1] {
+			case '/':
+				index += 2
+				for index < len(query) && query[index] != '\n' {
+					index++
+				}
+			case '*':
+				index += 2
+				for index+1 < len(query) && (query[index] != '*' || query[index+1] != '/') {
+					index++
+				}
+				if index+1 < len(query) {
+					index += 2
+				}
+			default:
+				index++
+			}
+		case '@':
+			collectionBinding := index+1 < len(query) && query[index+1] == '@'
+			index++
+			if collectionBinding {
+				index++
+			}
+			if index >= len(query) || !isAQLBindIdentifierStart(query[index]) {
+				continue
+			}
+			start := index
+			for index < len(query) && isAQLBindIdentifierPart(query[index]) {
+				index++
+			}
+			key := query[start:index]
+			if collectionBinding {
+				key = "@" + key
+			}
+			referenced[key] = struct{}{}
+		default:
+			index++
+		}
+	}
+	return referenced
+}
+
+func isAQLBindIdentifierStart(char byte) bool {
+	return char == '_' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'
+}
+
+func isAQLBindIdentifierPart(char byte) bool {
+	return isAQLBindIdentifierStart(char) || char >= '0' && char <= '9'
 }
 
 func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOperation, indent string) ([]string, error) {

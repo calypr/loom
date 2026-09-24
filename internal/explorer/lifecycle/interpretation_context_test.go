@@ -44,6 +44,9 @@ func (*interpretationContextRepository) CreateInterpretationRevision(context.Con
 func TestConfiguredColumnContextProjectsServerOwnedResolutionWithoutMutation(t *testing.T) {
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
+	workspace.Documents[0].Route.Children = []authoringv2.RouteNode{{
+		OccurrenceID: "stale", ResourceType: "Observation", CatalogEdgeID: "e_removed", Relationship: "subject",
+	}}
 	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns,
 		authoringv2.Column{Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}},
 		authoringv2.Column{Column: "missing", Label: "Missing", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name.family", ProjectionMode: "FIRST"}}},
@@ -159,7 +162,7 @@ func TestConfiguredColumnContextRejectsStaleDraftAndScope(t *testing.T) {
 	})
 }
 
-func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
+func TestConfiguredColumnContextReportsInvalidRoutePerColumn(t *testing.T) {
 	revision := lifecyclePrepareInterpretation(t)
 	workspace := lifecycleInterpretationWorkspace(string(revision.ID), false)
 	workspace.Documents[0].Route.Children = []authoringv2.RouteNode{{OccurrenceID: "observation", ResourceType: "Observation", Relationship: "subject"}}
@@ -180,10 +183,19 @@ func TestConfiguredColumnContextRejectsInvalidRoute(t *testing.T) {
 			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
 		}},
 	})
-	_, err = service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
+	result, err := service.ConfiguredColumnContext(context.Background(), ConfiguredColumnContextRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest,
 	})
-	assertLifecycleCode(t, err, "STALE_COLUMN_ROUTE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Columns) != 2 || result.Columns[0].Resolution.State() != explorercompilation.InterpretationCandidateMissing ||
+		result.Columns[1].Resolution.State() != explorercompilation.InterpretationCandidateReady {
+		t.Fatalf("stale route context = %#v", result.Columns)
+	}
+	if result.Columns[0].Resolution.Reason() == "" {
+		t.Fatal("stale route must carry a repair explanation")
+	}
 }
 
 func TestConfiguredColumnContextRejectsWorkAboveExplicitLimits(t *testing.T) {

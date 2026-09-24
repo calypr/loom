@@ -58,6 +58,14 @@ func main() {
 		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
 			return runBackfillSemanticInventory(ctx, os.Args[2:])
 		})
+	case "backfill-field-source-membership":
+		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
+			return runBackfillFieldSourceMembership(ctx, os.Args[2:])
+		})
+	case "prepare-available-columns":
+		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
+			return runPrepareAvailableColumns(ctx, os.Args[2:])
+		})
 	default:
 		usage()
 		os.Exit(2)
@@ -552,6 +560,75 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	return printJSON(report)
 }
 
+type fieldSourceMembershipBackfillCommand struct {
+	Connection arangostore.ConnectionOptions
+	Options    ingest.FieldSourceMembershipBackfillOptions
+}
+
+func parseBackfillFieldSourceMembershipCommand(args []string, errorHandling flag.ErrorHandling) (fieldSourceMembershipBackfillCommand, error) {
+	fs := flag.NewFlagSet("backfill-field-source-membership", errorHandling)
+	config := fieldSourceMembershipBackfillCommand{Connection: arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
+	fs.StringVar(&config.Connection.URL, "url", defaultURL, "Backend base URL")
+	fs.StringVar(&config.Connection.Database, "database", defaultDatabase, "Backend database")
+	fs.StringVar(&config.Options.Project, "project", "", "Immutable generation project (required)")
+	fs.StringVar(&config.Options.DatasetGeneration, "generation", "", "Immutable generation identifier (required)")
+	fs.IntVar(&config.Options.MaxResources, "max-resources", 0, "Maximum retained source vertices to index in this invocation (required)")
+	fs.IntVar(&config.Options.PageSize, "page-size", 250, "Maximum retained resource rows per query page (1-1000)")
+	fs.IntVar(&config.Options.BatchSize, "batch-size", 500, "Maximum sidecars per persistence batch (1-5000)")
+	if err := fs.Parse(args); err != nil {
+		return fieldSourceMembershipBackfillCommand{}, err
+	}
+	if strings.TrimSpace(config.Options.Project) == "" {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("--project is required")
+	}
+	if strings.TrimSpace(config.Options.DatasetGeneration) == "" {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("--generation is required")
+	}
+	if _, err := publication.NewRef(config.Options.Project, config.Options.DatasetGeneration); err != nil {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("invalid backfill project/generation: %w", err)
+	}
+	if config.Options.MaxResources < 1 {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("--max-resources must be positive")
+	}
+	if config.Options.PageSize < 1 || config.Options.PageSize > 1000 {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("--page-size must be between 1 and 1000")
+	}
+	if config.Options.BatchSize < 1 || config.Options.BatchSize > 5000 {
+		return fieldSourceMembershipBackfillCommand{}, fmt.Errorf("--batch-size must be between 1 and 5000")
+	}
+	return config, nil
+}
+
+func runBackfillFieldSourceMembership(ctx context.Context, args []string) error {
+	config, err := parseBackfillFieldSourceMembershipCommand(args, flag.ExitOnError)
+	if err != nil {
+		return err
+	}
+	client, err := arangostore.Open(ctx, config.Connection.URL, config.Connection.Database)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close(ctx) }()
+	ref, _ := publication.NewRef(config.Options.Project, config.Options.DatasetGeneration)
+	lifecycle, err := publicationarango.New(client)
+	if err != nil {
+		return err
+	}
+	manifest, err := lifecycle.ReadManifest(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("read field-source membership generation manifest: %w", err)
+	}
+	store, err := catalogarango.New(client)
+	if err != nil {
+		return err
+	}
+	report, err := ingest.BackfillFieldSourceMembership(ctx, store, manifest, config.Options)
+	if err != nil {
+		return err
+	}
+	return printJSON(report)
+}
+
 func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangostore.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
@@ -606,6 +683,8 @@ func usage() {
   arango-fhir-proto repair-generation [flags]  # stage a corrected immutable generation; --activate is explicit
   arango-fhir-proto activate-generation [flags]  # validate and activate a staged immutable generation
   arango-fhir-proto backfill-semantic-inventory --project PROJECT --generation ID [flags]  # resumably rebuild retained-source semantic inventory
+  arango-fhir-proto backfill-field-source-membership --project PROJECT --generation ID --max-resources N [flags]  # bounded, resumable scalar-path index backfill
+  arango-fhir-proto prepare-available-columns --project PROJECT --generation ID [flags]  # materialize default-row availability witnesses
 `)
 }
 

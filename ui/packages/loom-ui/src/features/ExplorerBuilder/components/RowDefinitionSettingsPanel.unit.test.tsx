@@ -116,19 +116,34 @@ const renderSettings = (overrides: { draftVersion?: number; draftDigest?: string
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('separates a repeated row choice from its missing-value policy', async () => {
+    const { proposeRowDefinition } = renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const select = await screen.findByRole('combobox', { name: 'Make each row' });
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+    expect(screen.queryByRole('option', { name: /EXPANDED|PRESERVE_PARENT|ERROR/ })).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'expanded:expanded-choice' } });
+    expect(screen.getByRole('radio', { name: 'Keep a row with an empty value' })).toHaveProperty('checked', true);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' } },
+    })));
+  });
+
   it('previews and applies only the server-issued explicit-group proposal', async () => {
     const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
-    expect(screen.getByText('Current rows: RECORDS · one row per source record')).toBeTruthy();
+    expect(screen.getByText('Current rows: One row per Patient record')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    const select = await screen.findByRole('combobox', { name: 'New row definition' });
-    expect(screen.getByRole('option', { name: /RECORDS/ })).toBeTruthy();
-    expect(screen.getAllByRole('option', { name: /EXPANDED/ })).toHaveLength(2);
-    expect(screen.getAllByRole('option', { name: /Explicit group/ })).toHaveLength(3);
+    const select = await screen.findByRole('combobox', { name: 'Make each row' });
+    expect(screen.getByRole('option', { name: 'One row per Patient record' })).toBeTruthy();
+    expect(screen.getAllByRole('option', { name: 'One row per name' })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(1);
     expect(listRowDefinitionChoices).toHaveBeenCalledWith(expect.objectContaining({
       project: 'project-a', explorerId: 'explorer-a', outputId: 'patients', snapshotToken: 'snapshot-1',
     }));
 
-    fireEvent.change(select, { target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' } });
+    fireEvent.change(select, { target: { value: 'explicit:grouprev_0123456789abcdef' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Leave records with no match out' }));
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     expect(await screen.findByText('Base rows: 4')).toBeTruthy();
     expect(screen.getByText('Candidate rows: 2')).toBeTruthy();
@@ -191,7 +206,7 @@ describe('RowDefinitionSettingsPanel', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     expect(getSelection).toHaveBeenCalledWith(
@@ -215,7 +230,8 @@ describe('RowDefinitionSettingsPanel', () => {
       { label: 'Group B', memberIds: ['opaque-member-b', 'opaque-member-c'] },
     ]);
     expect(JSON.stringify(createRequest.groups)).not.toContain('resourceType');
-    expect(await screen.findAllByRole('option', { name: /grouprev_new ·/ })).toHaveLength(3);
+    expect(await screen.findByRole('option', { name: 'One row per saved group (2 groups, 4 records)' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Stop if any record has no match' })).toHaveProperty('checked', true);
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await screen.findByRole('button', { name: 'Apply row definition' });
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
@@ -246,7 +262,7 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel group setup' }));
@@ -284,7 +300,7 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 2 · record-b');
     expect(screen.getByText('Loaded 2 of 3. Records not loaded or not assigned remain unassigned.')).toBeTruthy();
@@ -329,7 +345,7 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     fireEvent.click(screen.getByRole('button', { name: 'Remove Group B' }));
@@ -351,7 +367,7 @@ describe('RowDefinitionSettingsPanel', () => {
     };
     const view = render(<RowDefinitionSettingsPanel {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await screen.findByRole('button', { name: 'Apply row definition' });
     view.rerender(<RowDefinitionSettingsPanel {...props} draftVersion={5} draftDigest="draft-digest-5" />);
@@ -376,7 +392,7 @@ describe('RowDefinitionSettingsPanel', () => {
     };
     const { proposeRowDefinition, onApply } = renderSettings({ proposalValue: unavailable });
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     expect((await screen.findAllByText('The server could not compare this row definition.')).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -404,7 +420,7 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'New row definition' });
+    await screen.findByRole('combobox', { name: 'Make each row' });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(serverError.message);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));

@@ -690,7 +690,7 @@ func TestOwnerRecordsPreserveRepeatedFHIRValuesAgainstArango(t *testing.T) {
 		t.Fatalf("empty-string record=%#v", text)
 	}
 	multi := record(records("multi_records", 1)[0])
-	if multi["status"] != "INVALID_MULTIPLE_VALUES" || multi["value"] != nil || !reflect.DeepEqual(multi["values"], []any{"a", "b"}) {
+	if multi["status"] != "VALUE" || !reflect.DeepEqual(multi["value"], []any{"a", "b"}) || !reflect.DeepEqual(multi["values"], []any{"a", "b"}) {
 		t.Fatalf("multiple-valued record=%#v", multi)
 	}
 }

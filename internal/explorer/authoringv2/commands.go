@@ -21,6 +21,7 @@ const (
 	CommandRenameTable                   = "RENAME_TABLE"
 	CommandReorderTables                 = "REORDER_TABLES"
 	CommandSetTableRoot                  = "SET_TABLE_ROOT"
+	CommandResetTableRoot                = "RESET_TABLE_ROOT"
 	CommandApplyTableRootRebase          = "APPLY_TABLE_ROOT_REBASE"
 	CommandSetTablePopulation            = "SET_TABLE_POPULATION"
 	CommandClearTablePopulation          = "CLEAR_TABLE_POPULATION"
@@ -413,6 +414,10 @@ func (c Command) validate() error {
 		if !required(c.OutputID, c.RootNodeID) {
 			return fmt.Errorf("SET_TABLE_ROOT requires outputId and rootNodeId")
 		}
+	case CommandResetTableRoot:
+		if !required(c.OutputID, c.RootNodeID) {
+			return fmt.Errorf("RESET_TABLE_ROOT requires outputId and rootNodeId")
+		}
 	case CommandApplyTableRootRebase:
 		if c.RowChange == nil {
 			return fmt.Errorf("APPLY_TABLE_ROOT_REBASE requires rowChange")
@@ -675,6 +680,25 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		current.RootResourceType = node.ResourceType
 		current.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType}
+		return result, nil
+	case CommandResetTableRoot:
+		document := documentIndex(workspace, command.OutputID)
+		node, ok := catalogNode(catalog, command.RootNodeID)
+		if document < 0 || !ok || !node.RowRootEligible {
+			return result, fmt.Errorf("output or eligible root node was not found")
+		}
+		current := workspace.Documents[document]
+		if current.RootResourceType == node.ResourceType {
+			return result, nil
+		}
+		current.Output.RowLabel = ""
+		workspace.Documents[document] = Document{
+			Kind: Kind, Output: current.Output, RootResourceType: node.ResourceType,
+			Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: node.ResourceType},
+			Rows:  RecordsRowDefinition(), Columns: []Column{},
+		}
+		cleanupWorkspaceBindings(workspace)
+		result.OccurrenceID = RootOccurrenceID
 		return result, nil
 	case CommandApplyTableRootRebase:
 		proposal := *command.RowChange
@@ -1347,6 +1371,15 @@ func validateEditableSource(document Document, catalog CatalogSnapshot, occurren
 		// not have a legacy field path to resolve against a catalog candidate.
 		return nil
 	}
+	if source.Categorical != nil && source.Kind == SourceCategoricalBySystem {
+		if _, err := fhirschema.ValidateCategoricalBinding(occurrence.ResourceType, source.Categorical.Binding); err != nil {
+			return fmt.Errorf("source categorical binding: %w", err)
+		}
+		if strings.TrimSpace(source.Categorical.System) == "" {
+			return fmt.Errorf("source categorical binding requires an explicit system")
+		}
+		return nil
+	}
 	if source.OwnerRecords != nil && source.Kind == SourceOwnerRecords {
 		if _, err := fhirschema.ValidateCorrelatedBinding(occurrence.ResourceType, source.OwnerRecords.Binding); err != nil {
 			return fmt.Errorf("source owner records binding: %w", err)
@@ -1483,6 +1516,9 @@ func inferredSourceLogicalType(document Document, catalog CatalogSnapshot, occur
 	}
 	if source.Lookup != nil && source.Lookup.Identifier != nil && strings.TrimSpace(source.Lookup.Identifier.LogicalType) != "" {
 		return strings.TrimSpace(source.Lookup.Identifier.LogicalType)
+	}
+	if source.Categorical != nil && strings.TrimSpace(source.Categorical.Binding.LogicalType) != "" {
+		return strings.TrimSpace(source.Categorical.Binding.LogicalType)
 	}
 	if source.Kind == SourceAggregate && source.Aggregate != nil {
 		switch strings.ToUpper(strings.TrimSpace(source.Aggregate.Operation)) {

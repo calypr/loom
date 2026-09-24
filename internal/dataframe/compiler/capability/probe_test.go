@@ -218,10 +218,6 @@ func TestProbeOwnerRecordsRejectsUnprovedShapes(t *testing.T) {
 		Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "code"},
 	}
 	for _, mutate := range []func(*OwnerRecordsRequest){
-		func(request *OwnerRecordsRequest) {
-			request.Binding.OwnerPath = ""
-			request.Binding.KeyPath = "code.coding[]"
-		},
 		func(request *OwnerRecordsRequest) { request.Key.System = "" },
 		func(request *OwnerRecordsRequest) { request.Binding.ValuePath = "missing" },
 	} {
@@ -231,6 +227,24 @@ func TestProbeOwnerRecordsRejectsUnprovedShapes(t *testing.T) {
 			t.Fatalf("invalid owner-record request was accepted: %#v", request)
 		}
 	}
+}
+
+func TestProbeOwnerRecordsProvesResourceOwner(t *testing.T) {
+	result, err := ProbeOwnerRecords(context.Background(), OwnerRecordsRequest{
+		Scope: testScope(), RootResourceType: "Observation", ResourceType: "Observation",
+		Binding: fhirschema.CorrelatedBinding{
+			KeyPath: "code.coding[]", SystemPath: "system", CodePath: "code",
+			ValuePath: "valueString", ChoiceArms: []string{"valueString"}, LogicalType: "string",
+		},
+		Key: fhirschema.CorrelatedKey{System: "urn:test", Code: "result"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OwnerRecords == nil || !strings.Contains(result.Rendered.Query, "ownerOrdinal") {
+		t.Fatalf("resource owner evidence proof = %#v", result)
+	}
+	assertScopedQuery(t, result.Rendered)
 }
 
 func assertScopedQuery(t *testing.T, rendered Rendered) {

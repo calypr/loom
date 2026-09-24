@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type report struct {
@@ -280,7 +281,7 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		return authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}, "string", nil
 	}
 	if marker := "observation_component_values__"; strings.Contains(leaf, marker) {
-		return authoringv2.ColumnSource{Kind: authoringv2.SourceObservationComponentByCode, Lookup: &authoringv2.LookupSource{Match: leaf[strings.Index(leaf, marker)+len(marker):], Path: "component[]", ProjectionMode: "FIRST"}}, "string", nil
+		return authoringv2.ColumnSource{}, "", fmt.Errorf("cannot recover the code system and value binding for legacy component column %q; select its observed concept in Builder", leaf)
 	}
 	if marker := "identifier_by_system_"; strings.Contains(leaf, marker) {
 		encoded := leaf[strings.Index(leaf, marker)+len(marker):]
@@ -308,7 +309,10 @@ func inferSource(project, rootResourceType, occurrenceID, leaf, physical string)
 		case "identifier":
 			return field("identifier[].value", "string"), "string", nil
 		default:
-			return authoringv2.ColumnSource{Kind: authoringv2.SourceCodingBySystem, Lookup: &authoringv2.LookupSource{Match: "https://humantumoratlas.org/" + name, Path: "category[].coding[]", ProjectionMode: "FIRST"}}, "string", nil
+			return authoringv2.ColumnSource{Kind: authoringv2.SourceCategoricalBySystem, Categorical: &authoringv2.CategoricalSource{
+				System: "https://humantumoratlas.org/" + name, ProjectionMode: "FIRST",
+				Binding: fhirschema.CategoricalBinding{OwnerPath: "category[]", KeyPath: "category[].coding[]", SystemPath: "system", ValuePath: "code", LogicalType: "string"},
+			}}, "string", nil
 		}
 	}
 	switch leaf {

@@ -88,12 +88,12 @@ func TestSemanticObservationProjectionNeedsObservedScalar(t *testing.T) {
 		selector string
 		status   string
 	}{
-		{name: "coding-only CodeableConcept", arm: "valueCodeableConcept", value: map[string]any{"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: SemanticStatusUnsupportedValueProjection},
-		{name: "blank CodeableConcept text", arm: "valueCodeableConcept", value: map[string]any{"text": "  ", "coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.text", status: SemanticStatusUnsupportedValueProjection},
+		{name: "coding-only CodeableConcept", arm: "valueCodeableConcept", value: map[string]any{"coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.coding[].code", status: "SUPPORTED"},
+		{name: "blank CodeableConcept text", arm: "valueCodeableConcept", value: map[string]any{"text": "  ", "coding": []any{map[string]any{"system": "http://snomed.info/sct", "code": "1222593009"}}}, selector: "valueCodeableConcept.coding[].code", status: "SUPPORTED"},
 		{name: "Quantity without value", arm: "valueQuantity", value: map[string]any{"unit": "days"}, selector: "valueQuantity.value", status: SemanticStatusUnsupportedValueProjection},
-		{name: "Period without start", arm: "valuePeriod", value: map[string]any{"end": "2026-09-01"}, selector: "valuePeriod.start", status: SemanticStatusUnsupportedValueProjection},
-		{name: "Range without low value", arm: "valueRange", value: map[string]any{"low": map[string]any{"unit": "days"}}, selector: "valueRange.low.value", status: SemanticStatusUnsupportedValueProjection},
-		{name: "Ratio without numerator value", arm: "valueRatio", value: map[string]any{"numerator": map[string]any{"unit": "mg"}}, selector: "valueRatio.numerator.value", status: SemanticStatusUnsupportedValueProjection},
+		{name: "Period without start", arm: "valuePeriod", value: map[string]any{"end": "2026-09-01"}, selector: "valuePeriod", status: "SUPPORTED"},
+		{name: "Range without low value", arm: "valueRange", value: map[string]any{"low": map[string]any{"unit": "days"}}, selector: "valueRange", status: "SUPPORTED"},
+		{name: "Ratio without numerator value", arm: "valueRatio", value: map[string]any{"numerator": map[string]any{"unit": "mg"}}, selector: "valueRatio", status: "SUPPORTED"},
 		{name: "CodeableConcept with text", arm: "valueCodeableConcept", value: map[string]any{"text": "Stage I"}, selector: "valueCodeableConcept.text", status: "SUPPORTED"},
 	}
 	for _, test := range tests {

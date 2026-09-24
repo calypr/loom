@@ -643,9 +643,8 @@ func parseOptions(opts Options) (*ch.Options, error) {
 	parsed.Auth.Password = opts.Password
 	parsed.DialTimeout = opts.Timeout
 	parsed.ReadTimeout = opts.Timeout
-	// Native JSON columns are used for logical object-valued dataframe fields.
-	// Keep the setting on every connection so DDL and native batch inserts work
-	// consistently against ClickHouse 25.3 deployments.
+	// Keep native JSON enabled for legacy materializations and compatibility
+	// tests. New logical object columns use normalized JSON text instead.
 	if parsed.Settings == nil {
 		parsed.Settings = ch.Settings{}
 	}

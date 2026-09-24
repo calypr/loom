@@ -715,6 +715,42 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	}
 }
 
+func TestTraversalDynamicMapExactNamingHonorsExplicitEmptyColumnPrefix(t *testing.T) {
+	emptyPrefix := ""
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "exact-dynamic", TranslationVersion: "test", Outputs: []recipe.Output{{
+		Name: "ResearchSubject", RootResourceType: "ResearchSubject", RowGrain: "study_enrollment", TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "occurrence", DynamicColumns: []recipe.DynamicColumn{{
+			Name: "identifier_values", ColumnPrefix: &emptyPrefix, Source: recipe.Expression{Select: "occurrence.identifier[]"}, Key: &recipe.Expression{Select: "item.system"}, Value: &recipe.Expression{Select: "item.value"}, Columns: []string{"authored_column"},
+		}}}},
+	}}}
+
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := compiled.Outputs[0].DynamicColumns; len(got) != 1 || got[0].Name != "authored_column" || got[0].DynamicName != "occurrence__identifier_values" {
+		t.Fatalf("dynamic metadata = %#v, want exact authored name with stable runtime family", got)
+	}
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		if column.Name == "occurrence__authored_column" {
+			t.Fatalf("exact dynamic output schema retained traversal alias: %#v", compiled.Outputs[0].OutputSchema)
+		}
+		if column.Name == "authored_column" {
+			return
+		}
+	}
+	t.Fatalf("output schema = %#v, want exact authored name", compiled.Outputs[0].OutputSchema)
+}
+
 func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "component-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
 		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
@@ -736,7 +772,8 @@ func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(rendered.Query, "pivot_item_value") < 1 || !strings.Contains(rendered.Query, "__root.code") {
+	if !strings.Contains(rendered.Query, "__loom_physical_pivot_item_value.code.coding") ||
+		!strings.Contains(rendered.Query, "__loom_physical_pivot_item_value.valueString") {
 		t.Fatalf("component pivot was not lowered as one correlated item scope: %s", rendered.Query)
 	}
 }
@@ -783,6 +820,74 @@ func TestCompiledRecipeOutputSchemaFlattensMixedObservationPivotToString(t *test
 	}
 	if !strings.Contains(rendered.Query, "TO_STRING(FIRST(__pivot_flat_values))") {
 		t.Fatalf("mixed pivot values were not normalized to strings: %s", rendered.Query)
+	}
+}
+
+func TestCompiledRecipeOutputSchemaPreservesRepeatedPivotCardinality(t *testing.T) {
+	for _, mode := range []string{recipe.PivotProjectionAll, recipe.PivotProjectionDistinct} {
+		t.Run(mode, func(t *testing.T) {
+			bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "repeated-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
+				Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",
+				Pivots: []recipe.Pivot{{
+					Name:           "observation_codes",
+					FieldRef:       "Observation.code.coding[].code",
+					ColumnExpr:     recipe.Expression{Select: "root.code.coding[].system"},
+					ValueExpr:      recipe.Expression{Select: "root.code.coding[].code"},
+					Columns:        []string{"http://loinc.org"},
+					ColumnAliases:  map[string]string{"http://loinc.org": "loinc_code"},
+					ProjectionMode: mode,
+				}},
+			}}}
+			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schemaFound, projectionFound bool
+			for _, column := range compiled.Outputs[0].OutputSchema {
+				if column.Name != "loinc_code" {
+					continue
+				}
+				schemaFound = true
+				if column.Cardinality != string(expression.Many) || !column.Nullable {
+					t.Fatalf("%s pivot column = %#v, want nullable repeated string", mode, column)
+				}
+			}
+			if !schemaFound {
+				t.Fatalf("compiled schema missing loinc_code: %#v", compiled.Outputs[0].OutputSchema)
+			}
+			for _, operation := range compiled.Outputs[0].Plan.Operations {
+				if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+					continue
+				}
+				for _, projection := range operation.Return.Projections {
+					if projection.Name != "loinc_code" || projection.Expression == nil {
+						continue
+					}
+					projectionFound = true
+					if projection.Expression.Cardinality != ir.PhysicalArrayCardinality || projection.Expression.NullBehavior != ir.PhysicalEmptyOnNull {
+						t.Fatalf("%s pivot projection = %#v, want EMPTY_ON_NULL array", mode, projection.Expression)
+					}
+				}
+			}
+			if !projectionFound {
+				t.Fatal("compiled plan missing loinc_code projection")
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(rendered.Query, "NOT_NULL(") {
+				t.Fatalf("%s repeated pivot does not normalize an absent lookup to []:\n%s", mode, rendered.Query)
+			}
+		})
 	}
 }
 

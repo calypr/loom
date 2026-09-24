@@ -65,7 +65,7 @@ func (s *Service) CreateInterpretationRevisionFromColumn(ctx context.Context, re
 	if column.Interpretation != nil && column.Interpretation.Kind == authoringv2.FeatureInterpretationPinned {
 		return explorer.InterpretationRevision{}, conflict("interpretation-create", "INTERPRETATION_ALREADY_PINNED", "create a mapping from an unpinned saved column", nil, nil)
 	}
-	resolution, err := explorercompilation.ResolveInterpretationCandidate(*document, *column, authorized.Snapshot)
+	resolution, err := explorercompilation.ResolveInterpretationCandidateForColumn(*document, *column, authorized.Snapshot)
 	if err != nil {
 		return explorer.InterpretationRevision{}, conflict("interpretation-create", "STALE_COLUMN_ROUTE", "the configured column route no longer resolves in this authorized snapshot", nil, err)
 	}

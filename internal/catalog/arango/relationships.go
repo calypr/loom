@@ -229,10 +229,11 @@ func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.Rel
 	if err != nil {
 		return catalog.RelationshipRebuildSummary{}, err
 	}
-	vars := map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration), "auth_resource_paths": opts.AuthResourcePaths, "auth_resource_paths_unrestricted": catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted), "resource_types": fhirschema.ResourceTypes()}
+	vars := map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration), "auth_resource_paths": opts.AuthResourcePaths, "auth_resource_paths_unrestricted": catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)}
 	if err := s.client.QueryRows(ctx, relationshipClearAQL, opts.CursorBatch, vars, func(map[string]any) error { return nil }); err != nil {
 		return catalog.RelationshipRebuildSummary{}, err
 	}
+	vars["resource_types"] = fhirschema.ResourceTypes()
 	counts := map[catalog.RelationshipKey]int64{}
 	if err := s.client.QueryRows(ctx, relationshipRebuildAQL, opts.CursorBatch, vars, func(row map[string]any) error {
 		count, err := decodeInt64(row["edge_count"])

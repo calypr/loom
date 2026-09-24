@@ -52,7 +52,7 @@ func buildAggregatePlan(dataset Materialization, req AggregateBatchRequest) aggr
 	plan := aggregatePlan{results: make(map[int]AggregateJobResult, len(req.Jobs))}
 	allowed := make(map[string]struct{}, len(dataset.Columns))
 	for _, column := range dataset.Columns {
-		if !internalAggregateColumn(column.Name) {
+		if !internalAggregateColumn(column.Name) && !isObjectColumn(column) {
 			allowed[column.Name] = struct{}{}
 		}
 	}
@@ -156,6 +156,11 @@ func validateAggregateJob(input AggregateJob, allowed map[string]struct{}) (Aggr
 	filters, filterKey, err := canonicalFilters(job.Filters, allowed)
 	if err != nil {
 		return job, nil, "", "", err
+	}
+	if job.Column != "" {
+		if _, ok := allowed[job.Column]; !ok || internalAggregateColumn(job.Column) {
+			return job, nil, "", "", aggregateInvalidRequest("aggregate column %q is not in the published dataset schema", job.Column)
+		}
 	}
 	switch job.ResponseMode {
 	case AggregateResponseLegacy:

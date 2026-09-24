@@ -35,6 +35,9 @@ func TestNamespaceRowBuildResultKeepsLogicalFHIRIdentityAndQualifiesGraphIdentit
 	if vertexKey == "patient-1" || len(vertexKey) != len("g_")+64 {
 		t.Fatalf("vertex physical key = %q, want generation-qualified hash", vertexKey)
 	}
+	if got, want := namespaced.vertexID, "Patient/"+vertexKey; got != want {
+		t.Fatalf("membership vertex ID = %q, want physical resource handle %q", got, want)
+	}
 	if got, want := string(vertex["payload"]), `{"resourceType":"Patient","id":"patient-1"}`; got != want {
 		t.Fatalf("payload changed\ngot:  %s\nwant: %s", got, want)
 	}

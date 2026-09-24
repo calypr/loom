@@ -24,7 +24,11 @@ type semanticScope struct {
 }
 
 const (
-	SemanticRuleHintCategoricalCodeV1 = "CATEGORICAL_CODE_V1"
+	SemanticRuleHintCategoricalSlotV1 = "CATEGORICAL_SLOT_V1"
+	// SemanticRuleHintCategoricalCodeV1 is retained as a source-compatible
+	// alias for older callers. New observations always use the categorical-slot
+	// rule because one schema slot, not one observed Coding, is the feature.
+	SemanticRuleHintCategoricalCodeV1 = SemanticRuleHintCategoricalSlotV1
 	SemanticRuleHintCategoricalTextV1 = "CATEGORICAL_TEXT_V1"
 )
 
@@ -34,7 +38,7 @@ func (p *Profiler) observeSchemaSemantics(
 	profile string,
 	emit func(SemanticObservation, []any),
 ) error {
-	registry, err := fhirsemantic.GeneratedDatatypeRegistry()
+	registry, err := fhirsemantic.RegistryForIndex(index)
 	if err != nil {
 		return err
 	}
@@ -87,6 +91,25 @@ func (p *Profiler) observeSchemaSemantics(
 		}
 	}
 
+	type pendingCategoricalSlot struct {
+		observation SemanticObservation
+		examples    []any
+	}
+	pending := make(map[string]*pendingCategoricalSlot)
+	emitObservation := func(observation SemanticObservation, examples []any) {
+		if SemanticObservationRoleOf(observation) != SemanticRoleCategoricalSlot {
+			emit(observation, examples)
+			return
+		}
+		key := semanticObservationKey(observation)
+		slot := pending[key]
+		if slot == nil {
+			slot = &pendingCategoricalSlot{observation: observation}
+			pending[key] = slot
+		}
+		slot.examples = append(slot.examples, examples...)
+	}
+
 	extensionURLs := make(map[string]string)
 	for _, scope := range scopes {
 		descriptor, ok := registry.Lookup(scope.definition)
@@ -98,14 +121,6 @@ func (p *Profiler) observeSchemaSemantics(
 			extensionURLs[scope.ownerPath] = semanticStringFromRaw(key.RawJSON)
 		}
 	}
-	choiceKeys := make(map[string]struct{})
-	for _, scope := range scopes {
-		concept, _, ok := codedChoiceParts(p.resourceType, scope, registry)
-		if ok {
-			choiceKeys[concept.CanonicalPath] = struct{}{}
-		}
-	}
-
 	for _, scope := range scopes {
 		descriptor, ok := registry.Lookup(scope.definition)
 		if !ok {
@@ -114,15 +129,42 @@ func (p *Profiler) observeSchemaSemantics(
 		switch descriptor.Disposition {
 		case fhirsemantic.DispositionValueAssociation:
 			p.emitValueAssociationScope(scope, descriptor, extensionURLs, registry, profile, emit)
+		case fhirsemantic.DispositionCompositeValue:
+			if scope.canonicalPath != "" && !semanticScopeHasOwner(scope, byOwner, registry) {
+				p.emitStructuredScope(scope, profile, emitObservation)
+			}
 		case fhirsemantic.DispositionCategorical:
-			_, pairedChoiceKey := choiceKeys[scope.canonicalPath]
-			if !pairedChoiceKey && !categoricalSourceOwnedByParent(scope, registry) {
-				p.emitCategoricalScope(scope, descriptor, profile, emit)
+			if scope.member.ChoiceGroup == "" && !categoricalSourceOwnedByParent(scope, registry) {
+				p.emitCategoricalScope(scope, descriptor, profile, emitObservation)
 			}
 		}
 	}
+	for _, fact := range facts {
+		if !isPrimitiveCategoricalFact(fact) || fact.Element.ChoiceGroup != "" || (fact.Repeated && !fact.ArrayItem) {
+			continue
+		}
+		owner := byOwner[directOwnerPath(fact.OwnerPath)]
+		if owner == nil {
+			continue
+		}
+		if owner.canonicalPath != "" {
+			if descriptor, owned := registry.Lookup(owner.definition); owned && descriptor.Disposition != fhirsemantic.DispositionAdvancedOnly {
+				continue
+			}
+		}
+		p.emitPrimitiveCategoricalFact(owner, fact, profile, emitObservation)
+	}
 	for _, scope := range scopes {
-		p.emitCodedChoiceScope(scope, registry, profile, emit)
+		p.emitCodedChoiceScope(scope, registry, profile, emitObservation)
+	}
+	keys := make([]string, 0, len(pending))
+	for key := range pending {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		slot := pending[key]
+		emit(slot.observation, slot.examples)
 	}
 	return nil
 }
@@ -157,6 +199,7 @@ func (p *Profiler) emitValueAssociationScope(
 	logicalType := semanticGeneratedValueType(p.resourceType, valueFact.CanonicalPath, value, semanticValueType(value))
 	observation := SemanticObservation{
 		SchemaVersion: SemanticObservationSchemaVersion,
+		Role:          SemanticObservationRoleForRule(descriptor.RuleHint),
 		Source: SemanticObservationSource{
 			Canonical: semanticCanonical(p.resourceType, scope.canonicalPath),
 			Type:      p.resourceType,
@@ -216,6 +259,7 @@ func (p *Profiler) emitExtensionScope(
 		}
 		observation := SemanticObservation{
 			SchemaVersion: SemanticObservationSchemaVersion,
+			Role:          SemanticObservationRoleForRule(descriptor.RuleHint),
 			Source: SemanticObservationSource{
 				Canonical: semanticCanonical(p.resourceType, scope.canonicalPath),
 				Type:      p.resourceType,
@@ -227,8 +271,9 @@ func (p *Profiler) emitExtensionScope(
 				Display:  url,
 			},
 			Value: SemanticObservationValue{
-				Selector: appendSemanticPath(scope.canonicalPath, value.Selector),
-				Type:     value.Type,
+				Selector:     appendSemanticPath(scope.canonicalPath, value.Selector),
+				Type:         value.Type,
+				Presentation: value.Presentation,
 			},
 			OwningScope:      scope.canonicalPath,
 			ExtensionURLPath: ancestry,
@@ -250,9 +295,10 @@ func (p *Profiler) emitCategoricalScope(
 	profile string,
 	emit func(SemanticObservation, []any),
 ) {
-	for _, candidate := range semanticCategoricalCandidates(p.resourceType, descriptor, scope.canonicalPath, scope.value) {
+	for _, candidate := range semanticCategoricalSlotCandidates(p.resourceType, descriptor, scope.canonicalPath, scope.value) {
 		observation := SemanticObservation{
 			SchemaVersion: SemanticObservationSchemaVersion,
+			Role:          SemanticRoleCategoricalSlot,
 			Source: SemanticObservationSource{
 				Canonical: semanticCanonical(p.resourceType, scope.canonicalPath),
 				Type:      p.resourceType,
@@ -260,16 +306,211 @@ func (p *Profiler) emitCategoricalScope(
 				Path:      scope.canonicalPath,
 			},
 			Key:          candidate.key,
-			Value:        SemanticObservationValue{Selector: candidate.valueSelector, Type: candidate.logicalType},
+			Value:        SemanticObservationValue{Selector: candidate.valueSelector, Type: candidate.logicalType, Presentation: candidate.presentation},
 			OwningScope:  scope.canonicalPath,
 			LogicalType:  candidate.logicalType,
 			Completeness: candidate.completeness,
 			Status:       candidate.status,
-			RuleHint:     candidate.ruleHint,
+			RuleHint:     SemanticRuleHintCategoricalSlotV1,
 			RuleVersion:  strconv.Itoa(SemanticObservationRuleVersion),
 		}
-		p.recordSchemaSemanticObservation(scope.canonicalPath, observation, []any{candidate.value}, emit)
+		observation.SlotLabel, observation.SlotDescription = semanticSlotPresentation(scope.member, scope.canonicalPath)
+		p.recordSchemaSemanticObservation(scope.canonicalPath, observation, candidate.examples, emit)
 	}
+}
+
+type semanticCategoricalSlotCandidate struct {
+	key           SemanticObservationKey
+	valueSelector string
+	logicalType   string
+	presentation  string
+	examples      []any
+	status        string
+	completeness  SemanticObservationCompleteness
+}
+
+func semanticCategoricalSlotCandidates(
+	resourceType string,
+	descriptor fhirsemantic.DatatypeDescriptor,
+	basePath string,
+	object map[string]any,
+) []semanticCategoricalSlotCandidate {
+	collection := memberPathForRole(descriptor, fhirsemantic.MemberCategoryCoding)
+	codePath := memberPathForRole(descriptor, fhirsemantic.MemberCategoryCode)
+	systemPath := memberPathForRole(descriptor, fhirsemantic.MemberCategorySystem)
+	versionPath := memberPathForRole(descriptor, fhirsemantic.MemberCategoryVersion)
+	displayPath := memberPathForRole(descriptor, fhirsemantic.MemberCategoryDisplay)
+	textPath := memberPathForRole(descriptor, fhirsemantic.MemberCategoryText)
+	codePath = categoryMemberPath(descriptor, fhirsemantic.MemberCategoryCode, collection)
+	systemPath = categoryMemberPath(descriptor, fhirsemantic.MemberCategorySystem, collection)
+	versionPath = categoryMemberPath(descriptor, fhirsemantic.MemberCategoryVersion, collection)
+	displayPath = categoryMemberPath(descriptor, fhirsemantic.MemberCategoryDisplay, collection)
+	keySelector := appendSemanticPath(basePath, collection)
+	valueMember := codePath
+	if collection != "" {
+		valueMember = collection + "." + codePath
+	}
+	valueSelector := appendSemanticPath(basePath, valueMember)
+	// DISPLAY_OR_CODE is evaluated on the same Coding item. The logical output
+	// is therefore string even when the fallback source member is the FHIR
+	// `code` primitive.
+	logicalType := "string"
+	const presentation = schema.ValuePresentationDisplayOrCode
+	type namespaceDomain struct {
+		system   string
+		examples []any
+	}
+	domains := map[string]*namespaceDomain{}
+	addCoding := func(coding map[string]any, index int) {
+		system := strings.TrimSpace(stringValueAt(coding, systemPath))
+		if system == "" {
+			return
+		}
+		domain := categoricalDomainRecord("coding", keySelector, coding, codePath, systemPath, versionPath, displayPath)
+		if collection != "" {
+			domain["index"] = index
+		}
+		entry := domains[system]
+		if entry == nil {
+			entry = &namespaceDomain{system: system}
+			domains[system] = entry
+		}
+		entry.examples = append(entry.examples, semanticDomainExample(domain))
+	}
+	if collection != "" {
+		collectionMember := strings.TrimSuffix(collection, "[]")
+		if rawItems, ok := semanticValueAt(object, collectionMember); ok {
+			if items, ok := rawItems.([]any); ok {
+				for index, item := range items {
+					coding, ok := item.(map[string]any)
+					if ok {
+						addCoding(coding, index)
+					}
+				}
+			}
+		}
+	} else if strings.TrimSpace(stringValueAt(object, systemPath)) != "" {
+		addCoding(object, 0)
+	}
+	if len(domains) != 0 {
+		systems := make([]string, 0, len(domains))
+		for system := range domains {
+			systems = append(systems, system)
+		}
+		sort.Strings(systems)
+		candidates := make([]semanticCategoricalSlotCandidate, 0, len(systems))
+		for _, system := range systems {
+			candidates = append(candidates, semanticCategoricalSlotCandidate{
+				key:           SemanticObservationKey{Selector: keySelector, System: system},
+				valueSelector: valueSelector,
+				logicalType:   semanticGeneratedValueType(resourceType, valueSelector, nil, logicalType),
+				presentation:  presentation,
+				examples:      domains[system].examples,
+				status:        "SUPPORTED",
+				completeness:  SemanticComplete,
+			})
+		}
+		return candidates
+	}
+	// A text-only CodeableConcept is a scalar categorical slot, not a Coding
+	// namespace. It remains directly selectable and never receives a fake
+	// empty-system binding.
+	if textPath != "" {
+		if text, ok := semanticValueAt(object, textPath); ok && strings.TrimSpace(stringValue(text)) != "" {
+			selector := appendSemanticPath(basePath, textPath)
+			return []semanticCategoricalSlotCandidate{{
+				key:           SemanticObservationKey{Selector: selector},
+				valueSelector: selector,
+				logicalType:   semanticGeneratedValueType(resourceType, selector, text, "string"),
+				examples:      []any{semanticDomainExample(map[string]any{"kind": "text", "selector": selector, "value": text})},
+				status:        "SUPPORTED",
+				completeness:  SemanticComplete,
+			}}
+		}
+	}
+	return nil
+}
+
+func semanticDomainExample(value map[string]any) string {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
+}
+
+func categoricalDomainRecord(kind, selector string, object map[string]any, codePath, systemPath, versionPath, displayPath string) map[string]any {
+	return map[string]any{
+		"kind":     kind,
+		"selector": selector,
+		"system":   stringValueAt(object, systemPath),
+		"version":  stringValueAt(object, versionPath),
+		"code":     stringValueAt(object, codePath),
+		"display":  stringValueAt(object, displayPath),
+	}
+}
+
+func stringValueAt(value any, path string) string {
+	if path == "" {
+		return ""
+	}
+	child, ok := semanticValueAt(value, path)
+	if !ok {
+		return ""
+	}
+	return stringValue(child)
+}
+
+func semanticSlotPresentation(element schema.Element, path string) (string, string) {
+	label := strings.TrimSpace(element.Title)
+	if label == "" {
+		label = strings.TrimSpace(path)
+	}
+	return label, strings.TrimSpace(element.Description)
+}
+
+func isPrimitiveCategoricalFact(fact fhirsemantic.MemberFact) bool {
+	if strings.TrimSpace(fact.Element.BindingURI) == "" || fact.Null {
+		return false
+	}
+	if fact.ArrayItem {
+		return fact.Element.ArrayElementType == "" && len(fact.Element.ArrayElements) == 0 && fact.Element.ItemJSONType != schema.JSONTypeObject && fact.Element.ItemJSONType != schema.JSONTypeArray
+	}
+	return fact.Element.ReferencedType == "" && len(fact.Element.Elements) == 0 && fact.Element.JSONType != schema.JSONTypeObject && fact.Element.JSONType != schema.JSONTypeArray
+}
+
+func (p *Profiler) emitPrimitiveCategoricalFact(
+	owner *semanticScope,
+	fact fhirsemantic.MemberFact,
+	profile string,
+	emit func(SemanticObservation, []any),
+) {
+	value, ok := decodeSemanticValue(fact.RawJSON)
+	if !ok {
+		return
+	}
+	logicalType := semanticGeneratedValueType(p.resourceType, fact.CanonicalPath, value, semanticValueType(value))
+	selector := fact.CanonicalPath
+	observation := SemanticObservation{
+		SchemaVersion: SemanticObservationSchemaVersion,
+		Role:          SemanticRoleCategoricalSlot,
+		Source: SemanticObservationSource{
+			Canonical: semanticCanonical(p.resourceType, selector),
+			Type:      p.resourceType,
+			Profile:   profile,
+			Path:      selector,
+		},
+		Key:          SemanticObservationKey{Selector: selector},
+		Value:        SemanticObservationValue{Selector: selector, Type: logicalType},
+		OwningScope:  owner.canonicalPath,
+		LogicalType:  logicalType,
+		Completeness: SemanticComplete,
+		Status:       "SUPPORTED",
+		RuleHint:     SemanticRuleHintCategoricalSlotV1,
+		RuleVersion:  strconv.Itoa(SemanticObservationRuleVersion),
+	}
+	observation.SlotLabel, observation.SlotDescription = semanticSlotPresentation(fact.Element, selector)
+	p.recordSchemaSemanticObservation(selector, observation, []any{value}, emit)
 }
 
 type semanticCategoricalCandidate struct {
@@ -461,75 +702,80 @@ func (p *Profiler) emitCodedChoiceScope(
 	profile string,
 	emit func(SemanticObservation, []any),
 ) {
-	concept, values, ok := codedChoiceParts(p.resourceType, scope, registry)
-	if !ok {
-		return
-	}
-	conceptValue, ok := decodeSemanticObject(concept.RawJSON)
-	if !ok {
-		return
-	}
-	descriptor, ok := registry.Lookup(concept.ReferencedType)
-	if !ok {
-		return
-	}
-	conceptPath := relativeSemanticPath(scope.canonicalPath, concept.CanonicalPath)
-	for _, candidate := range semanticCategoricalCandidates(p.resourceType, descriptor, conceptPath, conceptValue) {
+	if registry.HasUnresolvedValueGroup(scope.definition) {
+		values := pairingValues(scope, fhirsemantic.ScopePairingDescriptor{ValueChoiceGroup: "value"}, p.resourceType, registry)
 		for _, value := range values {
+			candidate := semanticCategoricalCandidate{status: "UNRESOLVED_BINDING", completeness: SemanticPartial}
 			p.emitSchemaCodedValue(scope, candidate, value, profile, emit)
+		}
+	}
+	for _, pairing := range registry.ScopePairings(scope.definition) {
+		values := pairingValues(scope, pairing, p.resourceType, registry)
+		if len(values) == 0 {
+			continue
+		}
+		if len(values) > 1 {
+			for index := range values {
+				values[index].Status = "MIXED_CHOICE"
+			}
+		}
+		var candidates []semanticCategoricalCandidate
+		if concept, ok := directSemanticFactPath(scope, pairing.CategoricalPath); ok && !concept.Null {
+			if object, ok := decodeSemanticObject(concept.RawJSON); ok {
+				if descriptor, ok := registry.Lookup(concept.ReferencedType); ok {
+					candidates = semanticCategoricalCandidates(p.resourceType, descriptor, pairing.CategoricalPath, object)
+				}
+			}
+		}
+		if len(candidates) == 0 {
+			candidates = []semanticCategoricalCandidate{{key: SemanticObservationKey{Selector: pairing.CategoricalPath}, status: "UNRESOLVED_BINDING", completeness: SemanticPartial}}
+		}
+		for _, candidate := range candidates {
+			for _, value := range values {
+				p.emitSchemaCodedValue(scope, candidate, value, profile, emit)
+			}
 		}
 	}
 }
 
-func codedChoiceParts(
-	resourceType string,
-	scope *semanticScope,
-	registry *fhirsemantic.DatatypeRegistry,
-) (fhirsemantic.MemberFact, []semanticChoiceValue, bool) {
-	concepts := make([]fhirsemantic.MemberFact, 0, 1)
-	valuesByGroup := make(map[string][]semanticChoiceValue)
+func directSemanticFactPath(scope *semanticScope, path string) (fhirsemantic.MemberFact, bool) {
+	if path == "" {
+		return fhirsemantic.MemberFact{}, false
+	}
 	for _, fact := range scope.facts {
-		if fact.ArrayItem {
+		if !fact.ArrayItem && fact.Element.Name == path {
+			return fact, true
+		}
+	}
+	return fhirsemantic.MemberFact{}, false
+}
+
+func pairingValues(
+	scope *semanticScope,
+	pairing fhirsemantic.ScopePairingDescriptor,
+	resourceType string,
+	registry *fhirsemantic.DatatypeRegistry,
+) []semanticChoiceValue {
+	values := make([]semanticChoiceValue, 0, 2)
+	for _, fact := range scope.facts {
+		if fact.ArrayItem || fact.Null {
 			continue
 		}
-		if fact.Null {
+		if pairing.ValueChoiceGroup != "" && fact.Element.ChoiceGroup != pairing.ValueChoiceGroup {
 			continue
 		}
-		if fact.Element.ChoiceGroup != "" {
-			if value, ok := semanticChoiceValueFromFact(resourceType, fact, registry); ok {
-				valuesByGroup[fact.Element.ChoiceGroup] = append(valuesByGroup[fact.Element.ChoiceGroup], value)
-			}
+		if pairing.ValuePath != "" && fact.Element.Name != pairing.ValuePath {
 			continue
 		}
-		if descriptor, ok := registry.Lookup(fact.ReferencedType); ok && descriptor.Disposition == fhirsemantic.DispositionCategorical && memberPathForRole(descriptor, fhirsemantic.MemberCategoryCode) != "" {
-			concepts = append(concepts, fact)
+		if pairing.ValueChoiceGroup == "" && pairing.ValuePath == "" {
+			continue
+		}
+		value, ok := semanticChoiceValueFromFact(resourceType, fact, registry)
+		if ok {
+			values = append(values, value)
 		}
 	}
-	// One category container can pair with one choice group on the same owner.
-	// If several groups exist, only the schema's conventional "value" group is
-	// eligible; otherwise no relationship is inferred. Multiple present arms
-	// in the selected group remain an explicitly mixed choice.
-	if len(concepts) != 1 || len(valuesByGroup) == 0 {
-		return fhirsemantic.MemberFact{}, nil, false
-	}
-	selectedGroup := ""
-	if len(valuesByGroup) == 1 {
-		for group := range valuesByGroup {
-			selectedGroup = group
-		}
-	} else if len(valuesByGroup["value"]) > 0 {
-		selectedGroup = "value"
-	}
-	values := valuesByGroup[selectedGroup]
-	if selectedGroup == "" || len(values) == 0 {
-		return fhirsemantic.MemberFact{}, nil, false
-	}
-	if len(values) > 1 {
-		for index := range values {
-			values[index].Status = "MIXED_CHOICE"
-		}
-	}
-	return concepts[0], values, true
+	return values
 }
 
 func (p *Profiler) emitSchemaCodedValue(
@@ -549,6 +795,7 @@ func (p *Profiler) emitSchemaCodedValue(
 	}
 	observation := SemanticObservation{
 		SchemaVersion: SemanticObservationSchemaVersion,
+		Role:          SemanticRoleCodedValue,
 		Source: SemanticObservationSource{
 			Canonical: semanticCanonical(p.resourceType, storagePath),
 			Type:      p.resourceType,
@@ -557,8 +804,9 @@ func (p *Profiler) emitSchemaCodedValue(
 		},
 		Key: candidate.key,
 		Value: SemanticObservationValue{
-			Selector: value.Selector,
-			Type:     value.Type,
+			Selector:     value.Selector,
+			Type:         value.Type,
+			Presentation: value.Presentation,
 		},
 		OwningScope:   scope.canonicalPath,
 		ChoiceArm:     value.Arm,
@@ -568,6 +816,14 @@ func (p *Profiler) emitSchemaCodedValue(
 		Status:        status,
 		RuleHint:      SemanticRuleHintCodedValueV1,
 		RuleVersion:   strconv.Itoa(SemanticObservationRuleVersion),
+	}
+	conceptName := strings.TrimSuffix(strings.Split(candidate.key.Selector, ".")[0], "[]")
+	if fact, ok := directSemanticFact(scope, conceptName); ok {
+		_, observation.SlotDescription = semanticSlotPresentation(fact.Element, candidate.key.Selector)
+	}
+	observation.SlotLabel = strings.TrimSpace(candidate.key.Display)
+	if observation.SlotLabel == "" {
+		observation.SlotLabel = strings.TrimSpace(candidate.key.Code)
 	}
 	p.recordSchemaSemanticObservation(storagePath, observation, []any{semanticExampleValue(value)}, emit)
 }
@@ -601,26 +857,42 @@ func semanticChoiceValueFromFact(resourceType string, fact fhirsemantic.MemberFa
 	selector := fact.Element.Name
 	valueType := semanticGeneratedValueType(resourceType, fact.CanonicalPath, value, semanticValueType(value))
 	status := "SUPPORTED"
+	presentation := ""
 	if object, structured := value.(map[string]any); structured {
 		descriptor, described := registry.Lookup(fact.ReferencedType)
 		projection := descriptor.ScalarProjection
 		if described && projection != nil {
 			selector = appendSemanticPath(selector, projection.Path)
 			valueType = semanticGeneratedValueType(resourceType, appendSemanticPath(fact.CanonicalPath, projection.Path), value, projection.LogicalType)
-			status = semanticProjectionStatus(object, projection.Path)
+			presentation = projection.Presentation
+			if presentation == schema.ValuePresentationDisplayOrCode {
+				codings, _ := object["coding"].([]any)
+				if len(codings) == 0 {
+					selector = appendSemanticPath(fact.Element.Name, "text")
+					presentation = ""
+					status = semanticProjectionStatus(object, "text")
+				}
+			} else {
+				status = semanticProjectionStatus(object, projection.Path)
+			}
 		} else {
-			valueType = "mixed"
+			valueType = "object"
 		}
 	}
 	if selector == "" {
 		return semanticChoiceValue{}, false
 	}
+	arm := ""
+	if fact.Element.ChoiceGroup != "" {
+		arm = fact.Element.Name
+	}
 	return semanticChoiceValue{
-		Arm:      fact.Element.Name,
-		Selector: selector,
-		Type:     valueType,
-		Status:   status,
-		Value:    value,
+		Arm:          arm,
+		Selector:     selector,
+		Type:         valueType,
+		Status:       status,
+		Value:        value,
+		Presentation: presentation,
 	}, true
 }
 

@@ -57,7 +57,17 @@ type ColumnSource struct {
 	Field        *FieldSource        `json:"field,omitempty"`
 	Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 	Lookup       *LookupSource       `json:"lookup,omitempty"`
+	Categorical  *CategoricalSource  `json:"categorical,omitempty"`
 	OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
+}
+
+// CategoricalSource selects one Coding namespace from a structural
+// CodeableConcept. Codes remain values in the selected output column; they
+// are never interpreted as dynamic feature names.
+type CategoricalSource struct {
+	Binding        fhirschema.CategoricalBinding `json:"binding"`
+	System         string                        `json:"system"`
+	ProjectionMode string                        `json:"projectionMode,omitempty"`
 }
 
 // OwnerRecordsSource preserves one repeated FHIR owner as one structured
@@ -218,32 +228,37 @@ func (s *ColumnSource) UnmarshalJSON(raw []byte) error {
 		Field        *FieldSource        `json:"field,omitempty"`
 		Aggregate    *AggregateSource    `json:"aggregate,omitempty"`
 		Lookup       *LookupSource       `json:"lookup,omitempty"`
+		Categorical  *CategoricalSource  `json:"categorical,omitempty"`
 		OwnerRecords *OwnerRecordsSource `json:"ownerRecords,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
 	}
-	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, OwnerRecords: wire.OwnerRecords}
+	value := ColumnSource{Kind: wire.Kind, Field: wire.Field, Aggregate: wire.Aggregate, Lookup: wire.Lookup, Categorical: wire.Categorical, OwnerRecords: wire.OwnerRecords}
 	switch wire.Kind {
 	case SourceField:
-		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field == nil || wire.Aggregate != nil || wire.Lookup != nil || wire.Categorical != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("field source requires exactly the field payload")
 		}
 	case SourceAggregate:
-		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Aggregate == nil || wire.Field != nil || wire.Lookup != nil || wire.Categorical != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("aggregate source requires exactly the aggregate payload")
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
-		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.OwnerRecords != nil {
+		if wire.Lookup == nil || wire.Field != nil || wire.Aggregate != nil || wire.Categorical != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("%s source requires exactly the lookup payload", wire.Kind)
 		}
 	case SourceOwnerRecords:
-		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil {
+		if wire.OwnerRecords == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.Categorical != nil {
 			return fmt.Errorf("ownerRecords source requires exactly the ownerRecords payload")
 		}
 	case SourceProjectID:
-		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+		if wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.Categorical != nil || wire.OwnerRecords != nil {
 			return fmt.Errorf("projectId source does not accept a payload")
+		}
+	case SourceCategoricalBySystem:
+		if wire.Categorical == nil || wire.Field != nil || wire.Aggregate != nil || wire.Lookup != nil || wire.OwnerRecords != nil {
+			return fmt.Errorf("categoricalBySystem source requires exactly the categorical payload")
 		}
 	default:
 		return fmt.Errorf("unsupported source kind %q", wire.Kind)
@@ -268,6 +283,9 @@ func (s ColumnSource) fieldPath() string {
 	if s.OwnerRecords != nil {
 		return qualifySemanticPath(s.OwnerRecords.Binding.OwnerPath, s.OwnerRecords.Binding.ValuePath)
 	}
+	if s.Categorical != nil {
+		return strings.Trim(strings.TrimSpace(s.Categorical.Binding.KeyPath)+"."+strings.TrimSpace(s.Categorical.Binding.ValuePath), ".")
+	}
 	if s.Aggregate != nil {
 		return s.Aggregate.Path
 	}
@@ -282,6 +300,9 @@ func (s ColumnSource) projectionMode() string {
 	}
 	if s.Lookup != nil {
 		return s.Lookup.ProjectionMode
+	}
+	if s.Categorical != nil {
+		return s.Categorical.ProjectionMode
 	}
 	return ""
 }
@@ -344,6 +365,12 @@ func (s ColumnSource) Normalized() ColumnSource {
 		}
 		n.Lookup = &lookup
 	}
+	if n.Categorical != nil {
+		categorical := *n.Categorical
+		categorical.Binding.ValueFallback = append([]string(nil), n.Categorical.Binding.ValueFallback...)
+		categorical.ProjectionMode = strings.ToUpper(strings.TrimSpace(categorical.ProjectionMode))
+		n.Categorical = &categorical
+	}
 	if n.OwnerRecords != nil {
 		ownerRecords := *n.OwnerRecords
 		if ownerRecords.Binding.ValueScope != "" {
@@ -393,13 +420,14 @@ func cloneTemporalOrdering(input *TemporalOrderingSource) *TemporalOrderingSourc
 }
 
 const (
-	SourceField              = "field"
-	SourceIdentifierBySystem = "identifierBySystem"
-	SourceExtensionByURL     = "extensionByUrl"
-	SourceCodedValue         = "codedValue"
-	SourceOwnerRecords       = "ownerRecords"
-	SourceProjectID          = "projectId"
-	SourceAggregate          = "aggregate"
+	SourceField               = "field"
+	SourceIdentifierBySystem  = "identifierBySystem"
+	SourceExtensionByURL      = "extensionByUrl"
+	SourceCodedValue          = "codedValue"
+	SourceCategoricalBySystem = "categoricalBySystem"
+	SourceOwnerRecords        = "ownerRecords"
+	SourceProjectID           = "projectId"
+	SourceAggregate           = "aggregate"
 )
 
 type Column struct {
@@ -647,6 +675,9 @@ func (s ColumnSource) validate(path string) error {
 	if s.OwnerRecords != nil {
 		variants++
 	}
+	if s.Categorical != nil {
+		variants++
+	}
 	if s.Kind == SourceProjectID {
 		if variants != 0 {
 			return fmt.Errorf("%s projectId source does not accept a payload", path)
@@ -663,6 +694,9 @@ func (s ColumnSource) validate(path string) error {
 	if s.Lookup != nil {
 		mode = s.Lookup.ProjectionMode
 	}
+	if s.Categorical != nil {
+		mode = s.Categorical.ProjectionMode
+	}
 	mode = strings.ToUpper(strings.TrimSpace(mode))
 	if mode == "" {
 		mode = "FIRST"
@@ -677,6 +711,13 @@ func (s ColumnSource) validate(path string) error {
 		}
 		if s.Field.RelatedSelection != nil && s.Field.RelatedSelection.Kind != "first-by-resource-key" {
 			return fmt.Errorf("%s.field.relatedSelection.kind %q is unsupported", path, s.Field.RelatedSelection.Kind)
+		}
+	case SourceCategoricalBySystem:
+		if s.Categorical == nil || strings.TrimSpace(s.Categorical.System) == "" {
+			return fmt.Errorf("%s categoricalBySystem source requires categorical.system", path)
+		}
+		if strings.TrimSpace(s.Categorical.Binding.KeyPath) == "" || strings.TrimSpace(s.Categorical.Binding.SystemPath) == "" || strings.TrimSpace(s.Categorical.Binding.ValuePath) == "" {
+			return fmt.Errorf("%s categoricalBySystem source requires a complete binding", path)
 		}
 	case SourceIdentifierBySystem, SourceExtensionByURL, SourceCodedValue:
 		if s.Lookup == nil {
@@ -716,9 +757,9 @@ func (s ColumnSource) validate(path string) error {
 			return fmt.Errorf("%s %s source requires lookup.match", path, s.Kind)
 		}
 	case SourceOwnerRecords:
-		if s.OwnerRecords == nil || strings.TrimSpace(s.OwnerRecords.Binding.OwnerPath) == "" ||
+		if s.OwnerRecords == nil ||
 			strings.TrimSpace(s.OwnerRecords.Key.System) == "" || strings.TrimSpace(s.OwnerRecords.Key.Code) == "" {
-			return fmt.Errorf("%s ownerRecords source requires ownerRecords.binding.ownerPath and ownerRecords.key.system/code", path)
+			return fmt.Errorf("%s ownerRecords source requires a binding and ownerRecords.key.system/code", path)
 		}
 	case SourceAggregate:
 		if s.Aggregate == nil {

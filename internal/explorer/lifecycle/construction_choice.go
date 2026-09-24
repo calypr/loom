@@ -25,6 +25,7 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 	if err != nil {
 		return nil, err
 	}
+	availableByOutput := make(map[string]availableColumnRoutes)
 	for index := range commands {
 		command := &commands[index]
 		if command.Type != authoringv2.CommandApplyConstructionChoice || command.ConstructionChoice == nil {
@@ -36,18 +37,76 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 			return nil, malformed("commands", "outputId does not identify a valid row-rooted table", nil)
 		}
 		identity := identities[index]
+		rowContext, rowContextErr := savedCatalogRowContext(workspace, command.OutputID)
+		if rowContextErr != nil {
+			return nil, malformed("commands", rowContextErr.Error(), rowContextErr)
+		}
+		var liveRoutes availableColumnRoutes
+		if s.config.AvailableColumns != nil {
+			var exists bool
+			liveRoutes, exists = availableByOutput[command.OutputID]
+			if !exists {
+				var state catalog.SemanticInventoryState
+				liveRoutes, state, err = s.availableColumnRoutes(ctx, authorized, workspace, command.OutputID)
+				if err != nil {
+					return nil, err
+				}
+				if state != catalog.SemanticInventoryComplete {
+					return nil, conflict("commands", "AVAILABILITY_PREPARING", "available columns are being prepared; retry after the catalog loads", nil, nil)
+				}
+				availableByOutput[command.OutputID] = liveRoutes
+			}
+		}
 		var resolution authoringv2.ResolvedConstructionChoice
 		var title string
+		allowObservedRoute := liveRoutes != nil || s.config.HasRouteValue != nil && defaultCatalogRecordCohort(workspace, *document)
 		switch source := identity.Source.(type) {
 		case capability.FieldChoiceSource:
-			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, *command.ConstructionChoice, identity, source)
+			resolution, title, err = resolveFieldConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, document.RootResourceType, document.Route, *command.ConstructionChoice, identity, source, allowObservedRoute)
 		case capability.SemanticBindingChoiceSource:
-			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, identity.SemanticContextToken, identity.BuildID, buildID, semanticEntries, *command.ConstructionChoice, identity, source)
+			resolution, title, err = resolveSemanticConstructionChoice(ctx, authorized, snapshot, catalogSnapshot, explorerID, document.RootResourceType, document.Route, rowContext.Digest, identity.SemanticContextToken, identity.BuildID, buildID, semanticEntries, *command.ConstructionChoice, identity, source, allowObservedRoute)
 		default:
 			return nil, unprocessable("commands", "INVALID_CONSTRUCTION_CHOICE", "construction choice source kind is unsupported", nil)
 		}
 		if err != nil {
 			return nil, err
+		}
+		verifiedDefault := false
+		if liveRoutes != nil {
+			var feature catalog.AvailabilityFeature
+			switch source := identity.Source.(type) {
+			case capability.FieldChoiceSource:
+				feature = catalog.AvailabilityFeature{Kind: "FIELD", ResourceType: source.ResourceType, FieldPath: source.Path}
+			case capability.SemanticBindingChoiceSource:
+				feature = catalog.AvailabilityFeature{Kind: "SEMANTIC", ResourceType: source.ResourceType, ConceptID: source.ConceptID, BindingID: source.BindingID}
+			}
+			route, exists := liveRoutes[feature]
+			verifiedDefault = exists && len(route) == len(resolution.Route)
+			for i := 0; verifiedDefault && i < len(route); i++ {
+				verifiedDefault = route[i] == resolution.Route[i]
+			}
+		}
+		if !verifiedDefault && s.config.HasRouteValue != nil {
+			if !defaultCatalogRecordCohort(workspace, *document) {
+				return nil, unavailable("commands", "ROW_COVERAGE_PENDING", "Loom has not measured this source against the selected or grouped table rows", nil)
+			}
+			var coverageSource catalog.RouteCoverageSource
+			var sourceResourceType string
+			switch source := identity.Source.(type) {
+			case capability.FieldChoiceSource:
+				coverageSource = catalog.RouteCoverageSource{Kind: catalog.RouteCoverageField, FieldPath: source.Path}
+				sourceResourceType = source.ResourceType
+			case capability.SemanticBindingChoiceSource:
+				coverageSource = catalog.RouteCoverageSource{Kind: catalog.RouteCoverageSemantic, ConceptID: source.ConceptID, BindingID: source.BindingID}
+				sourceResourceType = source.ResourceType
+			}
+			hasValue, coverageErr := s.hasConstructionRouteValue(ctx, authorized, workspace, *document, sourceResourceType, resolution.Route, coverageSource, buildID)
+			if coverageErr != nil {
+				return nil, unavailable("commands", "ROW_COVERAGE_UNAVAILABLE", "Loom could not verify this choice on the current table rows", coverageErr)
+			}
+			if !hasValue {
+				return nil, unprocessable("commands", "NO_VALUES_ON_TABLE_ROWS", "This route has no values on the current table rows", nil)
+			}
 		}
 		command.ResolvedChoice = &resolution
 		if strings.TrimSpace(command.Title) == "" {
@@ -111,11 +170,11 @@ func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, projec
 	return entries, expectedBuildID, nil
 }
 
-func resolveSemanticConstructionChoice(ctx context.Context, authorized AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, explorerID, rootResourceType, semanticContextToken, tokenBuildID, buildID string, entries map[string]catalog.SemanticInventoryEntry, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
+func resolveSemanticConstructionChoice(ctx context.Context, authorized AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, explorerID, rootResourceType string, authoredRoot authoringv2.RouteNode, rowSetDigest, semanticContextToken, tokenBuildID, buildID string, entries map[string]catalog.SemanticInventoryEntry, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.SemanticBindingChoiceSource, allowObservedRoute bool) (authoringv2.ResolvedConstructionChoice, string, error) {
 	if strings.TrimSpace(buildID) == "" || tokenBuildID != buildID {
 		return authoringv2.ResolvedConstructionChoice{}, "", conflict("commands", "STALE_SEMANTIC_CONTEXT", "the semantic choice belongs to a different inventory build", nil, nil)
 	}
-	contextToken, err := semanticInventoryContextToken(snapshot, explorerID, rootResourceType, buildID)
+	contextToken, err := semanticInventoryContextToken(snapshot, explorerID, rootResourceType, buildID, rowSetDigest)
 	if err != nil {
 		return authoringv2.ResolvedConstructionChoice{}, "", err
 	}
@@ -135,6 +194,9 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized Authorize
 	if err != nil {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic construction route is unavailable or changed")
 	}
+	if !allowObservedRoute && !constructionRouteIsCurrentOrSaved(snapshot, rootResourceType, candidate.NodeID, route, authoredRoot) {
+		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic construction route is neither the current canonical route nor a saved output occurrence")
+	}
 	provenCandidate := candidate
 	if len(route) > 0 {
 		provenCandidate, err = proveConstructionCandidate(ctx, authorized, rootResourceType, candidate, route)
@@ -143,7 +205,7 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized Authorize
 		}
 	}
 	plan := authoringv2.ResolveSemanticSelectionPlan(observation)
-	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil || strings.TrimSpace(plan.LogicalType) == "" {
+	if !plan.Readiness.Addable() || plan.Source == nil || strings.TrimSpace(plan.LogicalType) == "" {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic observation no longer has a supported compiler source")
 	}
 	ownerRecordsProved := proveOwnerRecordsForRoute(ctx, authorized, rootResourceType, observation, route)
@@ -156,7 +218,7 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized Authorize
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic compiler candidate has no current supported options")
 	}
 	catalogCandidate, found := uniqueCatalogCandidate(catalogSnapshot, provenCandidate.ID)
-	if !found || (len(route) == 0 && (catalogCandidate.ConstructionChoice == nil || !reflect.DeepEqual(*catalogCandidate.ConstructionChoice, fieldChoice))) || !semanticChoiceFieldOptionsMatch(choice, fieldChoice) {
+	if !found || (len(route) == 0 && (catalogCandidate.ConstructionChoice == nil || !reflect.DeepEqual(*catalogCandidate.ConstructionChoice, fieldChoice) || !semanticChoiceFieldOptionsMatch(choice, fieldChoice))) {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic choice options do not match the current compiler candidate")
 	}
 	if !constructionChoiceSupports(choice, selection.Form) {
@@ -174,9 +236,21 @@ func resolveSemanticConstructionChoice(ctx context.Context, authorized Authorize
 		}}
 		logicalType = "object"
 	} else {
-		source.Lookup.ProjectionMode = string(selection.Form)
+		switch {
+		case source.Field != nil:
+			source.Field.ProjectionMode = string(selection.Form)
+		case source.Lookup != nil:
+			source.Lookup.ProjectionMode = string(selection.Form)
+		case source.Categorical != nil:
+			source.Categorical.ProjectionMode = string(selection.Form)
+		default:
+			return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("semantic source does not support the selected output form")
+		}
 	}
-	label := strings.TrimSpace(observation.Key.Display)
+	label := strings.TrimSpace(observation.SlotLabel)
+	if label == "" {
+		label = strings.TrimSpace(observation.Key.Display)
+	}
 	if label == "" {
 		label = strings.TrimSpace(observation.Key.Code)
 	}
@@ -212,7 +286,7 @@ func constructionChoicesMatchSnapshot(identities []capability.ConstructionChoice
 	return true
 }
 
-func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, rootResourceType string, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.FieldChoiceSource) (authoringv2.ResolvedConstructionChoice, string, error) {
+func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCapability, snapshot capability.Snapshot, catalogSnapshot authoringv2.CatalogSnapshot, rootResourceType string, authoredRoot authoringv2.RouteNode, selection authoringv2.ConstructionChoiceSelection, choiceIdentity capability.ConstructionChoiceIdentity, identity capability.FieldChoiceSource, allowObservedRoute bool) (authoringv2.ResolvedConstructionChoice, string, error) {
 	candidate, found := uniqueCapabilityCandidate(snapshot, identity.CandidateID)
 	if !found || candidate.NodeID != identity.NodeID || candidate.ResourceType != identity.ResourceType || candidate.FieldPath != identity.Path || candidate.Cardinality != identity.Cardinality {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field candidate identity is unavailable or changed")
@@ -220,6 +294,9 @@ func resolveFieldConstructionChoice(ctx context.Context, authorized AuthorizedCa
 	route, err := reauthorizeConstructionRoute(snapshot, rootResourceType, candidate.NodeID, choiceIdentity.Route)
 	if err != nil {
 		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field construction route is unavailable or changed")
+	}
+	if !allowObservedRoute && !constructionRouteIsCurrentOrSaved(snapshot, rootResourceType, candidate.NodeID, route, authoredRoot) {
+		return authoringv2.ResolvedConstructionChoice{}, "", invalidConstructionChoice("field construction route is neither the current canonical route nor a saved output occurrence")
 	}
 	provenCandidate := candidate
 	if len(route) > 0 {

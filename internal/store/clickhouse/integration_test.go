@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/objectvalue"
+	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/google/uuid"
 )
 
@@ -157,7 +160,7 @@ func TestClickHouseNativeJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
+func TestClickHouseLegacyNativeOWNERRecordsJSONRoundTripIsHistoricallyLossy(t *testing.T) {
 	url := os.Getenv("LOOM_CLICKHOUSE_URL")
 	if url == "" {
 		t.Skip("LOOM_CLICKHOUSE_URL is not set")
@@ -241,6 +244,83 @@ func TestClickHouseNativeOWNERRecordsJSONRoundTrip(t *testing.T) {
 		if string(encoded) != string(wantEncoded) {
 			t.Errorf("OWNER_RECORDS row %d = %s, want %s", index, encoded, wantEncoded)
 		}
+	}
+}
+
+func TestClickHouseObjectValueReaderRoundTrip(t *testing.T) {
+	url := os.Getenv("LOOM_CLICKHOUSE_URL")
+	if url == "" {
+		t.Skip("LOOM_CLICKHOUSE_URL is not set")
+	}
+	database := os.Getenv("LOOM_CLICKHOUSE_DATABASE")
+	if database == "" {
+		database = "loom_test"
+	}
+	client, err := New(Options{
+		URL: url, Database: database,
+		Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
+		Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
+		Timeout:  10 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ctx := context.Background()
+	if err := client.EnsureDatabase(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("ping ClickHouse: %v", err)
+	}
+	table := "loom_object_value_it_" + uuid.NewString()[:8]
+	defer client.DropTable(ctx, table)
+	columns := []Column{
+		{Name: "__loom_row_id", Type: "String"},
+		{Name: "OWNER_RECORDS", Type: "String"},
+	}
+	if err := client.CreateTable(ctx, table, columns); err != nil {
+		t.Fatal(err)
+	}
+	value := []any{
+		map[string]any{
+			"unit":   nil,
+			"values": []any{json.Number("9007199254740993"), nil},
+			"owner":  map[string]any{"detail": map[string]any{"location": "arm"}},
+		},
+		map[string]any{"values": []any{}},
+	}
+	encoded, err := objectvalue.Encode(objectvalue.RepeatedObjects, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertRows(ctx, table, columns, []map[string]any{{"__loom_row_id": "1", "OWNER_RECORDS": encoded}}); err != nil {
+		t.Fatal(err)
+	}
+	reader := &published.Reader{ClickHouse: client}
+	page, err := reader.Page(ctx, published.Materialization{
+		PhysicalTable: table,
+		Columns:       []published.Column{{Name: "OWNER_RECORDS", LogicalType: "object", ClickHouse: "String", Repeated: true}},
+	}, published.PageRequest{Unrestricted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Rows) != 1 {
+		t.Fatalf("published rows = %#v", page.Rows)
+	}
+	want, err := objectvalue.Decode(objectvalue.RepeatedObjects, encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(page.Rows[0]["OWNER_RECORDS"], want) {
+		t.Fatalf("published object = %#v, want %#v", page.Rows[0]["OWNER_RECORDS"], want)
+	}
+	first := page.Rows[0]["OWNER_RECORDS"].([]any)[0].(map[string]any)
+	if _, ok := first["unit"]; !ok {
+		t.Fatal("published Reader lost explicit null member")
+	}
+	if _, ok := page.Rows[0]["OWNER_RECORDS"].([]any)[1].(map[string]any)["unit"]; ok {
+		t.Fatal("published Reader fabricated absent member")
 	}
 }
 

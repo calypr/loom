@@ -485,7 +485,21 @@ func clonePhysicalPredicate(predicate PhysicalPredicate) PhysicalPredicate {
 		copy.Right = &rightCopy
 	}
 	copy.Correlation = clonePhysicalCorrelation(predicate.Correlation)
+	copy.CorrelationKeyMatch = clonePhysicalCorrelationKeyMatch(predicate.CorrelationKeyMatch)
 	return copy
+}
+
+func clonePhysicalCorrelationKeyMatch(match *PhysicalCorrelationKeyMatch) *PhysicalCorrelationKeyMatch {
+	if match == nil {
+		return nil
+	}
+	copy := *match
+	copy.Source = clonePhysicalValue(match.Source)
+	copy.OwnerSelector.Steps = append([]spec.SelectorStep(nil), match.OwnerSelector.Steps...)
+	copy.KeySelector.Steps = append([]spec.SelectorStep(nil), match.KeySelector.Steps...)
+	copy.SystemSelector.Steps = append([]spec.SelectorStep(nil), match.SystemSelector.Steps...)
+	copy.CodeSelector.Steps = append([]spec.SelectorStep(nil), match.CodeSelector.Steps...)
+	return &copy
 }
 
 func clonePhysicalCorrelation(correlation *PhysicalCorrelation) *PhysicalCorrelation {

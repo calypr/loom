@@ -280,7 +280,11 @@ type Pivot struct {
 	// ExtensionCorrelation is the closed ancestor-aware extension binding. It
 	// is mutually exclusive with Correlation and legacy selector expressions.
 	ExtensionCorrelation *fhirschema.ExtensionBinding `json:"extensionCorrelation,omitempty"`
-	Discovered           bool                         `json:"-"`
+	// Categorical is a namespace-only Coding binding. The selected system is
+	// the slot identity; code/display are values returned from that Coding.
+	Categorical       *fhirschema.CategoricalBinding `json:"categorical,omitempty"`
+	CategoricalSystem string                         `json:"categoricalSystem,omitempty"`
+	Discovered        bool                           `json:"-"`
 }
 
 // OwnerRecordProjection preserves each repeated owner selected by a checked
@@ -326,28 +330,30 @@ func NormalizedPivotProjectionMode(mode string) string {
 // contract.
 func (p Pivot) MarshalJSON() ([]byte, error) {
 	type pivotJSON struct {
-		Name                 string                        `json:"name"`
-		FieldRef             string                        `json:"fieldRef,omitempty"`
-		ColumnExpr           *Expression                   `json:"columnExpr,omitempty"`
-		ValueExpr            *Expression                   `json:"valueExpr,omitempty"`
-		ValueFallbacks       []Expression                  `json:"valueFallbacks,omitempty"`
-		ItemSource           *Expression                   `json:"itemSource,omitempty"`
-		ItemResourceType     string                        `json:"itemResourceType,omitempty"`
-		Columns              []string                      `json:"columns"`
-		ColumnAliases        map[string]string             `json:"columnAliases,omitempty"`
-		ProjectionMode       string                        `json:"projectionMode,omitempty"`
-		Discovery            *PivotDiscovery               `json:"discovery,omitempty"`
-		Correlation          *fhirschema.CorrelatedBinding `json:"correlation,omitempty"`
-		CorrelationSystem    string                        `json:"correlationSystem,omitempty"`
-		CorrelationCode      string                        `json:"correlationCode,omitempty"`
-		ExtensionCorrelation *fhirschema.ExtensionBinding  `json:"extensionCorrelation,omitempty"`
+		Name                 string                         `json:"name"`
+		FieldRef             string                         `json:"fieldRef,omitempty"`
+		ColumnExpr           *Expression                    `json:"columnExpr,omitempty"`
+		ValueExpr            *Expression                    `json:"valueExpr,omitempty"`
+		ValueFallbacks       []Expression                   `json:"valueFallbacks,omitempty"`
+		ItemSource           *Expression                    `json:"itemSource,omitempty"`
+		ItemResourceType     string                         `json:"itemResourceType,omitempty"`
+		Columns              []string                       `json:"columns"`
+		ColumnAliases        map[string]string              `json:"columnAliases,omitempty"`
+		ProjectionMode       string                         `json:"projectionMode,omitempty"`
+		Discovery            *PivotDiscovery                `json:"discovery,omitempty"`
+		Correlation          *fhirschema.CorrelatedBinding  `json:"correlation,omitempty"`
+		CorrelationSystem    string                         `json:"correlationSystem,omitempty"`
+		CorrelationCode      string                         `json:"correlationCode,omitempty"`
+		ExtensionCorrelation *fhirschema.ExtensionBinding   `json:"extensionCorrelation,omitempty"`
+		Categorical          *fhirschema.CategoricalBinding `json:"categorical,omitempty"`
+		CategoricalSystem    string                         `json:"categoricalSystem,omitempty"`
 	}
-	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, ExtensionCorrelation: p.ExtensionCorrelation}
-	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
+	wire := pivotJSON{Name: p.Name, FieldRef: p.FieldRef, ValueFallbacks: p.ValueFallbacks, ItemResourceType: p.ItemResourceType, Columns: p.Columns, ColumnAliases: p.ColumnAliases, ProjectionMode: p.ProjectionMode, Discovery: p.Discovery, Correlation: p.Correlation, CorrelationSystem: p.CorrelationSystem, CorrelationCode: p.CorrelationCode, ExtensionCorrelation: p.ExtensionCorrelation, Categorical: p.Categorical, CategoricalSystem: p.CategoricalSystem}
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && p.Categorical == nil && (p.Discovery == nil || !p.ColumnExpr.zero()) {
 		value := p.ColumnExpr
 		wire.ColumnExpr = &value
 	}
-	if p.Correlation == nil && p.ExtensionCorrelation == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
+	if p.Correlation == nil && p.ExtensionCorrelation == nil && p.Categorical == nil && (p.Discovery == nil || !p.ValueExpr.zero()) {
 		value := p.ValueExpr
 		wire.ValueExpr = &value
 	}

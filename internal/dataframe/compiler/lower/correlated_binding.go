@@ -57,6 +57,8 @@ func LowerCorrelatedBinding(resourceType string, binding fhirschema.CorrelatedBi
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		SystemBindKey: systemBindKey, CodeBindKey: codeBindKey,
+		ValuePresentation: checked.ValuePresentation,
+		ValueRepeated:     checked.ValueRepeated,
 	}
 	if checked.UnitSelector != nil {
 		unit := *checked.UnitSelector
@@ -108,6 +110,8 @@ func LowerExtensionBinding(resourceType string, binding fhirschema.ExtensionBind
 		ValueSelector: checked.ValueSelector, ValueFallbacks: append([]spec.Selector(nil), checked.ValueFallbacks...),
 		ChoiceArms: choiceArms, ChoiceSelectors: choiceSelectors, LogicalType: checked.LogicalType, ValuePrimitive: string(checked.ValuePrimitive),
 		ExtensionURLSelectors: append([]spec.Selector(nil), checked.URLSelectors...), ExtensionURLBindKeys: append([]string(nil), urlBindKeys...),
+		ValuePresentation: checked.ValuePresentation,
+		ValueRepeated:     checked.ValueRepeated,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package dataframe
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/api/columncapabilities"
@@ -67,7 +68,13 @@ func ColumnModel(column materialization.Column) *model.DataframeColumn {
 	if column.Repeated {
 		repeated = true
 	}
-	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: capabilities.Filterable, Sortable: !repeated, Aggregatable: !repeated && logical != "json"}
+	filterable := capabilities.Filterable
+	sortable := !repeated
+	aggregatable := !repeated && logical != "json"
+	if strings.EqualFold(logical, "object") {
+		filterable, sortable, aggregatable = false, false, false
+	}
+	return &model.DataframeColumn{SemanticPath: column.SemanticPath, Name: column.Name, ClickhouseType: column.ClickHouse, LogicalType: logical, Nullable: nullable, Repeated: repeated, Filterable: filterable, Sortable: sortable, Aggregatable: aggregatable}
 }
 
 func PersistedFailure(raw, code string, retryable bool) (message, failureCode *string, failureRetryable *bool) {

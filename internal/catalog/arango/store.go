@@ -4,6 +4,7 @@ package arango
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	store "github.com/calypr/loom/internal/store/arango"
 )
@@ -17,7 +18,11 @@ type client interface {
 }
 
 type Store struct {
-	client client
+	client                client
+	availabilityMu        sync.Mutex
+	availability          *availabilityBuild
+	availabilityCachePath string
+	availabilityClosed    bool
 }
 
 func New(client client) (*Store, error) {

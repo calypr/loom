@@ -17,8 +17,8 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 		contributions = append(contributions, contribution)
 	})
 
-	if len(contributions) != 1000 {
-		t.Fatalf("inventory contributions = %d, want 1000 schema-paired coded values", len(contributions))
+	if len(contributions) != 1001 {
+		t.Fatalf("inventory contributions = %d, want 1000 coded values and one type metadata slot", len(contributions))
 	}
 	conceptIDs := make(map[string]struct{}, len(contributions))
 	bindingIDs := make(map[string]struct{}, len(contributions))
@@ -41,14 +41,14 @@ func TestSemanticInventoryEmitsBeyondBoundedFieldSummary(t *testing.T) {
 			t.Fatalf("contribution examples = %d, exceeds bound %d", len(contribution.Observation.Examples), maxSemanticExamples)
 		}
 	}
-	if len(conceptIDs) != 1000 {
-		t.Fatalf("unique concept IDs = %d, want 1000", len(conceptIDs))
+	if len(conceptIDs) != 1001 {
+		t.Fatalf("unique concept IDs = %d, want 1001", len(conceptIDs))
 	}
-	if categoryCount != 0 || codedValueCount != 1000 {
-		t.Fatalf("standalone category/coded-value contributions = %d/%d, want 0/1000", categoryCount, codedValueCount)
+	if categoryCount != 1 || codedValueCount != 1000 {
+		t.Fatalf("standalone category/coded-value contributions = %d/%d, want 1/1000", categoryCount, codedValueCount)
 	}
-	if len(bindingIDs) != 1 {
-		t.Fatalf("unique binding IDs = %d, want one schema-paired value binding", len(bindingIDs))
+	if len(bindingIDs) != 2 {
+		t.Fatalf("unique binding IDs = %d, want value and type metadata bindings", len(bindingIDs))
 	}
 
 	var legacyObservations int
@@ -77,8 +77,8 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 	emitter.ObservePayload(map[string]any{"resourceType": "Observation", "component": components}, "Observation", "scope-a", "retained:Observation/key-1", func(contribution SemanticInventoryContribution) {
 		contributions = append(contributions, contribution)
 	})
-	if len(contributions) != 1000 {
-		t.Fatalf("retained emitter events = %d, want schema-paired coded-value observations", len(contributions))
+	if len(contributions) != 1001 {
+		t.Fatalf("retained emitter events = %d, want 1000 coded values and one type metadata slot", len(contributions))
 	}
 	concepts := map[string]struct{}{}
 	for _, contribution := range contributions {
@@ -90,8 +90,44 @@ func TestRetainedSemanticEmitterEmitsBeyondSummaryCapWithoutRetainingScopeMaps(t
 			t.Fatalf("retained contribution examples = %d, exceeds %d", len(contribution.Observation.Examples), maxSemanticExamples)
 		}
 	}
-	if len(concepts) != 1000 {
-		t.Fatalf("retained unique concept IDs = %d, want 1000", len(concepts))
+	if len(concepts) != 1001 {
+		t.Fatalf("retained unique concept IDs = %d, want 1001", len(concepts))
+	}
+}
+
+func TestSemanticInventoryClassificationSeparatesRecognitionFromCompilerReadiness(t *testing.T) {
+	base := inventoryTestObservation("", "label")
+	base.SchemaVersion = SemanticObservationSchemaVersion
+	base.RuleVersion = fmt.Sprint(SemanticObservationRuleVersion)
+	base.Completeness = SemanticComplete
+	base.Status = "SUPPORTED"
+	base.RuleHint = SemanticRuleHintCodedValueV1
+
+	tests := []struct {
+		name        string
+		observation SemanticObservation
+		section     SemanticInventoryCatalogSection
+		code        string
+	}{
+		{name: "recognized", observation: base, section: SemanticInventorySectionConcepts, code: SemanticInventoryRecognitionRecognized},
+		{name: "recognized despite compiler detail", observation: func() SemanticObservation { value := base; value.Value.Selector = "not-a-schema-path"; return value }(), section: SemanticInventorySectionConcepts, code: SemanticInventoryRecognitionRecognized},
+		{name: "stale version", observation: func() SemanticObservation { value := base; value.RuleVersion = "1"; return value }(), section: SemanticInventorySectionNeedsReview, code: "SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED"},
+		{name: "incomplete", observation: func() SemanticObservation { value := base; value.Completeness = SemanticIncomplete; return value }(), section: SemanticInventorySectionNeedsReview, code: "SEMANTIC_OBSERVATION_INCOMPLETE"},
+		{name: "unresolved", observation: func() SemanticObservation { value := base; value.Status = "UNRESOLVED_SYSTEM"; return value }(), section: SemanticInventorySectionNeedsReview, code: "SEMANTIC_OBSERVATION_UNRESOLVED_SYSTEM"},
+		{name: "unknown rule", observation: func() SemanticObservation {
+			value := base
+			value.RuleHint = "FUTURE_RULE"
+			value.Role = SemanticRoleUnknown
+			return value
+		}(), section: SemanticInventorySectionNeedsReview, code: "SEMANTIC_RULE_UNSUPPORTED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			classification := SemanticInventoryClassificationForObservation(test.observation)
+			if classification.Section != test.section || classification.Code != test.code {
+				t.Fatalf("classification = %#v, want section=%q code=%q", classification, test.section, test.code)
+			}
+		})
 	}
 }
 
@@ -123,6 +159,7 @@ func TestSemanticConceptSlotMatchesPairedAndStandaloneFormsAtSameLocation(t *tes
 	standalone.Source.Path = "component[].code"
 	standalone.OwningScope = "component[].code"
 	standalone.Key.Selector = "component[].code.coding[]"
+	standalone.Role = SemanticRoleCategoricalSlot
 	standalone.RuleHint = SemanticRuleHintCategoricalCodeV1
 
 	if got, want := semanticConceptSlotID(standalone), semanticConceptSlotID(paired); got != want {
@@ -171,6 +208,19 @@ func TestSemanticInventoryCursorBindsAuthorizedScopeAndAllowsPageSizeChange(t *t
 	}
 }
 
+func TestSemanticInventoryCursorBindsCatalogSection(t *testing.T) {
+	options := SemanticInventoryPageOptions{
+		Project:           "project",
+		DatasetGeneration: "generation",
+		CatalogSection:    SemanticInventorySectionConcepts,
+	}
+	cursor := EncodeSemanticInventoryCursor(options, "build", "binding", "concept")
+	options.CatalogSection = SemanticInventorySectionNeedsReview
+	if _, _, err := DecodeSemanticInventoryCursor(cursor, options, "build"); err != ErrSemanticInventoryCursorMismatch {
+		t.Fatalf("changed catalog section error = %v, want cursor mismatch", err)
+	}
+}
+
 func inventoryTestComponent(code, version, display string) map[string]any {
 	return map[string]any{
 		"code": map[string]any{"coding": []any{map[string]any{
@@ -190,7 +240,9 @@ func inventoryTestObservation(version, display string) SemanticObservation {
 		"resourceType": "Observation",
 		"component":    []any{inventoryTestComponent("glucose", version, display)},
 	}, map[string]float64{}, "Observation.ndjson#1", func(contribution SemanticInventoryContribution) {
-		observation = contribution.Observation
+		if contribution.Observation.Role == SemanticRoleCodedValue {
+			observation = contribution.Observation
+		}
 	})
 	return observation
 }

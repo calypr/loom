@@ -18,9 +18,12 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	}
 	source := r.newInternalVariable("owner_record_source")
 	payload := source + ".payload"
-	owners, err := r.renderSelectorArrayFromSource(payload, correlation.OwnerSelector, false, false)
-	if err != nil {
-		return "", fmt.Errorf("owner records owner selector: %w", err)
+	owners := "[" + payload + "]"
+	if correlation.OwnerSelector.CanonicalPath() != "" {
+		owners, err = r.renderSelectorArrayFromSource(payload, correlation.OwnerSelector, false, false)
+		if err != nil {
+			return "", fmt.Errorf("owner records owner selector: %w", err)
+		}
 	}
 	ownerList := r.newInternalVariable("owner_record_owners")
 	ordinal := r.newInternalVariable("owner_record_ordinal")
@@ -42,7 +45,7 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderPresentedCorrelationValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -63,6 +66,12 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 	unsupportedValues := r.newInternalVariable("owner_record_unsupported_values")
 	status := r.newInternalVariable("owner_record_status")
 	value := r.newInternalVariable("owner_record_value")
+	multipleValues := "LENGTH(" + flatValues + ") > 1"
+	selectedValue := "FIRST(" + flatValues + ")"
+	if correlation.ValueRepeated {
+		multipleValues = "false"
+		selectedValue = flatValues
+	}
 	return fmt.Sprintf(`(
   FOR %s IN %s
     LET %s = FLATTEN(%s)
@@ -79,8 +88,8 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
       FILTER LENGTH(%s) > 0
       LET %s = FLATTEN(%s)
       LET %s = FLATTEN(%s)
-      LET %s = LENGTH(%s) > 0 ? "INVALID_CHOICE_ARM" : LENGTH(%s) > 1 ? "INVALID_MULTIPLE_VALUES" : LENGTH(%s) == 0 ? "ABSENT" : "VALUE"
-      LET %s = %s == "VALUE" ? FIRST(%s) : null
+      LET %s = LENGTH(%s) > 0 ? "INVALID_CHOICE_ARM" : %s ? "INVALID_MULTIPLE_VALUES" : LENGTH(%s) == 0 ? "ABSENT" : "VALUE"
+      LET %s = %s == "VALUE" ? %s : null
       RETURN {
         source: { resourceType: %s.resourceType, resourceId: %s.id, ownerPath: @%s, ownerOrdinal: %s },
         codings: %s,
@@ -96,7 +105,7 @@ func (r *physicalPlanRenderer) renderOwnerRecords(expression ir.PhysicalExpressi
 		ordinal, ownerList, ownerList, owner, ownerList, ordinal,
 		matchingCodings, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, coding,
 		matchingCodings, flatValues, values, unsupportedValues, unsupported,
-		status, unsupportedValues, flatValues, flatValues, value, status, flatValues,
+		status, unsupportedValues, multipleValues, flatValues, value, status, selectedValue,
 		source, source, operation.OwnerPathBindKey, ordinal, matchingCodings,
 		operation.ChoiceArmBindKey, operation.LogicalTypeBindKey, value, flatValues, unit, status, owner), nil
 }

@@ -63,6 +63,7 @@ import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
 import type { CatalogChoiceIntent } from './catalogItems';
+import type { PivotAnalysis } from './components/PivotFamilyCatalogRow';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -285,6 +286,7 @@ const BuilderWorkspaceContent = ({
   );
   const compileGeneration = useRef(0);
   const previewGeneration = useRef(0);
+  const previewSectionRef = useRef<HTMLElement>(null);
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
@@ -402,7 +404,7 @@ const BuilderWorkspaceContent = ({
   );
 
   const applyCommands = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>) => {
+    (commands: ReadonlyArray<ExplorerBuilderCommand>, prescribedCommandId?: string, expectedDraftDigest?: string) => {
       compileGeneration.current += 1;
       previewGeneration.current += 1;
       activeCompile.current?.abort();
@@ -410,8 +412,11 @@ const BuilderWorkspaceContent = ({
       setPendingCommands((value) => value + 1);
       const run = commandQueue.current.then(async () => {
         const current = latestState.current;
-        const commandId = window.crypto.randomUUID();
+        const commandId = prescribedCommandId ?? window.crypto.randomUUID();
         try {
+          if (expectedDraftDigest && serverDraft.current.digest !== expectedDraftDigest) {
+            throw new Error('The table changed after this analysis. Analyze the selected codes again.');
+          }
           const value = await applyBuilderCommands({
             project: projectId,
             explorerId: current.explorerId,
@@ -596,17 +601,68 @@ const BuilderWorkspaceContent = ({
   }, [occurrence]);
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
+    commandId?: string,
+    expectedDraftDigest?: string,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
+    if (expectedDraftDigest && serverDraft.current.digest !== expectedDraftDigest) {
+      throw new Error('The table changed after this analysis. Analyze the selected codes again.');
+    }
     const applied = await applyCommands(selections.map((selection) => ({
       type: 'APPLY_CONSTRUCTION_CHOICE',
       outputId: table.outputId,
       constructionChoice: selection.constructionChoice,
       ...(selection.title ? { title: selection.title } : {}),
-    } satisfies ExplorerBuilderCommand)));
+    } satisfies ExplorerBuilderCommand)), commandId, expectedDraftDigest);
     if (!applied) {
       throw new Error('Loom did not add the selected features. Review the Builder message and try again.');
     }
+  };
+
+  const analyzePivot = async (
+    familyId: string,
+    selections: ReadonlyArray<CatalogChoiceIntent>,
+  ): Promise<PivotAnalysis> => {
+    if (!table || !serverDraft.current.digest || selections.length === 0) {
+      throw new Error('The table draft is not ready for analysis. Reload and try again.');
+    }
+    const commandId = window.crypto.randomUUID();
+    const proposal = await loomClient.proposePivot({
+      project: projectId,
+      explorerId: state.explorerId,
+      authResourcePath,
+      snapshotToken: state.catalog.snapshotToken,
+      expectedDraftVersion: serverDraft.current.version,
+      expectedDraftDigest: serverDraft.current.digest,
+      outputId: table.outputId,
+      familyId,
+      commandId,
+      selections: selections.map((selection) => ({
+        choiceId: selection.constructionChoice.choiceId,
+        form: selection.constructionChoice.form,
+        ...(selection.title ? { title: selection.title } : {}),
+      })),
+    });
+    const preview = await loomClient.preview({
+      project: projectId,
+      explorerId: state.explorerId,
+      authResourcePath,
+      receiptId: proposal.receiptId,
+      outputId: table.outputId,
+      limit: 500,
+    });
+    const rows = preview.rows ?? [];
+    const populated = (value: unknown): boolean =>
+      Array.isArray(value) ? value.some((member) => member !== null && member !== undefined) : value !== null && value !== undefined;
+    const columns = proposal.columns.map((column) => ({
+      code: column.code,
+      label: column.label,
+      rowsWithValue: rows.filter((row) => populated(row[column.column])).length,
+    }));
+    const rowsWithMultipleCodes = rows.filter((row) =>
+      proposal.columns.filter((column) => populated(row[column.column])).length >= 2,
+    ).length;
+    return { commandId, draftDigest: proposal.draftDigest, sampledRows: rows.length, rowsWithMultipleCodes, columns };
   };
 
   const excludePopulationMember = useCallback(async (
@@ -667,6 +723,19 @@ const BuilderWorkspaceContent = ({
       setPopulationVariantPending(false);
     }
   }, [activePopulationSelection, applyCommands, authResourcePath, loomClient, projectId]);
+
+  const resetTableRoot = useCallback(async (nodeId: string) => {
+    const current = latestState.current;
+    const currentTable = selectedTable(current);
+    if (!currentTable) return;
+    const resourceType = current.catalog.nodes.find((node) => node.nodeId === nodeId)?.resourceType;
+    if (!resourceType || resourceType === currentTable.document.rootResourceType) return;
+    if (!window.confirm(
+      `Make each ${resourceType} one row? This starts the table over and removes its columns, graph connections, filters, starting collection, row settings, and table shaping.`,
+    )) return;
+    setPendingRowChange(undefined);
+    await applyCommands([{ type: 'RESET_TABLE_ROOT', outputId: currentTable.outputId, rootNodeId: nodeId }]);
+  }, [applyCommands]);
 
   const changeTableRoot = useCallback(
     async (nodeId: string, resolution: RowChangeResolution = {}) => {
@@ -1157,6 +1226,10 @@ const BuilderWorkspaceContent = ({
         : await reconcileCurrent();
     if (receipt) await executePreview(request, receipt.receiptId);
   };
+  const previewAndReveal = () => {
+    previewSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    void preview();
+  };
   const executePublish = useCallback(
     async (receiptId: string) => {
       let activeReceiptId = receiptId;
@@ -1309,7 +1382,7 @@ const BuilderWorkspaceContent = ({
         outputIds.splice(index < 0 ? outputIds.length : index, 0, outputId);
         void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
       }}
-      onPreview={() => void preview()}
+      onPreview={previewAndReveal}
       onReview={() => setReviewOpen((open) => !open)}
       reviewExpanded={reviewOpen}
       onPublish={() => void publish()}
@@ -1426,14 +1499,22 @@ const BuilderWorkspaceContent = ({
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
             {table ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <RowDefinitionPanel
-                    catalog={state.catalog}
-                    table={table}
-                    disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
-                    onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
-                  />
+              <div className="space-y-2">
+                <RowDefinitionPanel
+                  catalog={state.catalog}
+                  table={table}
+                  disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onChange={(nodeId) => void resetTableRoot(nodeId)}
+                />
+              <details className="group rounded-xl border border-slate-200 bg-white shadow-sm">
+                <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-2.5 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500">
+                  <span className="font-semibold text-slate-900">Row settings &amp; starting collection</span>
+                  <span className="flex min-w-0 items-center gap-2 text-xs text-slate-600">
+                    <span className="hidden truncate sm:inline">Grouping rules · Limit rows to a collection</span>
+                    <span aria-hidden="true" className="text-base transition-transform group-open:rotate-180">⌄</span>
+                  </span>
+                </summary>
+                <div className="grid gap-3 border-t border-slate-200 p-3 lg:grid-cols-2">
                   <RowDefinitionSettingsPanel
                     client={loomClient}
                     project={projectId}
@@ -1449,30 +1530,31 @@ const BuilderWorkspaceContent = ({
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
                     }])}
                   />
+                  <PopulationPanel
+                    table={table}
+                    selection={activePopulationSelection}
+                    loading={populationSelectionLoading || activePopulationSelectionLoading}
+                    error={populationVariantError ?? populationSelectionError}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    receiptId={state.receipt?.receiptId}
+                    disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                    onAttach={(routeChoiceId) => void applyCommands([{
+                      type: 'SET_TABLE_POPULATION',
+                      outputId: table.outputId,
+                      selectionRevisionId: activePopulationSelection?.id,
+                      routeChoiceId,
+                    }])}
+                    onClear={() => void applyCommands([{
+                      type: 'CLEAR_TABLE_POPULATION',
+                      outputId: table.outputId,
+                    }])}
+                    onExclude={(ref, route) => void excludePopulationMember(ref, route)}
+                  />
                 </div>
-                <PopulationPanel
-                  table={table}
-                  selection={activePopulationSelection}
-                  loading={populationSelectionLoading || activePopulationSelectionLoading}
-                  error={populationVariantError ?? populationSelectionError}
-                  project={projectId}
-                  explorerId={state.explorerId}
-                  authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken}
-                  receiptId={state.receipt?.receiptId}
-                  disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onAttach={(routeChoiceId) => void applyCommands([{
-                    type: 'SET_TABLE_POPULATION',
-                    outputId: table.outputId,
-                    selectionRevisionId: activePopulationSelection?.id,
-                    routeChoiceId,
-                  }])}
-                  onClear={() => void applyCommands([{
-                    type: 'CLEAR_TABLE_POPULATION',
-                    outputId: table.outputId,
-                  }])}
-                  onExclude={(ref, route) => void excludePopulationMember(ref, route)}
-                />
+              </details>
               </div>
             ) : null}
             <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -1518,6 +1600,8 @@ const BuilderWorkspaceContent = ({
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  configuredPivot={table.document}
+                  onAnalyzePivot={analyzePivot}
                   onAddSelected={addSelectedFeatures}
                   />
                 ) : (
@@ -1788,6 +1872,39 @@ const BuilderWorkspaceContent = ({
                 ) : null}
               </div>
             </div>
+            <section ref={previewSectionRef} id="builder-preview" aria-label="Preview" className="scroll-mt-4">
+              <PreviewTable
+                preview={state.preview}
+                table={table}
+                limit={previewLimit}
+                onLimitChange={(limit) => {
+                  setPreviewLimit(limit);
+                  preview(limit);
+                }}
+                onColumnChange={(column) =>
+                  table &&
+                  void applyCommands([
+                    {
+                      type: 'UPDATE_COLUMN',
+                      outputId: table.outputId,
+                      column: column.column,
+                      columnValue: column,
+                    },
+                  ])
+                }
+                onColumnsChange={(columns) =>
+                  table &&
+                  void applyCommands(
+                    columns.map((column) => ({
+                      type: 'UPDATE_COLUMN' as const,
+                      outputId: table.outputId,
+                      column: column.column,
+                      columnValue: column,
+                    })),
+                  )
+                }
+              />
+            </section>
             {table ? (
               <section className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/20 p-3">
                 <h2 className="text-base font-semibold text-indigo-950">Feature meanings</h2>
@@ -1838,37 +1955,6 @@ const BuilderWorkspaceContent = ({
                 outputId={table.outputId}
               />
             ) : null}
-            <PreviewTable
-              preview={state.preview}
-              table={table}
-              limit={previewLimit}
-              onLimitChange={(limit) => {
-                setPreviewLimit(limit);
-                preview(limit);
-              }}
-              onColumnChange={(column) =>
-                table &&
-                void applyCommands([
-                  {
-                    type: 'UPDATE_COLUMN',
-                    outputId: table.outputId,
-                    column: column.column,
-                    columnValue: column,
-                  },
-                ])
-              }
-              onColumnsChange={(columns) =>
-                table &&
-                void applyCommands(
-                  columns.map((column) => ({
-                    type: 'UPDATE_COLUMN' as const,
-                    outputId: table.outputId,
-                    column: column.column,
-                    columnValue: column,
-                  })),
-                )
-              }
-            />
           </>
         )}
       </div>

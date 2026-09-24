@@ -19,7 +19,7 @@ func (h *explorerHTTPHandlers) browseFeatureCatalogDirect(ctx context.Context, p
 	}
 	request := lifecycle.BrowseFeatureCatalogRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
-		RowRoot: body.RowRoot, Section: lifecycle.FeatureCatalogSection(body.Section),
+		OutputID: body.OutputId, Section: lifecycle.FeatureCatalogSection(body.Section),
 	}
 	if body.ResourceType != nil {
 		request.ResourceType = *body.ResourceType

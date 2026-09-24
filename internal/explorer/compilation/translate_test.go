@@ -193,6 +193,7 @@ func TestCompileRejectsRepeatedEdgeWithinOneRouteWhenPolicyDisallows(t *testing.
 				}},
 			}},
 		}}},
+		Columns: []authoringv2.Column{{Column: "repeated_status", Label: "Repeated status", OccurrenceID: "repeated_observation", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "status", ProjectionMode: "VALUE"}}}},
 	}
 	_, err := Compile(context.Background(), "project-a", "explorer-a", document, contributorSnapshot())
 	var compileErr *Error
@@ -307,6 +308,7 @@ func TestRouteDepthUsesStableErrorAtCommandAndCompileBoundaries(t *testing.T) {
 				OccurrenceID: "repeat-encounter", ResourceType: "Encounter", Relationship: "revisits",
 			}},
 		}}},
+		Columns: []authoringv2.Column{{Column: "repeat_code", Label: "Repeat code", OccurrenceID: "repeat-encounter", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}}},
 	}, snapshot)
 	var compileErr *Error
 	if !errors.As(err, &compileErr) || compileErr.Code != "ROUTE_TOO_LONG" {

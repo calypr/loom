@@ -9,6 +9,9 @@ import (
 )
 
 func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (string, error) {
+	if predicate.CorrelationKeyMatch != nil {
+		return r.renderCorrelationKeyMatch(*predicate.CorrelationKeyMatch)
+	}
 	if predicate.Correlation != nil {
 		return r.renderCorrelationPredicate(*predicate.Correlation)
 	}
@@ -67,7 +70,7 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	if err != nil {
 		return "", err
 	}
-	values, err := r.renderCorrelationValues(valueSource, correlation.ValueSelector, correlation.ValueFallbacks)
+	values, err := r.renderPresentedCorrelationValues(valueSource, correlation)
 	if err != nil {
 		return "", err
 	}
@@ -91,6 +94,86 @@ func (r *physicalPlanRenderer) renderCorrelationPredicate(correlation ir.Physica
 	      LIMIT 1
 	      RETURN 1
 ) > 0`, owner, owners, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, values, unsupportedValues), nil
+}
+
+// renderCorrelationKeyMatch checks only system and code on a shared Coding
+// item. Value and choice selectors belong to the later pivot projection, where
+// invalid choice arms must remain observable.
+func (r *physicalPlanRenderer) renderCorrelationKeyMatch(match ir.PhysicalCorrelationKeyMatch) (string, error) {
+	if direct, ok, err := r.renderDirectCorrelationKeyMatch(match); ok || err != nil {
+		return direct, err
+	}
+	owners, err := r.renderCorrelationOwners(match.Source, match.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("correlation_key_owner")
+	coding := r.newInternalVariable("correlation_key_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, match.KeySelector, false, false)
+	if err != nil {
+		return "", fmt.Errorf("correlation key-match selector: %w", err)
+	}
+	system, err := r.renderCorrelationScalar(coding, match.SystemSelector)
+	if err != nil {
+		return "", err
+	}
+	code, err := r.renderCorrelationScalar(coding, match.CodeSelector)
+	if err != nil {
+		return "", err
+	}
+	if match.SystemBindKey == "" || match.CodeBindKey == "" {
+		return "", fmt.Errorf("correlation key-match binds are required")
+	}
+	return fmt.Sprintf(`LENGTH(
+  FOR %s IN %s
+    FOR %s IN FLATTEN(%s)
+      LET __correlation_key_system = %s
+      LET __correlation_key_code = %s
+      FILTER __correlation_key_system != null AND __correlation_key_system != ""
+      FILTER __correlation_key_code != null AND __correlation_key_code != ""
+      FILTER __correlation_key_system == @%s
+      FILTER __correlation_key_code == @%s
+      LIMIT 1
+      RETURN 1
+) > 0`, owner, owners, coding, codings, system, code, match.SystemBindKey, match.CodeBindKey), nil
+}
+
+// The common FHIR shape has one Coding array below the resource payload and
+// scalar system/code members. Preserve the paired Coding test while avoiding
+// selector subqueries for every candidate document. More complex owner or
+// selector shapes retain the general renderer above.
+func (r *physicalPlanRenderer) renderDirectCorrelationKeyMatch(match ir.PhysicalCorrelationKeyMatch) (string, bool, error) {
+	if len(match.OwnerSelector.Steps) != 0 || match.OwnerSelector.Filter != nil ||
+		match.KeySelector.Filter != nil || len(match.KeySelector.Steps) == 0 ||
+		len(match.SystemSelector.Steps) != 1 || len(match.CodeSelector.Steps) != 1 ||
+		match.SystemSelector.Filter != nil || match.CodeSelector.Filter != nil ||
+		match.SystemSelector.Steps[0].Iterate || match.CodeSelector.Steps[0].Iterate ||
+		match.SystemSelector.Steps[0].Index != nil || match.CodeSelector.Steps[0].Index != nil ||
+		(match.Source.Variable != "" && r.setVariables[match.Source.Variable] != "") {
+		return "", false, nil
+	}
+	for index, step := range match.KeySelector.Steps {
+		if step.Index != nil || step.Iterate != (index == len(match.KeySelector.Steps)-1) {
+			return "", false, nil
+		}
+	}
+	if match.SystemBindKey == "" || match.CodeBindKey == "" {
+		return "", true, fmt.Errorf("correlation key-match binds are required")
+	}
+	source, err := r.renderValue(match.Source)
+	if err != nil {
+		return "", true, err
+	}
+	for _, step := range match.KeySelector.Steps {
+		source += fmt.Sprintf("[%q]", step.Field)
+	}
+	coding := r.newInternalVariable("correlation_key_coding")
+	return fmt.Sprintf(`LENGTH(
+  FOR %s IN (IS_ARRAY(%s) ? %s : [])
+    FILTER %s[%q] == @%s AND %s[%q] == @%s
+    LIMIT 1
+    RETURN 1
+) > 0`, coding, source, source, coding, match.SystemSelector.Steps[0].Field, match.SystemBindKey, coding, match.CodeSelector.Steps[0].Field, match.CodeBindKey), true, nil
 }
 
 func correlationValueSource(owner, keyItem string, correlation ir.PhysicalCorrelation) (string, error) {
@@ -157,6 +240,23 @@ func (r *physicalPlanRenderer) renderCorrelationValues(source string, selector s
 		return values[0], nil
 	}
 	return "FIRST(FOR __correlation_candidate IN [" + strings.Join(values, ", ") + "] FILTER LENGTH(__correlation_candidate) > 0 RETURN __correlation_candidate)", nil
+}
+
+func (r *physicalPlanRenderer) renderPresentedCorrelationValues(source string, correlation ir.PhysicalCorrelation) (string, error) {
+	if correlation.ValuePresentation == "" {
+		return r.renderCorrelationValues(source, correlation.ValueSelector, correlation.ValueFallbacks)
+	}
+	if correlation.ValuePresentation != "DISPLAY_OR_CODE" || len(correlation.ValueSelector.Steps) == 0 {
+		return "", fmt.Errorf("unsupported correlated value presentation %q", correlation.ValuePresentation)
+	}
+	owner := correlation.ValueSelector
+	owner.Steps = owner.Steps[:len(owner.Steps)-1]
+	codings, err := r.renderSelectorArrayFromSource(source, owner, false, false)
+	if err != nil {
+		return "", err
+	}
+	item := r.newInternalVariable("presented_coding")
+	return fmt.Sprintf("(FOR %s IN FLATTEN(%s) LET presented = IS_STRING(%s.display) AND LENGTH(TRIM(%s.display)) > 0 ? %s.display : %s.code FILTER presented != null RETURN presented)", item, codings, item, item, item, item), nil
 }
 
 // renderCorrelationUnsupportedChoiceValues returns values observed on choice

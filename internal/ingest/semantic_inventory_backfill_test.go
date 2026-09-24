@@ -24,7 +24,9 @@ func TestBackfillSemanticInventoryResumesPartialPageWithoutDuplicates(t *testing
 		backfillSourceRow(t, "c", "scope-a", backfillObservation("third", "v1", true)),
 	}
 	original := cloneBackfillRows(backend.rows["Observation"])
-	backend.failWriteAt = 4 // First event for source c persists, its next event is interrupted.
+	backend.failWrite = func(contributions []catalog.SemanticInventoryContribution) bool {
+		return len(contributions) == 1 && contributions[0].SourceID == "retained:Observation/c" && contributions[0].Ordinal == 1
+	}
 	options := SemanticInventoryBackfillOptions{Project: "project", DatasetGeneration: "generation", PageSize: 2, BatchSize: 1}
 	manifest := backfillManifest(t, publication.StateStaged)
 
@@ -41,11 +43,11 @@ func TestBackfillSemanticInventoryResumesPartialPageWithoutDuplicates(t *testing
 		t.Fatalf("failure checkpoint = %+v, want %+v", got, want)
 	}
 	partialCount := len(backend.contributions)
-	if partialCount != 3 {
-		t.Fatalf("partially persisted contribution keys = %d, want three deterministic rows", partialCount)
+	if partialCount != 5 {
+		t.Fatalf("partially persisted contribution keys = %d, want five deterministic rows", partialCount)
 	}
 
-	backend.failWriteAt = 0
+	backend.failWrite = nil
 	report, err := BackfillSemanticInventory(context.Background(), backend, manifest, options)
 	if err != nil {
 		t.Fatalf("resume backfill: %v", err)
@@ -53,8 +55,8 @@ func TestBackfillSemanticInventoryResumesPartialPageWithoutDuplicates(t *testing
 	if report.State != catalog.SemanticInventoryComplete || report.ScannedThisRun != 1 || report.ScannedTotal != 3 {
 		t.Fatalf("resume report = %+v, want complete with one newly scanned and three total rows", report)
 	}
-	if got := len(backend.contributions); got != 4 {
-		t.Fatalf("contribution keys after replay = %d, want four unique source events", got)
+	if got := len(backend.contributions); got != 8 {
+		t.Fatalf("contribution keys after replay = %d, want eight unique source events", got)
 	}
 	if got := backend.build.ScannedResources; got != 3 {
 		t.Fatalf("durable scanned count after resume = %d, want 3", got)
@@ -109,6 +111,27 @@ func TestBackfillSemanticInventoryMalformedPayloadFailsAndPreservesSource(t *tes
 	}
 }
 
+func TestBackfillSemanticInventorySchemaWalkFailureCannotComplete(t *testing.T) {
+	backend := newBackfillFake()
+	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{{
+		Key: "bad-shape", AuthResourcePath: strptr("scope-a"),
+		Payload: json.RawMessage(`{"resourceType":"Observation","component":"not-an-array"}`),
+	}}
+	original := cloneBackfillRows(backend.rows["Observation"])
+	_, err := BackfillSemanticInventory(context.Background(), backend, backfillManifest(t, publication.StateReady), SemanticInventoryBackfillOptions{
+		Project: "project", DatasetGeneration: "generation",
+	})
+	if err == nil {
+		t.Fatal("schema-walking error was discarded")
+	}
+	if backend.build.State != catalog.SemanticInventoryFailed || backend.build.ScannedResources != 0 {
+		t.Fatalf("malformed schema shape advanced build: %+v", backend.build)
+	}
+	if !reflect.DeepEqual(backend.rows["Observation"], original) {
+		t.Fatal("schema failure mutated retained source")
+	}
+}
+
 func TestBackfillSemanticInventoryRequiresMatchingImmutableManifest(t *testing.T) {
 	for _, state := range []publication.State{publication.StateLoading, publication.StateFailed} {
 		backend := newBackfillFake()
@@ -132,7 +155,7 @@ func TestBackfillSemanticInventoryRequiresMatchingImmutableManifest(t *testing.T
 	}
 }
 
-func TestBackfillSemanticInventoryMarksMissingUnprofiledRootUnproven(t *testing.T) {
+func TestBackfillSemanticInventoryTreatsMissingUnprofiledRootAsVerifiedEmpty(t *testing.T) {
 	backend := newBackfillFake()
 	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false))}
 	backend.missingCollections["Patient"] = true
@@ -143,11 +166,53 @@ func TestBackfillSemanticInventoryMarksMissingUnprofiledRootUnproven(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.State != catalog.SemanticInventoryComplete || report.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven {
-		t.Fatalf("missing-root report = %+v, want completed scan with explicit unproven availability", report)
+	if report.State != catalog.SemanticInventoryComplete || report.SourceAvailability != catalog.SemanticInventorySourceAvailabilityVerified {
+		t.Fatalf("missing-root report = %+v, want completed scan with verified empty source", report)
 	}
-	if len(report.MissingCollections) != 1 || report.MissingCollections[0] != "Patient" || backend.build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven {
+	if len(report.MissingCollections) != 0 || backend.build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityVerified {
 		t.Fatalf("missing-root evidence report=%v durable=%q", report.MissingCollections, backend.build.SourceAvailability)
+	}
+}
+
+func TestBackfillSemanticInventoryMarksUnknownSourceUnproven(t *testing.T) {
+	backend := newBackfillFake()
+	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false))}
+	backend.unknownCollections["Patient"] = true
+	manifest := backfillManifestWithRoots(t, publication.StateStaged, []string{"Observation", "Patient"})
+	report, err := BackfillSemanticInventory(context.Background(), backend, manifest, SemanticInventoryBackfillOptions{
+		Project: "project", DatasetGeneration: "generation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State != catalog.SemanticInventoryComplete || report.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven {
+		t.Fatalf("unknown-source report = %+v, want completed scan with unproven availability", report)
+	}
+	if !reflect.DeepEqual(report.MissingCollections, []string{"Patient"}) || backend.build.SourceAvailability != catalog.SemanticInventorySourceAvailabilityUnproven {
+		t.Fatalf("unknown-source evidence report=%v durable=%q", report.MissingCollections, backend.build.SourceAvailability)
+	}
+}
+
+func TestBackfillSemanticInventoryRepairsLegacyUnprovenCoverage(t *testing.T) {
+	backend := newBackfillFake()
+	backend.build = catalog.NewSemanticInventoryBuild("project", "generation", "")
+	backend.build.SourceKind = catalog.SemanticInventorySourceRetained
+	backend.build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	backend.build.State = catalog.SemanticInventoryComplete
+	backend.build.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	backend.build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "old"}
+	backend.build.ScannedResources = 99
+	backend.rows["Observation"] = []catalogarango.RetainedSemanticInventoryRow{backfillSourceRow(t, "a", "", backfillObservation("one", "v1", false))}
+	backend.missingCollections["Patient"] = true
+
+	report, err := BackfillSemanticInventory(context.Background(), backend, backfillManifestWithRoots(t, publication.StateStaged, []string{"Observation", "Patient"}), SemanticInventoryBackfillOptions{
+		Project: "project", DatasetGeneration: "generation",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NoOp || report.State != catalog.SemanticInventoryComplete || report.SourceAvailability != catalog.SemanticInventorySourceAvailabilityVerified || report.ScannedTotal != 1 {
+		t.Fatalf("legacy coverage repair = %+v, want a fresh verified scan", report)
 	}
 }
 
@@ -266,12 +331,13 @@ type backfillFake struct {
 	prepared           bool
 	readCalls          int
 	writeCalls         int
-	failWriteAt        int
+	failWrite          func([]catalog.SemanticInventoryContribution) bool
 	missingCollections map[string]bool
+	unknownCollections map[string]bool
 }
 
 func newBackfillFake() *backfillFake {
-	return &backfillFake{rows: map[string][]catalogarango.RetainedSemanticInventoryRow{}, contributions: map[string]catalog.SemanticInventoryContribution{}, missingCollections: map[string]bool{}}
+	return &backfillFake{rows: map[string][]catalogarango.RetainedSemanticInventoryRow{}, contributions: map[string]catalog.SemanticInventoryContribution{}, missingCollections: map[string]bool{}, unknownCollections: map[string]bool{}}
 }
 
 func (f *backfillFake) PrepareSemanticInventoryBackfill(context.Context) error {
@@ -288,11 +354,14 @@ func (f *backfillFake) ReadRetainedSemanticInventoryPage(ctx context.Context, pr
 		return catalogarango.RetainedSemanticInventoryPage{}, fmt.Errorf("unexpected source scope %s/%s", project, generation)
 	}
 	rows := append([]catalogarango.RetainedSemanticInventoryRow(nil), f.rows[collection]...)
-	if f.missingCollections[collection] {
+	if f.unknownCollections[collection] {
 		return catalogarango.RetainedSemanticInventoryPage{Rows: []catalogarango.RetainedSemanticInventoryRow{}}, nil
 	}
+	if f.missingCollections[collection] {
+		return catalogarango.RetainedSemanticInventoryPage{Rows: []catalogarango.RetainedSemanticInventoryRow{}, SourceState: catalogarango.RetainedSemanticSourceVerifiedEmpty}, nil
+	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
-	page := catalogarango.RetainedSemanticInventoryPage{Rows: make([]catalogarango.RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
+	page := catalogarango.RetainedSemanticInventoryPage{Rows: make([]catalogarango.RetainedSemanticInventoryRow, 0, limit), SourceState: catalogarango.RetainedSemanticSourcePresent}
 	for _, row := range rows {
 		if row.Key <= afterKey {
 			continue
@@ -310,7 +379,10 @@ func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build c
 	if f.claimedByOther {
 		return catalog.SemanticInventoryBuild{}, false, catalogarango.ErrSemanticInventoryClaimed
 	}
-	if f.build.State == catalog.SemanticInventoryComplete {
+	legacyCoverageRepair := f.build.State == catalog.SemanticInventoryComplete &&
+		f.build.SourceKind == catalog.SemanticInventorySourceRetained &&
+		f.build.SourceAvailability == catalog.SemanticInventorySourceAvailabilityUnproven
+	if f.build.State == catalog.SemanticInventoryComplete && !legacyCoverageRepair {
 		return f.build, false, nil
 	}
 	if f.build.LeaseToken != "" && f.build.LeaseToken != token {
@@ -318,6 +390,11 @@ func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build c
 	}
 	if f.build.Key == "" {
 		f.build = build
+	}
+	if legacyCoverageRepair {
+		f.build.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnknown
+		f.build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{}
+		f.build.ScannedResources = 0
 	}
 	if f.build.SourceKind != build.SourceKind {
 		f.build.SourceCheckpoint = catalog.SemanticInventoryCheckpoint{}
@@ -370,7 +447,7 @@ func (f *backfillFake) FailSemanticInventoryBackfill(ctx context.Context, _ cata
 
 func (f *backfillFake) WriteSemanticInventoryContributions(_ context.Context, contributions []catalog.SemanticInventoryContribution, _ int) error {
 	f.writeCalls++
-	if f.failWriteAt != 0 && f.writeCalls == f.failWriteAt {
+	if f.failWrite != nil && f.failWrite(contributions) {
 		return errors.New("injected interrupted write")
 	}
 	for _, contribution := range contributions {

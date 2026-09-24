@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -233,14 +234,18 @@ func TestPreviewOutputMarksNaturalExhaustionComplete(t *testing.T) {
 }
 
 func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.T) {
-	type calls struct{ keys, rows int }
-	newPagedEngine := func(observed *calls) *Engine {
+	type calls struct {
+		keys, rows int
+		pageSizes  []int
+	}
+	newPagedEngine := func(observed *calls, rootPageRows int) *Engine {
 		t.Helper()
 		queryRows := func(_ context.Context, _ string, _ int, binds map[string]any, visit func(map[string]any) error) error {
 			if afterValue, ok := binds[compiler.RootPageAfterKeyBind]; ok {
 				observed.keys++
 				after, _ := afterValue.(string)
 				pageSize, _ := binds[compiler.RootPageSizeBind].(int)
+				observed.pageSizes = append(observed.pageSizes, pageSize)
 				emitted := 0
 				for _, key := range []string{"a", "b", "c"} {
 					if key <= after || emitted == pageSize {
@@ -274,7 +279,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 			}
 			return nil
 		}
-		engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 2})
+		engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: rootPageRows})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -283,7 +288,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 
 	t.Run("complete stream", func(t *testing.T) {
 		observed := &calls{}
-		engine := newPagedEngine(observed)
+		engine := newPagedEngine(observed, 2)
 		resolved, err := engine.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
 		if err != nil {
 			t.Fatal(err)
@@ -306,11 +311,14 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 		if observed.keys != 2 || observed.rows != 2 {
 			t.Fatalf("query calls = %#v, want two key and two row pages", observed)
 		}
+		if len(observed.pageSizes) != 2 || observed.pageSizes[0] != 2 || observed.pageSizes[1] != 2 {
+			t.Fatalf("complete stream root page sizes = %v, want [2 2]", observed.pageSizes)
+		}
 	})
 
 	t.Run("preview output limit", func(t *testing.T) {
 		observed := &calls{}
-		engine := newPagedEngine(observed)
+		engine := newPagedEngine(observed, 2)
 		resolved, err := engine.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
 		if err != nil {
 			t.Fatal(err)
@@ -327,6 +335,124 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 			t.Fatalf("preview calls = %#v, want one bounded page", observed)
 		}
 	})
+
+	t.Run("preview caps root page at requested limit", func(t *testing.T) {
+		observed := &calls{}
+		engine := newPagedEngine(observed, 25)
+		resolved, err := engine.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		summary, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Patient", Limit: 5}, func(row map[string]any) error {
+			ids = append(ids, row["id"].(string))
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.RowCount != 5 || len(ids) != 5 || !summary.Truncated || summary.Complete {
+			t.Fatalf("bounded preview rows=%d ids=%v summary=%#v, want five rows and truncation", len(ids), ids, summary)
+		}
+		for index, id := range ids {
+			if want := fmt.Sprintf("a-%02d", index); id != want {
+				t.Fatalf("preview row %d id = %q, want %q", index, id, want)
+			}
+		}
+		if len(observed.pageSizes) != 1 || observed.pageSizes[0] != 5 {
+			t.Fatalf("preview root page sizes = %v, want [5]", observed.pageSizes)
+		}
+		if observed.keys != 1 || observed.rows != 1 {
+			t.Fatalf("preview calls = %#v, want one key page and one row page", observed)
+		}
+	})
+}
+
+func TestStreamForOutputUsesPagedQueryMetadataAndKeepsUnpagedPath(t *testing.T) {
+	ctx := context.Background()
+	queryRows := func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		if _, paged := binds[compiler.RootPageAfterKeyBind]; paged {
+			return visit(map[string]any{"_key": "a"})
+		}
+		if _, paged := binds[compiler.RootPageKeysBind]; paged {
+			if strings.TrimSpace(query) == "" {
+				return fmt.Errorf("page rows query is empty")
+			}
+			return visit(map[string]any{"_key": "a", "id": "p1"})
+		}
+		if strings.TrimSpace(query) == "" {
+			return fmt.Errorf("unpaged query is empty")
+		}
+		return visit(map[string]any{"id": "p1"})
+	}
+
+	pagedEngine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := pagedEngine.CompileResolvedBundle(ctx, testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, query, err := pagedEngine.streamForOutput(resolved, "Patient", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stream.page == nil {
+		t.Fatal("paged output has no page templates")
+	}
+	if query.Query != stream.page.RowsQuery || stream.query != query.Query {
+		t.Fatal("paged output metadata does not describe its selected-root rows query")
+	}
+	if !reflect.DeepEqual(query.BindVars, stream.page.RowsBindVars) {
+		t.Fatalf("paged query binds = %#v, want complete selected-root binds %#v", query.BindVars, stream.page.RowsBindVars)
+	}
+	if query.Limit != 3 || query.PlanMode != "physical" || query.PlanProfile != "generic_fhir_graph_recipe" {
+		t.Fatalf("paged query validation metadata = %#v", query)
+	}
+	if query.PlanDiagnostics.Fingerprint == "" || query.PlanDiagnostics.Fingerprint != stream.page.RowsDiagnostics.Fingerprint {
+		t.Fatalf("paged diagnostics = %#v, page diagnostics = %#v", query.PlanDiagnostics, stream.page.RowsDiagnostics)
+	}
+	if !reflect.DeepEqual(query.RowIdentity, stream.RowIdentity) || !reflect.DeepEqual(query.PublicColumns, stream.Columns) {
+		t.Fatalf("paged schema/identity query=%#v stream columns=%v identity=%#v", query, stream.Columns, stream.RowIdentity)
+	}
+	var pagedRow map[string]any
+	summary, err := pagedEngine.PreviewOutput(ctx, resolved, PreviewRequest{Output: "Patient", Limit: 3, IncludeRowIdentity: true}, func(row map[string]any) error {
+		pagedRow = row
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.PlanFingerprint == "" || summary.RowCount != 1 || pagedRow["id"] != "p1" || pagedRow["__loom_row_id"] == nil {
+		t.Fatalf("paged preview summary=%#v row=%#v", summary, pagedRow)
+	}
+
+	unpagedEngine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unpagedResolved, err := unpagedEngine.CompileResolvedBundle(ctx, testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unpagedStream, unpagedQuery, err := unpagedEngine.streamForOutput(unpagedResolved, "Patient", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unpagedStream.page != nil || unpagedStream.query != unpagedQuery.Query || !reflect.DeepEqual(unpagedStream.Columns, unpagedQuery.PublicColumns) {
+		t.Fatalf("unpaged query/stream mismatch: stream=%#v query=%#v", unpagedStream, unpagedQuery)
+	}
+	var unpagedRow map[string]any
+	if _, err := unpagedEngine.PreviewOutput(ctx, unpagedResolved, PreviewRequest{Output: "Patient", Limit: 3}, func(row map[string]any) error {
+		unpagedRow = row
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if unpagedRow["id"] != "p1" {
+		t.Fatalf("unpaged preview row = %#v, want public id", unpagedRow)
+	}
 }
 
 func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {

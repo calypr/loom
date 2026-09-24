@@ -224,6 +224,41 @@ func TestApplyCommandsSetTableRootPreservesSameRootAndRejectsDestructiveRebase(t
 	}
 }
 
+func TestResetTableRootDoesNotRequireAnInverseRelationship(t *testing.T) {
+	workspace := rowChangeWorkspace()
+	workspace.SharedFilters = map[string][]SharedFilterBinding{
+		"patient": {{OutputID: "patients", Column: "patient_id"}},
+	}
+	catalog := commandCatalog()
+	assessment, err := AssessRowChange(workspace, catalog, RowChangeRequest{OutputID: "patients", RootNodeID: "encounter"})
+	if err != nil || assessment.Status != RowChangeBlocked {
+		t.Fatalf("preserving row change = %#v, %v; want blocked without inverse edge", assessment, err)
+	}
+
+	changed, _, err := ApplyCommands(workspace, catalog, "reset-root", []Command{{
+		Type: CommandResetTableRoot, OutputID: "patients", RootNodeID: "encounter",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := changed.Documents[0]
+	if document.RootResourceType != "Encounter" || document.Route.OccurrenceID != RootOccurrenceID || document.Route.ResourceType != "Encounter" || len(document.Route.Children) != 0 {
+		t.Fatalf("reset root = %#v", document.Route)
+	}
+	if len(document.Columns) != 0 || document.Population != nil || len(document.FixedFilters) != 0 || len(document.Actions) != 0 || document.TableShape != nil || document.Rows.Kind != RowDefinitionRecords {
+		t.Fatalf("reset retained root-dependent configuration: %#v", document)
+	}
+	if len(changed.SharedFilters) != 0 {
+		t.Fatalf("reset retained shared filter bindings: %#v", changed.SharedFilters)
+	}
+	if document.Output.ID != "patients" || document.Output.Title != "Patients" || changed.Tabs[0].OutputID != "patients" {
+		t.Fatalf("reset changed table identity: %#v, %#v", document.Output, changed.Tabs)
+	}
+	if workspace.Documents[0].RootResourceType != "Patient" || len(workspace.Documents[0].Columns) != 2 {
+		t.Fatal("reset mutated the original workspace")
+	}
+}
+
 func TestApplyCommandsRejectsPopulationRouteBeyondCatalogMaxHops(t *testing.T) {
 	catalog := commandCatalog()
 	maxHops := 0
@@ -353,6 +388,49 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 	wantSource.Lookup.ProjectionMode = "VALUE"
 	if !sourceEqual(column.Source, wantSource) || column.Source.Lookup.Identifier == nil || column.Source.Lookup.Match != "" || column.Source.Lookup.Path != "" || column.LogicalType != plan.LogicalType {
 		t.Fatalf("applied Identifier source=%#v logicalType=%q, want source=%#v type=%q", column.Source, column.LogicalType, wantSource, plan.LogicalType)
+	}
+}
+
+func TestApplySemanticSelectionsAllowsRegisteredCompositeStructuredValue(t *testing.T) {
+	catalogSnapshot := semanticSelectionCatalog()
+	catalogSnapshot.Nodes = []CatalogNode{{ID: "medication", ResourceType: "MedicationAdministration", RowRootEligible: true}}
+	catalogSnapshot.Edges = nil
+	catalogSnapshot.Candidates = []CatalogCandidate{{
+		ID: "timing-range", NodeID: "medication", FieldPath: "occurenceTiming.repeat.boundsRange",
+		Cardinality: "optional_one", LogicalType: "object", ProjectionModes: []string{"VALUE"}, DefaultProjectionMode: "VALUE",
+		ConstructionChoice: testFieldConstructionChoice("snapshot", "timing-range", "medication", "MedicationAdministration", "occurenceTiming.repeat.boundsRange", "optional_one", capability.ProjectionScalar),
+	}}
+	workspace, created, err := ApplyCommands(emptyCommandWorkspace(), catalogSnapshot, "create", []Command{{Type: CommandCreateTable, Title: "Medication administrations", RootNodeID: "medication"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const path = "occurenceTiming.repeat.boundsRange"
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Role:          catalog.SemanticRoleStructuredSlot,
+		SlotLabel:     "Timing range",
+		Source:        catalog.SemanticObservationSource{Type: "MedicationAdministration", Path: "occurenceTiming.repeat"},
+		Value:         catalog.SemanticObservationValue{Selector: path, Type: "object"},
+		LogicalType:   "object", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}
+	plan := ResolveSemanticSelectionPlan(observation)
+	if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Kind != SourceField || plan.Source.Field == nil || plan.Source.Field.Path != path || plan.LogicalType != "object" {
+		t.Fatalf("structured selection plan = %#v", plan)
+	}
+	updated, results, err := ApplyCommands(workspace, catalogSnapshot, "add-structured", []Command{{
+		Type: CommandAddSemanticSelections, OutputID: created[0].OutputID, ContextToken: "context",
+		SemanticSelections: []SemanticSelection{{ConceptID: "timing-range", BindingID: "timing-range-binding", RouteEdgeIDs: []string{}, ProjectionMode: "VALUE", ResolvedObservation: &catalog.SemanticInventoryEntry{ConceptID: "timing-range", BindingID: "timing-range-binding", Observation: observation}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || len(results[0].SemanticSelections) != 1 || len(updated.Documents[0].Columns) != 1 {
+		t.Fatalf("structured selection result = %#v workspace = %#v", results, updated)
+	}
+	column := updated.Documents[0].Columns[0]
+	if column.LogicalType != "object" || column.Source.Kind != SourceField || column.Source.Field == nil || column.Source.Field.Path != path || column.Source.Field.ProjectionMode != "VALUE" {
+		t.Fatalf("structured column = %#v", column)
 	}
 }
 

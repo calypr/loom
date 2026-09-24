@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
@@ -69,6 +70,105 @@ func TestRenderPhysicalPlanGenericNavigation(t *testing.T) {
 	if got := rendered.BindVars["__loom_physical_projection_0_name"]; got != "_key" {
 		t.Fatalf("projection name was not bound: %#v", got)
 	}
+}
+
+func TestRenderPhysicalSetEndpointLookupUsesTargetCollectionForScalarType(t *testing.T) {
+	buildPlan := func(includeSecondSet bool) ir.PhysicalPlan {
+		t.Helper()
+		policy := ir.PhysicalOptimizationPolicy{Enabled: true, MinimumSavings: 1}.
+			WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, true).
+			WithRule(ir.PhysicalOptimizationRuleTraversalSharing, false)
+		children := []semantic.SemanticNode{{
+			Alias: "specimen", ResourceType: "Specimen", EdgeLabel: "subject_Patient",
+			Fields: []semantic.SemanticField{testSemanticField("id", mustPhysicalSelector(t, "id"), "")},
+		}}
+		if includeSecondSet {
+			children = append(children, semantic.SemanticNode{
+				Alias: "condition", ResourceType: "Condition", EdgeLabel: "subject_Patient",
+				Fields: []semantic.SemanticField{testSemanticField("id", mustPhysicalSelector(t, "id"), "")},
+			})
+		}
+		plan, err := lower.BuildGenericPhysicalPlanWithPolicy(semantic.OutputPlan{Root: semantic.SemanticNode{
+			Alias: "root", ResourceType: "Patient", Children: children,
+		}}, semantic.ExecutionContext{Project: "project-1", DatasetGeneration: "generation-1", AuthResourcePaths: []string{"/programs/p1"}}, policy)
+		if err != nil {
+			t.Fatalf("BuildGenericPhysicalPlanWithPolicy() error = %v", err)
+		}
+		return plan
+	}
+
+	t.Run("scalar target type uses collection index lookup", func(t *testing.T) {
+		plan := buildPlan(true)
+		sets := make([]*ir.PhysicalSet, 0, 2)
+		for index := range plan.Operations {
+			if plan.Operations[index].Kind == ir.PhysicalSetOp && plan.Operations[index].Set != nil {
+				sets = append(sets, plan.Operations[index].Set)
+			}
+		}
+		if len(sets) != 2 || sets[0].SourceSetVariable != "" || sets[1].SourceSetVariable != "" {
+			t.Fatalf("expected two direct PhysicalSetOps, got %#v", sets)
+		}
+		for _, set := range sets {
+			traversal := set.Subplan.Operations[0].Traversal
+			if traversal == nil || traversal.Strategy != ir.PhysicalTraversalEndpointLookup {
+				t.Fatalf("set traversal = %#v, want endpoint lookup", traversal)
+			}
+		}
+
+		rendered, err := aql.RenderPhysicalPlan(plan)
+		if err != nil {
+			t.Fatalf("RenderPhysicalPlan() error = %v", err)
+		}
+		for _, want := range []string{
+			"LET child_set_1 = UNIQUE((",
+			"FILTER child_set_1_edge.label == @child_set_1_label",
+			"FILTER child_set_1_edge.from_type == @child_set_1_target_type",
+			"FOR child_set_1_node IN @@__loom_physical_target_collection",
+			"FILTER child_set_1_node._id == child_set_1_edge._from",
+			"FILTER child_set_1_node.resourceType == @child_set_1_target_type",
+			"FILTER child_set_1_edge.project == @project",
+			"FILTER child_set_1_node.project == @project",
+			"FILTER child_set_1_edge.dataset_generation == @dataset_generation",
+			"FILTER child_set_1_node.dataset_generation == @dataset_generation",
+			"FILTER child_set_1_scope_allowed == @scope_allowed",
+			"FOR child_set_2_node IN @@__loom_physical_target_collection_1",
+			"FILTER child_set_2_node._id == child_set_2_edge._from",
+		} {
+			if !strings.Contains(rendered.Query, want) {
+				t.Fatalf("rendered set query missing %q:\n%s", want, rendered.Query)
+			}
+		}
+		if strings.Contains(rendered.Query, "DOCUMENT(child_set_1_edge._from)") {
+			t.Fatalf("scalar set lookup still uses DOCUMENT():\n%s", rendered.Query)
+		}
+		if got := rendered.BindVars["@__loom_physical_target_collection"]; got != "Specimen" {
+			t.Fatalf("target collection bind = %#v, want Specimen", got)
+		}
+		if got := rendered.BindVars["@__loom_physical_target_collection_1"]; got != "Condition" {
+			t.Fatalf("second target collection bind = %#v, want Condition", got)
+		}
+	})
+
+	t.Run("list target types keep dynamic document lookup", func(t *testing.T) {
+		plan := buildPlan(false)
+		for _, operation := range plan.Operations {
+			if operation.Kind == ir.PhysicalSetOp && operation.Set != nil {
+				traversal := operation.Set.Subplan.Operations[0].Traversal
+				plan.BindVars[traversal.TargetTypeBindKey] = []string{"Specimen"}
+				break
+			}
+		}
+		rendered, err := aql.RenderPhysicalPlan(plan)
+		if err != nil {
+			t.Fatalf("RenderPhysicalPlan() error = %v", err)
+		}
+		if !strings.Contains(rendered.Query, "LET child_set_1_node = DOCUMENT(child_set_1_edge._from)") {
+			t.Fatalf("list-valued set lookup did not retain DOCUMENT():\n%s", rendered.Query)
+		}
+		if strings.Contains(rendered.Query, "@@__loom_physical_target_collection") {
+			t.Fatalf("list-valued target type used a scalar collection bind:\n%s", rendered.Query)
+		}
+	})
 }
 
 func TestRenderPhysicalPlanTraversalSetsPreserveRootRowGrain(t *testing.T) {

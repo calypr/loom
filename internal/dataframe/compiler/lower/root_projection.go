@@ -225,12 +225,26 @@ func physicalPivotProjections(physical *ir.PhysicalPlan, resourceType string, so
 			return nil, err
 		}
 		sharedExpression.Pivot.Correlation = &correlation
+	} else if pivot.Categorical != nil {
+		systemKey := columnsBindKey + "_system"
+		physical.BindVars[systemKey] = pivot.CategoricalSystem
+		correlation, err := LowerCategoricalBinding(resourceType, *pivot.Categorical, source, systemKey)
+		if err != nil {
+			return nil, err
+		}
+		sharedExpression.Pivot.Correlation = &correlation
 	}
 	physical.DeferredExpressionLets = append(physical.DeferredExpressionLets, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp, Source: ir.PhysicalSource{ResourceType: resourceType, SemanticField: "pivot_family"}, ExpressionLet: &ir.PhysicalExpressionLet{Variable: familyVariable, Expression: sharedExpression}})
 	for _, column := range pivot.Columns {
 		columnBindKey := columnsBindKey + "_" + sanitizeColumnName(column)
 		physical.BindVars[columnBindKey] = column
-		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
+		cardinality := ir.PhysicalScalarCardinality
+		nullBehavior := ir.PhysicalPreserveNull
+		if mode := strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)); mode == "ALL" || mode == "DISTINCT" {
+			cardinality = ir.PhysicalArrayCardinality
+			nullBehavior = ir.PhysicalEmptyOnNull
+		}
+		expression := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: cardinality, NullBehavior: nullBehavior, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: columnBindKey}}
 		name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
 		if alias, ok := pivot.ColumnAliases[column]; ok {
 			name = prefix + alias

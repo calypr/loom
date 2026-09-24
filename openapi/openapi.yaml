@@ -263,6 +263,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/pivot-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerPivot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PivotProposalRequest'}
+      responses:
+        '200':
+          description: Preview-only receipt for exact coded columns on the current table rows. The saved draft is unchanged.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PivotProposalResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -2055,10 +2080,11 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId]
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, categoricalBySystem, ownerRecords, projectId]
         field: {$ref: '#/components/schemas/FieldSource'}
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}
+        categorical: {$ref: '#/components/schemas/CategoricalSource'}
         ownerRecords: {$ref: '#/components/schemas/OwnerRecordsSource'}
     ColumnValueTransformation:
       oneOf:
@@ -2249,6 +2275,7 @@ components:
           minItems: 1
           items: {type: string, minLength: 1}
         valuePath: {type: string, minLength: 1}
+        valuePresentation: {type: string, enum: [DISPLAY_OR_CODE]}
         valueFallback:
           type: array
           items: {type: string, minLength: 1}
@@ -2271,6 +2298,28 @@ components:
       properties:
         binding: {$ref: '#/components/schemas/CorrelatedBinding'}
         key: {$ref: '#/components/schemas/TerminologyKey'}
+    CategoricalSource:
+      type: object
+      additionalProperties: false
+      required: [binding, system]
+      properties:
+        binding: {$ref: '#/components/schemas/CategoricalBinding'}
+        system: {type: string, minLength: 1}
+        projectionMode: {type: string, enum: [VALUE, INDEXED, FIRST, ALL, DISTINCT]}
+    CategoricalBinding:
+      type: object
+      additionalProperties: false
+      required: [keyPath, systemPath, valuePath, logicalType]
+      properties:
+        ownerPath: {type: string}
+        keyPath: {type: string, minLength: 1}
+        systemPath: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        valueFallback:
+          type: array
+          items: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        valuePresentation: {type: string, enum: [DISPLAY_OR_CODE]}
     CorrelatedBinding:
       type: object
       additionalProperties: false
@@ -2281,6 +2330,7 @@ components:
         systemPath: {type: string, minLength: 1}
         codePath: {type: string, minLength: 1}
         valueScope: {type: string, enum: [OWNER, KEY_ITEM]}
+        valuePresentation: {type: string, enum: [DISPLAY_OR_CODE]}
         valuePath: {type: string, minLength: 1}
         valueFallback:
           type: array
@@ -2403,7 +2453,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, RESET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
@@ -2441,7 +2491,7 @@ components:
       required: [choiceId, form]
       properties:
         choiceId: {type: string, minLength: 1}
-        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        form: {type: string, enum: [VALUE, ALL]}
     SemanticSelectionIntent:
       type: object
       additionalProperties: false
@@ -3978,20 +4028,20 @@ components:
         resourceType: {type: string}
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
-        limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+        limit: {type: integer, minimum: 1, maximum: 500, default: 500}
     FeatureCatalogBrowseRequest:
       type: object
       additionalProperties: false
-      required: [snapshotToken, rowRoot, section]
+      required: [snapshotToken, outputId, section]
       properties:
         snapshotToken: {type: string, minLength: 1}
-        rowRoot: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1, description: "Saved table output whose rows and filters define catalog coverage."}
         section: {type: string, enum: [CONCEPTS, FIELDS, NEEDS_REVIEW]}
         resourceType: {type: string}
         nodeId: {type: string}
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
-        limit: {type: integer, minimum: 1, maximum: 50, default: 50}
+        limit: {type: integer, minimum: 1, maximum: 500, default: 500}
     ConstructionChoiceSearchRequest:
       type: object
       additionalProperties: false
@@ -4011,6 +4061,52 @@ components:
               SEMANTIC: '#/components/schemas/SemanticConstructionChoiceSearchSource'
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
+    PivotProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, familyId, commandId, selections]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, format: int64, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        familyId: {type: string, minLength: 1}
+        commandId: {type: string, minLength: 1}
+        selections:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/PivotProposalSelection'}
+    PivotProposalSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, form]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        title: {type: string}
+    PivotProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, familyId, draftDigest, columns]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        familyId: {type: string, minLength: 1}
+        draftDigest: {type: string, minLength: 1}
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/PivotProposalColumn'}
+    PivotProposalColumn:
+      type: object
+      additionalProperties: false
+      required: [code, column, label]
+      properties:
+        code: {type: string, minLength: 1}
+        column: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
     FieldConstructionChoiceSearchSource:
       type: object
       additionalProperties: false
@@ -4066,6 +4162,7 @@ components:
         outputId: {type: string, minLength: 1}
         complete: {type: boolean}
         truncated: {type: boolean}
+        rowsWithValue: {type: integer, format: int64, minimum: 0}
         nextCursor: {type: string}
         choices:
           type: array
@@ -4152,15 +4249,18 @@ components:
         nextCursor: {type: string}
         entries:
           type: array
-          maxItems: 50
+          maxItems: 500
           items: {$ref: '#/components/schemas/SemanticInventoryItem'}
     SemanticInventoryItem:
       type: object
       additionalProperties: false
-      required: [conceptId, bindingId, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, readiness]
+      required: [conceptId, bindingId, role, slotLabel, slotDescription, resourceType, sourcePath, system, code, codingVersion, display, valueSelector, valueType, owningScope, occurrences, readiness]
       properties:
         conceptId: {type: string}
         bindingId: {type: string}
+        role: {type: string, enum: [UNKNOWN, IDENTIFIER_SYSTEM_VALUE, EXTENSION_URL_VALUE, DISCRIMINATED_VALUE, CATEGORICAL_SLOT, STRUCTURED_SLOT]}
+        slotLabel: {type: string}
+        slotDescription: {type: string}
         resourceType: {type: string}
         sourcePath: {type: string}
         system: {type: string}
@@ -4171,6 +4271,7 @@ components:
         valueType: {type: string}
         owningScope: {type: string}
         occurrences: {type: integer, format: int64, minimum: 0}
+        sourceRecords: {type: integer, format: int64, minimum: 0}
         readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
     FeatureCatalogBrowseResponse:
@@ -4191,7 +4292,7 @@ components:
     FeatureCatalogItem:
       type: object
       additionalProperties: false
-      required: [kind, featureId, title, description, resourceType, valueType, cardinality, occurrences, readiness, source, sourceDetails]
+      required: [kind, featureId, title, description, resourceType, valueType, cardinality, occurrences, coverage, readiness, source, sourceDetails]
       properties:
         kind: {type: string, enum: [DIRECT_FIELD, SEMANTIC_FEATURE]}
         featureId: {type: string, minLength: 1}
@@ -4201,6 +4302,8 @@ components:
         valueType: {type: string, minLength: 1}
         cardinality: {type: string, minLength: 1}
         occurrences: {type: integer, format: int64, minimum: 0}
+        sourceRecords: {type: integer, format: int64, minimum: 0}
+        coverage: {$ref: '#/components/schemas/FeatureCatalogCoverage'}
         readiness: {$ref: '#/components/schemas/SemanticSelectionReadiness'}
         source:
           oneOf:
@@ -4215,6 +4318,25 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionChoiceFact'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoice'}
+        pivotFamily: {$ref: '#/components/schemas/FeatureCatalogPivotFamily'}
+    FeatureCatalogPivotFamily:
+      type: object
+      additionalProperties: false
+      required: [id, title, relationship, code, form, multiCodeRowsPossible]
+      properties:
+        id: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        relationship: {type: string, minLength: 1}
+        code: {type: string, minLength: 1}
+        form: {type: string, enum: [VALUE, ALL]}
+        multiCodeRowsPossible: {type: boolean}
+    FeatureCatalogCoverage:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state: {type: string, enum: [INDEXED, PENDING, VERIFIED]}
+        rowsWithValue: {type: integer, format: int64, minimum: 0}
     FeatureCatalogFieldSource:
       type: object
       additionalProperties: false

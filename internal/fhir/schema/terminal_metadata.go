@@ -26,6 +26,23 @@ type TerminalScalarMetadata struct {
 	Repeated  bool
 }
 
+// ResolveTerminalLogicalType includes complete structured values without
+// classifying an object as a scalar or selecting one of its members.
+func ResolveTerminalLogicalType(resourceType, canonicalPath string) (string, bool) {
+	metadata, ok := ResolveTerminalScalarMetadata(resourceType, canonicalPath)
+	if !ok {
+		return "", false
+	}
+	if metadata.Primitive != PrimitiveUnknown {
+		return string(metadata.Primitive), true
+	}
+	shape, ok := ResolveFieldSemantics(resourceType, canonicalPath)
+	if ok && (shape.Kind == FieldKindObject || shape.Kind == FieldKindArray && shape.ElementKind == FieldKindObject) {
+		return "object", true
+	}
+	return "", false
+}
+
 // ResolveTerminalScalarMetadata resolves compiler-facing primitive and
 // repetition facts from the active generated definition.
 func ResolveTerminalScalarMetadata(resourceType, canonicalPath string) (TerminalScalarMetadata, bool) {

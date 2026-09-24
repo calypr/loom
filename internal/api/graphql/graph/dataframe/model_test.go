@@ -38,6 +38,13 @@ func TestColumnModelUsesSharedCapabilitiesAndPersistedOverrides(t *testing.T) {
 	}
 }
 
+func TestColumnModelRejectsObjectCapabilitiesDespiteStringStorage(t *testing.T) {
+	column := ColumnModel(dfpublished.Column{Name: "value", ClickHouse: "String", LogicalType: "object", Repeated: true})
+	if column.LogicalType != "object" || !column.Repeated || column.Filterable || column.Sortable || column.Aggregatable {
+		t.Fatalf("object capabilities = %#v, want all query capabilities disabled", column)
+	}
+}
+
 func TestAggregateRowsResultReturnsEncodingError(t *testing.T) {
 	_, err := AggregateRowsResult([]map[string]any{{"bad": func() {}}})
 	if err == nil {

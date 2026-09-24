@@ -361,7 +361,10 @@ func directFieldSourceEligible(resourceType, path string) bool {
 		return false
 	}
 	classification, err := semanticfhir.ClassifyDirectField(index, fhirschema.DefinitionName(resourceType), path)
-	return err == nil && classification.Eligible
+	if err != nil {
+		return false
+	}
+	return classification.Eligible || classification.Disposition == semanticfhir.DispositionCategorical || classification.Disposition == semanticfhir.DispositionCompositeValue
 }
 
 func validateDirectFieldSources(workspace Workspace) error {

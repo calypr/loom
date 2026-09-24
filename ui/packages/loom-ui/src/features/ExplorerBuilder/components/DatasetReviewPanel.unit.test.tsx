@@ -104,6 +104,38 @@ const preview: ExplorerBuilderPreviewResult = {
 };
 
 describe('DatasetReviewPanel', () => {
+  it('reports categorical reductions and routes namespace diagnostics to the column', () => {
+    const onFocus = vi.fn<(target: DatasetReviewTarget) => void>();
+    const categoricalTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [{
+          ...column('diagnosis', 'Diagnosis', 'code.coding[].code'),
+          source: {
+            kind: 'categoricalBySystem',
+            categorical: {
+              system: 'urn:diagnosis',
+              binding: { keyPath: 'code.coding[]', systemPath: 'system', valuePath: 'code', logicalType: 'string' },
+              projectionMode: 'DISTINCT',
+            },
+          },
+        }],
+      },
+    };
+    render(<DatasetReviewPanel
+      tables={[categoricalTable]}
+      catalog={catalog}
+      diagnostics={[{ severity: 'error', code: 'SOURCE_UNAVAILABLE', fieldPath: 'urn:diagnosis', message: 'The selected namespace is unavailable.' }]}
+      reconciliation="resolved"
+      onFocus={onFocus}
+      onClose={vi.fn()}
+    />);
+    expect(screen.getByText('Keeps distinct values and drops repeats.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review column Diagnosis' }));
+    expect(onFocus).toHaveBeenCalledWith({ kind: 'column', outputId: 'patients', column: 'diagnosis', label: 'Diagnosis', occurrenceId: 'base' });
+  });
+
   it('summarizes saved rows, requested shapes, reductions, and limited preview evidence', () => {
     render(
       <DatasetReviewPanel

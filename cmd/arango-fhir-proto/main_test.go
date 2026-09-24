@@ -221,6 +221,32 @@ func TestParseBackfillSemanticInventoryRequiresScopedBoundedRequest(t *testing.T
 	}
 }
 
+func TestParseBackfillFieldSourceMembershipRequiresExplicitResourceBudget(t *testing.T) {
+	config, err := parseBackfillFieldSourceMembershipCommand([]string{
+		"--project", "project-a", "--generation", "generation-a", "--max-resources", "200",
+		"--page-size", "100", "--batch-size", "80",
+	}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Options.MaxResources != 200 || config.Options.PageSize != 100 || config.Options.BatchSize != 80 {
+		t.Fatalf("parsed membership backfill = %+v", config.Options)
+	}
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"--project", "project-a", "--generation", "generation-a"}, want: "--max-resources must be positive"},
+		{args: []string{"--project", "project-a", "--max-resources", "10"}, want: "--generation is required"},
+		{args: []string{"--project", "project-a", "--generation", "generation-a", "--max-resources", "10", "--page-size", "1001"}, want: "--page-size"},
+	} {
+		_, err := parseBackfillFieldSourceMembershipCommand(test.args, flag.ContinueOnError)
+		if err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("parse membership backfill %v error = %v, want %q", test.args, err, test.want)
+		}
+	}
+}
+
 func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 	fields, _, err := parseDiscoverPopulatedFieldOptions([]string{
 		"--project", "project-a",

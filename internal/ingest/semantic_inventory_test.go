@@ -45,15 +45,17 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inventoryDocs) != 2 || result.SemanticInventoryBatches != 2 {
+	if len(inventoryDocs) != 4 || result.SemanticInventoryBatches != 4 {
 		message := "no row error sample"
 		if len(result.RowErrors) > 0 {
 			message = result.RowErrors[0].Message
 		}
 		t.Fatalf("inventory docs=%d batches=%d rows=%d validation=%d sample=%s", len(inventoryDocs), result.SemanticInventoryBatches, result.Rows, result.ValidationErrors, message)
 	}
-	if len(inventoryOverwrite) != 2 || !inventoryOverwrite[0] || !inventoryOverwrite[1] {
-		t.Fatalf("inventory overwrite modes = %v, want source-key replacement", inventoryOverwrite)
+	for _, overwrite := range inventoryOverwrite {
+		if !overwrite {
+			t.Fatalf("inventory overwrite modes = %v, want source-key replacement", inventoryOverwrite)
+		}
 	}
 	observations := make(map[string]catalog.SemanticObservation, len(inventoryDocs))
 	for _, document := range inventoryDocs {
@@ -64,15 +66,20 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 		if contribution.SourceID != "Observation.ndjson#1" || contribution.AuthResourcePath != "" {
 			t.Fatalf("inventory source/scope = %q/%q, want stable relative source locator and unscoped path", contribution.SourceID, contribution.AuthResourcePath)
 		}
-		if contribution.ConceptID == "" || contribution.BindingID == "" || contribution.Observation.Key.Version != "v1" {
+		if contribution.ConceptID == "" || contribution.BindingID == "" {
 			t.Fatalf("inventory identity/observation = %+v", contribution)
 		}
-		observations[contribution.Observation.Key.Code] = contribution.Observation
+		observations[contribution.Observation.Source.Path+":"+contribution.Observation.Key.Code] = contribution.Observation
 	}
-	if panel := observations["panel"]; panel.RuleHint != catalog.SemanticRuleHintCategoricalCodeV1 || panel.Value.Selector != "code.coding[].code" {
-		t.Fatalf("standalone panel observation = %+v", panel)
+	for _, path := range []string{"code", "component[].code"} {
+		if slot := observations[path+":"]; slot.Role != catalog.SemanticRoleCategoricalSlot || slot.Key.System != "urn:inventory" || slot.Value.Selector != path+".coding[].code" {
+			t.Fatalf("categorical slot %s = %+v", path, slot)
+		}
 	}
-	if glucose := observations["glucose"]; glucose.RuleHint != catalog.SemanticRuleHintCodedValueV1 || glucose.Value.Selector != "valueQuantity.value" || glucose.ObservedUnits[0] != "mg" {
+	if status := observations["status:"]; status.Role != catalog.SemanticRoleCategoricalSlot || status.Value.Selector != "status" {
+		t.Fatalf("status slot = %+v", status)
+	}
+	if glucose := observations["component[]:glucose"]; glucose.RuleHint != catalog.SemanticRuleHintCodedValueV1 || glucose.Key.Version != "v1" || glucose.Value.Selector != "valueQuantity.value" || glucose.ObservedUnits[0] != "mg" {
 		t.Fatalf("paired glucose observation = %+v", glucose)
 	}
 }

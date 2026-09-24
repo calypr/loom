@@ -47,22 +47,23 @@ func sortedGenerationCatalogKeys(catalogs map[generationCatalogKey]*catalog.Prof
 }
 
 type fileLoadResult struct {
-	ResourceType             string
-	Rows                     int
-	VerticesBuilt            int
-	EdgesBuilt               int
-	VerticesInserted         int
-	EdgesInserted            int
-	ValidationErrors         int
-	GenerationErrors         int
-	EdgeErrors               int
-	VertexBatches            int
-	EdgeBatches              int
-	SemanticInventoryBatches int
-	StageSeconds             map[string]float64
-	Catalog                  *catalog.Profiler
-	RelationshipCounts       map[catalog.RelationshipKey]int64
-	RowErrors                []RowErrorSample
+	ResourceType                 string
+	Rows                         int
+	VerticesBuilt                int
+	EdgesBuilt                   int
+	VerticesInserted             int
+	EdgesInserted                int
+	ValidationErrors             int
+	GenerationErrors             int
+	EdgeErrors                   int
+	VertexBatches                int
+	EdgeBatches                  int
+	SemanticInventoryBatches     int
+	FieldSourceMembershipBatches int
+	StageSeconds                 map[string]float64
+	Catalog                      *catalog.Profiler
+	RelationshipCounts           map[catalog.RelationshipKey]int64
+	RowErrors                    []RowErrorSample
 }
 
 const rowErrorSampleLimit = 10
@@ -221,6 +222,7 @@ func loadFile(
 			vertexBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			edgeBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			semanticInventoryBatch := make([]json.RawMessage, 0, opts.BatchSize)
+			fieldSourceMembershipBatch := make([]json.RawMessage, 0, opts.BatchSize)
 			semanticInventoryFailed := false
 
 			flushVertexBatch := func() bool {
@@ -276,6 +278,22 @@ func loadFile(
 					return false
 				}
 			}
+			flushFieldSourceMembershipBatch := func() bool {
+				if len(fieldSourceMembershipBatch) == 0 {
+					return true
+				}
+				waitStart := time.Now()
+				select {
+				case writeChan <- fileWriteTask{collection: catalog.FieldSourceMembershipCollection, docs: fieldSourceMembershipBatch, replace: true}:
+					localTimings["field_source_membership_queue_wait"] += time.Since(waitStart).Seconds()
+					localTimings["field_source_membership_batches"]++
+					fieldSourceMembershipBatch = make([]json.RawMessage, 0, opts.BatchSize)
+					return true
+				case <-fileCtx.Done():
+					localTimings["field_source_membership_queue_wait"] += time.Since(waitStart).Seconds()
+					return false
+				}
+			}
 
 			for {
 				select {
@@ -283,7 +301,7 @@ func loadFile(
 					return
 				case line, open := <-linesChan:
 					if !open {
-						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() {
+						if !flushVertexBatch() || !flushEdgeBatch() || !flushSemanticInventoryBatch() || !flushFieldSourceMembershipBatch() {
 							return
 						}
 						select {
@@ -314,11 +332,11 @@ func loadFile(
 						continue
 					}
 
-					if semanticSourceFile == "" {
-						localCatalog.ObservePayload(built.payload, localTimings)
-					} else {
-						sourceID := semanticInventorySourceRecordID(semanticSourceFile, line.number)
-						localCatalog.ObservePayloadWithInventory(built.payload, localTimings, sourceID, func(contribution catalog.SemanticInventoryContribution) {
+					semanticSourceID := ""
+					var semanticSink catalog.SemanticInventoryObservationSink
+					if semanticSourceFile != "" {
+						semanticSourceID = semanticInventorySourceRecordID(semanticSourceFile, line.number)
+						semanticSink = func(contribution catalog.SemanticInventoryContribution) {
 							if semanticInventoryFailed || fileCtx.Err() != nil {
 								return
 							}
@@ -332,8 +350,30 @@ func loadFile(
 							if len(semanticInventoryBatch) >= opts.BatchSize && !flushSemanticInventoryBatch() {
 								semanticInventoryFailed = true
 							}
-						})
-						if fileCtx.Err() != nil {
+						}
+					}
+					var catalogErr error
+					var membership catalog.FieldSourceMembership
+					if catalog.NormalizeDatasetGeneration(datasetGeneration) != "" {
+						membership, catalogErr = localCatalog.ObservePayloadWithFieldSourceMembership(built.payload, localTimings, semanticSourceID, semanticSink, built.vertexID)
+					} else {
+						catalogErr = localCatalog.ObservePayload(built.payload, localTimings)
+					}
+					if fileCtx.Err() != nil {
+						return
+					}
+					if catalogErr != nil {
+						setPipelineErr(fmt.Errorf("profile %s row %d: %w", filepath.Base(file), line.number, catalogErr))
+						return
+					}
+					if catalog.NormalizeDatasetGeneration(datasetGeneration) != "" {
+						membershipBytes, membershipErr := json.Marshal(membership)
+						if membershipErr != nil {
+							setPipelineErr(fmt.Errorf("encode field-source membership for %s row %d: %w", filepath.Base(file), line.number, membershipErr))
+							return
+						}
+						fieldSourceMembershipBatch = append(fieldSourceMembershipBatch, membershipBytes)
+						if len(fieldSourceMembershipBatch) >= opts.BatchSize && !flushFieldSourceMembershipBatch() {
 							return
 						}
 					}
@@ -413,6 +453,8 @@ func loadFile(
 						catalog.MergeRelationshipCounts(localRelationships, task.relationshipCounts)
 					case catalog.SemanticInventoryCollection:
 						localTimings["semantic_inventory_insert"] += elapsed
+					case catalog.FieldSourceMembershipCollection:
+						localTimings["field_source_membership_insert"] += elapsed
 					default:
 						localTimings["vertex_insert"] += elapsed
 						atomic.AddInt64(&verticesInserted, int64(len(task.docs)))
@@ -459,6 +501,8 @@ func loadFile(
 				result.EdgeBatches += int(value)
 			case "semantic_inventory_batches":
 				result.SemanticInventoryBatches += int(value)
+			case "field_source_membership_batches":
+				result.FieldSourceMembershipBatches += int(value)
 			default:
 				result.StageSeconds[key] += value
 			}

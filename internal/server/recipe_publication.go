@@ -95,7 +95,7 @@ func publishResolvedRecipe(ctx context.Context, recipeEngine *dataframeexecution
 		OutputName: incrementalPublicationOutput(bindings, streams),
 		Project:    bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
 		RecipeDigest: full.StoredRecipeDigest, SchemaDigest: full.ResolvedSchemaDigest,
-		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v2",
+		ScopeDigest: full.Semantic.ScopeDigest, EngineVersion: "loom-recipe-v3-object-fidelity",
 		AuthScopeMode:     string(bindings.AuthScopeMode),
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
 	}

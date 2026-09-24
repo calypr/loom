@@ -34,6 +34,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err := contextErr(ctx); err != nil {
 		return Result{}, err
 	}
+	document.Route = executableRoute(document)
 	occurrences, order, err := resolveSemanticRoute(document, snapshot)
 	if err != nil {
 		return Result{}, err
@@ -87,6 +88,9 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		}
 		if column.Source.Lookup != nil && column.Source.Lookup.Extension != nil {
 			logicalType = firstNonEmpty(column.Source.Lookup.Extension.LogicalType, logicalType)
+		}
+		if column.Source.Categorical != nil {
+			logicalType = firstNonEmpty(column.Source.Categorical.Binding.LogicalType, logicalType)
 		}
 		filterable, chartable := column.Filter != nil, column.Chart != nil
 		sourceJSON, _ := json.Marshal(column.Source.Normalized())
@@ -200,6 +204,12 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
 			}
 			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
+		case authoringv2.SourceCategoricalBySystem:
+			pivot, pivotErr := semanticCategoricalPivot(column, leaf)
+			if pivotErr != nil {
+				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), pivotErr.Error(), nil, pivotErr)
+			}
+			nodes[column.OccurrenceID].pivots = appendSemanticPivot(nodes[column.OccurrenceID].pivots, pivot)
 		case authoringv2.SourceOwnerRecords:
 			if column.Source.OwnerRecords == nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), "owner-record source is missing its typed payload", nil, nil)
@@ -218,7 +228,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				if dynamicErr != nil {
 					return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
 				}
-				nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
+				nodes[column.OccurrenceID].dynamics = appendSemanticDynamicColumn(nodes[column.OccurrenceID].dynamics, dynamic)
 				break
 			}
 			pivot, pivotErr := semanticExtensionPivot(column, leaf)
@@ -351,7 +361,7 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			if dynamicErr != nil {
 				return Result{}, fail("lower", "INVALID_TYPED_SOURCE", fmt.Sprintf("$.columns[%d].source", index), dynamicErr.Error(), nil, dynamicErr)
 			}
-			nodes[column.OccurrenceID].dynamics = append(nodes[column.OccurrenceID].dynamics, dynamic)
+			nodes[column.OccurrenceID].dynamics = appendSemanticDynamicColumn(nodes[column.OccurrenceID].dynamics, dynamic)
 		}
 
 		visible := true
@@ -957,8 +967,9 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 	if strings.TrimSpace(column.Column) == "" {
 		return recipe.Pivot{}, fmt.Errorf("correlated coding output column is required")
 	}
+	family := semanticCodedValueFamilyIdentity(*lookup.Binding, lookup.Key.System, lookup.ProjectionMode)
 	pivot := recipe.Pivot{
-		Name:    "correlated_" + shortHash(column.Column+"\x00"+lookup.Key.System+"\x00"+lookup.Key.Code),
+		Name:    "correlated_" + shortHash(family),
 		Columns: []string{lookup.Key.Code}, ColumnAliases: map[string]string{lookup.Key.Code: leaf},
 		ProjectionMode: recipe.NormalizedPivotProjectionMode(lookup.ProjectionMode), Correlation: lookup.Binding,
 		CorrelationSystem: lookup.Key.System, CorrelationCode: lookup.Key.Code,
@@ -966,14 +977,224 @@ func semanticCodedValuePivot(column authoringv2.Column, leaf string) (recipe.Piv
 	return pivot, nil
 }
 
+func semanticCategoricalPivot(column authoringv2.Column, leaf string) (recipe.Pivot, error) {
+	source := column.Source.Categorical
+	if source == nil {
+		return recipe.Pivot{}, fmt.Errorf("categorical source requires binding")
+	}
+	if strings.TrimSpace(source.System) == "" {
+		return recipe.Pivot{}, fmt.Errorf("categorical source requires selected system")
+	}
+	if strings.TrimSpace(column.Column) == "" {
+		return recipe.Pivot{}, fmt.Errorf("categorical output column is required")
+	}
+	return recipe.Pivot{
+		Name:    "categorical_" + shortHash(column.Column+"\x00"+source.System),
+		Columns: []string{source.System}, ColumnAliases: map[string]string{source.System: leaf},
+		ProjectionMode: recipe.NormalizedPivotProjectionMode(source.ProjectionMode),
+		Categorical:    &source.Binding, CategoricalSystem: source.System,
+	}, nil
+}
+
+type semanticDynamicFamilyIdentity struct {
+	source string
+	key    string
+	value  string
+	prefix string
+}
+
+func dynamicFamilyIdentity(dynamic recipe.DynamicColumn) semanticDynamicFamilyIdentity {
+	prefix := "<nil>"
+	if dynamic.ColumnPrefix != nil {
+		prefix = *dynamic.ColumnPrefix
+	}
+	return semanticDynamicFamilyIdentity{
+		source: recipeExpressionFamilyIdentity(&dynamic.Source),
+		key:    recipeExpressionFamilyIdentity(dynamic.Key),
+		value:  recipeExpressionFamilyIdentity(dynamic.Value),
+		prefix: prefix,
+	}
+}
+
+func recipeExpressionFamilyIdentity(expression *recipe.Expression) string {
+	if expression == nil {
+		return "<nil>"
+	}
+	if expression.Select != "" {
+		return "select:" + expression.Select
+	}
+	if expression.Call != "" {
+		args := make([]string, 0, len(expression.Args))
+		for index := range expression.Args {
+			args = append(args, recipeExpressionFamilyIdentity(&expression.Args[index]))
+		}
+		return "call:" + expression.Call + "(" + strings.Join(args, "\x1f") + ")"
+	}
+	if expression.Literal != nil {
+		return "literal:" + string(expression.Literal)
+	}
+	if expression.Document != nil {
+		return "document:" + expression.Document.Context
+	}
+	return "zero"
+}
+
+func appendSemanticDynamicColumn(dynamics []recipe.DynamicColumn, dynamic recipe.DynamicColumn) []recipe.DynamicColumn {
+	identity := dynamicFamilyIdentity(dynamic)
+	for index := range dynamics {
+		if dynamicFamilyIdentity(dynamics[index]) != identity {
+			continue
+		}
+		if mergeSemanticDynamicColumn(&dynamics[index], dynamic) {
+			return dynamics
+		}
+	}
+	return append(dynamics, dynamic)
+}
+
+func mergeSemanticDynamicColumn(existing *recipe.DynamicColumn, incoming recipe.DynamicColumn) bool {
+	existingColumns := make(map[string]struct{}, len(existing.Columns))
+	for _, column := range existing.Columns {
+		existingColumns[column] = struct{}{}
+	}
+	for _, column := range incoming.Columns {
+		if _, found := existingColumns[column]; !found {
+			continue
+		}
+		if existing.ColumnTypes[column] != incoming.ColumnTypes[column] || existing.ColumnSourceKeys[column] != incoming.ColumnSourceKeys[column] {
+			return false
+		}
+	}
+	if existing.ColumnTypes == nil {
+		existing.ColumnTypes = map[string]string{}
+	}
+	if existing.ColumnSourceKeys == nil {
+		existing.ColumnSourceKeys = map[string]string{}
+	}
+	for _, column := range incoming.Columns {
+		if _, found := existingColumns[column]; found {
+			continue
+		}
+		existing.Columns = append(existing.Columns, column)
+		existingColumns[column] = struct{}{}
+		existing.ColumnTypes[column] = incoming.ColumnTypes[column]
+		existing.ColumnSourceKeys[column] = incoming.ColumnSourceKeys[column]
+	}
+	if existing.MaxColumns < len(existing.Columns) {
+		existing.MaxColumns = len(existing.Columns)
+	}
+	return true
+}
+
+func semanticCodedValueFamilyIdentity(binding fhirschema.CorrelatedBinding, system, mode string) string {
+	return strings.Join([]string{
+		"correlated",
+		correlatedBindingFamilyIdentity(binding),
+		strings.TrimSpace(system),
+		recipe.NormalizedPivotProjectionMode(mode),
+	}, "\x00")
+}
+
+func correlatedBindingFamilyIdentity(binding fhirschema.CorrelatedBinding) string {
+	choiceArms := make([]string, len(binding.ChoiceArms))
+	for index, arm := range binding.ChoiceArms {
+		choiceArms[index] = strings.TrimSpace(arm)
+	}
+	fallbacks := make([]string, len(binding.ValueFallback))
+	for index, fallback := range binding.ValueFallback {
+		fallbacks[index] = fhirschema.CanonicalizePath(fallback)
+	}
+	valueScope := strings.ToUpper(strings.TrimSpace(string(binding.ValueScope)))
+	if valueScope == "" {
+		valueScope = string(fhirschema.CorrelatedValueOwner)
+	}
+	logicalType := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(binding.LogicalType), "-", "_"))
+	return strings.Join([]string{
+		fhirschema.CanonicalizePath(binding.OwnerPath),
+		fhirschema.CanonicalizePath(binding.KeyPath),
+		fhirschema.CanonicalizePath(binding.SystemPath),
+		fhirschema.CanonicalizePath(binding.CodePath),
+		valueScope,
+		fhirschema.CanonicalizePath(binding.ValuePath),
+		strings.Join(fallbacks, "\x1f"),
+		strings.TrimSpace(binding.ValuePresentation),
+		strings.Join(choiceArms, "\x1f"),
+		logicalType,
+		fhirschema.CanonicalizePath(binding.UnitPath),
+	}, "\x1e")
+}
+
 func appendSemanticPivot(pivots []recipe.Pivot, pivot recipe.Pivot) []recipe.Pivot {
+	family, mergeable := semanticPivotFamilyIdentity(pivot)
 	for i := range pivots {
-		if pivots[i].Name == pivot.Name {
-			pivots[i].Columns = append(pivots[i].Columns, pivot.Columns...)
+		existingFamily, existingMergeable := semanticPivotFamilyIdentity(pivots[i])
+		if (mergeable && existingMergeable && family == existingFamily) || (!mergeable && pivots[i].Name == pivot.Name) {
+			if !mergeSemanticPivot(&pivots[i], pivot) {
+				continue
+			}
 			return pivots
 		}
 	}
+	if mergeable {
+		pivot.Name = uniqueSemanticPivotName(pivots, pivot.Name)
+	}
 	return append(pivots, pivot)
+}
+
+func semanticPivotFamilyIdentity(pivot recipe.Pivot) (string, bool) {
+	if pivot.Correlation != nil {
+		return semanticCodedValueFamilyIdentity(*pivot.Correlation, pivot.CorrelationSystem, pivot.ProjectionMode), true
+	}
+	return "", false
+}
+
+func mergeSemanticPivot(existing *recipe.Pivot, incoming recipe.Pivot) bool {
+	if existing.ColumnAliases == nil {
+		existing.ColumnAliases = map[string]string{}
+	}
+	existingColumns := make(map[string]struct{}, len(existing.Columns))
+	for _, column := range existing.Columns {
+		existingColumns[column] = struct{}{}
+	}
+	for _, column := range incoming.Columns {
+		incomingAlias := incoming.ColumnAliases[column]
+		if existingAlias, found := existing.ColumnAliases[column]; found && existingAlias != incomingAlias {
+			return false
+		}
+		if incomingAlias != "" {
+			for existingColumn, existingAlias := range existing.ColumnAliases {
+				if existingColumn != column && existingAlias == incomingAlias {
+					return false
+				}
+			}
+		}
+	}
+	for _, column := range incoming.Columns {
+		if _, found := existingColumns[column]; !found {
+			existing.Columns = append(existing.Columns, column)
+			existingColumns[column] = struct{}{}
+		}
+		if alias := incoming.ColumnAliases[column]; alias != "" {
+			existing.ColumnAliases[column] = alias
+		}
+	}
+	return true
+}
+
+func uniqueSemanticPivotName(pivots []recipe.Pivot, name string) string {
+	used := make(map[string]struct{}, len(pivots))
+	for _, pivot := range pivots {
+		used[pivot.Name] = struct{}{}
+	}
+	if _, found := used[name]; !found {
+		return name
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s_%d", name, suffix)
+		if _, found := used[candidate]; !found {
+			return candidate
+		}
+	}
 }
 
 func coalesceString(paths ...string) recipe.Expression {

@@ -14,6 +14,23 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+func TestCategoricalInterpretationMatchesExactNamespace(t *testing.T) {
+	source := authoringv2.ColumnSource{Kind: authoringv2.SourceCategoricalBySystem, Categorical: &authoringv2.CategoricalSource{
+		System: "urn:diagnosis:A", Binding: fhirschema.CategoricalBinding{KeyPath: "code.coding[]", ValuePath: "code"},
+	}}
+	candidates := []capability.ConceptCandidate{
+		{SourcePath: "code.coding[].code", System: "urn:diagnosis:B"},
+		{SourcePath: "code.coding[].code", System: "urn:diagnosis:A"},
+	}
+	matched := matchingConceptCandidates(candidates, source)
+	if len(matched) != 1 || matched[0].System != "urn:diagnosis:A" {
+		t.Fatalf("categorical interpretation crossed namespace: %#v", matched)
+	}
+	if mismatched := matchingConceptCandidates(candidates[:1], source); len(mismatched) != 0 {
+		t.Fatalf("accepted lone mismatched namespace: %#v", mismatched)
+	}
+}
+
 func TestResolveInterpretationsSelectsUniquePriorityRule(t *testing.T) {
 	snapshot := interpretationSnapshot()
 	low := explorer.InterpretationPriority(1)
@@ -94,6 +111,39 @@ func TestResolveInterpretationCandidateReturnsOrdinaryFieldIdentity(t *testing.T
 	want := explorer.InterpretationStructuralCandidate{ResourceType: "Patient", LogicalType: "string", Cardinality: "optional_one", SchemaDigest: "schema"}
 	if !reflect.DeepEqual(match.StructuralCandidate, want) {
 		t.Fatalf("structural candidate = %#v, want %#v", match.StructuralCandidate, want)
+	}
+}
+
+func TestResolveInterpretationCandidateForColumnIgnoresUnrelatedStaleRouteBranches(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient", Children: []authoringv2.RouteNode{
+			{OccurrenceID: "encounter", ResourceType: "Encounter", CatalogEdgeID: "e_encounter", Relationship: "encounters"},
+			{OccurrenceID: "stale", ResourceType: "Encounter", CatalogEdgeID: "e_removed", Relationship: "encounters"},
+		}},
+		Columns: []authoringv2.Column{{Column: "encounter_code", Label: "Encounter code", OccurrenceID: "encounter",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "code.coding[].code", ProjectionMode: "FIRST"}}}},
+	}
+
+	if _, err := ResolveInterpretationCandidate(document, document.Columns[0], snapshot); err == nil {
+		t.Fatal("full route resolution accepted an unrelated stale branch")
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatalf("compile rejected an unused stale branch: %v", err)
+	}
+	traversals := compiled.Bundle.Outputs[0].Traversals
+	if len(traversals) != 1 || traversals[0].OccurrenceID != "encounter" {
+		t.Fatalf("compiled traversals = %#v, want only the used encounter route", traversals)
+	}
+	resolution, err := ResolveInterpretationCandidateForColumn(document, document.Columns[0], snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.State() != InterpretationCandidateReady {
+		t.Fatalf("path-scoped resolution = %s (%q), want READY", resolution.State(), resolution.Reason())
 	}
 }
 

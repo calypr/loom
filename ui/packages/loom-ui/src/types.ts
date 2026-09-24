@@ -26,6 +26,7 @@ export const correlatedBindingSchema = z.object({
   systemPath: opaqueIdSchema,
   codePath: opaqueIdSchema,
   valueScope: z.enum(['OWNER', 'KEY_ITEM']).optional(),
+  valuePresentation: z.literal('DISPLAY_OR_CODE').optional(),
   valuePath: opaqueIdSchema,
   valueFallback: z.array(opaqueIdSchema).optional(),
   choiceArms: z.array(opaqueIdSchema).optional(),
@@ -61,6 +62,7 @@ const extensionBindingSchema = z.object({
   ownerPath: opaqueIdSchema,
   urlPath: z.array(opaqueIdSchema).min(1),
   valuePath: opaqueIdSchema,
+  valuePresentation: z.literal('DISPLAY_OR_CODE').optional(),
   logicalType: opaqueIdSchema,
   valueFallback: z.array(opaqueIdSchema).optional(),
   choiceArms: z.array(opaqueIdSchema).optional(),
@@ -73,6 +75,16 @@ const identifierBindingSchema = z.object({
   valuePath: opaqueIdSchema,
   systemURI: opaqueIdSchema,
   logicalType: opaqueIdSchema,
+}).strict();
+
+export const categoricalBindingSchema = z.object({
+  ownerPath: z.string().optional(),
+  keyPath: opaqueIdSchema,
+  systemPath: opaqueIdSchema,
+  valuePath: opaqueIdSchema,
+  valueFallback: z.array(opaqueIdSchema).optional(),
+  logicalType: opaqueIdSchema,
+  valuePresentation: z.literal('DISPLAY_OR_CODE').optional(),
 }).strict();
 
 export const explorerAuthoringDiagnosticSchema = z
@@ -166,6 +178,14 @@ const ownerRecordsColumnSourceSchema = z.object({
     key: z.object({ system: opaqueIdSchema, code: opaqueIdSchema }).strict(),
   }).strict(),
 }).strict();
+const categoricalColumnSourceSchema = z.object({
+  kind: z.literal('categoricalBySystem'),
+  categorical: z.object({
+    binding: categoricalBindingSchema,
+    system: opaqueIdSchema,
+    projectionMode: projectionModeSchema.optional(),
+  }).strict(),
+}).strict();
 export const contributorWindowSchema = z.object({
   timestampPath: opaqueIdSchema,
   anchorPath: opaqueIdSchema,
@@ -250,6 +270,7 @@ export const contributorPredicateSchema = z
 export const explorerColumnSourceSchema = z.union([
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
+  categoricalColumnSourceSchema,
   ownerRecordsColumnSourceSchema,
   aggregateColumnSourceSchema,
   z.object({ kind: z.literal('projectId') }).strict(),
@@ -1205,6 +1226,19 @@ export const constructionChoiceFormSchema = z.enum([
 ]);
 export type ConstructionChoiceForm = z.infer<typeof constructionChoiceFormSchema>;
 
+export const pivotProposalResponseSchema = z.object({
+  receiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  familyId: opaqueIdSchema,
+  draftDigest: opaqueIdSchema,
+  columns: z.array(z.object({
+    code: z.string().min(1),
+    column: z.string().min(1),
+    label: z.string().min(1),
+  }).strict()).min(1).max(100),
+}).strict();
+export type PivotProposalResponse = z.infer<typeof pivotProposalResponseSchema>;
+
 export const constructionChoiceOptionSchema = z
   .object({
     form: constructionChoiceFormSchema,
@@ -1349,6 +1383,7 @@ export const constructionChoiceSearchResponseSchema = z
     outputId: opaqueIdSchema,
     complete: z.boolean(),
     truncated: z.boolean(),
+    rowsWithValue: z.number().int().nonnegative().optional(),
     nextCursor: opaqueIdSchema.optional(),
     choices: z.array(constructionChoiceSchema).max(50),
   })
@@ -1685,6 +1720,7 @@ export const explorerBuilderCommandSchema = z
       'RENAME_TABLE',
       'REORDER_TABLES',
       'SET_TABLE_ROOT',
+      'RESET_TABLE_ROOT',
       'APPLY_TABLE_ROOT_REBASE',
       'SET_TABLE_POPULATION',
       'CLEAR_TABLE_POPULATION',
@@ -1937,10 +1973,23 @@ export const semanticSelectionReadinessSchema = z
   .strict();
 export type SemanticSelectionReadiness = z.infer<typeof semanticSelectionReadinessSchema>;
 
+export const semanticObservationRoleSchema = z.enum([
+  'UNKNOWN',
+  'IDENTIFIER_SYSTEM_VALUE',
+  'EXTENSION_URL_VALUE',
+  'DISCRIMINATED_VALUE',
+  'CATEGORICAL_SLOT',
+  'STRUCTURED_SLOT',
+]);
+export type SemanticObservationRole = z.infer<typeof semanticObservationRoleSchema>;
+
 export const semanticInventoryItemSchema = z
   .object({
     conceptId: z.string(),
     bindingId: z.string(),
+    role: semanticObservationRoleSchema,
+    slotLabel: z.string(),
+    slotDescription: z.string(),
     resourceType: z.string().min(1),
     sourcePath: z.string(),
     system: z.string(),
@@ -1951,6 +2000,7 @@ export const semanticInventoryItemSchema = z
     valueType: z.string(),
     owningScope: z.string(),
     occurrences: z.number().int().nonnegative(),
+    sourceRecords: z.number().int().nonnegative().optional(),
     readiness: semanticSelectionReadinessSchema,
     constructionChoice: constructionChoiceSchema.optional(),
   })
@@ -1970,7 +2020,7 @@ export const semanticInventoryBrowseResponseSchema = z
       'invalidated',
     ]),
     sourceAvailability: z.enum(['unknown', 'verified', 'unproven']),
-    entries: z.array(semanticInventoryItemSchema).max(50),
+    entries: z.array(semanticInventoryItemSchema).max(500),
     nextCursor: z.string().min(1).optional(),
   })
   .strict();
@@ -1986,6 +2036,12 @@ const featureCatalogItemBase = {
   valueType: z.string().min(1),
   cardinality: z.string().min(1),
   occurrences: z.number().int().nonnegative(),
+  sourceRecords: z.number().int().nonnegative().optional(),
+  coverage: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('INDEXED'), rowsWithValue: z.number().int().nonnegative() }).strict(),
+    z.object({ state: z.literal('VERIFIED') }).strict(),
+    z.object({ state: z.literal('PENDING') }).strict(),
+  ]),
   readiness: semanticSelectionReadinessSchema,
   sourceDetails: z.array(sourcePresentationFactSchema),
 } as const;
@@ -2034,6 +2090,14 @@ const featureCatalogSemanticItemSchema = z
     kind: z.literal('SEMANTIC_FEATURE'),
     source: featureCatalogSemanticSourceSchema,
     constructionChoice: featureCatalogSemanticChoiceSchema.optional(),
+    pivotFamily: z.object({
+      id: opaqueIdSchema,
+      title: z.string().min(1),
+      relationship: z.string().min(1),
+      code: z.string().min(1),
+      form: z.enum(['VALUE', 'ALL']),
+      multiCodeRowsPossible: z.boolean(),
+    }).strict().optional(),
   })
   .strict()
   .superRefine((item, context) => {
@@ -2065,7 +2129,7 @@ export const featureCatalogSectionSchema = z.enum([
 export type FeatureCatalogSection = z.infer<typeof featureCatalogSectionSchema>;
 
 const featureCatalogBrowseResponseBase = {
-  contextToken: opaqueIdSchema,
+  contextToken: z.string(),
   buildId: z.string(),
   state: z.enum([
     'unknown',
@@ -2085,20 +2149,43 @@ export const featureCatalogBrowseResponseSchema = z.discriminatedUnion(
     z.object({
       ...featureCatalogBrowseResponseBase,
       section: z.literal('FIELDS'),
-      entries: z.array(featureCatalogFieldItemSchema).max(50),
+      entries: z.array(featureCatalogFieldItemSchema).max(500),
     }).strict(),
     z.object({
       ...featureCatalogBrowseResponseBase,
       section: z.literal('CONCEPTS'),
-      entries: z.array(featureCatalogSemanticItemSchema).max(50),
+      entries: z.array(featureCatalogSemanticItemSchema).max(500),
     }).strict(),
     z.object({
       ...featureCatalogBrowseResponseBase,
       section: z.literal('NEEDS_REVIEW'),
-      entries: z.array(featureCatalogSemanticItemSchema).max(50),
+      entries: z.array(featureCatalogSemanticItemSchema).max(500),
     }).strict(),
   ],
-);
+).superRefine((response, context) => {
+  if (response.state !== 'running' && response.contextToken.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['contextToken'],
+      message: 'A completed or failed feature catalog response requires a context token.',
+    });
+  }
+  if (response.state !== 'running') return;
+  if (response.entries.length > 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['entries'],
+      message: 'A running feature catalog cannot return entries.',
+    });
+  }
+  if (response.nextCursor !== undefined) {
+    context.addIssue({
+      code: 'custom',
+      path: ['nextCursor'],
+      message: 'A running feature catalog cannot return a continuation cursor.',
+    });
+  }
+});
 export type FeatureCatalogBrowseResponse = z.infer<
   typeof featureCatalogBrowseResponseSchema
 >;

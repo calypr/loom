@@ -54,12 +54,10 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	}
 	if err := client.Bootstrap(ctx, arangostore.BootstrapSpec{Collections: []arangostore.CollectionSpec{
 		{Name: catalog.SemanticInventoryCollection, Indexes: [][]string{
-			{"project", "dataset_generation", "build_id"},
 			{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 			{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
 			{"project", "dataset_generation", "build_id", "source_kind", "auth_resource_path", "resource_type", "concept_id", "concept_slot_id", "observation.rule_hint"},
-			{"project", "dataset_generation", "build_id", "source_id"},
 		}},
 		{Name: catalog.SemanticInventoryEntryCollection, Indexes: [][]string{
 			{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
@@ -133,6 +131,7 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	expectedA := append(inventoryCodes("shared", 100), inventoryCodes("a", 900)...)
 	assertInventoryEntries(t, aEntries, expectedA, "a")
 	assertCodePopulation(t, aEntries, "shared-000", 1)
+	assertSourceRecords(t, aEntries, "shared-000", 1)
 
 	options.AuthResourcePaths = []string{"scope-b"}
 	bEntries := collectSemanticInventoryPages(t, ctx, store, options)
@@ -145,6 +144,7 @@ func TestSemanticInventoryPersistsAndPagesAcrossAuthorizedPaths(t *testing.T) {
 	expectedCombined := append(append([]string(nil), expectedA...), inventoryCodes("b", 100)...)
 	assertInventoryEntries(t, combined, expectedCombined, "combined")
 	assertCodePopulation(t, combined, "shared-000", 2)
+	assertSourceRecords(t, combined, "shared-000", 0)
 	assertBoundedAggregateEvidence(t, combined, "shared-000")
 
 	options.Query = "label scope-a shared"
@@ -480,9 +480,6 @@ func collectSemanticInventoryPages(t *testing.T, ctx context.Context, store *Sto
 
 func assertInventoryEntries(t *testing.T, entries []catalog.SemanticInventoryEntry, expectedCodes []string, label string) {
 	t.Helper()
-	if len(entries) != len(expectedCodes) {
-		t.Fatalf("%s inventory rows = %d, want %d", label, len(entries), len(expectedCodes))
-	}
 	expected := make(map[string]struct{}, len(expectedCodes))
 	for _, code := range expectedCodes {
 		expected[code] = struct{}{}
@@ -494,6 +491,12 @@ func assertInventoryEntries(t *testing.T, entries []catalog.SemanticInventoryEnt
 			t.Fatalf("%s inventory repeated scoped concept %q", label, entry.Observation.Key.Code)
 		}
 		seen[key] = struct{}{}
+		if entry.Observation.Role == catalog.SemanticRoleCategoricalSlot {
+			if entry.Observation.Value.Selector != "component[].code.coding[].code" {
+				t.Fatalf("%s unexpected metadata slot: %#v", label, entry)
+			}
+			continue
+		}
 		code := entry.Observation.Key.Code
 		if _, ok := expected[code]; !ok {
 			t.Fatalf("%s inventory contains unexpected code %q", label, code)
@@ -505,6 +508,19 @@ func assertInventoryEntries(t *testing.T, entries []catalog.SemanticInventoryEnt
 			t.Fatalf("%s inventory is missing expected code %q", label, missing)
 		}
 	}
+}
+
+func assertSourceRecords(t *testing.T, entries []catalog.SemanticInventoryEntry, code string, want int64) {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Observation.Role == catalog.SemanticRoleCodedValue && entry.Observation.Key.Code == code {
+			if entry.SourceRecords != want {
+				t.Fatalf("%s source records = %d, want %d", code, entry.SourceRecords, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("no coded value %s", code)
 }
 
 func assertCodePopulation(t *testing.T, entries []catalog.SemanticInventoryEntry, code string, want int64) {

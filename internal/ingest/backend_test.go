@@ -77,6 +77,17 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 			t.Fatalf("catalog indexes %#v do not include generation index %#v", fieldCatalog.Indexes, required)
 		}
 	}
+	memberships, found := bootstrapCollection(spec, catalog.FieldSourceMembershipCollection)
+	if !found || memberships.Truncate {
+		t.Fatalf("field-source membership collection = %#v found=%v, want persistent non-truncated collection", memberships, found)
+	}
+	if !containsIndex(memberships.Indexes, []string{"project", "dataset_generation", "resource_type", "scalar_paths[*]"}) || len(memberships.Indexes) != 1 {
+		t.Fatalf("field-source membership indexes=%v, want exactly one expanded-array index", memberships.Indexes)
+	}
+	fieldSourceBuilds, found := bootstrapCollection(spec, catalog.FieldSourceMembershipBuildCollection)
+	if !found || fieldSourceBuilds.Truncate {
+		t.Fatalf("field-source membership build collection = %#v found=%v, want persistent non-truncated collection", fieldSourceBuilds, found)
+	}
 	relationships, found := bootstrapCollection(spec, "fhir_relationship_catalog")
 	if !found {
 		t.Fatal("relationship catalog bootstrap collection is missing")
@@ -96,14 +107,20 @@ func TestBootstrapSpecAddsGenerationScopedIndexesWithoutTraversalSpeculation(t *
 		t.Fatalf("semantic inventory collection = %#v found=%v, want persistent non-truncated collection", inventory, found)
 	}
 	for _, required := range [][]string{
-		{"project", "dataset_generation", "build_id"},
 		{"project", "dataset_generation", "auth_resource_path", "resource_type", "binding_id", "concept_id"},
 		{"project", "dataset_generation", "build_id", "binding_id", "concept_id", "auth_resource_path"},
 		{"project", "dataset_generation", "build_id", "source_kind", "binding_id", "concept_id", "auth_resource_path"},
-		{"project", "dataset_generation", "build_id", "source_id"},
 	} {
 		if !containsIndex(inventory.Indexes, required) {
 			t.Fatalf("semantic inventory indexes %#v do not include %#v", inventory.Indexes, required)
+		}
+	}
+	for _, redundant := range [][]string{
+		{"project", "dataset_generation", "build_id"},
+		{"project", "dataset_generation", "build_id", "source_id"},
+	} {
+		if containsIndex(inventory.Indexes, redundant) {
+			t.Fatalf("semantic inventory indexes %#v retain redundant write-amplifying index %#v", inventory.Indexes, redundant)
 		}
 	}
 	builds, found := bootstrapCollection(spec, catalog.SemanticInventoryBuildCollection)

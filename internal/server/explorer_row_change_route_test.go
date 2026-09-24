@@ -93,4 +93,18 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if stale.StatusCode != http.StatusConflict {
 		t.Fatalf("stale assessment status=%d body=%s", stale.StatusCode, stale.Body)
 	}
+
+	resetBody := fmt.Sprintf(`{"commandId":"reset-row-root","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"commands":[{"type":"RESET_TABLE_ROOT","outputId":"patients","rootNodeId":"n_patient"}]}`, authoringv2.CurrentSemanticsVersion, snapshot.Token, response.DraftDigest)
+	reset := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/commands", resetBody)
+	if reset.StatusCode != http.StatusOK {
+		t.Fatalf("reset status=%d body=%s", reset.StatusCode, reset.Body)
+	}
+	var resetResponse authoringv2.ApplyCommandsResponse
+	if err := json.Unmarshal([]byte(reset.Body), &resetResponse); err != nil {
+		t.Fatal(err)
+	}
+	resetDocument := resetResponse.Workspace.Documents[0]
+	if resetDocument.RootResourceType != "Patient" || len(resetDocument.Route.Children) != 0 || len(resetDocument.Columns) != 0 || resetDocument.Output.ID != "patients" {
+		t.Fatalf("reset response=%#v", resetResponse)
+	}
 }

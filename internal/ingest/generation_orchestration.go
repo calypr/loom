@@ -189,9 +189,28 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		})
 	}()
 	inventoryBuild := catalog.NewSemanticInventoryBuild(opts.Project, plan.Dataset.Generation, opts.AuthResourcePath)
+	inventoryBuild.SourceKind = catalog.SemanticInventorySourceRetained
 	if err = catalogStore.BeginSemanticInventoryBuild(ctx, inventoryBuild); err != nil {
 		return summary, err
 	}
+	if err = catalogStore.PrepareFieldSourceMembership(ctx); err != nil {
+		return summary, fmt.Errorf("prepare field-source membership storage: %w", err)
+	}
+	fieldSourceBuild := catalog.NewFieldSourceMembershipBuild(opts.Project, plan.Dataset.Generation)
+	if err = catalogStore.WriteFieldSourceMembershipBuild(ctx, fieldSourceBuild); err != nil {
+		return summary, fmt.Errorf("begin field-source membership build: %w", err)
+	}
+	fieldSourceComplete := false
+	defer func() {
+		if err == nil || fieldSourceComplete {
+			return
+		}
+		fieldSourceBuild.State = catalog.FieldSourceMembershipFailed
+		fieldSourceBuild.Diagnostic = err.Error()
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "mark field-source membership build failed", func(cleanupCtx context.Context) error {
+			return catalogStore.WriteFieldSourceMembershipBuild(cleanupCtx, fieldSourceBuild)
+		})
+	}()
 	inventoryComplete := false
 	defer func() {
 		if err == nil || inventoryComplete {
@@ -247,6 +266,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 			summary.StageSeconds[name] += seconds
 		}
 		summary.BatchCounts["semantic_inventory"] += result.SemanticInventoryBatches
+		summary.BatchCounts["field_source_membership"] += result.FieldSourceMembershipBatches
 		lastInventoryCheckpoint = semanticInventorySourceFileID(opts.MetaDir, file)
 		if err = catalogStore.AdvanceSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 			return summary, fmt.Errorf("advance semantic inventory checkpoint: %w", err)
@@ -342,10 +362,22 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		return summary, err
 	}
 	inventoryBuild.SourceAvailability = catalog.SemanticInventorySourceAvailabilityVerified
+	fieldSourceBuild.State = catalog.FieldSourceMembershipComplete
+	fieldSourceBuild.ScannedResources = totalResourceRows(summary.Resources)
+	fieldSourceBuild.Diagnostic = ""
+	if err = catalogStore.WriteFieldSourceMembershipBuild(ctx, fieldSourceBuild); err != nil {
+		return summary, fmt.Errorf("complete field-source membership build: %w", err)
+	}
+	fieldSourceComplete = true
 	if err = catalogStore.CompleteSemanticInventoryBuild(ctx, inventoryBuild, totalResourceRows(summary.Resources), lastInventoryCheckpoint); err != nil {
 		return summary, fmt.Errorf("complete semantic inventory build: %w", err)
 	}
 	inventoryComplete = true
+	availabilityStarted := time.Now()
+	if err = PrepareGenerationAvailability(ctx, catalogStore, opts.Project, plan.Dataset.Generation, summary.Resources); err != nil {
+		return summary, fmt.Errorf("prepare generation column availability: %w", err)
+	}
+	summary.StageSeconds["available_column_witnesses"] = time.Since(availabilityStarted).Seconds()
 	stagedManifest, transitionErr := lifecycleStore.TransitionManifest(ctx, manifest, publication.StateStaged)
 	if transitionErr != nil {
 		return summary, transitionErr

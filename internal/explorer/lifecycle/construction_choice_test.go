@@ -102,6 +102,86 @@ func TestApplyConstructionChoiceMapsSemanticObservationAtTheDocumentRoot(t *test
 	}
 }
 
+func TestApplyConstructionChoicePreservesCategoricalNamespace(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "categorical-slot-snapshot", scope)
+	snapshot.Nodes = []capability.Node{{ID: "condition", ResourceType: "Condition", RowRootEligible: true}}
+	candidate := capability.Candidate{
+		ID: "condition-code", NodeID: "condition", ResourceType: "Condition",
+		FieldPath: "code.coding[].code", Label: "Diagnosis code", LogicalType: "code",
+		Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionFirst, capability.ProjectionArray},
+		RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "code.coding[]"}},
+	}
+	snapshot.Candidates = []capability.Candidate{candidate}
+	entry := catalog.SemanticInventoryEntry{ConceptID: "condition-code-slot", BindingID: "condition-code-binding", Observation: catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion, Role: catalog.SemanticRoleCategoricalSlot,
+		SlotLabel: "Diagnosis", Source: catalog.SemanticObservationSource{Type: "Condition", Path: "code"},
+		Key: catalog.SemanticObservationKey{Selector: "code.coding[]", System: "urn:diagnosis"}, Value: catalog.SemanticObservationValue{Selector: "code.coding[].code", Type: "code"},
+		LogicalType: "code", Completeness: catalog.SemanticComplete, Status: "SUPPORTED",
+		RuleHint: catalog.SemanticRuleHintCategoricalSlotV1, RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}}
+	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	store := semanticAuthoringStore(t)
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].RootResourceType = "Condition"
+	workspace.Documents[0].Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Condition"}
+	workspace.Documents[0].Columns = nil
+	workspace.Documents[0].FixedFilters = nil
+	workspace.Documents[0].Actions = nil
+	workspace.Documents[0].Population = nil
+	store.created.DraftConfig, err = workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowContext, err := savedCatalogRowContext(workspace, "patients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Condition", buildID, rowContext.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, err := semanticInventoryConstructionChoice(snapshot, contextToken, buildID, entry, candidate, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSnapshot := semanticAuthoringCatalog(snapshot)
+	catalogSnapshot.Nodes = []authoringv2.CatalogNode{{ID: "condition", ResourceType: "Condition", RowRootEligible: true}}
+	catalogSnapshot.Edges = nil
+	catalogSnapshot.Candidates = []authoringv2.CatalogCandidate{{
+		ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath, Cardinality: candidate.Cardinality,
+		Label: candidate.Label, LogicalType: candidate.LogicalType, Repeated: true,
+		RepeatedBoundaries: []authoringv2.RepeatedBoundary{{Path: "code.coding[]"}}, ProjectionModes: []string{"FIRST", "ALL"},
+		DefaultProjectionMode: "ALL", ConstructionChoice: fieldChoicePointer(t, snapshot, candidate),
+	}}
+	service := newTestService(t, store, Config{
+		Capability: CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+				return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+			},
+			Catalog: func(capability.Snapshot, string) authoringv2.CatalogSnapshot { return catalogSnapshot },
+		},
+		ResolveSemanticInventorySelections: func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
+			return semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{entry}), nil
+		},
+	})
+	response, err := service.ApplyCommands(context.Background(), "project-a", "patients", constructionChoiceRequest(snapshot, "categorical-slot", choice.ChoiceID, capability.ConstructionChoiceAll), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	column := response.Workspace.Documents[0].Columns[0]
+	if column.Label != "Diagnosis" || column.LogicalType != "code" || column.Source.Kind != authoringv2.SourceCategoricalBySystem || column.Source.Categorical == nil || column.Source.Categorical.System != "urn:diagnosis" || column.Source.Categorical.ProjectionMode != "ALL" {
+		t.Fatalf("categorical slot column = %#v", column)
+	}
+}
+
 func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerProof(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	snapshot := readySnapshot("project-a", "generation-a", "owner-record-snapshot", scope)
@@ -145,11 +225,12 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	}
 	resolved, _, err := resolveSemanticConstructionChoice(
 		context.Background(), AuthorizedCapability{Snapshot: snapshot, Scope: scope}, snapshot, catalogSnapshot,
-		"patients", "Observation", contextToken, buildID, buildID,
+		"patients", "Observation", authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"}, "", contextToken, buildID, buildID,
 		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
 		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceOwnerRecords},
 		identity,
 		identity.Source.(capability.SemanticBindingChoiceSource),
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +240,81 @@ func TestResolveSemanticConstructionChoiceBuildsOwnerRecordSourceAfterCompilerPr
 	}
 	if resolved.Source.OwnerRecords.Binding.OwnerPath != "component[]" || resolved.Source.OwnerRecords.Key.System != "http://loinc.org" || resolved.Source.OwnerRecords.Key.Code != "8302-2" {
 		t.Fatalf("resolved owner-record identity = %#v", resolved.Source.OwnerRecords)
+	}
+}
+
+func TestResolveRelatedCodedChoicePreservesAllMatchingValues(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "related-coded-choice", scope)
+	snapshot.Nodes = []capability.Node{
+		{ID: "patient", ResourceType: "Patient", RowRootEligible: true},
+		{ID: "observation", ResourceType: "Observation"},
+	}
+	snapshot.Edges = []capability.Edge{{
+		ID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+		SourceResourceType: "Patient", TargetResourceType: "Observation",
+		Label: "subject_Patient", StorageDirection: "INBOUND", ObservedEdgeCount: 2,
+	}}
+	candidate := capability.Candidate{
+		ID: "height-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueQuantity.value", Label: "Height", LogicalType: "decimal",
+		Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	snapshot.Candidates = []capability.Candidate{candidate}
+	entry := catalog.SemanticInventoryEntry{ConceptID: "height", BindingID: "height-binding", Observation: catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source:        catalog.SemanticObservationSource{Type: "Observation", Path: "code"},
+		Key:           catalog.SemanticObservationKey{Selector: "code.coding[]", System: "http://loinc.org", Code: "8302-2", Display: "Body height"},
+		Value:         catalog.SemanticObservationValue{Selector: "valueQuantity.value", Type: "decimal"},
+		ChoiceArm:     "valueQuantity", LogicalType: "decimal", Completeness: catalog.SemanticComplete,
+		Status: "SUPPORTED", RuleHint: catalog.SemanticRuleHintCodedValueV1,
+		RuleVersion: strconv.Itoa(catalog.SemanticObservationRuleVersion),
+	}}
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	authorized := AuthorizedCapability{Snapshot: snapshot, Scope: scope}
+	provenCandidate, err := proveConstructionCandidate(context.Background(), authorized, "Patient", candidate, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildID := catalog.SemanticInventoryBuildID(snapshot.Identity.Project, snapshot.Identity.Generation)
+	contextToken, err := semanticInventoryContextToken(snapshot, "patients", "Patient", buildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, contextToken, buildID, route, entry, provenCandidate, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldChoice, err := capability.NewFieldConstructionChoice(snapshot.Token, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSnapshot := authoringv2.CatalogSnapshot{SnapshotToken: snapshot.Token, Candidates: []authoringv2.CatalogCandidate{{
+		ID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+		Cardinality: candidate.Cardinality, ConstructionChoice: &fieldChoice,
+	}}}
+	resolved, _, err := resolveSemanticConstructionChoice(
+		context.Background(), authorized, snapshot, catalogSnapshot, "patients", "Patient",
+		authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		"", contextToken, buildID, buildID,
+		map[string]catalog.SemanticInventoryEntry{semanticChoiceKey(entry.ConceptID, entry.BindingID): entry},
+		authoringv2.ConstructionChoiceSelection{ChoiceID: choice.ChoiceID, Form: capability.ConstructionChoiceAll},
+		identity, identity.Source.(capability.SemanticBindingChoiceSource), true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Source.Kind != authoringv2.SourceCodedValue || resolved.Source.Lookup == nil ||
+		resolved.Source.Lookup.ProjectionMode != "ALL" || len(resolved.Route) != 1 {
+		t.Fatalf("related coded choice = %#v", resolved)
 	}
 }
 
@@ -385,17 +541,6 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*catalog.S
 			snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{ID: "observation-value-duplicate", NodeID: "observation", ResourceType: "Observation", FieldPath: "valueQuantity.value", Label: "Duplicate", LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}})
 		}
 	}
-	if semanticContext == "" {
-		var err error
-		semanticContext, err = semanticInventoryContextToken(snapshot, "patients", "Observation", buildID)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	choice, err := semanticInventoryConstructionChoice(snapshot, semanticContext, buildID, choiceEntry, candidate, false)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if mutateEntry != nil {
 		mutateEntry(&entry)
 	}
@@ -415,6 +560,20 @@ func constructionSemanticChoiceFixture(t *testing.T, mutateEntry func(*catalog.S
 		t.Fatal(err)
 	}
 	store.created.DraftDigest, err = workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if semanticContext == "" {
+		rowContext, contextErr := savedCatalogRowContext(workspace, "patients")
+		if contextErr != nil {
+			t.Fatal(contextErr)
+		}
+		semanticContext, err = semanticInventoryContextToken(snapshot, "patients", "Observation", buildID, rowContext.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	choice, err := semanticInventoryConstructionChoice(snapshot, semanticContext, buildID, choiceEntry, candidate, false)
 	if err != nil {
 		t.Fatal(err)
 	}

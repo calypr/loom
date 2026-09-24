@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -234,6 +235,88 @@ type bundleClickHouseFixture struct {
 	dropErr     error
 }
 
+func TestObjectColumnsUseWholeDocumentStringStorage(t *testing.T) {
+	columns, err := toColumns([]publication.LogicalColumn{
+		{Name: "scalar", Kind: "object"},
+		{Name: "repeated", Kind: "object", Repeated: true, Nullable: true},
+		{Name: "ordinary", Kind: "string", Repeated: true, Nullable: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []clickhouse.Column{
+		{Name: "scalar", Type: "String"},
+		{Name: "repeated", Type: "Nullable(String)"},
+		{Name: "ordinary", Type: "Array(String)"},
+	}
+	if !reflect.DeepEqual(columns, want) {
+		t.Fatalf("physical object columns = %#v, want %#v", columns, want)
+	}
+}
+
+func TestEncodeObjectColumnsPreservesPresenceAndCallerRows(t *testing.T) {
+	rows := []map[string]any{
+		{"value": map[string]any{"unit": nil}},
+		{"value": nil},
+		{},
+	}
+	original := make([]map[string]any, len(rows))
+	for index, row := range rows {
+		original[index] = cloneBundleRow(row)
+	}
+	encoded, err := encodeObjectColumns([]publication.LogicalColumn{{Name: "value", Kind: "object", Nullable: true}}, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(rows, original) {
+		t.Fatalf("caller rows mutated = %#v, want %#v", rows, original)
+	}
+	if encoded[0]["value"] != `{"unit":null}` {
+		t.Fatalf("explicit null object = %#v", encoded[0]["value"])
+	}
+	if value, ok := encoded[1]["value"]; !ok || value != "null" {
+		t.Fatalf("present nil object = %#v/%v, want JSON null text", value, ok)
+	}
+	if _, ok := encoded[2]["value"]; ok {
+		t.Fatal("missing object key was fabricated")
+	}
+}
+
+func TestBundleInsertEncodesObjectsBeforePhysicalInsert(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	client := newBundleClickHouseFixture()
+	store, err := NewBundleStore(client, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.Begin(context.Background(), publication.PublicationIdentity{Name: "Observation"}, []publication.OutputSchema{{
+		Name:    "Observation",
+		Columns: []publication.LogicalColumn{{Name: "value", Kind: "object", Nullable: true}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := map[string]any{"value": map[string]any{"unit": nil}}
+	if err := tx.WriteBatch(context.Background(), "Observation", []map[string]any{row}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Commit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	bundleTx := tx.(*clickHouseBundleTx)
+	physical := client.tables[bundleTx.execution.Outputs[0].PhysicalTable]
+	if len(physical) != 1 || physical[0]["value"] != `{"unit":null}` {
+		t.Fatalf("physical object row = %#v, want normalized JSON text", physical)
+	}
+	if !reflect.DeepEqual(row, map[string]any{"value": map[string]any{"unit": nil}}) {
+		t.Fatalf("caller row mutated = %#v", row)
+	}
+	columns := client.lastColumns[bundleTx.execution.Outputs[0].PhysicalTable]
+	if len(columns) != 2 || columns[1].Type != "Nullable(String)" {
+		t.Fatalf("physical object schema = %#v", columns)
+	}
+}
+
 func newBundleClickHouseFixture() *bundleClickHouseFixture {
 	return &bundleClickHouseFixture{tables: map[string][]map[string]any{}, lastColumns: map[string][]clickhouse.Column{}}
 }
@@ -326,6 +409,47 @@ func TestClickHouseBundleStoreImplementsPublicationTargetDirectly(t *testing.T) 
 		if len(columns) != 2 || columns[0].Name != "__loom_row_id" || columns[1].Name != "id" {
 			t.Fatalf("insert columns = %#v", columns)
 		}
+	}
+}
+
+func TestBundleEngineVersionRolloverCreatesNewExecutionAndRetryReusesIt(t *testing.T) {
+	catalog := newBundleCatalogFixture()
+	store, err := NewBundleStore(newBundleClickHouseFixture(), catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIdentity := publication.BundleIdentity{Name: "recipe", Project: "project", DatasetGeneration: "generation", EngineVersion: "loom-recipe-v2"}
+	newIdentity := oldIdentity
+	newIdentity.EngineVersion = "loom-recipe-v3-object-fidelity"
+	oldTx, err := store.beginBundle(context.Background(), oldIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTx.execution.State = publication.BundlePublished
+	if err := catalog.SaveExecution(context.Background(), oldTx.execution, oldTx.execution.OwnerID); err != nil {
+		t.Fatal(err)
+	}
+	_ = oldTx.stopLease()
+
+	newTx, err := store.beginBundle(context.Background(), newIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newTx.idempotent || newTx.execution.Key == oldTx.execution.Key {
+		t.Fatal("new object-fidelity engine reused the old execution key")
+	}
+	newTx.execution.State = publication.BundlePublished
+	if err := catalog.SaveExecution(context.Background(), newTx.execution, newTx.execution.OwnerID); err != nil {
+		t.Fatal(err)
+	}
+	_ = newTx.stopLease()
+
+	retry, err := store.beginBundle(context.Background(), newIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retry.idempotent || retry.execution.ID != newTx.execution.ID {
+		t.Fatalf("same-version retry = idempotent:%v execution:%q, want %q", retry.idempotent, retry.execution.ID, newTx.execution.ID)
 	}
 }
 

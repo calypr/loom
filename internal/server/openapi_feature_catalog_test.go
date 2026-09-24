@@ -11,6 +11,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -28,7 +29,22 @@ func TestBrowseFeatureCatalogThroughPublicAPI(t *testing.T) {
 			{ID: "raw-name", NodeID: "patient", ResourceType: "Patient", FieldPath: "name[]", Label: "Patient.name", LogicalType: "object", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}, ObservedDocumentCount: 5},
 		},
 	}
-	domain, err := explorer.NewService(newTestExplorerStore())
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Patients"},
+		Documents: []authoringv2.Document{{
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+			Rows:  authoringv2.RowDefinition{Kind: authoringv2.RowDefinitionRecords, Records: &authoringv2.RecordRows{}},
+		}},
+		Tabs: []authoringv2.Tab{{ID: "patients-tab", Title: "Patients", OutputID: "patients", Visible: true}},
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	store.explorers[testExplorerKey("project-a", "explorer")] = explorer.Explorer{Project: "project-a", ExplorerID: "explorer", DraftConfig: draft}
+	domain, err := explorer.NewService(store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +54,7 @@ func TestBrowseFeatureCatalogThroughPublicAPI(t *testing.T) {
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
 	path := "/api/v1/projects/project-a/explorers/explorer/authoring/v2/feature-catalog"
-	response := requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Patient","section":"FIELDS","limit":50}`)
+	response := requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","outputId":"patients","section":"FIELDS","limit":50}`)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.StatusCode, response.Body)
 	}
@@ -53,7 +69,7 @@ func TestBrowseFeatureCatalogThroughPublicAPI(t *testing.T) {
 	if err != nil || source.Kind != loomapi.FeatureCatalogFieldSourceKindFIELD || source.CandidateId != "birth-date" {
 		t.Fatalf("field source=%#v err=%v", source, err)
 	}
-	response = requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Patient","section":"RAW"}`)
+	response = requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","outputId":"patients","section":"RAW"}`)
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid section status=%d body=%s", response.StatusCode, response.Body)
 	}

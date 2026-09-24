@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -42,6 +44,7 @@ type ConstructionChoiceSearchResponse struct {
 	OutputID      string                          `json:"outputId"`
 	Complete      bool                            `json:"complete"`
 	Truncated     bool                            `json:"truncated"`
+	RowsWithValue *int64                          `json:"rowsWithValue,omitempty"`
 	NextCursor    string                          `json:"nextCursor,omitempty"`
 	Choices       []capability.ConstructionChoice `json:"choices"`
 }
@@ -172,7 +175,11 @@ func proveConstructionCandidate(ctx context.Context, authorized AuthorizedCapabi
 		return capability.Candidate{}, err
 	}
 	updated := candidate
-	updated.LogicalType = string(proof.Candidate.Primitive)
+	logicalType, represented := fhirschema.ResolveTerminalLogicalType(candidate.ResourceType, candidate.FieldPath)
+	if !represented {
+		return capability.Candidate{}, fmt.Errorf("compiler candidate has no schema value type")
+	}
+	updated.LogicalType = logicalType
 	updated.Cardinality = string(proof.Candidate.Cardinality)
 	updated.ProjectionModes = make([]capability.ProjectionMode, 0, len(proof.Candidate.ProjectionModes))
 	for _, mode := range proof.Candidate.ProjectionModes {
@@ -290,9 +297,34 @@ func routePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]a
 	return nil, false
 }
 
-// SearchConstructionChoices resolves one exact field or semantic identity for
-// the current table output, enumerates its distinct directed routes, and only
-// returns choices that compile with that full route.
+func constructionRouteIsCurrentOrSaved(snapshot capability.Snapshot, rootResourceType, targetNodeID string, route []capability.ConstructionRouteStep, authoredRoot authoringv2.RouteNode) bool {
+	canonical, err := capability.PlanCanonicalConstructionRoute(snapshot, rootResourceType, targetNodeID)
+	if err == nil && reflect.DeepEqual(route, canonical) {
+		return true
+	}
+
+	var occurrenceIDs []string
+	var collect func(authoringv2.RouteNode)
+	collect = func(node authoringv2.RouteNode) {
+		occurrenceIDs = append(occurrenceIDs, node.OccurrenceID)
+		for _, child := range node.Children {
+			collect(child)
+		}
+	}
+	collect(authoredRoot)
+	for _, occurrenceID := range occurrenceIDs {
+		saved, savedErr := constructionRouteForOccurrence(snapshot, rootResourceType, targetNodeID, authoredRoot, occurrenceID)
+		if savedErr == nil && reflect.DeepEqual(route, saved) {
+			return true
+		}
+	}
+	return false
+}
+
+// SearchConstructionChoices returns compiler-proved choices for the exact
+// source identity on the current table output. Normal catalog search checks
+// each bounded observed route against authorized row data; an explicit
+// occurrence searches only its saved route.
 func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
 	result := ConstructionChoiceSearchResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []capability.ConstructionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || len(request.Cursor) > 4096 {
@@ -301,9 +333,12 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
 		return result, unavailable("construction-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 	}
-	identityKey, err := constructionSearchSourceKey(request.Source)
+	sourceKey, err := constructionSearchSourceKey(request.Source)
 	if err != nil {
 		return result, err
+	}
+	if request.Limit < 0 || request.Limit > automaticRouteLimit {
+		return result, malformed("construction-choices", fmt.Sprintf("limit must be between 0 and %d (0 uses the default)", automaticRouteLimit), nil)
 	}
 	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
 	if err != nil || authorized.Snapshot.ValidateToken(request.SnapshotToken) != nil {
@@ -324,6 +359,10 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 	if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.Route.ResourceType != document.RootResourceType {
 		return result, malformed("construction-choices", "outputId does not identify a valid row-rooted table", nil)
 	}
+	rowContext, err := savedCatalogRowContext(workspace, request.OutputID)
+	if err != nil {
+		return result, malformed("construction-choices", err.Error(), err)
+	}
 	var candidate capability.Candidate
 	var semanticEntry catalog.SemanticInventoryEntry
 	semanticContext := ""
@@ -333,7 +372,7 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 		if err != nil {
 			return result, err
 		}
-		semanticContext, err = semanticInventoryContextToken(snapshot, request.ExplorerID, document.RootResourceType, buildID)
+		semanticContext, err = semanticInventoryContextToken(snapshot, request.ExplorerID, document.RootResourceType, buildID, rowContext.Digest)
 		if err != nil || request.Source.ContextToken != semanticContext {
 			return result, conflict("construction-choices", "STALE_SEMANTIC_CONTEXT", "reload the semantic choice for the current table root and inventory build", nil, err)
 		}
@@ -343,7 +382,7 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "semantic binding and candidate resource do not match", nil)
 		}
 		plan := authoringv2.ResolveSemanticSelectionPlan(semanticEntry.Observation)
-		if !plan.Readiness.Addable() || plan.Source == nil || plan.Source.Lookup == nil {
+		if !plan.Readiness.Addable() || plan.Source == nil {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "semantic source has no supported typed compiler binding", nil)
 		}
 	} else {
@@ -352,6 +391,10 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 		if !found {
 			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the exact field candidate is unavailable in this authorized snapshot", nil)
 		}
+	}
+	source := catalog.RouteCoverageSource{Kind: catalog.RouteCoverageField, FieldPath: candidate.FieldPath}
+	if request.Source.Kind == capability.ConstructionChoiceSourceSemantic {
+		source = catalog.RouteCoverageSource{Kind: catalog.RouteCoverageSemantic, ConceptID: semanticEntry.ConceptID, BindingID: semanticEntry.BindingID}
 	}
 	var routes [][]capability.ConstructionRouteStep
 	if occurrenceID := strings.TrimSpace(request.OccurrenceID); occurrenceID != "" {
@@ -365,15 +408,97 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 		routes = [][]capability.ConstructionRouteStep{route}
 		result.Complete = true
 	} else {
-		page, planErr := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
-			Snapshot: snapshot, RootResource: document.RootResourceType, TargetNodeID: candidate.NodeID,
-			SourceKey: identityKey, Cursor: request.Cursor, Limit: request.Limit,
-		})
-		if planErr != nil {
-			return result, conflict("construction-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart route search for this exact source", nil, planErr)
+		limit := request.Limit
+		if limit == 0 {
+			limit = automaticRouteLimit
 		}
-		result.Complete, result.Truncated, result.NextCursor = page.Complete, page.Truncated, page.NextCursor
-		routes = page.Routes
+		if !defaultCatalogRecordCohort(workspace, *document) {
+			return result, unavailable("construction-choices", "ROW_COVERAGE_PENDING", "Loom has not measured this source against the selected or grouped table rows", nil)
+		}
+		workspaceDigest, digestErr := workspace.Digest()
+		if digestErr != nil {
+			return result, internal("construction-choices", "DRAFT_DIGEST_FAILED", "the current Explorer draft could not be bound to a route search", digestErr)
+		}
+		contextBytes, marshalErr := json.Marshal([]string{
+			"construction-choice-routes/v2", projectid.Canonical(request.Project), request.ExplorerID,
+			request.OutputID, snapshot.Token, snapshot.Identity.AuthorizationScopeDigest,
+			rowContext.Digest, workspaceDigest, sourceKey, candidate.ID, candidate.NodeID,
+			candidate.ResourceType, candidate.FieldPath,
+		})
+		if marshalErr != nil {
+			return result, internal("construction-choices", "ROUTE_CONTEXT_FAILED", "the route search context could not be prepared", marshalErr)
+		}
+		iterator, iteratorErr := newObservedAutomaticRouteIterator(snapshot, document.RootResourceType, candidate.NodeID, digestString(string(contextBytes)), request.Cursor)
+		if iteratorErr != nil {
+			if request.Cursor != "" {
+				return result, conflict("construction-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart this source route search for the current draft and catalog snapshot", nil, iteratorErr)
+			}
+			return result, unprocessable("construction-choices", "INVALID_CONSTRUCTION_SOURCE", "the source has no authorized route from this table", iteratorErr)
+		}
+		if request.Cursor == "" {
+			result.Complete = false
+		}
+		remainingExpansions := automaticRouteExpansionLimit
+		valueChecks := 0
+		searchComplete := false
+		for len(result.Choices) < limit && valueChecks < automaticRouteValueCheckLimit {
+			route, found, nextErr := iterator.next(&remainingExpansions)
+			if nextErr != nil {
+				return result, internal("construction-choices", "ROUTE_SEARCH_FAILED", "Loom could not continue the authorized route search", nextErr)
+			}
+			if !found {
+				if iterator.finished {
+					searchComplete = true
+					result.Complete = !iterator.horizonTruncated
+					result.Truncated = iterator.horizonTruncated
+				}
+				break
+			}
+			valueChecks++
+			resolvedRoute, routeErr := reauthorizeConstructionRoute(snapshot, document.RootResourceType, candidate.NodeID, route)
+			if routeErr != nil {
+				continue
+			}
+			hasValue, hasValueErr := s.hasConstructionRouteValue(ctx, authorized, workspace, *document, candidate.ResourceType, resolvedRoute, source, buildID)
+			if hasValueErr != nil {
+				return result, hasValueErr
+			}
+			if !hasValue {
+				continue
+			}
+			provenCandidate := candidate
+			if len(resolvedRoute) > 0 {
+				provenCandidate, err = proveConstructionCandidate(ctx, authorized, document.RootResourceType, candidate, resolvedRoute)
+				if err != nil {
+					continue
+				}
+			}
+			var choice capability.ConstructionChoice
+			if request.Source.Kind == capability.ConstructionChoiceSourceField {
+				choice, err = capability.NewFieldConstructionChoiceForRoute(snapshot.Token, resolvedRoute, provenCandidate)
+			} else {
+				ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)
+				choice, err = semanticInventoryConstructionChoiceForRoute(snapshot, semanticContext, buildID, resolvedRoute, semanticEntry, provenCandidate, ownerRecords)
+			}
+			if err == nil {
+				result.Choices = append(result.Choices, choice)
+			}
+		}
+		if !searchComplete {
+			cursor, cursorErr := iterator.cursor()
+			if cursorErr != nil {
+				return result, internal("construction-choices", "ROUTE_CURSOR_FAILED", "Loom could not preserve the route search position", cursorErr)
+			}
+			if cursor != "" {
+				result.Complete = false
+				result.Truncated = true
+				result.NextCursor = cursor
+			} else {
+				result.Complete = !iterator.horizonTruncated
+				result.Truncated = iterator.horizonTruncated
+			}
+		}
+		return result, nil
 	}
 	for _, route := range routes {
 		resolvedRoute, routeErr := reauthorizeConstructionRoute(snapshot, document.RootResourceType, candidate.NodeID, route)
@@ -393,6 +518,16 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 				continue
 			}
 		}
+		hasValue, hasValueErr := s.hasConstructionRouteValue(ctx, authorized, workspace, *document, candidate.ResourceType, resolvedRoute, source, buildID)
+		if hasValueErr != nil {
+			return result, hasValueErr
+		}
+		if !hasValue {
+			if strings.TrimSpace(request.OccurrenceID) != "" {
+				return result, unprocessable("construction-choices", "NO_VALUES_ON_TABLE_ROWS", "this route has no values on the current authorized table rows", nil)
+			}
+			continue
+		}
 		var choice capability.ConstructionChoice
 		if request.Source.Kind == capability.ConstructionChoiceSourceField {
 			choice, err = capability.NewFieldConstructionChoiceForRoute(snapshot.Token, resolvedRoute, provenCandidate)
@@ -407,6 +542,9 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 			continue
 		}
 		result.Choices = append(result.Choices, choice)
+	}
+	if result.Truncated {
+		result.NextCursor = ""
 	}
 	return result, nil
 }

@@ -15,9 +15,9 @@ const (
 	SemanticInventoryEntryCollection   = "fhir_semantic_inventory_entries"
 	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
 	SemanticInventorySchemaVersion     = 1
-	SemanticInventoryEntryIndexVersion = 3
-	SemanticObservationRuleVersion     = 6
-	SemanticInventoryPageLimit         = 50
+	SemanticInventoryEntryIndexVersion = 6
+	SemanticObservationRuleVersion     = 9
+	SemanticInventoryPageLimit         = 500
 	SemanticInventorySourceFile        = "file"
 	SemanticInventorySourceRetained    = "retained_vertex"
 )
@@ -93,9 +93,52 @@ type SemanticInventoryContribution struct {
 }
 
 type SemanticInventoryEntry struct {
-	ConceptID   string              `json:"concept_id"`
-	BindingID   string              `json:"binding_id"`
-	Observation SemanticObservation `json:"observation"`
+	ConceptID     string              `json:"concept_id"`
+	BindingID     string              `json:"binding_id"`
+	SourceRecords int64               `json:"source_records,omitempty"`
+	Observation   SemanticObservation `json:"observation"`
+}
+
+type SemanticInventoryCatalogSection string
+
+const (
+	SemanticInventorySectionConcepts    SemanticInventoryCatalogSection = "CONCEPTS"
+	SemanticInventorySectionNeedsReview SemanticInventoryCatalogSection = "NEEDS_REVIEW"
+)
+
+type SemanticInventoryClassification struct {
+	Section SemanticInventoryCatalogSection
+	Status  string
+	Code    string
+}
+
+const (
+	SemanticInventoryRecognitionRecognized  = "RECOGNIZED"
+	SemanticInventoryRecognitionNeedsReview = "NEEDS_REVIEW"
+)
+
+func SemanticInventoryClassificationForObservation(observation SemanticObservation) SemanticInventoryClassification {
+	needsReview := func(code string) SemanticInventoryClassification {
+		return SemanticInventoryClassification{Section: SemanticInventorySectionNeedsReview, Status: SemanticInventoryRecognitionNeedsReview, Code: code}
+	}
+	if observation.SchemaVersion != SemanticObservationSchemaVersion || observation.RuleVersion != strconv.Itoa(SemanticObservationRuleVersion) {
+		return needsReview("SEMANTIC_OBSERVATION_VERSION_UNSUPPORTED")
+	}
+	if observation.Completeness != SemanticComplete {
+		return needsReview("SEMANTIC_OBSERVATION_INCOMPLETE")
+	}
+	if observation.Status != "SUPPORTED" && observation.Status != "DATA_QUALITY_WARNING" {
+		return needsReview("SEMANTIC_OBSERVATION_" + observation.Status)
+	}
+	if SemanticObservationRoleForRule(observation.RuleHint) == SemanticRoleUnknown {
+		return needsReview("SEMANTIC_RULE_UNSUPPORTED")
+	}
+	switch SemanticObservationRoleOf(observation) {
+	case SemanticRoleIdentifier, SemanticRoleExtension, SemanticRoleCodedValue, SemanticRoleCategoricalSlot, SemanticRoleStructuredSlot:
+		return SemanticInventoryClassification{Section: SemanticInventorySectionConcepts, Status: SemanticInventoryRecognitionRecognized, Code: SemanticInventoryRecognitionRecognized}
+	default:
+		return needsReview("SEMANTIC_RULE_UNSUPPORTED")
+	}
 }
 
 type SemanticInventoryPageOptions struct {
@@ -104,6 +147,7 @@ type SemanticInventoryPageOptions struct {
 	AuthResourcePathsUnrestricted *bool
 	AuthResourcePaths             []string
 	ResourceType                  string
+	CatalogSection                SemanticInventoryCatalogSection
 	Query                         string
 	Cursor                        string
 	Limit                         int
@@ -204,9 +248,9 @@ func semanticInventorySourceKind(kind string) string {
 	return SemanticInventorySourceFile
 }
 
-func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourceType, authResourcePath, sourceID string, sink SemanticInventoryObservationSink) {
+func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourceType, authResourcePath, sourceID string, sink SemanticInventoryObservationSink) error {
 	if payload == nil || sourceID == "" || sink == nil {
-		return
+		return errors.New("semantic inventory requires a payload, source identity, and sink")
 	}
 	p := Profiler{
 		project:            e.project,
@@ -216,7 +260,7 @@ func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourc
 		semanticOnly:       true,
 		semanticSourceKind: SemanticInventorySourceRetained,
 	}
-	p.observeSemanticObservations(payload, sourceID, sink)
+	return p.observeSemanticObservations(payload, sourceID, sink)
 }
 
 func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, observation SemanticObservation, examples []any) SemanticInventoryContribution {
@@ -251,8 +295,12 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 		sourceID,
 		strconv.Itoa(ordinal),
 	}
-	if p.semanticSourceKind == SemanticInventorySourceRetained {
-		keyParts = append(keyParts, p.semanticSourceKind)
+	sourceKind := p.semanticSourceKind
+	if strings.HasPrefix(sourceID, "retained:") {
+		sourceKind = SemanticInventorySourceRetained
+	}
+	if sourceKind == SemanticInventorySourceRetained {
+		keyParts = append(keyParts, sourceKind)
 	}
 	return SemanticInventoryContribution{
 		Key: catalogIdentityDigest(
@@ -263,7 +311,7 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 		AuthResourcePath:  p.authResourcePath,
 		ResourceType:      p.resourceType,
 		BuildID:           buildID,
-		SourceKind:        semanticInventorySourceKind(p.semanticSourceKind),
+		SourceKind:        semanticInventorySourceKind(sourceKind),
 		SourceID:          sourceID,
 		Ordinal:           ordinal,
 		ConceptID:         conceptID,
@@ -281,8 +329,10 @@ func (p *Profiler) semanticInventoryContribution(sourceID string, ordinal int, o
 // code/value pairings without confusing the same code used in another field.
 func semanticConceptSlotID(observation SemanticObservation) string {
 	selector := observation.Key.Selector
-	if observation.RuleHint == SemanticRuleHintCodedValueV1 {
+	if SemanticObservationRoleOf(observation) == SemanticRoleCodedValue {
 		selector = appendSemanticPath(observation.OwningScope, selector)
+	} else if SemanticObservationRoleOf(observation) == SemanticRoleCategoricalSlot {
+		selector = categoricalSlotSelector(observation)
 	}
 	return catalogIdentityDigest(
 		"semantic-concept-slot/v1",
@@ -292,8 +342,19 @@ func semanticConceptSlotID(observation SemanticObservation) string {
 	)
 }
 
+func categoricalSlotSelector(observation SemanticObservation) string {
+	selector := strings.TrimSpace(observation.Key.Selector)
+	if selector == "" {
+		selector = strings.TrimSpace(observation.Source.Path)
+	}
+	if source := strings.TrimSpace(observation.Source.Path); source != "" && (selector == source || strings.HasPrefix(selector, source+".")) {
+		return selector
+	}
+	return appendSemanticPath(observation.OwningScope, selector)
+}
+
 func semanticConceptID(observation SemanticObservation) string {
-	if observation.Key.Code != "" {
+	if SemanticObservationRoleOf(observation) == SemanticRoleCodedValue && observation.Key.Code != "" {
 		return catalogIdentityDigest(
 			"semantic-concept/coding/v1",
 			observation.Key.System,
@@ -323,6 +384,7 @@ func semanticBindingID(observation SemanticObservation) string {
 		observation.Key.Selector,
 		observation.Value.Selector,
 		observation.Value.Type,
+		observation.Value.Presentation,
 		observation.ChoiceArm,
 		observation.LogicalType,
 		observation.RuleHint,
@@ -344,10 +406,15 @@ func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID stri
 		buildID,
 		strconv.FormatBool(unrestricted),
 		opts.ResourceType,
+		string(opts.CatalogSection),
 		opts.Query,
 	}
 	parts = append(parts, paths...)
 	return catalogIdentityDigest(parts...)
+}
+
+func SemanticInventorySortKey(bindingID, conceptID string) string {
+	return bindingID + "|" + conceptID
 }
 
 func EncodeSemanticInventoryCursor(opts SemanticInventoryPageOptions, buildID, bindingID, conceptID string) string {

@@ -6,6 +6,7 @@ import {
   aggregateTransformationCapabilitySchema,
   aggregateOperationCapabilitySchema,
   columnTransformationChangeSchema,
+  categoricalBindingSchema,
   correlatedBindingSchema,
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
@@ -84,6 +85,7 @@ describe('feature catalog contract', () => {
       valueType: 'string',
       cardinality: 'optional_one',
       occurrences: 4,
+      coverage: { state: 'INDEXED', rowsWithValue: 4 },
       readiness: { status: 'READY', code: 'READY', message: 'This field is ready.' },
       source: { kind: 'FIELD', candidateId: 'candidate-1' },
       sourceDetails: [],
@@ -127,6 +129,62 @@ describe('feature catalog contract', () => {
       sourceAvailability: 'verified',
       section: 'CONCEPTS',
       entries: [validDirectField],
+    }).success).toBe(false);
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      section: 'FIELDS',
+      entries: Array.from({ length: 500 }, () => validDirectField),
+    }).success).toBe(true);
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      state: 'complete',
+      sourceAvailability: 'verified',
+      section: 'FIELDS',
+      entries: Array.from({ length: 501 }, () => validDirectField),
+    }).success).toBe(false);
+  });
+
+  it('accepts verified coverage without a row count and keeps running catalogs empty', () => {
+    const verifiedField = {
+      kind: 'DIRECT_FIELD',
+      featureId: 'field:verified-id',
+      title: 'Verified identifier',
+      description: 'A populated direct field.',
+      resourceType: 'Patient',
+      valueType: 'string',
+      cardinality: 'optional_one',
+      occurrences: 4,
+      coverage: { state: 'VERIFIED' },
+      readiness: { status: 'READY', code: 'READY', message: 'This field is ready.' },
+      source: { kind: 'FIELD', candidateId: 'candidate-verified-id' },
+      sourceDetails: [],
+    };
+    expect(featureCatalogItemSchema.safeParse(verifiedField).success).toBe(true);
+    expect(featureCatalogItemSchema.safeParse({
+      ...verifiedField,
+      coverage: { state: 'VERIFIED', rowsWithValue: 4 },
+    }).success).toBe(false);
+
+    const running = {
+      contextToken: '',
+      buildId: '',
+      state: 'running',
+      sourceAvailability: 'unknown',
+      section: 'FIELDS',
+      entries: [],
+    };
+    expect(featureCatalogBrowseResponseSchema.safeParse(running).success).toBe(true);
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      ...running,
+      entries: [verifiedField],
+    }).success).toBe(false);
+    expect(featureCatalogBrowseResponseSchema.safeParse({
+      ...running,
+      nextCursor: 'cursor-1',
     }).success).toBe(false);
   });
 });
@@ -259,6 +317,38 @@ describe('explorerBuilderDocumentSchema', () => {
       }).success).toBe(false);
     }
   });
+
+  it('preserves categorical namespace sources across persisted draft reload parsing', () => {
+    const source = {
+      kind: 'categoricalBySystem',
+      categorical: {
+        binding: {
+          ownerPath: 'code',
+          keyPath: 'code.coding[]',
+          systemPath: 'system',
+          valuePath: 'code',
+          valueFallback: ['display'],
+          logicalType: 'string',
+          valuePresentation: 'DISPLAY_OR_CODE',
+        },
+        system: 'urn:example:system-a',
+        projectionMode: 'ALL',
+      },
+    } as const;
+    const persisted = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      columns: [{
+        column: 'observation_code',
+        label: 'Observation code',
+        logicalType: 'string',
+        occurrenceId: 'base',
+        source,
+      }],
+    };
+    const parsed = explorerBuilderDocumentSchema.parse(persisted);
+    expect(JSON.parse(JSON.stringify(parsed)).columns[0].source).toEqual(source);
+  });
 });
 
 describe('row-definition contract schemas', () => {
@@ -386,6 +476,40 @@ describe('explorerColumnSourceSchema', () => {
     expect(explorerColumnSourceSchema.safeParse({ ...source, lookup: source.ownerRecords }).success).toBe(false);
     expect(explorerColumnSourceSchema.safeParse({ ...source, ownerRecords: { binding: source.ownerRecords.binding } }).success).toBe(false);
     expect(explorerColumnSourceSchema.safeParse({ ...source, kind: 'codedValue' }).success).toBe(false);
+  });
+
+  it('preserves a Coding namespace source and rejects code-keyed lookups', () => {
+    const binding = {
+      ownerPath: 'code',
+      keyPath: 'code.coding[]',
+      systemPath: 'system',
+      valuePath: 'code',
+      valueFallback: ['display'],
+      logicalType: 'string',
+      valuePresentation: 'DISPLAY_OR_CODE',
+    } as const;
+    const source = {
+      kind: 'categoricalBySystem',
+      categorical: {
+        binding,
+        system: 'urn:example:system-a',
+        projectionMode: 'ALL',
+      },
+    } as const;
+    expect(categoricalBindingSchema.parse(binding)).toEqual(binding);
+    expect(explorerColumnSourceSchema.parse(source)).toEqual(source);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      categorical: { ...source.categorical, binding: { ...binding, codePath: 'code' } },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      categorical: { ...source.categorical, system: '' },
+    }).success).toBe(false);
+    expect(explorerColumnSourceSchema.safeParse({
+      ...source,
+      lookup: { binding, key: { system: source.categorical.system, code: 'same' } },
+    }).success).toBe(false);
   });
 
   it('rejects legacy flat payloads and fields belonging to another source kind', () => {

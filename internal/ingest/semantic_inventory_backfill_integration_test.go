@@ -95,6 +95,17 @@ func TestRetainedSemanticInventoryBackfillArangoIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	legacy := build
+	legacy.State = catalog.SemanticInventoryComplete
+	legacy.SourceAvailability = catalog.SemanticInventorySourceAvailabilityUnproven
+	legacy.EntryIndexVersion = catalog.SemanticInventoryEntryIndexVersion
+	if err := store.CompleteSemanticInventoryBuild(ctx, legacy, 99, "legacy-unproven"); err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := BackfillSemanticInventory(ctx, store, manifest, options)
+	if err != nil || repaired.NoOp || repaired.SourceAvailability != catalog.SemanticInventorySourceAvailabilityVerified || repaired.ScannedTotal != 2 {
+		t.Fatalf("legacy retained coverage repair = %+v err=%v, want fresh verified scan", repaired, err)
+	}
 	second, err := BackfillSemanticInventory(ctx, store, manifest, options)
 	if err != nil || !second.NoOp {
 		t.Fatalf("second retained backfill = %+v err=%v, want complete no-op", second, err)

@@ -181,7 +181,7 @@ func TestCorrelatedPhysicalStringAllPreservesArrayAndDeduplicatesCodingAliases(t
 	if !strings.Contains(rendered.Query, ": __correlation_flat_values") {
 		t.Fatalf("string ALL projection does not return the value array:\n%s", rendered.Query)
 	}
-	if !strings.Contains(rendered.Query, "COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group") || !strings.Contains(rendered.Query, "UNIQUE(FLATTEN(__correlation_owner_group[*].__correlation_candidate.values))") {
+	if !strings.Contains(rendered.Query, "COLLECT __correlation_owner_key = __correlation_candidate.key INTO __correlation_owner_group = { values: __correlation_candidate.values, unsupported: __correlation_candidate.unsupported }") || !strings.Contains(rendered.Query, "UNIQUE(FLATTEN(__correlation_owner_group[*].values))") {
 		t.Fatalf("correlated projection does not collapse duplicate Coding aliases within an owner:\n%s", rendered.Query)
 	}
 }

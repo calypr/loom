@@ -48,6 +48,7 @@ func (a AuthorizedCapability) Clone() AuthorizedCapability {
 type CompileReceiptRequest struct {
 	Project                    string
 	ExplorerID                 string
+	Purpose                    explorer.ReceiptPurpose
 	Workspace                  authoringv2.Workspace
 	SnapshotToken              string
 	RequestID                  string
@@ -130,6 +131,10 @@ type Config struct {
 	Capability                         CapabilityResolver
 	SemanticInventory                  func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error)
 	ResolveSemanticInventorySelections func(context.Context, catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error)
+	MeasureRouteCoverage               func(context.Context, catalog.RouteCoverageOptions) (catalog.RouteCoverage, error)
+	HasRouteValue                      func(context.Context, catalog.RouteCoverageOptions) (bool, error)
+	AvailableColumns                   func(context.Context, catalog.AvailabilityOptions) (catalog.AvailabilityResult, error)
+	AvailabilityRoots                  func(context.Context, AuthorizedCapability, authoringv2.Workspace, string) ([]string, error)
 	// InterpretationRepository resolves exact immutable revision IDs. It is
 	// intentionally narrow so lifecycle cannot accidentally depend on heads or
 	// unrelated Explorer persistence methods.
@@ -203,6 +208,7 @@ type BuilderRequest struct {
 type compileRequest struct {
 	Project               string
 	ExplorerID            string
+	Purpose               explorer.ReceiptPurpose
 	Workspace             authoringv2.Workspace
 	SnapshotToken         string
 	RequestID             string

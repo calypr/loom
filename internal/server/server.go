@@ -10,10 +10,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -116,6 +118,55 @@ func classifyDataframeQueryError(err error) error {
 	}
 }
 
+func logDataframeAQL(
+	logger *slog.Logger,
+	ctx context.Context,
+	query string,
+	batchSize int,
+	bindVars map[string]any,
+	visit func(map[string]any) error,
+	queryRows func(context.Context, string, int, map[string]any, arangostore.RowVisitor) error,
+) error {
+	started := time.Now()
+	digest := sha256.Sum256([]byte(query))
+	queryID := hex.EncodeToString(digest[:8])
+	logger.Info("dataframe AQL start", "query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
+
+	rowCount := 0
+	var timeToFirstRow time.Duration
+	observedVisit := func(row map[string]any) error {
+		if rowCount == 0 {
+			timeToFirstRow = time.Since(started)
+		}
+		rowCount++
+		return visit(row)
+	}
+	err := queryRows(ctx, query, batchSize, bindVars, observedVisit)
+	fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "row_count", rowCount, "seconds", time.Since(started).Seconds()}
+	if rowCount > 0 {
+		fields = append(fields, "time_to_first_row_seconds", timeToFirstRow.Seconds())
+	}
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			logger.Info("dataframe AQL canceled", append(fields, "status", "canceled")...)
+		} else {
+			failureFields := append(fields, "status", "failed", "error_type", fmt.Sprintf("%T", err))
+			if ok, arangoErr := shared.IsArangoError(err); ok && arangoErr.HasError {
+				failureFields = append(failureFields, "error_num", arangoErr.ErrorNum, "http_code", arangoErr.Code)
+			}
+			logger.Error("dataframe AQL failed", failureFields...)
+		}
+		return classifyDataframeQueryError(err)
+	}
+	if rowCount == 0 {
+		logger.Info("dataframe AQL no rows", append(fields, "status", "no_rows")...)
+		return nil
+	}
+	logger.Info("dataframe AQL complete", append(fields, "status", "complete")...)
+	return nil
+}
+
 func run(ctx context.Context, serverConfig Config) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
 	connOpts := arangostore.ConnectionOptions{
@@ -173,6 +224,12 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create catalog store: %w", err)
 	}
+	if err := catalogStore.ConfigureAvailabilityCache(filepath.Join(serverConfig.Server.ArtifactDirectory, "column-availability"), connOpts.URL+"\x00"+connOpts.Database); err != nil {
+		logger.Warn("column availability disk cache disabled", "error", err)
+	}
+	stopAvailability := context.AfterFunc(ctx, catalogStore.CloseAvailability)
+	defer stopAvailability()
+	defer catalogStore.CloseAvailability()
 	discoverFields := discoveryCache.DiscoverFields(catalogStore.DiscoverFields)
 	discoverReferences := discoveryCache.DiscoverReferences(catalogStore.DiscoverReferences)
 
@@ -222,18 +279,9 @@ func run(ctx context.Context, serverConfig Config) error {
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			started := time.Now()
-			digest := sha256.Sum256([]byte(query))
-			queryID := hex.EncodeToString(digest[:8])
-			logger.Info("dataframe AQL start", "query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-			err := lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, visit)
-			fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "seconds", time.Since(started).Seconds()}
-			if err != nil {
-				logger.Error("dataframe AQL failed", append(fields, "error", err.Error())...)
-				return classifyDataframeQueryError(err)
-			}
-			logger.Info("dataframe AQL complete", fields...)
-			return nil
+			return logDataframeAQL(logger, ctx, query, batchSize, bindVars, visit, func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit arangostore.RowVisitor) error {
+				return lifecycleClient.QueryRowsWithOptions(ctx, query, batchSize, bindVars, arangostore.QueryRowsOptions{MaxNumberOfPlans: 1}, visit)
+			})
 		},
 		ScopeDigest:  recipeScopeDigest,
 		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
@@ -397,6 +445,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	lifecycleConfig := lifecycle.Config{
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
+		MeasureRouteCoverage:               catalogStore.MeasureRouteCoverage,
+		HasRouteValue:                      catalogStore.HasRouteValue,
+		AvailableColumns:                   catalogStore.AvailableColumns,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
 		InterpretationRepository:           explorerStore,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
@@ -440,6 +491,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			if receipt == nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
 			}
+			started := time.Now()
 			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
 			if err != nil {
 				logger.Error("Explorer receipt preview resolution failed", "receipt_id", receipt.ID, "error", err)
@@ -449,7 +501,18 @@ func run(ctx context.Context, serverConfig Config) error {
 			if len(bindings.OutputNames) > 0 {
 				output = bindings.OutputNames[0]
 			}
-			return recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
+			resolutionDuration := time.Since(started)
+			summary, err := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
+			logger.Info("Explorer receipt preview phases",
+				"receipt_id", receipt.ID, "output", output,
+				"columns", len(summary.Columns), "rows", summary.RowCount,
+				"execution_path", summary.ExecutionPath,
+				"resolution_seconds", resolutionDuration.Seconds(),
+				"lowering_seconds", summary.LoweringDuration.Seconds(),
+				"query_seconds", summary.QueryDuration.Seconds(),
+				"total_seconds", time.Since(started).Seconds(), "error", err,
+			)
+			return summary, err
 		},
 		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
 			if receipt == nil {

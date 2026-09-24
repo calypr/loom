@@ -40,6 +40,12 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 			}
 			nullable = nullable || column.Nullable
 			repeated = repeated || column.Repeated
+			filterable := capabilities.Filterable
+			sortable := !repeated
+			aggregatable := !repeated && logical != "json"
+			if strings.EqualFold(logical, "object") {
+				filterable, sortable, aggregatable = false, false, false
+			}
 			columns = append(columns, loomapi.RecipeExecutionColumn{
 				Name:           column.Name,
 				SemanticPath:   column.SemanticPath,
@@ -47,9 +53,9 @@ func (r *HTTPRoutes) recipeExecution(ctx context.Context, id string) (any, int) 
 				LogicalType:    logical,
 				Nullable:       nullable,
 				Repeated:       repeated,
-				Filterable:     capabilities.Filterable,
-				Sortable:       !repeated,
-				Aggregatable:   !repeated && logical != "json",
+				Filterable:     filterable,
+				Sortable:       sortable,
+				Aggregatable:   aggregatable,
 			})
 		}
 		outputs = append(outputs, loomapi.RecipeExecutionOutput{

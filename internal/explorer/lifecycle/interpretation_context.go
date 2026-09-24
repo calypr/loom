@@ -182,11 +182,16 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	headRevisions := interpretationHeadRevisions(libraries, revisions)
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
-			resolution, resolveErr := explorercompilation.ResolveInterpretationCandidate(document, column, authorized.Snapshot)
-			if resolveErr != nil {
-				return result, conflict("interpretation-context", "STALE_COLUMN_ROUTE", "a configured column route no longer resolves in this authorized snapshot", nil, resolveErr)
-			}
 			entry := ConfiguredColumnContext{OutputID: document.Output.ID, Column: column.Column, OccurrenceID: column.OccurrenceID}
+			resolution, resolveErr := explorercompilation.ResolveInterpretationCandidateForColumn(document, column, authorized.Snapshot)
+			if resolveErr != nil {
+				entry.Resolution = configuredColumnUnavailable{
+					state:  explorercompilation.InterpretationCandidateMissing,
+					reason: "The saved route no longer resolves in this catalog snapshot. Review or remove this column before previewing.",
+				}
+				result.Columns = append(result.Columns, entry)
+				continue
+			}
 			match, ready := resolution.Match()
 			if !ready {
 				entry.Resolution = configuredColumnUnavailable{state: resolution.State(), reason: resolution.Reason()}
