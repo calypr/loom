@@ -47,7 +47,7 @@ const unresolvedAvailability = (state: ShapeCapabilitiesState): OperationAvailab
     ? { kind: 'loading', message: 'Checking the choices supported for this table…' }
     : state.kind === 'error'
       ? { kind: 'unknown', message: state.message }
-      : { kind: 'unknown', message: 'Table capabilities have not loaded.' };
+      : { kind: 'unknown', message: 'Operation choices have not loaded yet.' };
 
 const unsupportedReason = (
   capabilities: TableShapeCapabilities,
@@ -68,7 +68,7 @@ const intentionsFor = (args: {
   const { family, rootAvailable, shapeState, constructionPresent } = args;
   const capability = shapeState.kind === 'ready' ? shapeState.capabilities : undefined;
   const calcAvailability = constructionPresent
-    ? unavailable('This table uses typed construction steps. The current V2 operation editor cannot edit those steps yet.')
+    ? unavailable('This table’s saved steps cannot be changed from this editor yet.')
     : capability
       ? capability.derivedAvailability.kind === 'supported' &&
         capability.binaryOperators.some((choice) => choice.availability.kind === 'supported')
@@ -78,18 +78,18 @@ const intentionsFor = (args: {
           : 'Loom did not return a supported binary calculation for this table.')
       : unresolvedAvailability(shapeState);
   const pivotAvailability = constructionPresent
-    ? unavailable('This table uses typed construction steps. The current V2 reshape editor cannot edit those steps yet.')
+    ? unavailable('This table’s saved steps cannot be changed from this editor yet.')
     : capability
       ? capability.reshapeModes.find((choice) => choice.mode === 'GROUPED_PIVOT')?.availability.kind === 'supported'
         ? supported()
-        : unavailable(unsupportedReason(capability, 'GROUPED_PIVOT', 'Loom did not return an executable pivot choice for this table.'))
+        : unavailable(unsupportedReason(capability, 'GROUPED_PIVOT', 'Pivoting is not available for the current columns.'))
       : unresolvedAvailability(shapeState);
   const unpivotAvailability = constructionPresent
-    ? unavailable('This table uses typed construction steps. The current V2 reshape editor cannot edit those steps yet.')
+    ? unavailable('This table’s saved steps cannot be changed from this editor yet.')
     : capability
       ? capability.reshapeModes.find((choice) => choice.mode === 'UNPIVOT')?.availability.kind === 'supported'
         ? supported()
-        : unavailable(unsupportedReason(capability, 'UNPIVOT', 'Loom did not return an executable unpivot choice for this table.'))
+        : unavailable(unsupportedReason(capability, 'UNPIVOT', 'Unpivoting is not available for the current columns.'))
       : unresolvedAvailability(shapeState);
 
   switch (family) {
@@ -107,13 +107,13 @@ const intentionsFor = (args: {
           value: { family, intent: 'SUMMARIZE_RELATED' },
           label: 'Summarize related records',
           description: 'Add a count, total, or other summary of matching records to each row.',
-          availability: unavailable('Current V2 construction choices can add related values while preserving row grain, but they do not expose count or total summaries.'),
+          availability: unavailable('You can bring related values into each row. Counts and totals for related records are not available here yet.'),
         },
         {
           value: { family, intent: 'REUSE_CALCULATION' },
           label: 'Reuse a saved calculation',
           description: 'Choose a saved definition and connect its inputs to this table.',
-          availability: unavailable('Current V2 authoring choices do not expose saved calculation definitions as reusable inputs.'),
+          availability: unavailable('Saved calculations cannot be connected here yet. Create a new calculation from this table instead.'),
         },
       ];
     case 'KEEP_ROWS':
@@ -122,25 +122,25 @@ const intentionsFor = (args: {
           value: { family, intent: 'MATCH_CONDITIONS' },
           label: 'Match conditions',
           description: 'Keep rows that satisfy rules about their values.',
-          availability: unavailable('The current V2 authoring API does not provide stage-level filters for this table.'),
+          availability: unavailable('Rows in this table cannot be filtered by their values here yet.'),
         },
         {
           value: { family, intent: 'MATCH_RELATED' },
           label: 'Match related records',
           description: 'Keep rows based on the presence or contents of related records.',
-          availability: unavailable('The current V2 authoring API does not expose related-record predicates for a constructed table.'),
+          availability: unavailable('This table cannot yet keep rows based on matching related records.'),
         },
         {
           value: { family, intent: 'REMOVE_DUPLICATES' },
           label: 'Remove duplicates',
           description: 'Keep one row for each chosen combination of values.',
-          availability: unavailable('The current V2 authoring API does not expose stage-level duplicate removal or survivor rules.'),
+          availability: unavailable('This table cannot yet keep one row per chosen combination of values.'),
         },
         {
           value: { family, intent: 'KEEP_RANKED' },
           label: 'Keep ranked rows',
           description: 'Keep a chosen number of rows, overall or within each group.',
-          availability: unavailable('The current V2 authoring API does not expose ranking, partition, or tie choices for this table.'),
+          availability: unavailable('This table cannot yet rank rows or choose what to do with ties.'),
         },
       ];
     case 'CALCULATE':
@@ -155,25 +155,25 @@ const intentionsFor = (args: {
           value: { family, intent: 'SET_BY_CONDITION' },
           label: 'Set values by condition',
           description: 'Assign values when rules match, with an explicit fallback.',
-          availability: unavailable('Current V2 calculation capabilities expose binary expressions, not ordered condition/result rules.'),
+          availability: unavailable('Conditional assignments are not available here yet. You can create a numeric calculation when Loom offers compatible inputs.'),
         },
         {
           value: { family, intent: 'RECODE' },
           label: 'Recode values',
           description: 'Map existing values or categories to new ones.',
-          availability: unavailable('Current V2 calculation capabilities do not expose value mappings or an unmapped-value policy.'),
+          availability: unavailable('Category value mappings are not available here yet.'),
         },
         {
           value: { family, intent: 'HANDLE_MISSING' },
           label: 'Handle missing values',
           description: 'Fill missing values using a chosen value or supported calculation.',
-          availability: unavailable('Current V2 capabilities apply missing-input policies inside a binary calculation; they do not expose a separate fill operation.'),
+          availability: unavailable('A missing-value rule can be chosen inside a supported calculation. Filling a column on its own is not available here.'),
         },
         {
           value: { family, intent: 'CALCULATE_ACROSS_ROWS' },
           label: 'Calculate across rows',
           description: 'Use ordered or grouped rows to calculate ranks, changes, or running values.',
-          availability: unavailable('Current V2 capabilities do not expose window, rank, lag, or running-value operations for this table.'),
+          availability: unavailable('Running values, row-to-row changes, and ranks are not available here yet.'),
         },
       ];
     case 'RESHAPE':
@@ -182,7 +182,7 @@ const intentionsFor = (args: {
           value: { family, intent: 'SUMMARIZE_GROUPS' },
           label: 'Summarize into groups',
           description: 'Make one row for each group and calculate summaries.',
-          availability: unavailable('Current V2 shape choices support pivot and unpivot, not general group-by summaries.'),
+          availability: unavailable('General group summaries are not available here yet. Pivoting and unpivoting may be available for this table.'),
         },
         {
           value: { family, intent: 'PIVOT' },
@@ -200,7 +200,7 @@ const intentionsFor = (args: {
           value: { family, intent: 'EXPAND_REPEATED' },
           label: 'Expand repeated values',
           description: 'Make a separate row for each item in a repeated value.',
-          availability: unavailable('Current V2 table-shape choices do not expose repeated-value expansion for this output.'),
+          availability: unavailable('Repeated values cannot yet be expanded into separate rows here.'),
         },
       ];
     case 'COMBINE':
@@ -209,25 +209,25 @@ const intentionsFor = (args: {
           value: { family, intent: 'MATCH_COLUMNS' },
           label: 'Add matching columns',
           description: 'Match rows in another table and bring over selected columns.',
-          availability: unavailable('Current V2 authoring has no input reference to another constructed table, so it cannot execute this match.'),
+          availability: unavailable('Another saved table cannot be selected as an input here yet.'),
         },
         {
           value: { family, intent: 'APPEND_ROWS' },
           label: 'Append rows',
           description: 'Stack tables with an explicit alignment of their columns.',
-          availability: unavailable('Current V2 authoring has no table-result append operation or column-alignment choices.'),
+          availability: unavailable('Rows from another saved table cannot be appended here yet.'),
         },
         {
           value: { family, intent: 'COMPARE_MEMBERSHIP' },
           label: 'Compare membership',
           description: 'Keep rows that also appear, or do not appear, in another table.',
-          availability: unavailable('Current V2 authoring has no table-result membership operation or matching-key choices.'),
+          availability: unavailable('This table cannot yet be compared with another saved table by matching columns.'),
         },
         {
           value: { family, intent: 'MAKE_COMBINATIONS' },
           label: 'Make combinations',
           description: 'Create rows from supported pairs of records in two tables.',
-          availability: unavailable('Current V2 authoring has no two-table pairing operation or row-growth policy.'),
+          availability: unavailable('Rows from two saved tables cannot yet be paired here.'),
         },
       ];
     default: {
@@ -237,10 +237,8 @@ const intentionsFor = (args: {
   }
 };
 
-const requestFailureMessage = (error: unknown): string =>
-  typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string'
-    ? error.message
-    : 'Loom could not load operation choices for this table.';
+const requestFailureMessage = (): string =>
+  'Could not check operation choices. Reload the table and try again.';
 
 const intentionKey = (intention: ConstructionOperationIntent): string =>
   `${intention.family}:${intention.intent}`;
@@ -294,9 +292,9 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
         throw new Error('Loom returned operation choices for another table. Reload the Builder and try again.');
       }
       setShapeState({ kind: 'ready', capabilities });
-    }).catch((error: unknown) => {
+    }).catch(() => {
       if (controller.signal.aborted) return;
-      setShapeState({ kind: 'error', message: requestFailureMessage(error) });
+      setShapeState({ kind: 'error', message: requestFailureMessage() });
     });
     return () => controller.abort();
   }, [client, constructionPresent, props.authResourcePath, props.draftDigest, props.draftVersion, props.explorerId, props.family, props.project, props.snapshotToken, props.table.outputId]);
@@ -376,11 +374,17 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
         </section>
       ) : null}
 
+      {availableIntentions.length === 0 && checkingIntentions.length === 0 && unavailableIntentions.length > 0 ? (
+        <p role="status" className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          No supported actions are available here yet. Open “See more options” to review the alternatives.
+        </p>
+      ) : null}
+
       {unavailableIntentions.length > 0 ? (
-        <section aria-label="Unavailable operations" data-testid="construction-operation-unavailable">
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">Unavailable here</h3>
+        <details data-testid="construction-operation-unavailable" className="rounded-lg border border-slate-200 px-3 py-2">
+          <summary className="cursor-pointer font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">See more options</summary>
           <ul className="grid gap-2">{unavailableIntentions.map(renderIntention)}</ul>
-        </section>
+        </details>
       ) : null}
 
       {shapeState.kind === 'error' && (props.family === 'CALCULATE' || props.family === 'RESHAPE') ? (
@@ -426,7 +430,7 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
           </div>
           {shapeState.kind === 'ready' && shapeState.capabilities.savedProposalIntent.kind !== 'NONE' ? (
             <p role="status" className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-950">
-              This V2 proposal editor keeps the saved calculation and reshape settings together. Review any existing settings before applying a change.
+              Saved calculations and reshape settings stay together in one review. Check existing settings before applying a change.
             </p>
           ) : null}
           <TableShapeSettingsPanel

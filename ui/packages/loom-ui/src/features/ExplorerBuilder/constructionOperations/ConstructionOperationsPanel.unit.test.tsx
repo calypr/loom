@@ -145,10 +145,13 @@ describe('construction operation families', () => {
   it('states why stage-level row operations are unavailable and retains selected input context', () => {
     renderPanel({ selectedColumns: ['age', 'measurement'] });
 
+    const moreOptions = screen.getByTestId('construction-operation-unavailable');
+    expect(moreOptions).not.toHaveAttribute('open');
+    fireEvent.click(within(moreOptions).getByText('See more options'));
     const unavailable = within(screen.getByTestId('construction-operation-unavailable'));
     expect(unavailable.getByText('Match conditions')).toBeDisabled();
-    expect(unavailable.getByText(/does not provide stage-level filters/)).toBeInTheDocument();
-    expect(unavailable.getByText(/does not expose ranking, partition, or tie choices/)).toBeInTheDocument();
+    expect(unavailable.getByText(/cannot be filtered by their values/)).toBeInTheDocument();
+    expect(unavailable.getByText(/cannot yet rank rows or choose what to do with ties/)).toBeInTheDocument();
 
     const inputs = within(screen.getByTestId('construction-operation-selected-inputs'));
     expect(inputs.getByText('age')).toBeInTheDocument();
@@ -188,7 +191,8 @@ describe('construction operation families', () => {
 
     const available = within(await screen.findByTestId('construction-operation-available'));
     expect(await available.findByTestId('construction-operation-intention-calculate-calculate_value')).toBeEnabled();
+    fireEvent.click(screen.getByText('See more options'));
     expect(screen.getByTestId('construction-operation-intention-calculate-set_by_condition')).toBeDisabled();
-    expect(screen.getByText(/binary expressions, not ordered condition\/result rules/)).toBeInTheDocument();
+    expect(screen.getByText(/Conditional assignments are not available here yet/)).toBeInTheDocument();
   });
 });
