@@ -56,6 +56,7 @@ type CompileReceiptRequest struct {
 	SelectionMembersCollection string
 	RowDefinitionProposal      *explorer.RowDefinitionProposalBinding
 	TableShapeProposal         *explorer.TableShapeProposalBinding
+	ConstructionProposal       *explorer.ConstructionProposalBinding
 }
 
 type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.CompilationReceipt, error)
@@ -208,6 +209,7 @@ type compileRequest struct {
 	RequestID             string
 	RowDefinitionProposal *explorer.RowDefinitionProposalBinding
 	TableShapeProposal    *explorer.TableShapeProposalBinding
+	ConstructionProposal  *explorer.ConstructionProposalBinding
 }
 
 type ReconcileRequest struct {

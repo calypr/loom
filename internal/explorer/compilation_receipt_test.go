@@ -178,6 +178,55 @@ func TestCompilationReceiptRejectsInvalidRowDefinitionProposalBinding(t *testing
 	}
 }
 
+func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testing.T) {
+	base := testReceipt()
+	base.IntentDigest = "sha256:candidate"
+	base.ConstructionProposal = &ConstructionProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
+		SnapshotToken: base.SnapshotToken,
+	}
+	base.CompilationKey, _ = CompilationKey(base)
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []struct {
+		name   string
+		change func(*ConstructionProposalBinding)
+	}{
+		{name: "draft version", change: func(binding *ConstructionProposalBinding) { binding.DraftVersion++ }},
+		{name: "draft digest", change: func(binding *ConstructionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
+		{name: "output", change: func(binding *ConstructionProposalBinding) { binding.OutputID = "other" }},
+		{name: "step", change: func(binding *ConstructionProposalBinding) { binding.ChangedStepID = "other-step" }},
+		{name: "base document", change: func(binding *ConstructionProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
+		{name: "candidate workspace", change: func(binding *ConstructionProposalBinding) {
+			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
+		}},
+		{name: "snapshot", change: func(binding *ConstructionProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := base
+			binding := *base.ConstructionProposal
+			test.change(&binding)
+			changed.ConstructionProposal = &binding
+			key, keyErr := CompilationKey(changed)
+			if keyErr != nil {
+				t.Fatal(keyErr)
+			}
+			changed.CompilationKey = key
+			id, idErr := ReceiptID(changed)
+			if idErr != nil {
+				t.Fatal(idErr)
+			}
+			if id == first {
+				t.Fatal("construction proposal binding did not change receipt identity")
+			}
+		})
+	}
+}
+
 func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
@@ -188,6 +237,19 @@ func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T)
 	}
 	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted table-shape proposal binding for a different candidate workspace")
+	}
+}
+
+func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.T) {
+	receipt := testReceipt()
+	receipt.IntentDigest = "sha256:candidate"
+	receipt.ConstructionProposal = &ConstructionProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
+		SnapshotToken: receipt.SnapshotToken,
+	}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted construction proposal binding for a different candidate workspace")
 	}
 }
 
@@ -284,11 +346,12 @@ func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T
 	if !ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current receipt was not executable")
 	}
-	r.ReceiptFormatVersion = 3
-	r.CompilerContractVersion = "loom.explorer.compiler/v13"
+	r.ReceiptFormatVersion = previousCompilationReceiptFormatVersion
+	r.CompilerContractVersion = previousCompilationReceiptCompilerContractVersion
 	if !ReceiptContractSupportedForExecution(r) {
 		t.Fatal("immediately previous receipt was not executable")
 	}
+	r.ReceiptFormatVersion = legacyCompilationReceiptFormatVersion
 	r.CompilerContractVersion = "loom.explorer.compiler/v12"
 	if ReceiptContractSupportedForExecution(r) {
 		t.Fatal("older receipt was executable")
