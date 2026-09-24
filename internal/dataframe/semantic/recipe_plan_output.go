@@ -37,7 +37,7 @@ func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (O
 	}
 	scope := newRootScope(output.RootResourceType)
 	projectionScope := scope
-	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Collision: output.CollisionPolicy}
+	plan := OutputPlan{Name: output.Name, RootResourceType: output.RootResourceType, RowGrain: grain, RootColumnNaming: output.RootColumnNaming.Normalized(), TraversalColumnNaming: output.TraversalColumnNaming.Normalized(), Construction: output.Construction, Collision: output.CollisionPolicy}
 	if output.TableReshape != nil {
 		reshape, err := semanticTableReshape(*output.TableReshape)
 		if err != nil {

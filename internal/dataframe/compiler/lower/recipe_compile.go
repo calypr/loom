@@ -64,7 +64,9 @@ type CompiledRecipeOutput struct {
 // Cardinality are logical, backend-neutral values; Internal projections are
 // never exposed by dataframe transports.
 type CompiledOutputColumn struct {
-	Name string
+	ID    string
+	Name  string
+	Label string
 	// SemanticPath is the stable FHIR/provenance identity for this column.
 	// Physical names are deliberately excluded so storage renames do not
 	// invalidate Explorer configuration.

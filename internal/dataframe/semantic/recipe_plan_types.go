@@ -45,6 +45,7 @@ type OutputPlan struct {
 	CatalogProjections    []string
 	ColumnTransformations []recipe.ColumnTransformation
 	DerivedColumns        []recipe.DerivedColumn
+	Construction          *recipe.Construction
 	Collision             string
 	Population            *SemanticPopulation
 }

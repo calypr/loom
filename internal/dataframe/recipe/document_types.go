@@ -57,8 +57,11 @@ type Output struct {
 	CatalogProjections    []CatalogProjection     `json:"catalogProjections,omitempty"`
 	ColumnTransformations []ColumnTransformation  `json:"columnTransformations,omitempty"`
 	DerivedColumns        []DerivedColumn         `json:"derivedColumns,omitempty"`
-	Population            *PopulationConstraint   `json:"population,omitempty"`
-	CollisionPolicy       string                  `json:"collisionPolicy,omitempty"`
+	// Construction is an ordered typed sequence over the source projection.
+	// When present, legacy output-level shape operations are not used.
+	Construction    *Construction         `json:"construction,omitempty"`
+	Population      *PopulationConstraint `json:"population,omitempty"`
+	CollisionPolicy string                `json:"collisionPolicy,omitempty"`
 }
 
 // ColumnTransformation binds one closed value transformation to its stable
@@ -135,7 +138,11 @@ func (n TraversalColumnNaming) Normalized() TraversalColumnNaming {
 
 // Field projects one named semantic value into an output row.
 type Field struct {
-	Name       string       `json:"name"`
+	Name string `json:"name"`
+	// ColumnID is the stable authoring identity used by construction stages.
+	// Legacy recipes may omit it and retain name-based behavior.
+	ColumnID   string       `json:"columnId,omitempty"`
+	Label      string       `json:"label,omitempty"`
 	FieldRef   string       `json:"fieldRef,omitempty"`
 	Expr       Expression   `json:"expr"`
 	Fallbacks  []Expression `json:"fallbacks,omitempty"`

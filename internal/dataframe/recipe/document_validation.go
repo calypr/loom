@@ -88,6 +88,17 @@ func (b Bundle) Validate() error {
 		if err := validateDerivedColumns(output.DerivedColumns, path+".derivedColumns"); err != nil {
 			return err
 		}
+		if output.Construction != nil {
+			if output.TableReshape != nil || len(output.DerivedColumns) > 0 {
+				return validationError("ambiguous_construction", path+".construction", "construction cannot be combined with legacy tableReshape or derivedColumns")
+			}
+			if output.GroupRows != nil {
+				return validationError("unsupported_construction", path+".construction", "construction cannot be combined with explicit group rows")
+			}
+			if err := output.Construction.Validate(output.Fields); err != nil {
+				return validationError("invalid_construction", path+".construction", err.Error())
+			}
+		}
 		if output.TableReshape != nil {
 			if err := output.TableReshape.Validate(); err != nil {
 				return validationError("invalid_table_reshape", path+".tableReshape", err.Error())

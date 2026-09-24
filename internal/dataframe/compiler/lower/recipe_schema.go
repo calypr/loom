@@ -36,6 +36,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		}, nil
 	}
 	logical := make(map[string]CompiledOutputColumn)
+	fieldMetadata := make(map[string]struct{ id, label string })
 	for _, dynamic := range dynamicMetadata {
 		kind := dynamic.ValueType
 		if kind == "" || kind == "unknown" {
@@ -72,6 +73,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		for _, field := range node.Fields {
 			name := prefix + field.Name
 			addType(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, field.FieldRef, field.Expr.Expression), field.Expr.Type, field.Discovered, nil)
+			fieldMetadata[name] = struct{ id, label string }{field.ColumnID, field.Label}
 		}
 		for _, aggregate := range node.Aggregates {
 			name := aggregate.Name
@@ -149,6 +151,13 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				}
 			}
 			column.Name = projection.Name
+			if field, ok := fieldMetadata[projection.Name]; ok {
+				column.ID = field.id
+				column.Label = field.label
+			}
+			if column.Label == "" {
+				column.Label = column.Name
+			}
 			column.Internal = projection.Hidden || projection.Name == "_key" || strings.HasPrefix(projection.Name, "__loom_")
 			column.Identity = projection.Name == "_key" || projection.Name == "__loom_row_id" || projection.Name == "__loom_expansion_identity"
 			result = append(result, column)
