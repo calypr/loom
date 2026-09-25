@@ -146,6 +146,15 @@ const stepInputFor = (stage: ConstructionStageDescriptor): ConstructionStep['inp
     ? { kind: 'SOURCE_PROJECTION' }
     : { kind: 'STEP_OUTPUT', stepId: stage.id };
 
+const constructionOutputsForStage = (
+  stage: ConstructionStageDescriptor,
+): ConstructionStep['outputs'] => stage.columns.map((column) => ({
+  id: column.id,
+  name: column.name,
+  label: column.label,
+  ...(column.type === undefined ? {} : { type: column.type }),
+}));
+
 const replaceOrAppendStep = (
   construction: Construction,
   editingStep: ConstructionStep | undefined,
@@ -329,7 +338,7 @@ const buildFilterCandidate = (args: {
     id: editingStep?.id ?? stepId,
     inputs: [stepInputFor(stage)],
     operation: { kind: 'FILTER', filter },
-    outputs: stage.columns.map((candidate) => ({ ...candidate })),
+    outputs: constructionOutputsForStage(stage),
   } satisfies ConstructionStep;
   const candidateConstruction = replaceOrAppendStep(construction, editingStep, step);
   if (!candidateConstruction) return undefined;
@@ -579,7 +588,7 @@ const buildDeriveCandidate = (args: {
     id: editingStep?.id ?? stepId,
     inputs: [stepInputFor(stage)],
     operation: { kind: 'DERIVE', derive },
-    outputs: [...stage.columns.map((candidate) => ({ ...candidate })), output],
+    outputs: [...constructionOutputsForStage(stage), output],
   } satisfies ConstructionStep;
   const candidateConstruction = replaceOrAppendStep(construction, editingStep, step);
   if (!candidateConstruction) return undefined;

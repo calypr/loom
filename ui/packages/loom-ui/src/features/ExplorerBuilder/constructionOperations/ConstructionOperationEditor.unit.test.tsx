@@ -2,10 +2,12 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createLoomClient } from '../../../api';
 import {
   constructionSchema,
   type Construction,
   type ConstructionCapabilitiesResponse,
+  type ConstructionProposalResponse,
   type ConstructionProposalRequest,
   type ConstructionStageDescriptor,
   type ConstructionStep,
@@ -35,21 +37,23 @@ const sourceStage: ConstructionStageDescriptor = {
 const capabilitiesFor = (
   construction: Construction = { version: 1, steps: [] },
   stages: ReadonlyArray<ConstructionStageDescriptor> = [sourceStage],
+  selectedStage: ConstructionStageDescriptor = sourceStage,
 ): ConstructionCapabilitiesResponse => ({
   snapshotToken: 'snapshot-1',
   draftVersion: 1,
   draftDigest: 'draft-digest-1',
   outputId: 'table-1',
-  stageId: sourceStage.id,
+  stageId: selectedStage.id,
   baseConstruction: construction,
   stages: [...stages],
-  selectedStage: sourceStage,
+  selectedStage,
 });
 
 const renderEditor = (args: {
   readonly family: 'KEEP_ROWS' | 'CALCULATE';
   readonly construction?: Construction;
   readonly stages?: ReadonlyArray<ConstructionStageDescriptor>;
+  readonly selectedStage?: ConstructionStageDescriptor;
   readonly editingStep?: ConstructionStep;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
@@ -61,7 +65,7 @@ const renderEditor = (args: {
     <ConstructionOperationEditor
       family={args.family}
       construction={args.construction ?? { version: 1, steps: [] }}
-      capabilities={capabilitiesFor(args.construction, args.stages)}
+      capabilities={capabilitiesFor(args.construction, args.stages, args.selectedStage)}
       editingStep={args.editingStep}
       selectedColumns={args.selectedColumns}
       disabled={false}
@@ -120,6 +124,82 @@ describe('ConstructionOperationEditor', () => {
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Value' }), { target: { value: '' } });
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('projects stage-only cardinality out before the real proposal request is serialized', async () => {
+    const stage: ConstructionStageDescriptor = {
+      ...sourceStage,
+      columns: [
+        { id: 'age-id', name: 'age', label: 'Age', type: 'integer', cardinality: 'required_one' },
+        { id: 'weight-id', name: 'weight', label: 'Weight', type: 'decimal', cardinality: 'optional_one' },
+      ],
+    };
+    const onCandidateChange = vi.fn();
+    renderEditor({
+      family: 'KEEP_ROWS',
+      stages: [stage],
+      selectedStage: stage,
+      onCandidateChange,
+    });
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Value' }), { target: { value: '21' } });
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate).toBeDefined();
+    if (!candidate) throw new Error('Expected a typed filter candidate.');
+    const changedStepId = candidate.changedStepId;
+    if (!changedStepId) throw new Error('Expected a changed step ID.');
+    const candidateConstruction = candidate.candidateConstruction;
+    expect(candidateConstruction.steps[0]?.outputs).toEqual([
+      { id: 'age-id', name: 'age', label: 'Age', type: 'integer' },
+      { id: 'weight-id', name: 'weight', label: 'Weight', type: 'decimal' },
+    ]);
+    expect(constructionSchema.parse(candidateConstruction)).toEqual(candidateConstruction);
+
+    const proposalResponse: ConstructionProposalResponse = {
+      proposalId: 'proposal-1',
+      outputId: 'table-1',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'draft-digest-1',
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'workspace-1',
+      changedStepId,
+      candidateConstruction,
+      dependencyImpact: { changedStepId, affectedStepIds: [] },
+      stages: [stage],
+      previewStatus: 'NEEDS_REPAIR',
+      previewDurationMs: 0,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify(proposalResponse), { status: 200 }),
+    );
+    const client = createLoomClient({ fetch });
+    const proposalArgs = {
+      project: 'project-a',
+      explorerId: 'explorer-a',
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'draft-digest-1',
+      outputId: 'table-1',
+      changedStepId,
+      candidateConstruction,
+    };
+
+    await expect(client.proposeConstruction(proposalArgs)).resolves.toEqual(proposalResponse);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1',
+          expectedDraftVersion: 1,
+          expectedDraftDigest: 'draft-digest-1',
+          outputId: 'table-1',
+          changedStepId,
+          candidateConstruction,
+        }),
+      }),
+    );
   });
 
   it('emits a value-free missing filter and routes saved conditions to the history editor', () => {
