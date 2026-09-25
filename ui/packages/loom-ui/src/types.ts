@@ -1778,6 +1778,8 @@ export type ConstructionChoiceSearchResponse = z.infer<
 
 export const relatedExpandChoiceSearchResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
   outputId: opaqueIdSchema,
   stageId: opaqueIdSchema,
   complete: z.boolean(),

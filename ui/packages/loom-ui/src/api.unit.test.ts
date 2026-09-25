@@ -519,7 +519,8 @@ describe('Loom project paths', () => {
 
   it('searches related-record expansion paths for the exact stage and accepts only server-issued routes', async () => {
     const response = {
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection',
       complete: true, truncated: false,
       choices: [{
         choiceId: 'signed-route-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter',

@@ -25,10 +25,14 @@ const routeLabel = (choice: RouteChoice): string =>
 const choicesMatchRequest = (
   result: RelatedExpandChoiceSearchResponse,
   snapshotToken: string,
+  draftVersion: number,
+  draftDigest: string,
   outputId: string,
   stageId: string,
   targetResourceType: string,
-): boolean => result.snapshotToken === snapshotToken && result.outputId === outputId
+): boolean => result.snapshotToken === snapshotToken
+  && result.draftVersion === draftVersion && result.draftDigest === draftDigest
+  && result.outputId === outputId
   && result.stageId === stageId
   && result.choices.every((item) => item.targetResourceType === targetResourceType);
 
@@ -160,7 +164,7 @@ export const RelatedExpandEditor = ({
       stageId: stage.id, targetResourceType, limit: 10,
     }, controller.signal).then((result) => {
       if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
+      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices(result.choices);
@@ -201,7 +205,7 @@ export const RelatedExpandEditor = ({
         stageId: stage.id, targetResourceType, limit: 10, cursor,
       }, controller.signal);
       if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
+      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices((current) => [...current, ...result.choices]);

@@ -49,7 +49,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
 describe('RelatedExpandEditor', () => {
   it('uses a server-issued route, waits for an empty-match decision, and retains parent columns', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
       complete: true, truncated: false,
       choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
@@ -84,7 +84,7 @@ describe('RelatedExpandEditor', () => {
 
   it('edits the saved step without replacing its identity or contributor condition', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
       complete: true, truncated: false,
       choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
@@ -141,7 +141,7 @@ describe('RelatedExpandEditor', () => {
 
   it('can choose a supported route from a later page', async () => {
     searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { cursor?: string }) => ({
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
       complete: Boolean(args.cursor), truncated: !args.cursor,
       ...(args.cursor ? {} : { nextCursor: 'next-route-page' }),
       choices: args.cursor
@@ -169,7 +169,7 @@ describe('RelatedExpandEditor', () => {
 
   it('uses a filtered input stage when the backend proves its source anchor survived', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'keep-patients',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'keep-patients',
       complete: true, truncated: false,
       choices: [{ choiceId: 'filtered-stage-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
@@ -206,7 +206,7 @@ describe('RelatedExpandEditor', () => {
       args.targetResourceType === 'Encounter'
         ? new Promise((resolve) => { resolveEncounter = resolve; })
         : Promise.resolve({
-          snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+          snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
           complete: true, truncated: false,
           choices: [{
             choiceId: 'observation-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation',
@@ -224,7 +224,7 @@ describe('RelatedExpandEditor', () => {
     fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Observation' } });
     expect(await screen.findByRole('radio', { name: 'Observation via subject_Observation' })).toBeInTheDocument();
     await act(async () => resolveEncounter?.({
-      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
       complete: true, truncated: false,
       choices: [{ choiceId: 'late-encounter', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     }));
