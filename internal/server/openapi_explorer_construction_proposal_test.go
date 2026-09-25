@@ -171,6 +171,171 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 }
 
+func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_observation", ResourceType: "Observation"})
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "e_patient_observation", FromNodeID: "n_patient", ToNodeID: "n_observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	snapshot.Edges = []capability.Edge{{
+		ID: "e_patient_observation", FromNodeID: "n_patient", ToNodeID: "n_observation",
+		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
+	}}
+	candidate := capability.Candidate{
+		ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: "status", Label: "Observation status", LogicalType: "string", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	snapshot.Candidates = append(snapshot.Candidates, candidate)
+	choice, err := capability.NewFieldConstructionChoiceForRoute(snapshot.Token, route, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageColumns := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	for _, column := range document.Columns {
+		stageColumns = append(stageColumns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	related := authoringv2.ConstructionRelatedSource{
+		AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, SourceOccurrenceID: candidate.NodeID,
+		Source: authoringv2.ConstructionRelatedFieldSource{
+			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
+			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality, LogicalType: candidate.LogicalType,
+		},
+		Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+		Form: capability.ConstructionChoiceAll, OutputColumnID: "observation-statuses",
+	}
+	stageColumns = append(stageColumns, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_statuses", Label: "Observation statuses", Type: candidate.LogicalType})
+	step := authoringv2.ConstructionStep{
+		ID: "step_related_observation_status", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related},
+		Outputs:   stageColumns,
+	}
+	candidateConstruction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{step}}
+	candidateJSON, err := json.Marshal(candidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedConstruction authoringv2.Construction
+	if err := json.Unmarshal(candidateJSON, &decodedConstruction); err != nil || len(decodedConstruction.Steps) != 1 || decodedConstruction.Steps[0].Operation.RelatedSource == nil {
+		t.Fatalf("related-source candidate JSON did not round trip: err=%v json=%s decoded=%#v", err, candidateJSON, decodedConstruction)
+	}
+	workspace.Documents[0] = document
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "custom", Title: "Patients",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil || receipt.ConstructionProposal == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("expected a construction proposal receipt")
+			}
+			var relatedEmission *explorer.EmittedColumn
+			for index := range receipt.EmittedColumns {
+				if receipt.EmittedColumns[index].PublicColumn == "observation_statuses" {
+					relatedEmission = &receipt.EmittedColumns[index]
+					break
+				}
+			}
+			if relatedEmission == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("candidate receipt omitted the related-source list metadata")
+			}
+			if relatedEmission.ConstructionID != step.ID || relatedEmission.SourceResourceType != "Observation" || relatedEmission.SourcePath != "status" || relatedEmission.CandidateID != candidate.ID || relatedEmission.OccurrenceID != candidate.NodeID ||
+				relatedEmission.NodeID != candidate.NodeID || len(relatedEmission.AuthoredColumns) != 0 || len(relatedEmission.InputColumns) != 0 ||
+				relatedEmission.Cardinality != "many" || relatedEmission.Shape != "array" || relatedEmission.Lossless || relatedEmission.MLReady || relatedEmission.StructuralSuitability != "requires-review" || relatedEmission.Filterable || relatedEmission.Chartable ||
+				!containsOutputContractString(relatedEmission.LossReasons, "RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY") || !containsOutputContractString(relatedEmission.LossReasons, tableShapeMLReadinessUnassessed) {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("related-source list metadata is not conservative: %#v", *relatedEmission)
+			}
+			contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+			if err != nil || len(contracts.Outputs) != 1 {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("decode related-source output contract: outputs=%d err=%v", len(contracts.Outputs), err)
+			}
+			var relatedContract *explorer.PublicOutputColumn
+			for index := range contracts.Outputs[0].Columns {
+				if contracts.Outputs[0].Columns[index].Column == "observation_statuses" {
+					relatedContract = &contracts.Outputs[0].Columns[index]
+					break
+				}
+			}
+			if relatedContract == nil || relatedContract.ConstructionID != step.ID || relatedContract.SourceResourceType != "Observation" || relatedContract.SourcePath != "status" ||
+				relatedContract.Cardinality != "many" || relatedContract.Shape != "array" || relatedContract.Lossless || relatedContract.MLReady || len(relatedContract.AuthoredColumns) != 0 || len(relatedContract.InputColumns) != 0 {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("public contract lost related-source identity or list shape: %#v", relatedContract)
+			}
+			if err := visit(map[string]any{"c_patient": "patient-1", "observation_statuses": []any{"final", "amended"}}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient", "observation_statuses"}, RowCount: 1, Complete: true}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
+	proposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":%q,"candidateConstruction":%s}`,
+		snapshot.Token, digest, step.ID, candidateJSON,
+	))
+	if proposalHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("related-source construction proposal status=%d body=%s", proposalHTTP.StatusCode, proposalHTTP.Body)
+	}
+	var proposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(proposalHTTP.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ProposalId == nil || proposal.PreviewStatus != "READY" || proposal.Preview == nil || proposal.Preview.RowCount != 1 {
+		t.Fatalf("related-source proposal did not preview the exact candidate: %#v", proposal)
+	}
+}
+
 func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())

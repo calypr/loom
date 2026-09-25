@@ -16,14 +16,20 @@ import (
 )
 
 type authoredOutputColumn struct {
-	ConstructionID string
-	Label          string
-	InputColumns   []string
-	Quality        constructedOutputQuality
+	ConstructionID     string
+	Label              string
+	InputColumns       []string
+	NodeID             string
+	CandidateID        string
+	OccurrenceID       string
+	SourceResourceType string
+	SourcePath         string
+	Quality            constructedOutputQuality
 }
 
 type constructedOutputQuality struct {
 	Lossless              bool
+	Shape                 string
 	StructuralSuitability string
 	LossReasons           []string
 }
@@ -200,6 +206,11 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				if err := applyCompiledColumnMetadata(&emitted, schemaColumn); err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
 				}
+				emitted.NodeID = metadata.NodeID
+				emitted.CandidateID = metadata.CandidateID
+				emitted.OccurrenceID = metadata.OccurrenceID
+				emitted.SourceResourceType = metadata.SourceResourceType
+				emitted.SourcePath = metadata.SourcePath
 				if _, collision := emittedIDs[recipeOutput.Name][emitted.EmissionID]; collision {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("constructed output %q column %q duplicates translated emission identity %q", recipeOutput.Name, schemaColumn.Name, emitted.EmissionID)
 				}
@@ -479,6 +490,33 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if step.Operation.Filter == nil {
 				return fmt.Errorf("filter step %q has no operation payload", step.ID)
 			}
+		case authoringv2.ConstructionOperationRelatedSource:
+			if step.Operation.RelatedSource == nil {
+				return fmt.Errorf("related-source step %q has no operation payload", step.ID)
+			}
+			related := step.Operation.RelatedSource
+			if related.Form != capability.ConstructionChoiceAll || related.ContributorRule.Policy != authoringv2.ConstructionRelatedAllMatches {
+				return fmt.Errorf("related-source step %q has unsupported output form or contributor policy", step.ID)
+			}
+			quality := constructedOutputQuality{
+				Lossless: false, Shape: "array", StructuralSuitability: "requires-review",
+				LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
+			}
+			if err := addOutput(related.OutputColumnID, step.ID, nil, quality); err != nil {
+				return err
+			}
+			for _, output := range step.Outputs {
+				if output.ID == related.OutputColumnID {
+					metadata := authored[output.Name]
+					metadata.NodeID = related.Source.NodeID
+					metadata.CandidateID = related.Source.CandidateID
+					metadata.OccurrenceID = related.SourceOccurrenceID
+					metadata.SourceResourceType = related.Source.ResourceType
+					metadata.SourcePath = related.Source.Path
+					authored[output.Name] = metadata
+					break
+				}
+			}
 		default:
 			return fmt.Errorf("step %q has unsupported operation kind %q", step.ID, step.Operation.Kind)
 		}
@@ -584,13 +622,33 @@ type constructedColumnProfile struct {
 
 func constructedOutputProfileFor(quality constructedOutputQuality, column lower.CompiledOutputColumn) (constructedColumnProfile, error) {
 	cardinality := expression.Cardinality(column.Cardinality)
+	if cardinality == expression.Many {
+		if quality.Shape != "array" {
+			return constructedColumnProfile{}, fmt.Errorf("constructed output cardinality %q requires an explicit array policy", column.Cardinality)
+		}
+		if !isSupportedConstructedScalarKind(expression.ValueKind(column.Kind)) {
+			return constructedColumnProfile{}, fmt.Errorf("constructed array element kind %q is not a supported scalar type", column.Kind)
+		}
+		reasons, err := uniqueColumnsInOrder(append(append([]string(nil), quality.LossReasons...), tableShapeMLReadinessUnassessed))
+		if err != nil {
+			return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy has an invalid reason: %w", err)
+		}
+		if quality.StructuralSuitability == "" {
+			return constructedColumnProfile{}, fmt.Errorf("constructed output quality policy is missing structural suitability")
+		}
+		return constructedColumnProfile{
+			Shape: "array", Lossless: quality.Lossless, MLReady: false,
+			StructuralSuitability: quality.StructuralSuitability, LossReasons: reasons,
+			Filterable: false, Chartable: false,
+		}, nil
+	}
 	if cardinality != expression.RequiredOne && cardinality != expression.OptionalOne {
 		return constructedColumnProfile{}, fmt.Errorf("constructed output cardinality %q is not scalar", column.Cardinality)
 	}
-	switch expression.ValueKind(column.Kind) {
-	case expression.KindBoolean, expression.KindInteger, expression.KindDecimal, expression.KindString,
-		expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
-	default:
+	if quality.Shape != "" {
+		return constructedColumnProfile{}, fmt.Errorf("constructed output array policy has scalar cardinality %q", column.Cardinality)
+	}
+	if !isSupportedConstructedScalarKind(expression.ValueKind(column.Kind)) {
 		return constructedColumnProfile{}, fmt.Errorf("constructed output kind %q is not a supported scalar type", column.Kind)
 	}
 	if quality.StructuralSuitability == "" {
@@ -605,6 +663,16 @@ func constructedOutputProfileFor(quality constructedOutputQuality, column lower.
 		StructuralSuitability: quality.StructuralSuitability, LossReasons: reasons,
 		Filterable: true, Chartable: true,
 	}, nil
+}
+
+func isSupportedConstructedScalarKind(kind expression.ValueKind) bool {
+	switch kind {
+	case expression.KindBoolean, expression.KindInteger, expression.KindDecimal, expression.KindString,
+		expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
+		return true
+	default:
+		return false
+	}
 }
 
 func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn) (map[string][]string, error) {

@@ -385,6 +385,16 @@ func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testin
 	}
 }
 
+func TestConstructedOutputProfileRequiresArrayPolicyForManyCardinality(t *testing.T) {
+	_, err := constructedOutputProfileFor(
+		constructedOutputQuality{Lossless: true, StructuralSuitability: "scalar"},
+		lower.CompiledOutputColumn{Name: "statuses", Kind: "string", Cardinality: "many"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "requires an explicit array policy") {
+		t.Fatalf("many-valued constructed output without array policy error = %v", err)
+	}
+}
+
 func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
 	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
 	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
