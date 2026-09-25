@@ -59,6 +59,24 @@ func (r *lifecycleTableShapeRepository) GetCatalogForLookup(_ context.Context, l
 	return value, nil
 }
 
+func (r *lifecycleTableShapeRepository) FindCatalogForLookup(_ context.Context, lookup tableshapecap.CatalogLookup) (tableshapecap.CatalogReceipt, error) {
+	var found *tableshapecap.CatalogReceipt
+	for _, value := range r.catalogs {
+		if !lookup.Matches(value.Binding) {
+			continue
+		}
+		if found != nil {
+			return tableshapecap.CatalogReceipt{}, tableshapecap.ErrAmbiguous
+		}
+		candidate := value
+		found = &candidate
+	}
+	if found == nil {
+		return tableshapecap.CatalogReceipt{}, tableshapecap.ErrNotFound
+	}
+	return *found, nil
+}
+
 func (r *lifecycleTableShapeRepository) PutCategoryScan(_ context.Context, value tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := value.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err
@@ -608,6 +626,157 @@ func TestTableShapeCatalogReuseValidatesCurrentDraftAndScope(t *testing.T) {
 	}
 	if compileCalls != 0 {
 		t.Fatalf("changed authorization scope entered compilation path %d times", compileCalls)
+	}
+}
+
+func TestGetTableShapeCatalogFallsBackOnMissAndReusesMatchingCatalog(t *testing.T) {
+	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
+	request := tableShapeCatalogRequest(store.created, snapshot)
+	compile := service.config.CompileReceipt
+	compileCalls := 0
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		return compile(ctx, request)
+	}
+
+	first, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatalf("catalog miss should compile and persist: %v", err)
+	}
+	if compileCalls != 1 {
+		t.Fatalf("catalog miss compiled %d times, want 1", compileCalls)
+	}
+
+	compileCalls = 0
+	second, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatalf("catalog hit should reuse its base receipt: %v", err)
+	}
+	if compileCalls != 0 {
+		t.Fatalf("unique matching catalog recompiled %d times", compileCalls)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("reused catalog response changed: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestGetTableShapeCatalogFallsBackOnAmbiguousCatalogLookup(t *testing.T) {
+	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
+	request := tableShapeCatalogRequest(store.created, snapshot)
+	first, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository := service.config.TableShapeCapabilities.(*lifecycleTableShapeRepository)
+	existing := repository.catalogs[first.CatalogID]
+	secondBinding := existing.Binding
+	secondBinding.BaseCompilationReceiptID = "another-valid-base-receipt"
+	secondCatalog, err := tableshapecap.NewCatalogReceipt(secondBinding, existing.Columns, existing.Availability, existing.Choices, existing.SavedShape, existing.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondCatalog.ID == existing.ID {
+		t.Fatal("test catalogs unexpectedly share an identity")
+	}
+	if _, exists := repository.catalogs[secondCatalog.ID]; exists {
+		t.Fatal("test ambiguity catalog already exists")
+	}
+	repository.catalogs[secondCatalog.ID] = secondCatalog
+
+	compile := service.config.CompileReceipt
+	compileCalls := 0
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		return compile(ctx, request)
+	}
+	result, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatalf("ambiguous lookup should fall back to compilation: %v", err)
+	}
+	if compileCalls != 1 {
+		t.Fatalf("ambiguous lookup compiled %d times, want 1 fallback", compileCalls)
+	}
+	if result.CatalogID != first.CatalogID {
+		t.Fatalf("fallback changed catalog ID from %q to %q", first.CatalogID, result.CatalogID)
+	}
+}
+
+func TestGetTableShapeCatalogLookupRevalidatesDraftScopeGenerationAndOutput(t *testing.T) {
+	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
+	request := tableShapeCatalogRequest(store.created, snapshot)
+	initial, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compile := service.config.CompileReceipt
+	compileCalls := 0
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		return compile(ctx, request)
+	}
+
+	staleDraft := request
+	staleDraft.ExpectedDraftDigest = "stale-draft-digest"
+	if _, err := service.GetTableShapeCatalog(context.Background(), staleDraft); lifecycleErrorCode(err) != "DRAFT_CONFLICT" {
+		t.Fatalf("stale draft code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+	wrongOutput := request
+	wrongOutput.OutputID = "other-output"
+	if _, err := service.GetTableShapeCatalog(context.Background(), wrongOutput); lifecycleErrorCode(err) != "OUTPUT_NOT_FOUND" {
+		t.Fatalf("wrong output code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+	service.config.Capability.ForCompilation = func(_ context.Context, _, _ string) (AuthorizedCapability, error) {
+		changed := snapshot.Clone()
+		changed.Identity.AuthorizationScopeDigest = "different-scope"
+		return AuthorizedCapability{Snapshot: changed, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	if _, err := service.GetTableShapeCatalog(context.Background(), request); lifecycleErrorCode(err) != "STALE_AUTHORIZATION_SCOPE" {
+		t.Fatalf("changed scope code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+	if compileCalls != 0 {
+		t.Fatalf("stale draft/scope/output reached compilation %d times", compileCalls)
+	}
+
+	changedGeneration := snapshot.Clone()
+	changedGeneration.Identity.Generation = "new-source-generation"
+	service.config.Capability.ForCompilation = func(_ context.Context, _, _ string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: changedGeneration.Clone(), Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		receipt := lifecycleTableShapeReceipt(changedGeneration, request.Workspace)
+		store.receipt = receipt
+		return receipt, nil
+	}
+	updated, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatalf("changed source generation should recompile: %v", err)
+	}
+	if compileCalls != 1 {
+		t.Fatalf("changed source generation compiled %d times, want one fallback", compileCalls)
+	}
+	if updated.CatalogID == initial.CatalogID {
+		t.Fatalf("changed source generation reused stale catalog %q", initial.CatalogID)
+	}
+}
+
+func TestGetTableShapeCatalogSavedShapeSkipsLookupReuse(t *testing.T) {
+	service, store, snapshot, _, _ := lifecycleTableShapeService(t, savedProposalPivotShape())
+	request := tableShapeCatalogRequest(store.created, snapshot)
+	if _, err := service.GetTableShapeCatalog(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	compile := service.config.CompileReceipt
+	compileCalls := 0
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		return compile(ctx, request)
+	}
+	if _, err := service.GetTableShapeCatalog(context.Background(), request); err != nil {
+		t.Fatalf("saved-shape catalog reload: %v", err)
+	}
+	if compileCalls == 0 {
+		t.Fatal("saved table shape reused the unchanged-base fast path")
 	}
 }
 

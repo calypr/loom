@@ -18,6 +18,7 @@ import (
 var (
 	ErrInvalid       = errors.New("invalid table-shape capability artifact")
 	ErrNotFound      = errors.New("table-shape capability artifact not found")
+	ErrAmbiguous     = errors.New("table-shape capability lookup is ambiguous")
 	ErrIdentityClash = errors.New("table-shape capability identity collision")
 )
 

@@ -63,10 +63,36 @@ type tableShapeCapabilityClient struct {
 	nullInsertResult bool
 }
 
-func (c *tableShapeCapabilityClient) QueryRows(_ context.Context, query string, _ int, binds map[string]any, visit storepkg.RowVisitor) error {
+func (c *tableShapeCapabilityClient) QueryRows(_ context.Context, query string, limit int, binds map[string]any, visit storepkg.RowVisitor) error {
 	c.capabilitySnapshotClient.calls = append(c.capabilitySnapshotClient.calls, queryCall{query: query, binds: binds})
 	if c.nullInsertResult && query == tableShapeCapabilityInsertAQL {
 		return visit(nil)
+	}
+	if query == tableShapeCapabilityFindCatalogForLookupAQL {
+		lookup := tableshapecap.CatalogLookup{
+			Project: binds["project"].(string), ExplorerID: binds["explorerId"].(string), OutputID: binds["outputId"].(string),
+			SnapshotToken: binds["snapshotToken"].(string), AuthorizationScope: binds["authorizationScope"].(string),
+			SourceGeneration: binds["sourceGeneration"].(string), DraftVersion: binds["draftVersion"].(uint64),
+			DraftDigest: binds["draftDigest"].(string), BaseDocumentDigest: binds["baseDocumentDigest"].(string),
+		}
+		matched := 0
+		for _, row := range c.rows {
+			doc, err := decodeTableShapeCapabilityDocument(row)
+			if err != nil {
+				return err
+			}
+			if doc.Kind != "CATALOG" || !lookup.Matches(doc.Binding) {
+				continue
+			}
+			if matched >= limit {
+				break
+			}
+			matched++
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	kind, _ := binds["kind"].(string)
 	id, _ := binds["id"].(string)
@@ -248,20 +274,57 @@ func TestTableShapeCapabilityRepositoryLookupUsesCurrentRequestIdentity(t *testi
 		t.Fatalf("lookup is not constrained to its catalog ID: %#v", call.binds)
 	}
 
+	found, err := repository.FindCatalogForLookup(context.Background(), lookup)
+	if err != nil || found.ID != catalog.ID {
+		t.Fatalf("unique request lookup returned catalog %q, err=%v", found.ID, err)
+	}
+	call = baseClient.calls[len(baseClient.calls)-1]
+	for _, field := range []string{"project", "explorerId", "outputId", "snapshotToken", "authorizationScope", "sourceGeneration", "draftVersion", "draftDigest", "baseDocumentDigest"} {
+		if !strings.Contains(call.query, "d.binding."+field+" == @"+field) {
+			t.Errorf("find query missing binding field %s:\n%s", field, call.query)
+		}
+		if _, ok := call.binds[field]; !ok {
+			t.Errorf("find bind missing %s", field)
+		}
+	}
+	if !strings.Contains(call.query, "LIMIT 2") || call.binds["kind"] != "CATALOG" {
+		t.Fatalf("find query must detect ambiguity and bind catalog kind: query=%s binds=%#v", call.query, call.binds)
+	}
+
 	for name, mutate := range map[string]func(*tableshapecap.CatalogLookup){
-		"cross-tenant": func(value *tableshapecap.CatalogLookup) { value.Project = "project-b" },
-		"stale-draft":  func(value *tableshapecap.CatalogLookup) { value.DraftVersion++ },
+		"cross-tenant":   func(value *tableshapecap.CatalogLookup) { value.Project = "project-b" },
+		"stale-output":   func(value *tableshapecap.CatalogLookup) { value.OutputID = "output-b" },
+		"stale-snapshot": func(value *tableshapecap.CatalogLookup) { value.SnapshotToken = "snapshot-b" },
 		"changed-scope": func(value *tableshapecap.CatalogLookup) {
 			value.AuthorizationScope = "different-scope"
 		},
+		"stale-generation":    func(value *tableshapecap.CatalogLookup) { value.SourceGeneration = "generation-b" },
+		"stale-draft-version": func(value *tableshapecap.CatalogLookup) { value.DraftVersion++ },
+		"stale-draft-digest":  func(value *tableshapecap.CatalogLookup) { value.DraftDigest = "draft-b" },
+		"stale-document":      func(value *tableshapecap.CatalogLookup) { value.BaseDocumentDigest = "document-b" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			stale := lookup
 			mutate(&stale)
-			if _, err := repository.GetCatalogForLookup(context.Background(), stale, catalog.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
-				t.Fatalf("stale lookup returned %v", err)
+			if _, err := repository.FindCatalogForLookup(context.Background(), stale); !errors.Is(err, tableshapecap.ErrNotFound) {
+				t.Fatalf("stale find lookup returned %v", err)
 			}
 		})
+	}
+
+	secondBinding := binding
+	secondBinding.BaseCompilationReceiptID = "compile-b"
+	second, err := tableshapecap.NewCatalogReceipt(secondBinding, catalog.Columns, catalog.Availability, catalog.Choices, catalog.SavedShape, catalog.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRow, err := catalogDocument(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.rows["CATALOG:"+second.ID] = secondRow
+	if _, err := repository.FindCatalogForLookup(context.Background(), lookup); !errors.Is(err, tableshapecap.ErrAmbiguous) {
+		t.Fatalf("ambiguous request lookup returned %v", err)
 	}
 }
 
