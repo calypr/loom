@@ -107,6 +107,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('GROUP was rejected for this stage.')).toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
     expect(screen.getByText('EXPAND was rejected for this stage.')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-choice-related-expand')).toBeDisabled();
     expect(onCandidateChange).not.toHaveBeenCalledWith(expect.objectContaining({ candidateConstruction: expect.anything() }));
   });
 

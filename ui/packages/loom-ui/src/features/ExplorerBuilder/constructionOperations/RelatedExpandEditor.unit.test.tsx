@@ -165,4 +165,37 @@ describe('RelatedExpandEditor', () => {
     expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
       .toBe('second-page-choice');
   });
+
+  it('uses a filtered input stage when the backend proves its source anchor survived', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'keep-patients',
+      complete: true, truncated: false,
+      choices: [{ choiceId: 'filtered-stage-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    const onCandidateChange = vi.fn();
+    const filtered = {
+      ...capabilities,
+      stageId: 'keep-patients',
+      selectedStage: { ...capabilities.selectedStage, id: 'keep-patients', inputStageId: 'source_projection' },
+      baseConstruction: { version: 1, steps: [{
+        id: 'keep-patients', inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
+        operation: { kind: 'FILTER' as const, filter: { columnId: 'patient-id', operator: 'EXISTS' as const } },
+        outputs: [{ id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
+      }] },
+    } satisfies ConstructionCapabilitiesResponse;
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={filtered.baseConstruction} capabilities={filtered}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
+      expect.objectContaining({ stageId: 'keep-patients' }), expect.any(AbortSignal),
+    ));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Encounter via subject_Patient' }));
+    fireEvent.change(screen.getByLabelText('When a parent has no matching record'), { target: { value: 'EXCLUDE' } });
+    const steps = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps;
+    expect(steps).toHaveLength(2);
+    expect(steps[1].inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: 'keep-patients' }]);
+  });
 });
