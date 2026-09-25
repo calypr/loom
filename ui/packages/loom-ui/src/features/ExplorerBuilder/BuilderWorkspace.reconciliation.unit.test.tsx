@@ -18,6 +18,8 @@ import {
 } from '../../react';
 import BuilderWorkspace from './BuilderWorkspace';
 import type { SelectionRevision } from '../../selection';
+import type { ConstructionProposalResponse } from '../../types';
+import type { ProposeConstructionArgs } from '../../api';
 
 const mockLoomClient = vi.hoisted(() => ({
   getSelection: vi.fn(),
@@ -186,6 +188,8 @@ vi.mock('./components/ColumnSelector', () => ({
 
 vi.mock('./components/PreviewTable', () => ({
   PreviewTable: () => <div>Preview table</div>,
+  formatPreviewCell: (value: unknown) => String(value ?? ''),
+  previewCellTitle: (value: unknown) => String(value ?? ''),
 }));
 
 vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
@@ -703,6 +707,97 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('keeps a gender filter proposal alive across BuilderWorkspace rerenders', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [
+        { id: 'specimen-id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+        { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' },
+      ],
+      capabilities: [
+        { kind: 'FILTER' as const, supported: true },
+        { kind: 'DERIVE' as const, supported: true },
+        { kind: 'PIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+        { kind: 'UNPIVOT' as const, supported: false, reason: 'Not needed by this test.' },
+      ],
+    };
+    mockLoomClient.getConstructionCapabilities.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      outputId: 'specimens',
+      stageId: 'source_projection',
+      baseConstruction: { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    });
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'gender-filter-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-workspace-2',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage],
+      previewStatus: 'READY',
+      previewDurationMs: 7,
+    }));
+    mockLoomClient.preview.mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      receiptId: 'gender-filter-proposal',
+      outputId: 'specimens',
+      columns: [{ column: 'specimen_identifier', label: 'Specimen identifier', logicalType: 'string', filterable: true, chartable: false }],
+      rows: [{ specimen_identifier: 'specimen-1' }],
+      rowCount: 1,
+      diagnostics: [],
+    });
+
+    const view = render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-action-keep-rows'));
+    await screen.findByRole('combobox', { name: 'Column' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Column' }), { target: { value: 'gender-id' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    expect(mockLoomClient.proposeConstruction).toHaveBeenCalledWith(expect.objectContaining({
+      outputId: 'specimens',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'sha256:draft-1',
+      candidateConstruction: {
+        version: 1,
+        steps: [expect.objectContaining({
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'FILTER',
+            filter: {
+              columnId: 'gender-id',
+              operator: 'EQUALS',
+              values: [{ kind: 'STRING', string: 'female' }],
+            },
+          },
+        })],
+      },
+    }), expect.any(AbortSignal));
+    expect(await screen.findByTestId('construction-proposal-ready')).toBeTruthy();
+    expect(screen.getByTestId('construction-apply-proposal').hasAttribute('disabled')).toBe(false);
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   it('does not reconcile a hydrated draft until Preview requests a receipt', async () => {
