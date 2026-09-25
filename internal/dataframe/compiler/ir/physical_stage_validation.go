@@ -61,7 +61,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 		switch stage.Kind {
 		case PhysicalStageDeriveOp:
-			if stage.Filter != nil || stage.GroupedPivot != nil || stage.Unpivot != nil {
+			if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil {
 				return fmt.Errorf("%s DERIVE has mismatched operation payloads", path)
 			}
 			if len(stage.DerivedLets) == 0 {
@@ -71,14 +71,14 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageFilterOp:
-			if stage.Filter == nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.Filter == nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s FILTER requires only a filter payload", path)
 			}
 			if err := validateStageRowOperations(stage, bindVars, true); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStagePivotOp:
-			if stage.GroupedPivot == nil || stage.Filter != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.GroupedPivot == nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s PIVOT requires only a grouped-pivot payload", path)
 			}
 			if stage.OutputRowVariable != stage.GroupedPivot.OutputRowVariable {
@@ -92,7 +92,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageUnpivotOp:
-			if stage.Unpivot == nil || stage.Filter != nil || stage.GroupedPivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.Unpivot == nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s UNPIVOT requires only an unpivot payload", path)
 			}
 			if stage.OutputRowVariable != stage.Unpivot.OutputRowVariable {
@@ -103,6 +103,46 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s unpivot: %w", path, err)
 			}
 			if err := validateShapeStageOutput(stage, unpivotOutputNames(*stage.Unpivot)); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+		case PhysicalStageGroupOp:
+			if stage.Group == nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s GROUP requires only a group payload", path)
+			}
+			if err := validatePhysicalStageGroup(stage, *stage.Group, bindVars); err != nil {
+				return fmt.Errorf("%s group: %w", path, err)
+			}
+			expected := make([]string, 0, len(stage.Group.Keys)+len(stage.Group.Aggregates)+1)
+			for _, key := range stage.Group.Keys {
+				expected = append(expected, key.OutputColumn)
+			}
+			for _, aggregate := range stage.Group.Aggregates {
+				expected = append(expected, aggregate.Output)
+			}
+			expected = append(expected, "__loom_row_id")
+			if err := validateShapeStageOutput(stage, expected); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+		case PhysicalStageExpandOp:
+			if stage.Expand == nil || stage.Filter != nil || stage.Group != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s EXPAND requires only an expand payload", path)
+			}
+			if err := validatePhysicalStageExpand(stage, *stage.Expand, bindVars); err != nil {
+				return fmt.Errorf("%s expand: %w", path, err)
+			}
+			expected := make([]string, 0, len(stage.InputColumns)+1)
+			for _, column := range stage.InputColumns {
+				if column.Internal || column.Name == stage.Expand.InputColumn {
+					continue
+				}
+				expected = append(expected, column.Name)
+			}
+			expected = append(expected, stage.Expand.OutputColumn)
+			if stage.Expand.OrdinalColumn != "" {
+				expected = append(expected, stage.Expand.OrdinalColumn)
+			}
+			expected = append(expected, "__loom_row_id")
+			if err := validateShapeStageOutput(stage, expected); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		default:
@@ -116,6 +156,192 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 	}
 	if !samePhysicalStageColumns(sequence.FinalColumns, last.OutputColumns) {
 		return fmt.Errorf("final output schema differs from the final stage")
+	}
+	return nil
+}
+
+func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {
+	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
+		return fmt.Errorf("requires at least one key or aggregate")
+	}
+	if err := requireNonEmptyStringBind(bindVars, group.ConstructionIDBindKey); err != nil {
+		return fmt.Errorf("construction ID: %w", err)
+	}
+	if !physicalVariablePattern.MatchString(group.GroupRowsVariable) || !physicalVariablePattern.MatchString(group.IdentityVariable) {
+		return fmt.Errorf("group row and identity variables must be safe")
+	}
+	if err := validateStageProjectionNames(stage.InputProjections, stage.InputColumns); err != nil {
+		return fmt.Errorf("input projections: %w", err)
+	}
+	defined := map[string]bool{stage.InputRowVariable: true}
+	for index, projection := range stage.InputProjections {
+		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
+			return fmt.Errorf("input projection %d (%q): %w", index, projection.Name, err)
+		}
+	}
+	if err := definePhysicalVariable(defined, group.GroupRowsVariable); err != nil {
+		return err
+	}
+	inputByName, outputByName := physicalStageColumnMap(stage.InputColumns), physicalStageColumnMap(stage.OutputColumns)
+	for index, key := range group.Keys {
+		input, ok := inputByName[key.InputColumn]
+		if !ok || input.Internal || input.Cardinality == "many" {
+			return fmt.Errorf("key %d column %q is not a public scalar input", index, key.InputColumn)
+		}
+		kind, ok := physicalStageScalarKind(input.Kind)
+		if !ok || kind != key.Kind {
+			return fmt.Errorf("key %d column %q has unsupported or mismatched scalar kind %q", index, key.InputColumn, key.Kind)
+		}
+		output, ok := outputByName[key.OutputColumn]
+		if !ok || output.Internal || output.Kind != input.Kind || output.Cardinality != input.Cardinality {
+			return fmt.Errorf("key %d output column %q does not preserve its input type", index, key.OutputColumn)
+		}
+		if err := definePhysicalVariable(defined, key.Variable); err != nil {
+			return fmt.Errorf("key %d: %w", index, err)
+		}
+	}
+	for index, aggregate := range group.Aggregates {
+		output, ok := outputByName[aggregate.Output]
+		if !ok || output.Internal || output.Cardinality == "many" || output.Kind != aggregate.OutputKind {
+			return fmt.Errorf("aggregate %d output column %q does not match its type", index, aggregate.Output)
+		}
+		needInput := aggregate.Operation != "COUNT_ROWS"
+		if !needInput {
+			if aggregate.InputColumn != "" || aggregate.InputKind != "" {
+				return fmt.Errorf("aggregate %d COUNT_ROWS must not have an input column", index)
+			}
+		} else {
+			input, ok := inputByName[aggregate.InputColumn]
+			if !ok || input.Internal || input.Cardinality == "many" {
+				return fmt.Errorf("aggregate %d input column %q is not a public scalar input", index, aggregate.InputColumn)
+			}
+			kind, ok := physicalStageScalarKind(input.Kind)
+			if !ok || kind != aggregate.InputKind {
+				return fmt.Errorf("aggregate %d input column %q has unsupported or mismatched scalar kind %q", index, aggregate.InputColumn, aggregate.InputKind)
+			}
+		}
+		switch aggregate.Operation {
+		case "COUNT_ROWS", "COUNT_NON_NULL", "COUNT_DISTINCT":
+			if output.Kind != "integer" {
+				return fmt.Errorf("aggregate %d count output must be integer", index)
+			}
+		case "MIN", "MAX":
+			if output.Kind != inputByName[aggregate.InputColumn].Kind {
+				return fmt.Errorf("aggregate %d %s output kind must match its input", index, aggregate.Operation)
+			}
+		case "SUM":
+			if aggregate.InputKind != "INTEGER" && aggregate.InputKind != "DECIMAL" || output.Kind != inputByName[aggregate.InputColumn].Kind {
+				return fmt.Errorf("aggregate %d SUM requires a matching numeric output", index)
+			}
+		case "MEAN":
+			if aggregate.InputKind != "INTEGER" && aggregate.InputKind != "DECIMAL" || output.Kind != "decimal" {
+				return fmt.Errorf("aggregate %d MEAN requires numeric input and decimal output", index)
+			}
+		default:
+			return fmt.Errorf("aggregate %d has unsupported operation %q", index, aggregate.Operation)
+		}
+		if err := definePhysicalVariable(defined, aggregate.Variable); err != nil {
+			return fmt.Errorf("aggregate %d: %w", index, err)
+		}
+	}
+	if err := definePhysicalVariable(defined, group.IdentityVariable); err != nil {
+		return fmt.Errorf("identity: %w", err)
+	}
+	for index, projection := range stage.OutputProjections {
+		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
+			return fmt.Errorf("output projection %d (%q): %w", index, projection.Name, err)
+		}
+	}
+	if err := definePhysicalVariable(defined, stage.OutputRowVariable); err != nil {
+		return err
+	}
+	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
+		return fmt.Errorf("output projections: %w", err)
+	}
+	return nil
+}
+
+func validatePhysicalStageExpand(stage PhysicalConstructionStage, expand PhysicalStageExpand, bindVars map[string]any) error {
+	if err := requireNonEmptyStringBind(bindVars, expand.ConstructionIDBindKey); err != nil {
+		return fmt.Errorf("construction ID: %w", err)
+	}
+	inputByName, outputByName := physicalStageColumnMap(stage.InputColumns), physicalStageColumnMap(stage.OutputColumns)
+	input, ok := inputByName[expand.InputColumn]
+	inputKind, inputScalar := physicalStageScalarKind(input.Kind)
+	if !ok || input.Internal || input.Cardinality != "many" || !inputScalar || inputKind != expand.InputKind {
+		return fmt.Errorf("input column %q must be a public array-valued column", expand.InputColumn)
+	}
+	item, ok := outputByName[expand.OutputColumn]
+	itemKind, itemScalar := physicalStageScalarKind(item.Kind)
+	if !ok || item.Internal || !itemScalar || itemKind != expand.InputKind || item.Cardinality != "one" && item.Cardinality != "optional_one" {
+		return fmt.Errorf("item output column %q does not match the array item type", expand.OutputColumn)
+	}
+	if expand.OrdinalColumn != "" {
+		ordinal, ok := outputByName[expand.OrdinalColumn]
+		if !ok || ordinal.Internal || ordinal.Kind != "integer" || ordinal.Cardinality != "one" && ordinal.Cardinality != "optional_one" {
+			return fmt.Errorf("ordinal output column %q must be an integer scalar", expand.OrdinalColumn)
+		}
+	}
+	switch expand.EmptyPolicy {
+	case PhysicalUnnestError, PhysicalUnnestExclude, PhysicalUnnestPreserveParent:
+	default:
+		return fmt.Errorf("unsupported empty policy %q", expand.EmptyPolicy)
+	}
+	for _, variable := range []string{expand.ItemsVariable, expand.IndexVariable, expand.ItemVariable, expand.IdentityVariable} {
+		if !physicalVariablePattern.MatchString(variable) {
+			return fmt.Errorf("variable %q is unsafe", variable)
+		}
+	}
+	defined := map[string]bool{stage.InputRowVariable: true}
+	for _, variable := range []string{expand.ItemsVariable, expand.IndexVariable, expand.ItemVariable, expand.IdentityVariable} {
+		if err := definePhysicalVariable(defined, variable); err != nil {
+			return err
+		}
+	}
+	for index, projection := range stage.OutputProjections {
+		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
+			return fmt.Errorf("output projection %d (%q): %w", index, projection.Name, err)
+		}
+	}
+	if err := definePhysicalVariable(defined, stage.OutputRowVariable); err != nil {
+		return err
+	}
+	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
+		return fmt.Errorf("output projections: %w", err)
+	}
+	return nil
+}
+
+func physicalStageColumnMap(columns []PhysicalStageColumn) map[string]PhysicalStageColumn {
+	byName := make(map[string]PhysicalStageColumn, len(columns))
+	for _, column := range columns {
+		byName[column.Name] = column
+	}
+	return byName
+}
+
+func physicalStageScalarKind(kind string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "string", "date", "datetime", "code", "uuid":
+		return "STRING", true
+	case "integer":
+		return "INTEGER", true
+	case "decimal":
+		return "DECIMAL", true
+	case "boolean":
+		return "BOOLEAN", true
+	default:
+		return "", false
+	}
+}
+
+func requireNonEmptyStringBind(bindVars map[string]any, key string) error {
+	if key == "" {
+		return fmt.Errorf("bind key is required")
+	}
+	value, ok := bindVars[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fmt.Errorf("bind %q must be a non-empty string", key)
 	}
 	return nil
 }

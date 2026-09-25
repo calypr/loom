@@ -68,6 +68,8 @@ const (
 	ConstructionDeriveOp  ConstructionOperationKind = "DERIVE"
 	ConstructionFilterOp  ConstructionOperationKind = "FILTER"
 	ConstructionUnpivotOp ConstructionOperationKind = "UNPIVOT"
+	ConstructionGroupOp   ConstructionOperationKind = "GROUP"
+	ConstructionExpandOp  ConstructionOperationKind = "EXPAND"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
@@ -78,6 +80,8 @@ type ConstructionOperation struct {
 	Derive  *ConstructionDerive       `json:"derive,omitempty"`
 	Filter  *ConstructionFilter       `json:"filter,omitempty"`
 	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
+	Group   *ConstructionGroup        `json:"group,omitempty"`
+	Expand  *ConstructionExpand       `json:"expand,omitempty"`
 }
 
 type ConstructionPivot struct {
@@ -129,6 +133,48 @@ type ConstructionUnpivot struct {
 type ConstructionUnpivotInput struct {
 	ColumnID string      `json:"columnId"`
 	Key      TableScalar `json:"key"`
+}
+
+// ConstructionGroup reduces the preceding row set by zero or more typed
+// columns. An empty GroupKeys slice summarizes the whole table.
+type ConstructionGroup struct {
+	ConstructionID string                       `json:"constructionId"`
+	Keys           []ConstructionGroupKey       `json:"keys,omitempty"`
+	Aggregates     []ConstructionGroupAggregate `json:"aggregates,omitempty"`
+}
+
+type ConstructionGroupKey struct {
+	InputColumnID  string `json:"inputColumnId"`
+	OutputColumnID string `json:"outputColumnId"`
+}
+
+type ConstructionGroupAggregate struct {
+	Operation      ConstructionGroupAggregateOp `json:"operation"`
+	InputColumnID  string                       `json:"inputColumnId,omitempty"`
+	OutputColumnID string                       `json:"outputColumnId"`
+}
+
+type ConstructionGroupAggregateOp string
+
+const (
+	ConstructionGroupCountRows     ConstructionGroupAggregateOp = "COUNT_ROWS"
+	ConstructionGroupCountNonNull  ConstructionGroupAggregateOp = "COUNT_NON_NULL"
+	ConstructionGroupCountDistinct ConstructionGroupAggregateOp = "COUNT_DISTINCT"
+	ConstructionGroupSum           ConstructionGroupAggregateOp = "SUM"
+	ConstructionGroupMin           ConstructionGroupAggregateOp = "MIN"
+	ConstructionGroupMax           ConstructionGroupAggregateOp = "MAX"
+	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
+)
+
+// ConstructionExpand replaces one array-valued stage column with one row per
+// item. OrdinalColumnID is optional; row identity always includes the zero-
+// based item ordinal, including when the ordinal is not exposed publicly.
+type ConstructionExpand struct {
+	ConstructionID  string               `json:"constructionId"`
+	InputColumnID   string               `json:"inputColumnId"`
+	OutputColumnID  string               `json:"outputColumnId"`
+	OrdinalColumnID string               `json:"ordinalColumnId,omitempty"`
+	EmptyPolicy     ExpansionEmptyPolicy `json:"emptyPolicy,omitempty"`
 }
 
 func (construction Construction) Validate(sourceFields []Field) error {
@@ -208,7 +254,7 @@ func (construction Construction) Validate(sourceFields []Field) error {
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil} {
 		if present {
 			payloads++
 		}
@@ -220,7 +266,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 	outputByID := stageColumnMap(output)
 	switch operation.Kind {
 	case ConstructionPivotOp:
-		if operation.Pivot == nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil {
+		if operation.Pivot == nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
 			return fmt.Errorf("%s pivot operation requires only pivot payload", path)
 		}
 		pivot := operation.Pivot
@@ -261,7 +307,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		}
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionDeriveOp:
-		if operation.Derive == nil || operation.Pivot != nil || operation.Filter != nil || operation.Unpivot != nil {
+		if operation.Derive == nil || operation.Pivot != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
 			return fmt.Errorf("%s derive operation requires only derive payload", path)
 		}
 		derive := operation.Derive
@@ -287,7 +333,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		expected[derive.OutputColumnID] = true
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionFilterOp:
-		if operation.Filter == nil || operation.Pivot != nil || operation.Derive != nil || operation.Unpivot != nil {
+		if operation.Filter == nil || operation.Pivot != nil || operation.Derive != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
 			return fmt.Errorf("%s filter operation requires only filter payload", path)
 		}
 		filter := operation.Filter
@@ -303,7 +349,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		}
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionUnpivotOp:
-		if operation.Unpivot == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil {
+		if operation.Unpivot == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Group != nil || operation.Expand != nil {
 			return fmt.Errorf("%s unpivot operation requires only unpivot payload", path)
 		}
 		unpivot := operation.Unpivot
@@ -343,6 +389,16 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		expected[unpivot.KeyOutputColumnID] = true
 		expected[unpivot.ValueOutputColumnID] = true
 		return requireExactStageOutputIDs(expected, outputByID, path)
+	case ConstructionGroupOp:
+		if operation.Group == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Expand != nil {
+			return fmt.Errorf("%s group operation requires only group payload", path)
+		}
+		return validateConstructionGroup(*operation.Group, inputByID, outputByID, path, constructionIDs)
+	case ConstructionExpandOp:
+		if operation.Expand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil {
+			return fmt.Errorf("%s expand operation requires only expand payload", path)
+		}
+		return validateConstructionExpand(*operation.Expand, inputByID, outputByID, path, constructionIDs)
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}

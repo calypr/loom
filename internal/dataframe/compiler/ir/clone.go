@@ -60,6 +60,16 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		cloned.InputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.InputProjections}}).Return.Projections
 		cloned.OutputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.OutputProjections}}).Return.Projections
 		cloned.DerivedLets = clonePhysicalOperations(stage.DerivedLets)
+		if stage.Group != nil {
+			groupCopy := *stage.Group
+			groupCopy.Keys = append([]PhysicalStageGroupKey(nil), stage.Group.Keys...)
+			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
+			cloned.Group = &groupCopy
+		}
+		if stage.Expand != nil {
+			expandCopy := *stage.Expand
+			cloned.Expand = &expandCopy
+		}
 		if stage.Filter != nil {
 			cloned.Filter = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalFilterOp, Filter: stage.Filter}).Filter
 		}

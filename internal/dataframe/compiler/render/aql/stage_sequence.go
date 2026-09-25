@@ -48,6 +48,16 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	for index, stage := range sequence.Stages {
 		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
 		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
+		if stage.Kind == ir.PhysicalStageGroupOp {
+			rendered, renderErr := renderer.renderConstructionGroupStage(stage, priorRows)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q group: %w", stage.ID, renderErr)
+			}
+			lines = append(lines, rendered...)
+			lines = append(lines, ")")
+			priorRows = stageRows
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
 		switch stage.Kind {
 		case ir.PhysicalStagePivotOp:
@@ -70,6 +80,12 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 			}
 			lines = appendIndented(lines, rendered)
 			lines = append(lines, "  RETURN "+stage.OutputRowVariable)
+		case ir.PhysicalStageExpandOp:
+			rendered, renderErr := renderer.renderConstructionExpandStage(stage)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q expand: %w", stage.ID, renderErr)
+			}
+			lines = appendIndented(lines, rendered)
 		case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp:
 			for operationIndex, operation := range stage.DerivedLets {
 				if operation.Kind != ir.PhysicalExpressionLetOp {

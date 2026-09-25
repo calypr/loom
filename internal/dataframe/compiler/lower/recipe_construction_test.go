@@ -37,7 +37,7 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 4 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 6 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
 	}
 

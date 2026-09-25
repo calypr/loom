@@ -311,6 +311,24 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			return constructionStageResult{}, err
 		}
 		outputIdentity = constructionRowID
+	case recipe.ConstructionGroupOp:
+		group := step.Operation.Group
+		physicalGroup, projections, compiled, err := lowerConstructionGroup(plan, *group, step.Outputs, inputByID, outputByID, usedVariables, index)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.Group = ir.PhysicalStageGroupOp, &physicalGroup
+		base.OutputProjections = projections
+		outputSchema, outputIdentity = compiled, constructionRowID
+	case recipe.ConstructionExpandOp:
+		expand := step.Operation.Expand
+		physicalExpand, projections, compiled, err := lowerConstructionExpand(plan, *expand, step.Outputs, inputByID, outputByID, inputRow, usedVariables, index)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.Expand = ir.PhysicalStageExpandOp, &physicalExpand
+		base.OutputProjections = projections
+		outputSchema, outputIdentity = compiled, constructionRowID
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -556,9 +574,10 @@ func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
 
 func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapability {
 	public := publicCompiledSchema(columns)
-	numeric, scalar, unpivotPairs := 0, 0, false
+	numeric, scalar, unpivotPairs, arrays := 0, 0, false, 0
 	for index, column := range public {
 		if column.Cardinality == string(expression.Many) {
+			arrays++
 			continue
 		}
 		if _, ok := tableReshapeScalarKind(column.Kind); ok {
@@ -585,6 +604,8 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionFilterOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "filter requires a public output column"),
 		capability(recipe.ConstructionPivotOp, scalar >= 3, "INSUFFICIENT_SCALAR_COLUMNS", "pivot requires public scalar group, category, and value columns"),
 		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
+		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
+		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 	}
 }
 
