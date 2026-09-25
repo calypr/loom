@@ -369,6 +369,19 @@ func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(
 			if err != nil {
 				t.Fatal(err)
 			}
+			foundTraversal := false
+			for _, operation := range stage.RelatedExpand.RelatedRecords.Operations {
+				if operation.Traversal == nil {
+					continue
+				}
+				foundTraversal = true
+				if rendered.BindVars["@"+operation.Traversal.EdgeCollectionBindKey] != "fhir_edge" {
+					t.Fatalf("related expansion edge collection bind = %#v", rendered.BindVars["@"+operation.Traversal.EdgeCollectionBindKey])
+				}
+			}
+			if !foundTraversal {
+				t.Fatal("related expansion did not retain its graph traversal")
+			}
 			recordsVariable := stage.RelatedExpand.RelatedRecordsVariable
 			for _, expected := range []string{"SORTED_UNIQUE", "terminal_id", "resource_id", parentIdentityColumn, terminalIdentityColumn, `TO_STRING([["input"`} {
 				if !strings.Contains(rendered.Query, expected) {

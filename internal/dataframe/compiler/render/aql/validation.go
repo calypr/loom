@@ -103,6 +103,11 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 			if err := collectOperations(stage.DerivedLets, owner); err != nil {
 				return nil, err
 			}
+			if stage.RelatedExpand != nil {
+				if err := collectOperations(stage.RelatedExpand.RelatedRecords.Operations, owner+" RELATED_EXPAND"); err != nil {
+					return nil, err
+				}
+			}
 			projections := append([]ir.PhysicalProjection(nil), stage.InputProjections...)
 			projections = append(projections, stage.OutputProjections...)
 			if stage.GroupedPivot != nil {
