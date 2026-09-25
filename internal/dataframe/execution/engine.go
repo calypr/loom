@@ -153,6 +153,10 @@ type OutputStream struct {
 	resolveClickHouseInputs ResolveClickHouseInputs
 	withExecutionReadPins   WithExecutionReadPins
 	queryLimit              int
+	recipeDigest            string
+	planFingerprint         string
+	stageID                 string
+	outputSchema            []lower.CompiledOutputColumn
 }
 
 type DynamicColumnCheck struct {
@@ -483,6 +487,9 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(),
 			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
 			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
+			queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+			bindings: resolved.Semantic.SemanticPlan.Bindings.Clone(),
+			stageID:  compiledFinalStageID(output.Plan), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema),
 		}
 		// Group rows are a terminal source rather than a root scan; their query
 		// limit bounds output directly and cannot use root-key paging.
@@ -495,10 +502,18 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 			}
 			stream.page = &page
 			query.PlanDiagnostics = page.RowsDiagnostics
+			stream.planFingerprint = query.PlanDiagnostics.Fingerprint
 		}
 		return stream, query, nil
 	}
 	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
+}
+
+func compiledFinalStageID(plan ir.PhysicalPlan) string {
+	if plan.StageSequence != nil && plan.StageSequence.FinalStageID != "" {
+		return plan.StageSequence.FinalStageID
+	}
+	return recipe.ConstructionSourceProjectionID
 }
 
 func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
