@@ -1158,7 +1158,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-related-expand"
             title="Expand related records"
-            description="Make one row per distinct record on a supported relationship path. Keep its exact source identity for later columns."
+            description="Make one row per distinct record on a supported relationship path."
             supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
             reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
             selected={form.kind === 'related-expand'}

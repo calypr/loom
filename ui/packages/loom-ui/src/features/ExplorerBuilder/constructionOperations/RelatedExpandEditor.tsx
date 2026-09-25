@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLoomClient } from '../../../react';
 import type {
   Construction,
@@ -135,6 +135,7 @@ export const RelatedExpandEditor = ({
   } : undefined);
   const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
   const [cursor, setCursor] = useState<string | undefined>();
+  const moreController = useRef<AbortController | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy | undefined>(saved?.emptyPolicy);
@@ -142,6 +143,8 @@ export const RelatedExpandEditor = ({
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
+
+  useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id]);
 
   useEffect(() => {
     if (!targetResourceType) return;
@@ -180,6 +183,9 @@ export const RelatedExpandEditor = ({
 
   const loadMore = async () => {
     if (!cursor || !targetResourceType || loading) return;
+    moreController.current?.abort();
+    const controller = new AbortController();
+    moreController.current = controller;
     setLoading(true);
     setError('');
     try {
@@ -188,16 +194,17 @@ export const RelatedExpandEditor = ({
         expectedDraftVersion: capabilities.draftVersion,
         expectedDraftDigest: capabilities.draftDigest,
         stageId: stage.id, targetResourceType, limit: 10, cursor,
-      });
+      }, controller.signal);
+      if (controller.signal.aborted) return;
       if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices((current) => [...current, ...result.choices]);
       setCursor(result.nextCursor);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -267,7 +274,7 @@ export const RelatedExpandEditor = ({
           emit(choice, emptyPolicy, outputName, event.target.value);
         }} className="rounded border border-slate-300 bg-white px-3 py-2" />
       </label>
-      <p className="text-xs text-slate-600">The proposal preview shows the new rows before Apply. Later columns can use the exact related record on each row.</p>
+      <p className="text-xs text-slate-600">The proposal preview shows the new rows before Apply.</p>
     </div>
   );
 };
