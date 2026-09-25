@@ -57,24 +57,6 @@ func (r *tableShapeRouteRepository) GetCatalogForLookup(_ context.Context, looku
 	return value, nil
 }
 
-func (r *tableShapeRouteRepository) FindCatalogForLookup(_ context.Context, lookup tableshapecap.CatalogLookup) (tableshapecap.CatalogReceipt, error) {
-	var found *tableshapecap.CatalogReceipt
-	for _, value := range r.catalogs {
-		if !lookup.Matches(value.Binding) {
-			continue
-		}
-		if found != nil {
-			return tableshapecap.CatalogReceipt{}, tableshapecap.ErrAmbiguous
-		}
-		candidate := value
-		found = &candidate
-	}
-	if found == nil {
-		return tableshapecap.CatalogReceipt{}, tableshapecap.ErrNotFound
-	}
-	return *found, nil
-}
-
 func (r *tableShapeRouteRepository) PutCategoryScan(_ context.Context, value tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := value.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err

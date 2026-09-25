@@ -131,30 +131,7 @@ func (s *Service) GetTableShapeCatalog(ctx context.Context, request TableShapeCa
 	if s.config.TableShapeCapabilities == nil {
 		return TableShapeCatalogResult{}, unavailable("table-shape-capabilities", "CAPABILITY_STORE_UNAVAILABLE", "table-shape capability storage is not configured", nil)
 	}
-	if s.config.CompileReceipt == nil {
-		return TableShapeCatalogResult{}, unavailable("table-shape-capabilities", "CAPABILITY_UNAVAILABLE", "authorized table-shape compilation is not configured", nil)
-	}
-	current, err := s.loadTableShapeBaseContext(ctx, request)
-	if err != nil {
-		return TableShapeCatalogResult{}, err
-	}
-	if current.document.TableShape == nil {
-		lookup := tableShapeCatalogLookup(request, current)
-		catalog, lookupErr := s.config.TableShapeCapabilities.FindCatalogForLookup(ctx, lookup)
-		if lookupErr != nil && !errors.Is(lookupErr, tableshapecap.ErrNotFound) && !errors.Is(lookupErr, tableshapecap.ErrAmbiguous) {
-			return TableShapeCatalogResult{}, unavailable("table-shape-capabilities", "CAPABILITY_STORE_FAILED", "the table-shape capability catalog could not be loaded", lookupErr)
-		}
-		if lookupErr == nil {
-			if base, reusable := s.reuseTableShapeCatalogBase(ctx, request, current, lookup, catalog.ID, catalog); reusable {
-				_, facts, err := tableShapeCatalogColumns(base.contract)
-				if err != nil {
-					return TableShapeCatalogResult{}, conflict("table-shape-capabilities", "INVALID_COMPILER_SCHEMA", "the compiler output schema is invalid for table-shape capabilities", nil, err)
-				}
-				return s.publicTableShapeCatalogResult(ctx, base, catalog, facts), nil
-			}
-		}
-	}
-	base, err := s.compileTableShapeBase(ctx, request, current)
+	base, err := s.loadTableShapeBase(ctx, request)
 	if err != nil {
 		return TableShapeCatalogResult{}, err
 	}
@@ -178,17 +155,13 @@ func (s *Service) GetTableShapeCatalog(ctx context.Context, request TableShapeCa
 	if err := stored.Validate(); err != nil || stored.ID != receipt.ID || stored.Binding != base.binding {
 		return TableShapeCatalogResult{}, unavailable("table-shape-capabilities", "CAPABILITY_STORE_FAILED", "the stored table-shape catalog failed identity validation", err)
 	}
-	return s.publicTableShapeCatalogResult(ctx, base, stored, facts), nil
-}
-
-func (s *Service) publicTableShapeCatalogResult(ctx context.Context, base tableShapeBase, catalog tableshapecap.CatalogReceipt, facts map[string]tableShapeColumnFacts) TableShapeCatalogResult {
-	result := publicTableShapeCatalog(catalog, facts)
-	result.ReshapeModes = tableShapeReshapeModes(catalog)
-	result.SavedProposal = s.savedTableShapeProposal(ctx, base, catalog, facts)
+	result := publicTableShapeCatalog(stored, facts)
+	result.ReshapeModes = tableShapeReshapeModes(stored)
+	result.SavedProposal = s.savedTableShapeProposal(ctx, base, stored, facts)
 	for _, derived := range result.SavedProposal.DerivedColumns {
 		result.SavedDerivedReferences = append(result.SavedDerivedReferences, TableShapeDerivedReference{ResolutionID: derived.ResolutionID, Label: derived.OutputLabel, Type: derived.Result})
 	}
-	return result
+	return result, nil
 }
 
 func (s *Service) loadTableShapeBase(ctx context.Context, request TableShapeCatalogRequest) (tableShapeBase, error) {

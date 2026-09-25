@@ -136,41 +136,6 @@ func (r *TableShapeCapabilityRepository) GetCatalogForLookup(ctx context.Context
 	return *found, nil
 }
 
-func (r *TableShapeCapabilityRepository) FindCatalogForLookup(ctx context.Context, lookup tableshapecap.CatalogLookup) (tableshapecap.CatalogReceipt, error) {
-	if err := lookup.Validate(); err != nil {
-		return tableshapecap.CatalogReceipt{}, err
-	}
-	var found *tableshapecap.CatalogReceipt
-	err := r.client.QueryRows(ctx, tableShapeCapabilityFindCatalogForLookupAQL, 2, tableShapeCapabilityFindLookupBinds(lookup), func(row map[string]interface{}) error {
-		doc, decodeErr := decodeTableShapeCapabilityDocument(row)
-		if decodeErr != nil {
-			return decodeErr
-		}
-		if doc.Kind != "CATALOG" || doc.Catalog == nil || doc.Resolution != nil {
-			return tableshapecap.ErrInvalid
-		}
-		if !lookup.Matches(doc.Binding) || doc.Catalog.Binding != doc.Binding || doc.Catalog.ID != doc.ID {
-			return tableshapecap.ErrNotFound
-		}
-		if err := doc.Catalog.Validate(); err != nil {
-			return err
-		}
-		if found != nil {
-			return tableshapecap.ErrAmbiguous
-		}
-		value := *doc.Catalog
-		found = &value
-		return nil
-	})
-	if err != nil {
-		return tableshapecap.CatalogReceipt{}, err
-	}
-	if found == nil {
-		return tableshapecap.CatalogReceipt{}, tableshapecap.ErrNotFound
-	}
-	return *found, nil
-}
-
 func (r *TableShapeCapabilityRepository) PutCategoryScan(ctx context.Context, receipt tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := receipt.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err
@@ -592,37 +557,11 @@ FOR d IN @@c
   RETURN d
 `
 
-const tableShapeCapabilityFindCatalogForLookupAQL = `
-FOR d IN @@c
-  FILTER d.kind == @kind
-    AND d.binding.project == @project
-    AND d.binding.explorerId == @explorerId
-    AND d.binding.outputId == @outputId
-    AND d.binding.snapshotToken == @snapshotToken
-    AND d.binding.authorizationScope == @authorizationScope
-    AND d.binding.sourceGeneration == @sourceGeneration
-    AND d.binding.draftVersion == @draftVersion
-    AND d.binding.draftDigest == @draftDigest
-    AND d.binding.baseDocumentDigest == @baseDocumentDigest
-  LIMIT 2
-  RETURN d
-`
-
 var _ tableshapecap.Repository = (*TableShapeCapabilityRepository)(nil)
 
 func tableShapeCapabilityLookupBinds(lookup tableshapecap.CatalogLookup, id string) map[string]interface{} {
 	return map[string]interface{}{
 		"@c": TableShapeCapabilitiesCollection, "id": id, "kind": "CATALOG",
-		"project": lookup.Project, "explorerId": lookup.ExplorerID, "outputId": lookup.OutputID,
-		"snapshotToken": lookup.SnapshotToken, "authorizationScope": lookup.AuthorizationScope,
-		"sourceGeneration": lookup.SourceGeneration, "draftVersion": lookup.DraftVersion,
-		"draftDigest": lookup.DraftDigest, "baseDocumentDigest": lookup.BaseDocumentDigest,
-	}
-}
-
-func tableShapeCapabilityFindLookupBinds(lookup tableshapecap.CatalogLookup) map[string]interface{} {
-	return map[string]interface{}{
-		"@c": TableShapeCapabilitiesCollection, "kind": "CATALOG",
 		"project": lookup.Project, "explorerId": lookup.ExplorerID, "outputId": lookup.OutputID,
 		"snapshotToken": lookup.SnapshotToken, "authorizationScope": lookup.AuthorizationScope,
 		"sourceGeneration": lookup.SourceGeneration, "draftVersion": lookup.DraftVersion,
