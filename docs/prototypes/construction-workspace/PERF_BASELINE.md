@@ -2,15 +2,14 @@
 
 ## Status
 
-The validated 10-sample run completed at 2026-09-25 01:27 UTC against the integrated local fixture. Its report is `/private/tmp/construction-preview-artifacts/2026-09-25T01-26-57-199Z/report.json`. The API server process stayed at PID `3745087` from before the run through the post-run check.
+The latest validated 10-sample run completed at 2026-09-25 01:58 UTC against API revision `7df9bf029` and the integrated local fixture. Its report is `/private/tmp/construction-preview-phase-timing/2026-09-25T01-58-07-216Z/report.json`. The one-sample browser smoke report is `/private/tmp/construction-preview-phase-smoke/2026-09-25T01-57-45-928Z/report.json` and is excluded from the distribution.
 
-All 10 samples passed the exact comparison rows, candidate row count, enabled Confirm, `proposalId`, and pre-action BuilderState identity checks. Each produced 3 candidate rows from 2 base rows and 35 changed comparison cells across five examples. The run observed zero canceled and zero failed API requests at concurrency 1. The earlier 2,692.4 ms pilot and all failed identity diagnostics are excluded from these distributions.
+All 10 samples passed exact comparison rows, selected-input checks, candidate row count, enabled Confirm, `proposalId`, and pre-action BuilderState identity checks. Each produced 3 candidate rows from 2 base rows and 35 changed comparison cells across five examples. There were zero canceled or failed API requests at concurrency 1. The earlier 2,692.4 ms pilot and failed identity diagnostics are excluded.
 
 | Client label | Samples | Median | p95 |
 | --- | ---: | ---: | ---: |
-| Cold client | 1 | 1,761.8 ms | 1,761.8 ms |
-| Warm client | 9 | 1,434.7 ms | 1,777.7 ms |
-| All samples | 10 | 1,441.6 ms | 1,777.7 ms |
+| Cold client | 1 | 1,810.8 ms | 1,810.8 ms |
+| Warm client | 9 | 1,561.1 ms | 1,946.3 ms |
 
 The cold lane has one observation, so its p95 is that single sample. “Warm” means the same Chrome profile was reloaded between later previews; it does not establish backend cache state.
 
@@ -18,14 +17,26 @@ The measured API request durations show `table-shape-proposals` as the longest e
 
 | API endpoint | Samples | Median | p95 |
 | --- | ---: | ---: | ---: |
-| `table-shape-proposals` | 10 | 688.9 ms | 787.0 ms |
-| `table-shape-resolutions` | 10 | 300.6 ms | 505.1 ms |
-| `table-shape-capabilities` | 10 | 320.4 ms | 482.3 ms |
-| `semantic-inventory` | 9 | 182.7 ms | 347.4 ms |
+| `table-shape-proposals` | 10 | 791.1 ms | 837.9 ms |
+| `table-shape-resolutions` | 10 | 344.0 ms | 436.6 ms |
+| `table-shape-capabilities` | 10 | 363.2 ms | 525.2 ms |
+| `semantic-inventory` | 8 | 191.8 ms | 377.4 ms |
 
-These are full loopback request durations, not isolated server execution timings. The API did not return useful `Server-Timing` phase values in this run. Proposal latency is the strongest measured candidate for a follow-up: split its server timing into query/evaluation and comparison assembly, then test reuse of the resolved base context keyed by the exact BuilderState identity. Keep such a change only if proposal latency improves and every exact row and identity gate remains green.
+Server-side `Server-Timing` phases from the same ten proposal requests:
 
-The report’s request-level category summary is correctly classified. Its detailed `resourceTiming.category` labels came from the pre-fix classifier, which labeled proposal paths as context-resolution because `/explorers/` matched first. The harness classifier is corrected in the current source; endpoint-specific figures above use the `route` endpoint names from that report.
+| Phase | Samples | Median | p95 |
+| --- | ---: | ---: | ---: |
+| Candidate compile and receipt verification | 10 | 195.2 ms | 284.1 ms |
+| Base preview query | 10 | 5.5 ms | 12.8 ms |
+| Candidate preview query | 10 | 6.5 ms | 23.1 ms |
+| Row diff | 10 | 0.018 ms | 0.025 ms |
+| Cell trace evidence | 10 | 73.9 ms | 94.1 ms |
+| Receipt and exclusion evidence | 10 | 1.4 ms | 2.1 ms |
+| Total comparison | 10 | 207.7 ms | 230.6 ms |
+
+Comparison time includes the nested preview, diff, and evidence phases. The two preview queries and in-memory row diff are small; cell trace is the largest measured comparison subphase. The proposal request median is 791.1 ms, while candidate compilation plus the full comparison account for about 403 ms at their respective medians. The remaining request time is outside those phases, including base-context loading and candidate construction; it has not yet been timed separately. One A/B experiment is to reuse the validated base receipt/context from the immediately preceding resolution for the proposal when the complete project, Explorer, snapshot, draft, output, and authorization binding matches, compared with the current reload-and-compile path. Measure the full proposal and action-to-row distributions and retain reuse only if it improves latency without changing exact rows or identity checks.
+
+The initial pre-instrumentation distribution completed at 2026-09-25 01:27 UTC and is recorded at `/private/tmp/construction-preview-artifacts/2026-09-25T01-26-57-199Z/report.json`. It had warm-client median/p95 1,434.7/1,777.7 ms and proposal API median/p95 688.9/787.0 ms. Its resource-timing classifier mislabeled proposal paths as context-resolution because `/explorers/` matched first; the current harness classifier is corrected.
 
 ## Fixture and workload
 

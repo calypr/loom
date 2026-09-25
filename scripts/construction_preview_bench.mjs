@@ -889,7 +889,16 @@ async function measureOne(session, workload, sample, lane, sampleIndex, builderA
     let url; try { url = new URL(entry.name); } catch { return null; }
     const path = url.pathname.toLowerCase();
     const apiPath = path.startsWith('/api/') || path.startsWith('/graphql/') || path === '/readyz' || path === '/healthz';
-    const category = routeCategory(entry.name);
+    const joinedPath = path.split('/').filter(Boolean).join('/');
+    const category = /capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(joinedPath)
+      ? 'capability-refinement'
+      : /reconcile|compile/.test(joinedPath)
+        ? 'compilation'
+        : /propos|preview|query/.test(joinedPath)
+          ? 'backend-preview-query'
+          : /resolv|resolution|context|builder|explorers/.test(joinedPath)
+            ? 'context-resolution'
+            : 'other-api';
     return { origin: url.origin, apiPath, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
   }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && (entry.origin === ${JSON.stringify(session.apiOrigin)} || (entry.origin === ${JSON.stringify(session.pageOrigin)} && entry.apiPath)))`);
   const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => ({
