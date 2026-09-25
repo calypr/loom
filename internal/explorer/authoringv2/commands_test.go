@@ -357,6 +357,12 @@ func TestApplySemanticSelectionsWritesTypedIdentifierBindingFromResolvedPlan(t *
 		t.Fatalf("results=%#v workspace=%#v", results, updated)
 	}
 	column := updated.Documents[0].Columns[0]
+	if column.ColumnID == "" {
+		t.Fatal("first semantic source column did not receive a stable ColumnID")
+	}
+	if updated.Documents[0].Construction == nil || len(updated.Documents[0].Construction.Steps) != 0 {
+		t.Fatalf("first semantic source add did not initialize source-only construction: %#v", updated.Documents[0].Construction)
+	}
 	wantSource := plan.Source.Normalized()
 	wantSource.Lookup.ProjectionMode = "VALUE"
 	if !sourceEqual(column.Source, wantSource) || column.Source.Lookup.Identifier == nil || column.Source.Lookup.Match != "" || column.Source.Lookup.Path != "" || column.LogicalType != plan.LogicalType {

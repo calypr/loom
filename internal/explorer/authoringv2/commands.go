@@ -1019,20 +1019,15 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if routeErr != nil {
 			return result, routeErr
 		}
-		// A blank table has no legacy shape to preserve. Enter typed
-		// construction before assigning its first stable source column ID so
-		// the next capability request and proposal use the same source-stage
-		// contract as every later staged edit.
-		if len(workspace.Documents[documentPos].Columns) == 0 && workspace.Documents[documentPos].Construction == nil && workspace.Documents[documentPos].TableShape == nil {
-			upgraded, upgradeErr := UpgradeDocumentToConstruction(workspace.Documents[documentPos])
-			if upgradeErr != nil {
-				return result, fmt.Errorf("initialize empty source construction: %w", upgradeErr)
-			}
-			workspace.Documents[documentPos] = upgraded
+		if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
+			return result, err
 		}
 		command.OccurrenceID = occurrenceID
 		return applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
 	case CommandAddSemanticSelections:
+		if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
+			return result, err
+		}
 		return applySemanticSelections(workspace, catalog, commandID, index, command)
 	case CommandUpdateColumn:
 		document := documentIndex(workspace, command.OutputID)
@@ -1249,6 +1244,23 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, nil
 	}
 	return result, fmt.Errorf("unsupported command type %q", command.Type)
+}
+
+func initializeEmptyConstructionBeforeSourceAdd(workspace *Workspace, outputID string) error {
+	documentPos := documentIndex(workspace, outputID)
+	if documentPos < 0 {
+		return nil
+	}
+	document := workspace.Documents[documentPos]
+	if len(document.Columns) != 0 || document.Construction != nil || document.TableShape != nil {
+		return nil
+	}
+	upgraded, err := UpgradeDocumentToConstruction(document)
+	if err != nil {
+		return fmt.Errorf("initialize empty source construction: %w", err)
+	}
+	workspace.Documents[documentPos] = upgraded
+	return nil
 }
 
 func setPopulationRoute(document *Document, selectionRevisionID string, route []PopulationRouteStep) {
