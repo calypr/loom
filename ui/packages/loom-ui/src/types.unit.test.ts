@@ -240,6 +240,103 @@ describe('staged construction contract', () => {
     }).success).toBe(false);
   });
 
+  it('parses pinned Combine operations and optional output nullability', () => {
+    const inputs = [
+      { kind: 'TABLE_REVISION', tableId: 'patients', revisionId: 'r1', outputId: 'out1' },
+      { kind: 'TABLE_REVISION', tableId: 'labs', revisionId: 'r2', outputId: 'out2' },
+    ];
+    const outputs = [
+      { id: 'patient_id', name: 'patient_id', label: 'Patient ID', nullable: false },
+      { id: 'lab_value', name: 'lab_value', label: 'Lab value', nullable: true },
+    ];
+    const construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'join',
+          inputs,
+          operation: {
+            kind: 'COMBINE',
+            combine: {
+              kind: 'KEY_JOIN',
+              keys: [{ leftColumnId: 'patient_id', rightColumnId: 'subject_id' }],
+              projections: [
+                { outputColumnId: 'patient_id', inputIndex: 0, inputColumnId: 'patient_id' },
+                { outputColumnId: 'lab_value', inputIndex: 1, inputColumnId: 'result_value' },
+              ],
+              joinType: 'LEFT',
+              rightMatchPolicy: 'PRESERVE_ALL',
+            },
+          },
+          outputs,
+        },
+        {
+          id: 'append',
+          inputs,
+          operation: {
+            kind: 'COMBINE',
+            combine: {
+              kind: 'APPEND',
+              projections: [
+                { outputColumnId: 'patient_id', inputIndex: 0, inputColumnId: 'patient_id' },
+                { outputColumnId: 'patient_id', inputIndex: 1, inputColumnId: 'person_id' },
+              ],
+            },
+          },
+          outputs: [outputs[0]],
+        },
+        {
+          id: 'membership',
+          inputs,
+          operation: {
+            kind: 'COMBINE',
+            combine: {
+              kind: 'MEMBERSHIP',
+              keys: [{ leftColumnId: 'patient_id', rightColumnId: 'subject_id' }],
+              projections: [
+                { outputColumnId: 'patient_id', inputIndex: 0, inputColumnId: 'patient_id' },
+              ],
+              membershipMode: 'EXCLUDE',
+            },
+          },
+          outputs: [outputs[0]],
+        },
+      ],
+    };
+
+    expect(constructionSchema.parse(construction)).toEqual(construction);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        operation: {
+          kind: 'COMBINE',
+          combine: {
+            ...construction.steps[0].operation.combine,
+            projections: [{ ...construction.steps[0].operation.combine.projections[0], inputIndex: -1 }],
+          },
+        },
+      }],
+    }).success).toBe(false);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        operation: {
+          kind: 'COMBINE',
+          combine: { ...construction.steps[0].operation.combine, keys: [] },
+        },
+      }],
+    }).success).toBe(false);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        outputs: [{ ...outputs[0], nullable: 'false' }],
+      }],
+    }).success).toBe(false);
+  });
+
   it('parses stage cardinality and GROUP/EXPAND capabilities using exact wire values', () => {
     const stage = {
       id: 'source_projection',
@@ -268,6 +365,13 @@ describe('staged construction contract', () => {
       selectedStage: {
         ...stage,
         columns: [{ ...stage.columns[0], cardinality: 'MANY' }],
+      },
+    }).success).toBe(false);
+    expect(constructionCapabilitiesResponseSchema.safeParse({
+      ...response,
+      selectedStage: {
+        ...stage,
+        columns: [{ ...stage.columns[0], nullable: true }],
       },
     }).success).toBe(false);
   });

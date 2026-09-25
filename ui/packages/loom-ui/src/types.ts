@@ -1063,15 +1063,19 @@ const constructionInputRefSchema = z.discriminatedUnion('kind', [
 ]);
 export type ConstructionInputRef = z.infer<typeof constructionInputRefSchema>;
 
-const constructionStageColumnSchema = z.object({
+const constructionStageColumnBaseSchema = z.object({
   id: opaqueIdSchema,
   name: z.string().min(1),
   label: z.string().min(1),
   type: z.string().optional(),
 }).strict();
+
+const constructionStageColumnSchema = constructionStageColumnBaseSchema.extend({
+  nullable: z.boolean().optional(),
+}).strict();
 export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSchema>;
 
-const constructionStageColumnDescriptorSchema = constructionStageColumnSchema.extend({
+const constructionStageColumnDescriptorSchema = constructionStageColumnBaseSchema.extend({
   cardinality: z.enum(['required_one', 'optional_one', 'many']).optional(),
 }).strict();
 export type ConstructionStageColumnDescriptor = z.infer<typeof constructionStageColumnDescriptorSchema>;
@@ -1098,6 +1102,29 @@ const constructionOperandSchema = z.discriminatedUnion('kind', [
     ]),
   }).strict(),
 ]);
+
+const constructionCombineKeySchema = z.object({
+  leftColumnId: opaqueIdSchema,
+  rightColumnId: opaqueIdSchema,
+}).strict();
+export type ConstructionCombineKey = z.infer<typeof constructionCombineKeySchema>;
+
+const constructionCombineProjectionSchema = z.object({
+  outputColumnId: opaqueIdSchema,
+  inputIndex: z.number().int().nonnegative(),
+  inputColumnId: opaqueIdSchema,
+}).strict();
+export type ConstructionCombineProjection = z.infer<typeof constructionCombineProjectionSchema>;
+
+const constructionCombineSchema = z.object({
+  kind: z.enum(['KEY_JOIN', 'APPEND', 'MEMBERSHIP']),
+  keys: z.array(constructionCombineKeySchema).min(1).optional(),
+  projections: z.array(constructionCombineProjectionSchema).min(1),
+  joinType: z.enum(['INNER', 'LEFT']).optional(),
+  rightMatchPolicy: z.literal('PRESERVE_ALL').optional(),
+  membershipMode: z.enum(['INCLUDE', 'EXCLUDE']).optional(),
+}).strict();
+export type ConstructionCombine = z.infer<typeof constructionCombineSchema>;
 
 const constructionOperationSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -1191,6 +1218,10 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       ordinalColumnId: opaqueIdSchema.optional(),
       emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
     }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('COMBINE'),
+    combine: constructionCombineSchema,
   }).strict(),
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;

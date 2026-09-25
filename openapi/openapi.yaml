@@ -3136,6 +3136,7 @@ components:
         name: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
         type: {type: string}
+        nullable: {type: boolean}
     ConstructionStageColumnDescriptor:
       type: object
       additionalProperties: false
@@ -3145,19 +3146,23 @@ components:
         name: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
         type: {type: string}
-        cardinality: {type: string, enum: [required_one, optional_one, many]}
+        cardinality:
+          type: string
+          enum: [required_one, optional_one, many]
+          x-enum-varnames: [REQUIREDONE, OPTIONALONE, MANY]
     ConstructionOperation:
       type: object
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
         unpivot: {$ref: '#/components/schemas/ConstructionUnpivot'}
         group: {$ref: '#/components/schemas/ConstructionGroup'}
         expand: {$ref: '#/components/schemas/ConstructionExpand'}
+        combine: {$ref: '#/components/schemas/ConstructionCombine'}
     ConstructionPivot:
       type: object
       additionalProperties: false
@@ -3307,6 +3312,38 @@ components:
         outputColumnId: {type: string, minLength: 1}
         ordinalColumnId: {type: string, minLength: 1}
         emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
+    ConstructionCombine:
+      type: object
+      additionalProperties: false
+      required: [kind, projections]
+      properties:
+        kind: {type: string, enum: [KEY_JOIN, APPEND, MEMBERSHIP]}
+        keys:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionCombineKey'}
+        projections:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionCombineProjection'}
+        joinType: {type: string, enum: [INNER, LEFT]}
+        rightMatchPolicy: {type: string, enum: [PRESERVE_ALL]}
+        membershipMode: {type: string, enum: [INCLUDE, EXCLUDE]}
+    ConstructionCombineKey:
+      type: object
+      additionalProperties: false
+      required: [leftColumnId, rightColumnId]
+      properties:
+        leftColumnId: {type: string, minLength: 1}
+        rightColumnId: {type: string, minLength: 1}
+    ConstructionCombineProjection:
+      type: object
+      additionalProperties: false
+      required: [outputColumnId, inputIndex, inputColumnId]
+      properties:
+        outputColumnId: {type: string, minLength: 1}
+        inputIndex: {type: integer, minimum: 0}
+        inputColumnId: {type: string, minLength: 1}
     ConstructionCapabilitiesRequest:
       type: object
       additionalProperties: false
