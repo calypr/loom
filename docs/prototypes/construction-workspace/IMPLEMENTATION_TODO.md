@@ -1,0 +1,20 @@
+# Construction workspace implementation
+
+## Throughput checkpoint
+
+- [x] **Blocking first steps.** Ground the work on `arch/integration` at `ba882b003`; settle one canonical ordered construction contract before wiring step editors. Treat legacy fields as the source projection in construction mode, prohibit `TableShape` there, and retain one compiler path.
+- [x] **Independent workstreams.** P01 authoring, P01 compiler, P01 lifecycle/API, P02 workspace, P03 discovery, P04 operations, and P08 measurement have isolated branches and worktrees. Integrate committed changes into this branch only after review and focused verification.
+- [x] **Shared mutable state.** Each code-writing delegate owns a separate worktree. The root owns this integration worktree and merges contracts sequentially. The local `loom-dev` Docker project is shared; one perf/verification owner runs it at a time.
+- [x] **Smallest safe decomposition.** Keep P01's authoring, compiler, and lifecycle slices separate until the data shape compiles end to end. Start P05–P07 follow-up implementation only after their shared contracts are integrated; use a single real evaluator and avoid parallel writes to its compiler.
+
+## Delivery checks
+
+- [ ] P01: durable steps, stable columns, composed compiler, edit/remove/reload and stale proposal behavior.
+- [ ] P02: production table workspace, action panels, real step history, automatic matching preview, Apply/Cancel.
+- [ ] P03: source discovery and Add columns with accurately scoped evidence.
+- [ ] P04: Keep rows and Calculate from source or derived columns; same guided/formula expression.
+- [ ] P05: grouping, pivot, unpivot, and expansion at intermediate stages.
+- [ ] P06: Combine against immutable table revision inputs, explicit update, match and append policies.
+- [ ] P07: saved construction and ClickHouse publication agree; reload and evidence work.
+- [ ] P08: real action-to-render baseline, targeted optimization, final distribution and correctness.
+- [ ] Integrated focused tests and browser verification on the isolated local stack.
