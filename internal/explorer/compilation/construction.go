@@ -16,9 +16,18 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 	if authored == nil {
 		return nil, nil
 	}
-	sourceColumns, err := recipeConstructionSourceColumns(columns, emitted)
-	if err != nil {
-		return nil, err
+	var sourceColumns []recipe.StageColumn
+	terminalCombine := len(authored.Steps) == 1 && authored.Steps[0].Operation.Kind == authoringv2.ConstructionOperationCombine
+	if terminalCombine {
+		if len(columns) != 0 || len(emitted) != 0 {
+			return nil, fmt.Errorf("terminal combine cannot also declare source projection columns")
+		}
+	} else {
+		var err error
+		sourceColumns, err = recipeConstructionSourceColumns(columns, emitted)
+		if err != nil {
+			return nil, err
+		}
 	}
 	construction := &recipe.Construction{
 		Version:       authored.Version,
@@ -92,7 +101,9 @@ func recipeConstructionStep(step authoringv2.ConstructionStep) (recipe.Construct
 	}
 	outputs := make([]recipe.StageColumn, 0, len(step.Outputs))
 	for _, output := range step.Outputs {
-		outputs = append(outputs, recipe.StageColumn{ID: output.ID, Name: output.Name, Label: output.Label, Type: output.Type})
+		outputs = append(outputs, recipe.StageColumn{
+			ID: output.ID, Name: output.Name, Label: output.Label, Type: output.Type, Nullable: output.Nullable,
+		})
 	}
 	return recipe.ConstructionStep{ID: step.ID, Inputs: inputs, Operation: operation, Outputs: outputs}, nil
 }
@@ -212,6 +223,30 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			OutputColumnID: expand.OutputColumnID, OrdinalColumnID: expand.OrdinalColumnID,
 			EmptyPolicy: recipe.ExpansionEmptyPolicy(expand.EmptyPolicy),
 		}
+	case authoringv2.ConstructionOperationCombine:
+		if authored.Combine == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")
+		}
+		combine := authored.Combine
+		mapped := &recipe.ConstructionCombine{
+			Kind:             recipe.ConstructionCombineKind(combine.Kind),
+			Keys:             make([]recipe.ConstructionCombineKey, 0, len(combine.Keys)),
+			Projections:      make([]recipe.ConstructionCombineProjection, 0, len(combine.Projections)),
+			JoinType:         recipe.ConstructionCombineJoinType(combine.JoinType),
+			RightMatchPolicy: recipe.ConstructionCombineRightMatchPolicy(combine.RightMatchPolicy),
+			MembershipMode:   recipe.ConstructionCombineMembershipMode(combine.MembershipMode),
+		}
+		for _, key := range combine.Keys {
+			mapped.Keys = append(mapped.Keys, recipe.ConstructionCombineKey{
+				LeftColumnID: key.LeftColumnID, RightColumnID: key.RightColumnID,
+			})
+		}
+		for _, projection := range combine.Projections {
+			mapped.Projections = append(mapped.Projections, recipe.ConstructionCombineProjection{
+				OutputColumnID: projection.OutputColumnID, InputIndex: projection.InputIndex, InputColumnID: projection.InputColumnID,
+			})
+		}
+		operation.Combine = mapped
 	default:
 		return recipe.ConstructionOperation{}, fmt.Errorf("unsupported operation kind %q", authored.Kind)
 	}

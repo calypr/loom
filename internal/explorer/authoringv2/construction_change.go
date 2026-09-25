@@ -166,10 +166,14 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 	result.Construction = cloned
 	result.TableShape = nil
 	for index := range result.Construction.Steps {
+		step := &result.Construction.Steps[index]
+		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
+			continue
+		}
 		if index == 0 {
-			result.Construction.Steps[index].Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
+			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}}
 		} else {
-			result.Construction.Steps[index].Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: result.Construction.Steps[index-1].ID}}
+			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: result.Construction.Steps[index-1].ID}}
 		}
 	}
 	start := len(result.Construction.Steps)
@@ -289,6 +293,12 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 	}
 	for index := start; index < len(candidate.Construction.Steps); index++ {
 		step := &candidate.Construction.Steps[index]
+		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
+			if index != 0 || len(candidate.Construction.Steps) != 1 {
+				return fmt.Errorf("COMBINE must remain the only construction step")
+			}
+			continue
+		}
 		inputColumns, err := constructionStepInputSchema(candidate.Construction.Steps, source, index)
 		if err != nil {
 			return fmt.Errorf("step %q input: %w", step.ID, err)

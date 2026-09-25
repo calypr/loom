@@ -24,12 +24,14 @@ const (
 	ConstructionOperationUnpivot ConstructionOperationKind = "UNPIVOT"
 	ConstructionOperationGroup   ConstructionOperationKind = "GROUP"
 	ConstructionOperationExpand  ConstructionOperationKind = "EXPAND"
+	ConstructionOperationCombine ConstructionOperationKind = "COMBINE"
 )
 
 // Construction stores the ordered, durable operations applied after the
 // document's source projection. A zero-step construction is the identity plan
-// over that source projection. Version identifies this operation contract,
-// independently of the workspace's older V2 semantics version.
+// over that source projection. A terminal Combine is a standalone plan over
+// exact published table revisions. Version identifies this operation
+// contract, independently of the workspace's older V2 semantics version.
 type Construction struct {
 	Version int                `json:"version"`
 	Steps   []ConstructionStep `json:"steps"`
@@ -90,14 +92,15 @@ func (r ConstructionInputRef) Validate() error {
 	return nil
 }
 
-// StageColumn describes one column at a stage boundary. Type is advisory; an
-// empty value or INFER lets the compiler resolve it from typed source and
-// operator semantics.
+// StageColumn describes one column at a stage boundary. Type is advisory for
+// source-derived operations, while terminal Combine requires a concrete scalar
+// type and uses Nullable to declare left-join output behavior.
 type StageColumn struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Label string `json:"label"`
-	Type  string `json:"type,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Label    string `json:"label"`
+	Type     string `json:"type,omitempty"`
+	Nullable bool   `json:"nullable,omitempty"`
 }
 
 type ConstructionOperation struct {
@@ -108,6 +111,7 @@ type ConstructionOperation struct {
 	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
 	Group   *ConstructionGroup        `json:"group,omitempty"`
 	Expand  *ConstructionExpand       `json:"expand,omitempty"`
+	Combine *ConstructionCombine      `json:"combine,omitempty"`
 }
 
 func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
@@ -118,6 +122,55 @@ func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
 	}
 	*o = ConstructionOperation(value)
 	return nil
+}
+
+// ConstructionCombine describes one standalone operation over exact published
+// table revisions. InputColumnIDs refer to the schemas resolved for those
+// revisions; OutputColumnIDs remain stable in the authored output schema.
+type ConstructionCombine struct {
+	Kind             ConstructionCombineKind             `json:"kind"`
+	Keys             []ConstructionCombineKey            `json:"keys,omitempty"`
+	Projections      []ConstructionCombineProjection     `json:"projections"`
+	JoinType         ConstructionCombineJoinType         `json:"joinType,omitempty"`
+	RightMatchPolicy ConstructionCombineRightMatchPolicy `json:"rightMatchPolicy,omitempty"`
+	MembershipMode   ConstructionCombineMembershipMode   `json:"membershipMode,omitempty"`
+}
+
+type ConstructionCombineKind string
+
+const (
+	ConstructionCombineKeyJoin    ConstructionCombineKind = "KEY_JOIN"
+	ConstructionCombineAppend     ConstructionCombineKind = "APPEND"
+	ConstructionCombineMembership ConstructionCombineKind = "MEMBERSHIP"
+)
+
+type ConstructionCombineJoinType string
+
+const (
+	ConstructionCombineInnerJoin ConstructionCombineJoinType = "INNER"
+	ConstructionCombineLeftJoin  ConstructionCombineJoinType = "LEFT"
+)
+
+type ConstructionCombineRightMatchPolicy string
+
+const ConstructionCombinePreserveAllMatches ConstructionCombineRightMatchPolicy = "PRESERVE_ALL"
+
+type ConstructionCombineMembershipMode string
+
+const (
+	ConstructionCombineIncludeMatches ConstructionCombineMembershipMode = "INCLUDE"
+	ConstructionCombineExcludeMatches ConstructionCombineMembershipMode = "EXCLUDE"
+)
+
+type ConstructionCombineKey struct {
+	LeftColumnID  string `json:"leftColumnId"`
+	RightColumnID string `json:"rightColumnId"`
+}
+
+type ConstructionCombineProjection struct {
+	OutputColumnID string `json:"outputColumnId"`
+	InputIndex     int    `json:"inputIndex"`
+	InputColumnID  string `json:"inputColumnId"`
 }
 
 type ConstructionPivot struct {
