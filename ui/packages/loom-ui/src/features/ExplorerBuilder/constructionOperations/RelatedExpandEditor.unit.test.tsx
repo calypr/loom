@@ -6,8 +6,9 @@ import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '.
 import { RelatedExpandEditor } from './RelatedExpandEditor';
 
 const searchRelatedExpandChoices = vi.fn();
+const client = { searchRelatedExpandChoices };
 vi.mock('../../../react', () => ({
-  useLoomClient: () => ({ searchRelatedExpandChoices }),
+  useLoomClient: () => client,
 }));
 
 const route = [{
@@ -135,5 +136,33 @@ describe('RelatedExpandEditor', () => {
         { id: 'encounter-id', name: 'encounter_id', label: 'Encounter source ID' },
       ],
     });
+  });
+
+  it('can choose a supported route from a later page', async () => {
+    searchRelatedExpandChoices.mockReset().mockImplementation(async (args: { cursor?: string }) => ({
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      complete: Boolean(args.cursor), truncated: !args.cursor,
+      ...(args.cursor ? {} : { nextCursor: 'next-route-page' }),
+      choices: args.cursor
+        ? [{ choiceId: 'second-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }]
+        : [],
+    }));
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    const more = await screen.findByRole('button', { name: 'Load more paths' });
+    await waitFor(() => expect(more).toBeEnabled());
+    fireEvent.click(more);
+    await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: 'next-route-page' }), expect.any(AbortSignal),
+    ));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Encounter via subject_Patient' }));
+    fireEvent.change(screen.getByLabelText('When a parent has no matching record'), { target: { value: 'EXCLUDE' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.choiceId)
+      .toBe('second-page-choice');
   });
 });

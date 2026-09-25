@@ -233,10 +233,10 @@ export const RelatedExpandEditor = ({
       </label>
       {loading ? <p role="status" className="text-sm text-slate-600">Finding supported paths…</p> : null}
       {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
-      {targetResourceType && !loading && choices.length === 0 && !choice && !error
+      {targetResourceType && !loading && choices.length === 0 && !choice && !cursor && !error
         ? <p role="status" className="text-sm text-slate-600">No supported path reaches this record type from these rows.</p>
         : null}
-      {choices.length > 0 || choice ? (
+      {choices.length > 0 || choice || cursor ? (
         <fieldset className="grid gap-2 text-sm">
           <legend className="font-medium text-slate-800">Relationship path</legend>
           {[...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])].map((item) => (
