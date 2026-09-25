@@ -12,6 +12,7 @@ const AUTH_HEADERS = new Set(['authorization', 'cookie', 'set-cookie']);
 const SAFE_TIMING_KEYS = new Set([
   'cachehit', 'cachereused', 'cachemiss', 'compilationms', 'compilems', 'contextresolutionms',
   'queryms', 'querydurationms', 'queryrowsread', 'rowsread', 'rowsscanned', 'bytesread',
+  'baserowcount', 'candidaterowcount', 'outputrowcount', 'previewrowcount', 'resultrowcount', 'rowcount', 'totalrows',
   'serializationms', 'serializems', 'transportms', 'reusedinputs', 'reusedstages',
 ]);
 const SAFE_IDENTITY_KEYS = new Set(['proposalid', 'receiptid', 'resolutionid', 'draftversion', 'draftdigest', 'outputid']);
@@ -108,13 +109,12 @@ function redactAuth(value, authorization) {
 
 function routeCategory(url) {
   const parts = new URL(url).pathname.toLowerCase().split('/').filter(Boolean);
-  const route = parts.at(-1) ?? 'root';
   const joined = parts.join('/');
-  if (/resolve|context/.test(joined)) return 'context-resolution';
-  if (/capabilit|construction-choice|catalog|discovery|choices/.test(joined)) return 'capability-refinement';
+  if (/capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(joined)) return 'capability-refinement';
+  if (/resolv|resolution|context|builder|explorers/.test(joined)) return 'context-resolution';
   if (/reconcile|compile/.test(joined)) return 'compilation';
   if (/propos|preview|query/.test(joined)) return 'backend-preview-query';
-  return route;
+  return 'other-api';
 }
 
 function safeRoute(url) {
@@ -197,10 +197,14 @@ function requireString(value, label) {
 
 function validateStep(step, label) {
   if (!step || typeof step !== 'object' || Array.isArray(step)) throw new UsageError(`${label} must be an action object`);
-  if (!['click', 'fill', 'select', 'wait', 'waitFor'].includes(step.type)) {
-    throw new UsageError(`${label}.type must be click, fill, select, wait, or waitFor`);
+  if (!['click', 'clickUnlessVisible', 'setChecked', 'fill', 'select', 'wait', 'waitFor'].includes(step.type)) {
+    throw new UsageError(`${label}.type must be click, clickUnlessVisible, setChecked, fill, select, wait, or waitFor`);
   }
   if (step.type !== 'wait') requireString(step.selector, `${label}.selector`);
+  if (step.type === 'clickUnlessVisible') requireString(step.visibleSelector, `${label}.visibleSelector`);
+  if (step.type === 'setChecked' && typeof step.checked !== 'boolean') {
+    throw new UsageError(`${label}.checked must be a boolean`);
+  }
   if (step.type === 'fill') {
     if (typeof step.value !== 'string') throw new UsageError(`${label}.value must be a string`);
   }
@@ -218,12 +222,12 @@ function validateWorkload(workload) {
   const identity = workload.identity;
   if (!identity || typeof identity !== 'object') throw new UsageError(`${workload.id}.identity is required`);
   requireString(identity.sourceSnapshot, `${workload.id}.identity.sourceSnapshot`);
-  for (const name of ['inputRows', 'outputWidth', 'constructionDepth', 'previewLimit']) {
+  for (const name of ['inputRows', 'outputRows', 'outputWidth', 'constructionDepth', 'previewLimit']) {
     if (!Number.isInteger(identity[name]) || identity[name] < 0) {
       throw new UsageError(`${workload.id}.identity.${name} must be a non-negative integer`);
     }
   }
-  if (identity.inputRows < 1 || identity.outputWidth < 1 || identity.constructionDepth < 1 || identity.previewLimit < 1) {
+  if (identity.inputRows < 1 || identity.outputRows < 1 || identity.outputWidth < 1 || identity.constructionDepth < 1 || identity.previewLimit < 1) {
     throw new UsageError(`${workload.id}.identity row count, width, depth, and preview limit must be positive`);
   }
   if (!identity.categoryCardinality || typeof identity.categoryCardinality !== 'object') {
@@ -235,6 +239,10 @@ function validateWorkload(workload) {
   }
   for (const [index, sample] of workload.samples.entries()) {
     requireString(sample.id, `${workload.id}.samples[${index}].id`);
+    if (sample.expectedCheckedChoices !== undefined && (!Array.isArray(sample.expectedCheckedChoices)
+      || sample.expectedCheckedChoices.some((choice) => typeof choice !== 'string'))) {
+      throw new UsageError(`${workload.id}.samples[${index}].expectedCheckedChoices must be an array of strings`);
+    }
     if (!Array.isArray(sample.request) || sample.request.length === 0) {
       throw new UsageError(`${workload.id}.samples[${index}].request must contain the user action that requests preview`);
     }
@@ -354,6 +362,15 @@ class CDPClient {
     this.listeners.set(method, listeners);
   }
 
+  once(method, listener) {
+    const wrapped = (parameters) => {
+      const listeners = this.listeners.get(method) ?? [];
+      this.listeners.set(method, listeners.filter((current) => current !== wrapped));
+      listener(parameters);
+    };
+    this.on(method, wrapped);
+  }
+
   close() { this.socket.close(); }
 }
 
@@ -404,11 +421,13 @@ class BrowserSession {
     this.requestById = new Map();
     this.bodyTasks = new Set();
     this.allowedOrigins = [...new Set([new URL(options.pageUrl).origin, new URL(options.apiUrl).origin])];
+    this.apiOrigin = new URL(options.apiUrl).origin;
   }
 
   async initialize() {
     this.client.on('Network.requestWillBeSent', ({ requestId, request, type, timestamp }) => {
-      const item = { requestId, route: safeRoute(request.url), category: routeCategory(request.url), type, startTimestamp: timestamp, response: null, failed: null, metrics: null, identities: null };
+      const apiRequest = (type === 'Fetch' || type === 'XHR') && new URL(request.url).origin === this.apiOrigin;
+      const item = { requestId, route: safeRoute(request.url), category: routeCategory(request.url), apiRequest, type, startTimestamp: timestamp, response: null, failed: null, metrics: null, identities: null };
       this.requests.push(item);
       this.requestById.set(requestId, item);
     });
@@ -433,7 +452,7 @@ class BrowserSession {
       if (!item) return;
       item.finishedTimestamp = timestamp;
       item.encodedDataLength = encodedDataLength;
-      if (item.response?.status >= 200 && /preview|proposal|query/i.test(item.route)) {
+      if (item.apiRequest && item.response?.status >= 200 && /preview|proposal|query/i.test(item.route)) {
         const task = this.captureSafeBodyMetrics(requestId, item).finally(() => this.bodyTasks.delete(task));
         this.bodyTasks.add(task);
       }
@@ -497,6 +516,21 @@ class BrowserSession {
     throw new Error('page load timed out after 30 seconds');
   }
 
+  async reload() {
+    const loaded = new Promise((resolve) => this.client.once('Page.loadEventFired', resolve));
+    await this.client.send('Page.navigate', { url: this.options.pageUrl });
+    let timeout;
+    try {
+      await Promise.race([
+        loaded,
+        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('page reload timed out after 30 seconds')), 30000); }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    await this.waitForDocument();
+  }
+
   async action(step) {
     if (step.type === 'wait') {
       await new Promise((resolve) => setTimeout(resolve, step.ms));
@@ -510,11 +544,41 @@ class BrowserSession {
         if (found) return;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
-      const state = await this.evaluate(`(() => { const el = document.querySelector(${selector}); return { present: Boolean(el), visible: Boolean(el?.getClientRects().length), disabled: el ? Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true') : null, tagName: el?.tagName ?? null, options: el instanceof HTMLSelectElement ? [...el.options].map((option) => option.textContent.trim()) : undefined }; })()`);
+      const state = await this.evaluate(`(() => {
+        const el = document.querySelector(${selector});
+        const controls = [...document.querySelectorAll('[data-testid]')]
+          .filter((item) => item.getClientRects().length && /^(construction-|ui04-)/.test(item.getAttribute('data-testid') || ''))
+          .map((item) => ({ testId: item.getAttribute('data-testid'), tagName: item.tagName, disabled: Boolean(item.disabled || item.getAttribute('aria-disabled') === 'true') }));
+        const shapeError = document.querySelector('[data-testid="ui04-table-shape-error"]');
+        const shapeErrorText = shapeError?.innerText?.trim().replace(/https?:\\/\\/[^\\s]+/g, '[url]').slice(0, 500) || null;
+        return { present: Boolean(el), visible: Boolean(el?.getClientRects().length), disabled: el ? Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true') : null, tagName: el?.tagName ?? null, options: el instanceof HTMLSelectElement ? [...el.options].map((option) => option.textContent.trim()) : undefined, visibleControls: controls, shapeErrorText };
+      })()`);
       throw new Error(`timed out waiting for browser control ${step.selector}; requireEnabled=${step.enabled === true}; state=${JSON.stringify(state)}`);
     }
     let operation;
-    if (step.type === 'click') {
+    if (step.type === 'click' || step.type === 'clickUnlessVisible') {
+      const visibleSelector = JSON.stringify(step.visibleSelector ?? '');
+      const skipIfVisible = step.type === 'clickUnlessVisible';
+      operation = `(() => {
+        const visible = ${skipIfVisible ? `document.querySelector(${visibleSelector})` : 'null'};
+        if (visible?.getClientRects().length) return true;
+        const el = document.querySelector(${selector});
+        if (!el) throw new Error('selector not found');
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error('control is disabled');
+        el.click();
+        return true;
+      })()`;
+    } else if (step.type === 'setChecked') {
+      const checked = JSON.stringify(step.checked);
+      operation = `(() => {
+        const el = document.querySelector(${selector});
+        if (!(el instanceof HTMLInputElement) || el.type !== 'checkbox') throw new Error('target is not a checkbox');
+        if (el.disabled) throw new Error('control is disabled');
+        if (el.checked !== ${checked}) el.click();
+        if (el.checked !== ${checked}) throw new Error('checkbox did not reach requested state');
+        return true;
+      })()`;
+    } else if (step.type === 'click') {
       operation = `(() => { const el = document.querySelector(${selector}); if (!el) throw new Error('selector not found'); if (el.disabled || el.getAttribute('aria-disabled') === 'true') throw new Error('control is disabled'); el.click(); return true; })()`;
     } else if (step.type === 'fill') {
       const value = JSON.stringify(step.value);
@@ -534,7 +598,13 @@ class BrowserSession {
   }
 
   async actions(steps = []) {
-    for (const step of steps) await this.action(step);
+    for (const [index, step] of steps.entries()) {
+      try {
+        await this.action(step);
+      } catch (error) {
+        throw new Error(`action ${index + 1}/${steps.length} (${step.type} ${step.selector ?? ''}) failed: ${error.message}`);
+      }
+    }
   }
 
   async captureAssertionDom(config, workloadId, reason) {
@@ -544,8 +614,8 @@ class BrowserSession {
       const config = ${configValue};
       const root = document.querySelector(config.rootSelector);
       const text = (element) => element?.innerText?.trim() ?? '';
-      const selector = config.tablesSelector || config.tableSelector;
-      const tables = root && config.tablesSelector
+      const selector = config.captureTablesSelector || config.tablesSelector || config.tableSelector;
+      const tables = root && (config.captureTablesSelector || config.tablesSelector)
         ? [...root.querySelectorAll(selector)]
         : [root?.querySelector(selector) || document.querySelector(selector)].filter(Boolean);
       return {
@@ -554,6 +624,12 @@ class BrowserSession {
         rootPresent: Boolean(root),
         rootTestId: root?.getAttribute('data-testid') ?? null,
         applyEnabled: Boolean((() => { const apply = document.querySelector(config.applySelector); return apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'; })()),
+        checkedChoices: config.checkedChoiceSelector
+          ? [...document.querySelectorAll(config.checkedChoiceSelector)]
+            .filter((input) => input.checked && input.getClientRects().length)
+            .map((input) => input.getAttribute('aria-label'))
+          : null,
+        visibleMetrics: Object.fromEntries(Object.entries(config.metricSelectors ?? {}).map(([name, selector]) => [name, text(root?.querySelector(selector)) || null])),
         tables: tables.map((table) => {
           const group = config.rowGroupSelector ? table.closest(config.rowGroupSelector) : null;
           return {
@@ -567,7 +643,26 @@ class BrowserSession {
     if (!this.options.artifactDir) return { ...snapshot, reason };
     const filename = `assertion-failure-${hash(workloadId).slice(0, 12)}-${Date.now()}.json`;
     const output = path.join(this.options.artifactDir, filename);
-    await writeFile(output, `${JSON.stringify({ schemaVersion: 1, workloadId, reason, capturedAt: new Date().toISOString(), ...snapshot }, null, 2)}\n`, { mode: 0o600 });
+    const safeServerEvidence = this.requests
+      .filter((request) => request.apiRequest && request.response && (request.metrics || request.identities))
+      .map((request) => ({
+        category: request.category,
+        status: request.response.status,
+        canceled: Boolean(request.failed?.canceled),
+        metrics: request.metrics,
+        identitySha256: request.identities
+          ? Object.fromEntries(Object.entries(request.identities).map(([key, value]) => [key, hash(value)]))
+          : null,
+      }));
+    await writeFile(output, `${JSON.stringify({
+      schemaVersion: 2,
+      workloadId,
+      reason,
+      capturedAt: new Date().toISOString(),
+      ...snapshot,
+      checkedChoicesBeforeProposal: this.checkedChoicesBeforeProposal,
+      safeServerEvidence,
+    }, null, 2)}\n`, { mode: 0o600 });
     return output;
   }
 
@@ -618,6 +713,19 @@ function completionExpression(config, expected, previousIdentity, requireIdentit
       return { headers, rows };
     };
     const renderedTables = tables.map(readTable);
+    const readMetric = (selector) => {
+      if (!selector) return null;
+      const value = root.querySelector(selector)?.innerText.trim() ?? '';
+      const number = Number(value);
+      return value !== '' && Number.isFinite(number) ? number : null;
+    };
+    const metrics = Object.fromEntries(Object.entries(args.config.metricSelectors ?? {})
+      .map(([name, selector]) => [name, readMetric(selector)]));
+    const checkedChoices = args.config.checkedChoiceSelector
+      ? [...document.querySelectorAll(args.config.checkedChoiceSelector)]
+        .filter((input) => input.checked && input.getClientRects().length)
+        .map((input) => input.getAttribute('aria-label'))
+      : null;
     const expectedTables = args.expected.tables || [{ columns: args.expected.columns, rows: args.expected.rows }];
     const cellMatches = (actual, expected) => expected === '$any'
       ? typeof actual === 'string' && actual.length > 0
@@ -632,10 +740,12 @@ function completionExpression(config, expected, previousIdentity, requireIdentit
     const statusReady = !args.config.statusAttribute || status === (args.config.readyValue || 'ready');
     const identityReady = !args.config.identityAttribute || (identity.length > 0
       && (!args.requireIdentityChange || identity !== args.previousIdentity));
+    const candidateRowsReady = !args.config.metricSelectors?.candidateRowCount
+      || (Number.isInteger(metrics.candidateRowCount) && metrics.candidateRowCount > 0);
     const ready = statusReady && identityReady
       && apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'
-      && renderedTables.length > 0;
-    return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, completedAt: performance.now() } : null;
+      && renderedTables.length > 0 && candidateRowsReady;
+    return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, metrics, checkedChoices, completedAt: performance.now() } : null;
   })()`;
 }
 
@@ -664,26 +774,49 @@ async function waitForCompletion(session, config, expected, previousIdentity, ti
 }
 
 async function measureOne(session, workload, sample, lane, sampleIndex) {
+  if (sampleIndex > 0) await session.reload();
   await session.actions(workload.prepare);
   const completion = workload.completion;
+  const readyStep = sample.setup?.find((step) => step.type === 'waitFor');
+  if (readyStep) await session.action(readyStep);
   const previousIdentity = completion.identityAttribute
     ? await session.evaluate(`document.querySelector(${JSON.stringify(completion.rootSelector)})?.getAttribute(${JSON.stringify(completion.identityAttribute)}) || ''`)
     : '';
   const requestOffset = session.requests.length;
   const startAt = await session.evaluate('performance.now()');
   await session.actions(sample.setup);
+  const checkedChoicesBeforeProposal = completion.checkedChoiceSelector
+    ? await session.evaluate(`[...document.querySelectorAll(${JSON.stringify(completion.checkedChoiceSelector)})]
+      .filter((input) => input.checked && input.getClientRects().length)
+      .map((input) => input.getAttribute('aria-label'))`)
+    : null;
+  session.checkedChoicesBeforeProposal = checkedChoicesBeforeProposal;
   await session.actions(sample.request);
   const expected = sample.expectedTables
     ? { tables: sample.expectedTables }
     : { columns: sample.expectedColumns, rows: sample.expectedRows };
   const rendered = await waitForCompletion(session, completion, expected, previousIdentity, workload.timeoutMs ?? 45000, workload.requireIdentityChange !== false);
   await Promise.allSettled([...session.bodyTasks]);
+  if (rendered.metrics?.candidateRowCount !== workload.identity.outputRows) {
+    const evidence = await session.captureAssertionDom(completion, workload.id, `candidate row count differed; expected=${workload.identity.outputRows} actual=${rendered.metrics?.candidateRowCount ?? 'missing'}`);
+    throw new Error(`candidate row count differs from expected output; expected=${workload.identity.outputRows} actual=${rendered.metrics?.candidateRowCount ?? 'missing'}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
+  }
+  if (sample.expectedCheckedChoices) {
+    const actual = [...(checkedChoicesBeforeProposal ?? [])].sort();
+    const expectedChoices = [...sample.expectedCheckedChoices].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expectedChoices)) {
+      const evidence = await session.captureAssertionDom(completion, workload.id, `checked input choices differed; expected=${JSON.stringify(expectedChoices)} actual=${JSON.stringify(actual)}`);
+      throw new Error(`checked input choices differ; expected=${JSON.stringify(expectedChoices)} actual=${JSON.stringify(actual)}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
+    }
+  }
   const endToEndMs = rendered.completedAt - startAt;
   const resources = await session.evaluate(`performance.getEntriesByType('resource').filter((entry) => entry.startTime >= ${startAt}).map((entry) => {
     let url; try { url = new URL(entry.name); } catch { return null; }
-    return { origin: url.origin, route: url.pathname.toLowerCase().split('/').filter(Boolean).at(-1) || 'root', category: /resolve|context/i.test(url.pathname) ? 'context-resolution' : /capabilit|choice|catalog|discovery/i.test(url.pathname) ? 'capability-refinement' : /reconcile|compile/i.test(url.pathname) ? 'compilation' : /propos|preview|query/i.test(url.pathname) ? 'backend-preview-query' : 'other', startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
-  }).filter((entry) => entry && [${session.allowedOrigins.map((origin) => JSON.stringify(origin)).join(',')}].includes(entry.origin))`);
-  const requests = session.requests.slice(requestOffset).map((request) => ({
+    const path = url.pathname.toLowerCase();
+    const category = /capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(path) ? 'capability-refinement' : /resolv|resolution|context|builder|explorers/.test(path) ? 'context-resolution' : /reconcile|compile/.test(path) ? 'compilation' : /propos|preview|query/.test(path) ? 'backend-preview-query' : 'other-api';
+    return { origin: url.origin, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
+  }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && entry.origin === ${JSON.stringify(session.apiOrigin)})`);
+  const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => ({
     route: request.route,
     category: request.category,
     type: request.type,
@@ -710,7 +843,7 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     throw new Error(`visible preview rows differ from expected rows; expectedSha256=${expectedHash} actualSha256=${observedHash}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
   }
   const backendIdentity = completion.networkIdentity
-    ? session.requests.slice(requestOffset).map((request) => request.identities?.[completion.networkIdentity]).filter(Boolean).at(-1)
+    ? session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => request.identities?.[completion.networkIdentity]).filter(Boolean).at(-1)
     : undefined;
   if (!rendered.identity && completion.networkIdentity && !backendIdentity) {
     throw new Error(`preview response omitted the configured ${completion.networkIdentity} identity`);
@@ -726,16 +859,19 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     lane,
     sampleIndex,
     endToEndMs: Number(endToEndMs.toFixed(2)),
-    rowCount: rendered.tables.reduce((count, table) => count + table.rows.length, 0),
-    outputWidth: Math.max(0, ...rendered.tables.map((table) => table.headers.length)),
-    rowSchemaSha256: hash(rendered.tables.map((table) => table.headers)),
-    visibleRowsSha256: observedHash,
+    checkedChoices: checkedChoicesBeforeProposal,
+    baseRowCount: rendered.metrics?.baseRowCount ?? null,
+    candidateRowCount: rendered.metrics?.candidateRowCount ?? null,
+    comparisonRowCount: rendered.tables.reduce((count, table) => count + table.rows.length, 0),
+    comparisonWidth: Math.max(0, ...rendered.tables.map((table) => table.headers.length)),
+    comparisonSchemaSha256: hash(rendered.tables.map((table) => table.headers)),
+    visibleComparisonSha256: observedHash,
     previewIdentitySha256: previewIdentity ? hash(previewIdentity) : null,
     identityObservedInDOM: Boolean(rendered.identity),
     backendIdentityObserved: Boolean(backendIdentity),
     correctRows: true,
     applicable: true,
-    previewIdentityChanged: rendered.identity !== previousIdentity,
+    previewIdentityChanged: rendered.identity ? rendered.identity !== previousIdentity : null,
     requestCount: requests.length,
     cancelledRequests: requests.filter((request) => request.canceled).length,
     failedRequests: requests.filter((request) => request.failure === 'failed').length,
@@ -761,11 +897,11 @@ async function runSupersessionProbe(session, workload) {
   const rendered = await waitForCompletion(session, workload.completion, probe.expected, previousIdentity, probe.timeoutMs ?? workload.timeoutMs ?? 45000, workload.requireIdentityChange !== false);
   const endToEndMs = rendered.completedAt - startAt;
   await Promise.allSettled([...session.bodyTasks]);
-  const requests = session.requests.slice(requestOffset);
+  const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest);
   const result = {
     workloadId: workload.id,
     endToEndMs: Number(endToEndMs.toFixed(2)),
-    finalPreviewIdentityChanged: rendered.identity !== previousIdentity,
+    finalPreviewIdentityChanged: rendered.identity ? rendered.identity !== previousIdentity : null,
     correctLatestRows: rendered.matchesExpected,
     canceledRequests: requests.filter((request) => request.failed?.canceled).length,
     failedRequests: requests.filter((request) => request.failed && !request.failed.canceled).length,
