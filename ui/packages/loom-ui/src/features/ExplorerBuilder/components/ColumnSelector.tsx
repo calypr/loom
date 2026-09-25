@@ -552,6 +552,9 @@ export const ColumnSelector = ({
     })),
     [catalogCandidatesById, configured, configuredResolutions],
   );
+  const inspectedEvidence = inspectedColumn
+    ? configuredCapabilities.get(inspectedColumn.column)?.conceptCandidates ?? []
+    : [];
   const available = useMemo(
     () =>
       showAvailable
@@ -755,19 +758,27 @@ export const ColumnSelector = ({
             </div>
           ) : null}
           {inspectedColumn && inspection?.descriptor ? (
-            <ColumnSourceInspector
-              column={inspectedColumn}
-              descriptor={inspection.descriptor}
-              onClose={() => {
-                inspectionGeneration.current += 1;
-                setInspection(undefined);
-              }}
-              onEditInGraph={
-                onEditInGraph
-                  ? () => onEditInGraph(inspectedColumn)
-                  : undefined
-              }
-            />
+            <>
+              <ColumnSourceInspector
+                column={inspectedColumn}
+                descriptor={inspection.descriptor}
+                onClose={() => {
+                  inspectionGeneration.current += 1;
+                  setInspection(undefined);
+                }}
+                onEditInGraph={
+                  onEditInGraph
+                    ? () => onEditInGraph(inspectedColumn)
+                    : undefined
+                }
+              />
+              {inspectedEvidence.length > 0 ? (
+                <div className="mt-2 rounded-lg border border-slate-200 bg-white p-2">
+                  <p className="mb-2 text-xs font-semibold text-slate-800">Observed code meaning for this saved source</p>
+                  <ObservedCodeEvidence concepts={inspectedEvidence} compact />
+                </div>
+              ) : null}
+            </>
           ) : null}
           <div className="mt-2 grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] gap-2 border-b border-slate-200 bg-slate-50/70 px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <span className="text-left">Display name / source</span>

@@ -29,6 +29,11 @@ export interface CatalogRouteContext {
   readonly nodeId: string;
 }
 
+export interface CatalogSourceProjectionAvailability {
+  readonly available: boolean;
+  readonly reason: string;
+}
+
 type CatalogPage = {
   readonly cursor?: string;
   readonly response: SemanticInventoryBrowseResponse;
@@ -204,6 +209,7 @@ const CatalogItemRow = ({
   hasRouteContext,
   checked,
   disabled,
+  selectionDisabled,
   onToggle,
   choiceDetails,
   onInspectChoices,
@@ -214,6 +220,7 @@ const CatalogItemRow = ({
   readonly hasRouteContext: boolean;
   readonly checked: boolean;
   readonly disabled: boolean;
+  readonly selectionDisabled: boolean;
   readonly onToggle: () => void;
   readonly choiceDetails?:
     | { readonly status: 'loading' }
@@ -245,7 +252,7 @@ const CatalogItemRow = ({
           type="checkbox"
           aria-label={selectionLabel}
           checked={checked}
-          disabled={disabled || !availability.selectable}
+          disabled={disabled || selectionDisabled || !availability.selectable}
           onChange={onToggle}
           className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-700"
         />
@@ -417,6 +424,7 @@ export const ConceptCatalog = ({
   layout = 'workspace',
   catalog,
   disabled = false,
+  sourceProjectionAvailability,
   onAddSelected,
 }: {
   readonly project: string;
@@ -430,6 +438,7 @@ export const ConceptCatalog = ({
   readonly layout?: 'workspace' | 'panel';
   readonly catalog: ExplorerBuilderCatalog;
   readonly disabled?: boolean;
+  readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<void>;
@@ -460,7 +469,11 @@ export const ConceptCatalog = ({
     resourceType ?? '*',
     routeContext?.occurrenceId ?? '',
     routeContext?.nodeId ?? '',
+    sourceProjectionAvailability?.available ?? true,
+    sourceProjectionAvailability?.reason ?? '',
   ]);
+  const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
+  const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
 
   const loadPage = useCallback(
     (searchQuery: string, cursor?: string, replace = false) => {
@@ -518,6 +531,7 @@ export const ConceptCatalog = ({
     setSelected(new Map());
     setChoiceDetails(new Map());
     setPendingSelection(undefined);
+    setActionMessage(undefined);
     selectionContext.current = undefined;
     if (snapshotToken && rowRoot) loadPage('', undefined, true);
     return () => activeRequest.current?.abort();
@@ -630,7 +644,7 @@ export const ConceptCatalog = ({
   };
 
   const commitSelections = async (selections: ReadonlyArray<CatalogChoiceIntent>) => {
-    if (!onAddSelected || !selections.length) return;
+    if (!canAddFromSourceProjection || !onAddSelected || !selections.length) return;
     setAdding(true);
     setActionMessage(undefined);
     try {
@@ -648,7 +662,7 @@ export const ConceptCatalog = ({
   };
 
   const openSelection = async () => {
-    if (!selectedItems.length || !onAddSelected) return;
+    if (!canAddFromSourceProjection || !selectedItems.length || !onAddSelected) return;
     setAdding(true);
     setActionMessage(undefined);
     try {
@@ -750,6 +764,15 @@ export const ConceptCatalog = ({
           Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.
         </p>
       ) : null}
+      {sourceProjectionAvailability && !sourceProjectionAvailability.available ? (
+        <p className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
+          Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
+        </p>
+      ) : sourceProjectionAvailability?.available ? (
+        <p className="mx-4 mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950 sm:mx-5" role="status">
+          This stage retains source row identity. Selections here become source-projection columns and flow through the saved row-preserving steps.
+        </p>
+      ) : null}
       {loadState.status === 'error' ? (
         <div className="mx-4 mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 sm:mx-5" role="alert">
           {loadState.message}
@@ -781,6 +804,7 @@ export const ConceptCatalog = ({
                   hasRouteContext={routeContext !== undefined}
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                  selectionDisabled={!canAddFromSourceProjection}
                   onToggle={() => toggleSelection(item)}
                   choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
                   onInspectChoices={() => inspectChoices(item)}
@@ -814,6 +838,7 @@ export const ConceptCatalog = ({
                   hasRouteContext={routeContext !== undefined}
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                  selectionDisabled={!canAddFromSourceProjection}
                   onToggle={() => toggleSelection(item)}
                   choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
                   onInspectChoices={() => inspectChoices(item)}
@@ -876,7 +901,7 @@ export const ConceptCatalog = ({
           {!pendingSelection ? (
           <button
             type="button"
-              disabled={disabled || adding || selected.size === 0 || !onAddSelected}
+              disabled={disabled || adding || selected.size === 0 || !onAddSelected || !canAddFromSourceProjection}
               onClick={() => void openSelection()}
             className="mt-4 w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >

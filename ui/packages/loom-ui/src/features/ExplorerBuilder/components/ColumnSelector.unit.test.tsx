@@ -158,6 +158,38 @@ describe('configured V2 columns', () => {
         toNodeId: 'observation',
         label: 'subject_Observation',
       }],
+      candidates: [{
+        candidateId: 'candidate-height',
+        nodeId: 'observation',
+        fieldPath: 'component[].valueQuantity.value',
+        label: 'Height',
+        logicalType: 'decimal',
+        cardinality: 'optional_one',
+        repeated: false,
+        filterable: true,
+        chartable: false,
+        projectionModes: ['VALUE'],
+        defaultProjectionMode: 'VALUE',
+        aggregateOperations: [],
+        transformations: unavailableTransformations,
+        valueTransformations: availableStringValueTransformations,
+        conceptCandidates: [{
+          sourceResourceType: 'Observation',
+          sourcePath: 'component[].valueQuantity.value',
+          owningScope: 'component[]',
+          system: 'http://loinc.org',
+          code: '8302-2',
+          display: 'Body height',
+          logicalType: 'decimal',
+          completeness: 'COMPLETE',
+          status: 'SUPPORTED',
+          population: 4,
+          examples: ['170', '172'],
+          examplesTruncated: false,
+          observedUnits: ['cm'],
+          observedUnitsTruncated: false,
+        }],
+      }],
     };
     const relatedTable: DraftTable = {
       ...table,
@@ -178,6 +210,7 @@ describe('configured V2 columns', () => {
     render(
       <ColumnSelector
         catalog={relatedCatalog}
+        interpretationContext={contextFor(relatedTable.outputId, height.column, ['candidate-height'])}
         table={relatedTable}
         occurrenceId="base"
         showAvailable={false}
@@ -223,6 +256,10 @@ describe('configured V2 columns', () => {
     expect(inspector).toHaveTextContent('component[]');
     expect(inspector).toHaveTextContent('valueQuantity.value');
     expect(inspector).toHaveTextContent('valueQuantity.unit');
+    expect(await screen.findByText('Observed code meaning for this saved source')).toBeInTheDocument();
+    expect(screen.getByText('Body height · http://loinc.org · 8302-2')).toBeInTheDocument();
+    expect(screen.getByText(/Observed examples: 170, 172/)).toBeInTheDocument();
+    expect(screen.getByText(/Observed units: cm/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit in graph' }));
     expect(onEditInGraph).toHaveBeenCalledWith(height);

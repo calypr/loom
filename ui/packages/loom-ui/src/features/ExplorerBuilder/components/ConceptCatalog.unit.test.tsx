@@ -16,6 +16,7 @@ import type {
 import {
   ConceptCatalog,
   type CatalogRouteContext,
+  type CatalogSourceProjectionAvailability,
 } from './ConceptCatalog';
 
 const choiceOption = (
@@ -203,6 +204,7 @@ const catalog: ExplorerBuilderCatalog = {
 const renderCatalog = (
   fetch: typeof globalThis.fetch,
   onAddSelected = vi.fn().mockResolvedValue(undefined),
+  sourceProjectionAvailability?: CatalogSourceProjectionAvailability,
 ) => {
     render(
       <LoomProvider client={createLoomClient({ fetch })}>
@@ -213,6 +215,7 @@ const renderCatalog = (
           outputId="patients"
           rowRoot="Patient"
           catalog={catalog}
+          sourceProjectionAvailability={sourceProjectionAvailability}
           onAddSelected={onAddSelected}
         />
       </LoomProvider>,
@@ -351,6 +354,35 @@ describe('ConceptCatalog', () => {
     expect(within(resultRow).getByText(/Observed examples: 10\.2, 11\.0 · additional examples exist/)).toBeInTheDocument();
     expect(within(resultRow).getByText('Server choice uses the Patient root resource; no route steps')).toBeInTheDocument();
     expect(within(resultRow).getByText(/Loom proves the VALUE output form preserves the row grain\./)).toBeInTheDocument();
+  });
+
+  it('keeps discovery evidence inspectable while disabling Add when the selected stage cannot retain source identity', async () => {
+    const observed = item('4548-4', 'Hemoglobin A1c', 91);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([observed])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(fetch, onAddSelected, {
+      available: false,
+      reason: 'The selected stage has a different row identity after pivoting.',
+    });
+
+    const result = await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' });
+    expect(result).toBeDisabled();
+    expect(screen.getByText(/selected stage has a different row identity after pivoting/)).toBeInTheDocument();
+    expect(screen.getByText('Add selected features')).toBeDisabled();
+
+    const resultRow = result.closest('article');
+    expect(resultRow).not.toBeNull();
+    if (!resultRow) throw new Error('The concept result row is missing.');
+    fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
+    expect(within(resultRow).getByText('91 source occurrences were observed for this code. The inventory response does not provide a denominator or coverage of the current table rows.')).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Observed examples: 10\.2, 11\.0 · additional examples exist/)).toBeInTheDocument();
+
+    expect(onAddSelected).not.toHaveBeenCalled();
   });
 
   it('loads table-specific route and output alternatives before the final Add action', async () => {
