@@ -809,6 +809,14 @@ const BuilderWorkspaceContent = ({
         throw new Error('Loom is still checking whether this stage can add a related field.');
       }
       const { selectedStage, baseConstruction } = capabilities.response;
+      if (
+        editingConstructionStep ||
+        selectedStage.id !== constructionAppendStageFor(baseConstruction)
+      ) {
+        throw new Error(
+          'Close the saved-step editor before adding a related field; proposals must follow the current final step.',
+        );
+      }
       const support = selectedStage.capabilities.find(
         (capability) => capability.kind === 'RELATED_SOURCE',
       );
@@ -1735,11 +1743,23 @@ const BuilderWorkspaceContent = ({
     relatedSourceCapability?.reasonCode,
     relatedSourceCapability?.reason,
   ].filter((reason): reason is string => Boolean(reason?.trim())).join(': ');
-  const relatedSourceAvailability = relatedSourceCapability?.supported && capabilityStage?.rowIdentityColumn
+  const capabilityIsForAppendStage = constructionLifecycle.capabilities.status === 'ready' &&
+    capabilityStage?.id === constructionAppendStageFor(
+      constructionLifecycle.capabilities.response.baseConstruction,
+    );
+  const relatedSourceUnavailableReason = editingConstructionStep
+    ? 'Close the saved-step editor before adding related fields; proposals follow the current final step.'
+    : constructionLifecycle.capabilities.status === 'ready' && !capabilityIsForAppendStage
+      ? 'Related fields can only be added after the current final step.'
+      : undefined;
+  const relatedSourceAvailability = !relatedSourceUnavailableReason &&
+    capabilityIsForAppendStage &&
+    relatedSourceCapability?.supported &&
+    capabilityStage?.rowIdentityColumn
     ? { supported: true }
     : {
         supported: false,
-        reason: relatedSourceReason || (
+        reason: relatedSourceUnavailableReason || relatedSourceReason || (
           constructionLifecycle.capabilities.status === 'error'
             ? constructionLifecycle.capabilities.message
             : constructionLifecycle.capabilities.status === 'ready'

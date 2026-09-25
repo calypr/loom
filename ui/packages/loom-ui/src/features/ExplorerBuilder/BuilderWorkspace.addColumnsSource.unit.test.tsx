@@ -290,6 +290,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     });
     mockLoomClient.getSelection.mockReset();
     mockLoomClient.preview.mockReset();
+    mockLoomClient.proposeConstruction.mockReset();
     mockLoomClient.resolveConfiguredColumnContexts.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1',
       draftVersion: 1,
@@ -552,5 +553,95 @@ describe('BuilderWorkspace Add columns source selection', () => {
         proposalId: 'related-source-proposal',
       }],
     }));
+  });
+
+  it('does not offer related sources while editing an earlier construction step', async () => {
+    const construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'keep-vitals',
+          inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
+          operation: {
+            kind: 'FILTER' as const,
+            filter: { columnId: 'patient-row-key', operator: 'EXISTS' as const },
+          },
+          outputs: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+        },
+        {
+          id: 'keep-reports',
+          inputs: [{ kind: 'STEP_OUTPUT' as const, stepId: 'keep-vitals' }],
+          operation: {
+            kind: 'FILTER' as const,
+            filter: { columnId: 'patient-row-key', operator: 'EXISTS' as const },
+          },
+          outputs: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+        },
+      ],
+    };
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: '_key',
+      columns: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+    };
+    const laterStage = {
+      id: 'keep-reports',
+      inputStageId: 'keep-vitals',
+      operation: 'FILTER',
+      rowIdentityColumn: '_key',
+      columns: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+    };
+    const relatedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: relatedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = args.stageId === 'source_projection' ? sourceStage : laterStage;
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: construction,
+        stages: [sourceStage, laterStage],
+        selectedStage,
+      };
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('construction-history-step-keep-vitals'));
+    fireEvent.click(screen.getByTestId('construction-edit-step-keep-vitals'));
+    await waitFor(() => {
+      expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
+        expect.objectContaining({ stageId: 'source_projection' }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(screen.getByText(/Adding fields from related resources is unavailable here:/))
+      .toHaveTextContent('Close the saved-step editor before adding related fields');
+    expect(mockLoomClient.proposeConstruction).not.toHaveBeenCalled();
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
   });
 });
