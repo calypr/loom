@@ -17,6 +17,13 @@ enumerates candidates before paging; proving fewer choices explains most of
 the observed improvement on this fixture, and larger graphs need separate
 measurement.
 
+The new stage-bound `related-expand-choices` endpoint was checked with ten
+sequential warm calls against the same `fixture-v1` bootstrap draft, requesting
+the first ten Patient-to-Observation routes. Response time was 241.7–338.5 ms,
+with p50 270.2 ms and p95 338.5 ms (nearest-rank). Every call returned ten
+choices. This is an HTTP route-menu diagnostic on the two-Patient fixture, not
+the representative P08 capability or edit-to-render gate.
+
 ## Status
 
 The latest validated 10-sample run completed at 2026-09-25 01:58 UTC against API revision `7df9bf029` and the integrated local fixture. Its report is `/private/tmp/construction-preview-phase-timing/2026-09-25T01-58-07-216Z/report.json`. The one-sample browser smoke report is `/private/tmp/construction-preview-phase-smoke/2026-09-25T01-57-45-928Z/report.json` and is excluded from the distribution.
