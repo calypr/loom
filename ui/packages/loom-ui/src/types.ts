@@ -1350,6 +1350,17 @@ const constructionOperationCapabilitySchema = z.object({
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
 }).strict();
+const constructionRelatedExpandStageDescriptorSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  anchorColumn: opaqueIdSchema,
+  relatedRecordColumnId: opaqueIdSchema,
+  parentIdentityColumnId: opaqueIdSchema,
+  parentIdentityColumn: opaqueIdSchema,
+  terminalIdentityColumn: opaqueIdSchema,
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  route: z.array(constructionRouteStepSchema).min(1),
+}).strict();
 const constructionStageDescriptorSchema = z.object({
   id: opaqueIdSchema,
   inputStageId: z.string(),
@@ -1357,6 +1368,7 @@ const constructionStageDescriptorSchema = z.object({
   rowIdentityColumn: z.string().optional(),
   columns: z.array(constructionStageColumnDescriptorSchema),
   capabilities: z.array(constructionOperationCapabilitySchema),
+  relatedExpand: constructionRelatedExpandStageDescriptorSchema.optional(),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
 

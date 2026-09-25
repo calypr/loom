@@ -424,6 +424,33 @@ describe('staged construction contract', () => {
       },
     }).success).toBe(false);
   });
+
+  it('retains the exact related record anchor from an expanded stage', () => {
+    const stage = {
+      id: 'expand-encounters', inputStageId: 'source_projection', operation: 'RELATED_EXPAND',
+      columns: [{ id: 'encounter-id', name: 'encounter_id', label: 'Encounter ID', type: 'string' }],
+      capabilities: [{ kind: 'RELATED_EXPAND', supported: true }],
+      relatedExpand: {
+        anchorColumnId: '_key', anchorColumn: '_key', relatedRecordColumnId: 'encounter-id',
+        parentIdentityColumnId: 'parent-id', parentIdentityColumn: '_key',
+        terminalIdentityColumn: 'terminal-id', targetNodeId: 'encounter-node',
+        targetResourceType: 'Encounter',
+        route: [{
+          edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node',
+          fromResourceType: 'Patient', toResourceType: 'Encounter', relationship: 'subject_Patient',
+          storageDirection: 'INBOUND', matchMode: 'OPTIONAL',
+        }],
+      },
+    };
+    const response = {
+      snapshotToken: 'snapshot', draftVersion: 1, draftDigest: 'sha256:draft',
+      outputId: 'patients', stageId: stage.id,
+      baseConstruction: { version: 1, steps: [] }, stages: [stage], selectedStage: stage,
+    };
+
+    expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.relatedExpand)
+      .toEqual(stage.relatedExpand);
+  });
 });
 
 describe('explorerBuilderCommandSchema', () => {
