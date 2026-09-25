@@ -190,14 +190,21 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	}
 	// Simulate a legacy persisted draft that decoded its empty slice as null.
 	draft = bytes.Replace(draft, []byte(`"steps":[]`), []byte(`"steps":null`), 1)
+	legacyDigest, err := workspace.LegacyNilConstructionStepsDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
 	digest, err := workspace.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if legacyDigest == "" || legacyDigest == digest {
+		t.Fatalf("legacy and current construction digests should differ: legacy=%q current=%q", legacyDigest, digest)
+	}
 	store := newTestExplorerStore()
 	if _, err := store.create(explorer.Explorer{
 		Project: "project-a", ExplorerID: "custom", Title: "Patients",
-		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: legacyDigest,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +216,20 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
 			return snapshot, nil
 		},
+		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		},
 		Catalog: authoringV2Catalog,
+	}, ConstructionSourceStage: func(context.Context, lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+		return explorer.ReceiptConstructionStage{
+			ID: "source_projection", RowIdentityColumn: "__loom_row_id",
+			Columns: []explorer.ReceiptConstructionStageColumn{}, Capabilities: []explorer.ReceiptConstructionOperationChoice{},
+		}, nil
 	}}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
-	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", "")
+	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
+	response := requestJSON(t, app, http.MethodGet, basePath+"/builder", "")
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("builder status=%d body=%s", response.StatusCode, response.Body)
 	}
@@ -227,6 +243,30 @@ func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
 	steps := state.Workspace.Documents[0].Construction.Steps
 	if steps == nil || len(steps) != 0 {
 		t.Fatalf("builder returned construction steps %#v, want non-nil empty slice; body=%s", steps, response.Body)
+	}
+	if state.DraftVersion != 2 || state.DraftDigest == legacyDigest || state.DraftDigest != digest {
+		t.Fatalf("builder did not return the migrated durable draft version/digest: version=%d digest=%q legacy=%q current=%q", state.DraftVersion, state.DraftDigest, legacyDigest, digest)
+	}
+	stored, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.DraftVersion != state.DraftVersion || stored.DraftDigest != state.DraftDigest || !bytes.Contains(stored.DraftConfig, []byte(`"steps":[]`)) || bytes.Contains(stored.DraftConfig, []byte(`"steps":null`)) {
+		t.Fatalf("stored draft was not durably normalized: version=%d digest=%q draft=%s", stored.DraftVersion, stored.DraftDigest, stored.DraftConfig)
+	}
+	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection"}`,
+		snapshot.Token, state.DraftVersion, state.DraftDigest,
+	))
+	if capabilitiesHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("construction capabilities after Builder load status=%d body=%s", capabilitiesHTTP.StatusCode, capabilitiesHTTP.Body)
+	}
+	var capabilities loomapi.ConstructionCapabilitiesResponse
+	if err := json.Unmarshal([]byte(capabilitiesHTTP.Body), &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.SelectedStage.Id != "source_projection" || int64(capabilities.DraftVersion) != state.DraftVersion || capabilities.DraftDigest != state.DraftDigest {
+		t.Fatalf("capabilities did not accept the exact migrated Builder state: %#v", capabilities)
 	}
 }
 

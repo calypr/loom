@@ -176,6 +176,41 @@ func (w Workspace) Digest() (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// LegacyNilConstructionStepsDigest returns the digest produced by the prior
+// canonical writer when an empty construction's nil Steps slice was encoded
+// as null. It is used only to recognize and migrate persisted drafts created
+// before empty construction sequences were normalized to arrays.
+func (w Workspace) LegacyNilConstructionStepsDigest() (string, error) {
+	legacyStepLists := 0
+	for _, document := range w.Documents {
+		if document.Construction != nil && document.Construction.Steps == nil {
+			legacyStepLists++
+		}
+	}
+	if legacyStepLists == 0 {
+		return "", nil
+	}
+	raw, err := w.CanonicalJSON()
+	if err != nil {
+		return "", err
+	}
+	for range legacyStepLists {
+		const current = `"steps":[]`
+		const previous = `"steps":null`
+		index := bytes.Index(raw, []byte(current))
+		if index < 0 {
+			return "", fmt.Errorf("canonical workspace omitted an empty construction step list")
+		}
+		replacement := make([]byte, 0, len(raw)+len(previous)-len(current))
+		replacement = append(replacement, raw[:index]...)
+		replacement = append(replacement, previous...)
+		replacement = append(replacement, raw[index+len(current):]...)
+		raw = replacement
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
 func (c CatalogSnapshot) CanonicalJSON() ([]byte, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
