@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -172,6 +173,11 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 	}
 	if !samePhysicalStageColumns(sequence.FinalColumns, last.OutputColumns) {
 		return fmt.Errorf("final output schema differs from the final stage")
+	}
+	if sequence.CellTraceReturn != nil {
+		if err := validatePhysicalStageCellTrace(sequence, *sequence.CellTraceReturn, bindVars); err != nil {
+			return fmt.Errorf("cell trace: %w", err)
+		}
 	}
 	return nil
 }
@@ -411,6 +417,12 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 	if construction == nil || terminal.Contribution != nil || terminal.Reshape != nil {
 		return fmt.Errorf("construction lineage is required and must be the only contributor contract")
 	}
+	if construction.RelatedSource != nil && len(construction.Inputs) != 0 {
+		return fmt.Errorf("related-source lineage cannot also contain construction input lineage")
+	}
+	if construction.Operation == string(PhysicalStageRelatedSourceOp) && construction.RelatedSource == nil && construction.OmissionCode == "" {
+		return fmt.Errorf("complete RELATED_SOURCE lineage requires its typed route subplan")
+	}
 	for _, key := range []string{terminal.OffsetBindKey, terminal.LimitBindKey, terminal.FetchLimitBindKey} {
 		if err := requireBind(bindVars, key); err != nil {
 			return err
@@ -424,8 +436,8 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 	if !exists || output.Name != construction.OutputColumn || output.Internal {
 		return fmt.Errorf("output column ID %q does not identify a public final column", construction.OutputColumnID)
 	}
-	if construction.OmissionCode == "" && len(construction.Inputs) == 0 {
-		return fmt.Errorf("complete construction lineage requires at least one source column")
+	if construction.OmissionCode == "" && len(construction.Inputs) == 0 && construction.RelatedSource == nil {
+		return fmt.Errorf("complete construction lineage requires source columns or a related-source route")
 	}
 	producerInput := map[string]PhysicalStageColumn{}
 	expectedInputStageID := sequence.SourceStageID
@@ -445,6 +457,21 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 			producerInput = stageColumnsByID(stage.InputColumns)
 			if _, ok := stageColumnsByID(stage.OutputColumns)[construction.OutputColumnID]; !ok {
 				return fmt.Errorf("output column ID %q is absent from producer stage %q", construction.OutputColumnID, stage.ID)
+			}
+			if construction.RelatedSource != nil {
+				if stage.Kind != PhysicalStageRelatedSourceOp || stage.RelatedSource == nil || construction.Operation != string(PhysicalStageRelatedSourceOp) {
+					return fmt.Errorf("related-source lineage must be produced by a RELATED_SOURCE stage")
+				}
+				projection, found := findPhysicalStageProjection(stage.OutputProjections, construction.OutputColumn)
+				if !found || projection.Expression == nil || projection.Expression.Subplan == nil {
+					return fmt.Errorf("related-source output has no typed route subplan")
+				}
+				related := construction.RelatedSource
+				anchor, found := stageColumnsByID(stage.InputColumns)[stage.RelatedSource.AnchorColumnID]
+				if !found || related.InputRowVariable != stage.InputRowVariable || related.AnchorColumn != anchor.Name ||
+					related.ResourceType != stage.RelatedSource.ResourceType || !reflect.DeepEqual(related.Subplan, *projection.Expression.Subplan) {
+					return fmt.Errorf("related-source trace must retain the producer's exact scoped route subplan")
+				}
 			}
 			break
 		}
@@ -468,6 +495,15 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 		}
 	}
 	return nil
+}
+
+func findPhysicalStageProjection(projections []PhysicalProjection, name string) (PhysicalProjection, bool) {
+	for _, projection := range projections {
+		if projection.Name == name {
+			return projection, true
+		}
+	}
+	return PhysicalProjection{}, false
 }
 
 func stageColumnsByID(columns []PhysicalStageColumn) map[string]PhysicalStageColumn {

@@ -135,6 +135,7 @@ type PhysicalCellTraceConstruction struct {
 	ConstructionID    string
 	Operation         string
 	Inputs            []PhysicalCellTraceConstructionInput
+	RelatedSource     *PhysicalCellTraceRelatedSource
 	OmissionCode      string
 }
 
@@ -146,6 +147,15 @@ type PhysicalCellTraceConstructionInput struct {
 	ColumnID         string
 	Column           string
 	FinalValueColumn string
+}
+
+// PhysicalCellTraceRelatedSource replays the compiler-owned route subplan for
+// the exact final row. Each traversed path remains one contribution occurrence.
+type PhysicalCellTraceRelatedSource struct {
+	InputRowVariable string
+	AnchorColumn     string
+	ResourceType     string
+	Subplan          PhysicalSubplan
 }
 
 // PhysicalTableShapeExclusionReturn emits source-level exclusions from the

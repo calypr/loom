@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -349,6 +350,91 @@ func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *test
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
 		t.Fatalf("construction trace identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+}
+
+func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionRelatedSourceCellTraceRecipeOutput())
+	sequence := output.Plan.StageSequence
+	if sequence == nil {
+		t.Fatal("compiled output has no construction stage sequence")
+	}
+	lineage, err := constructionCellTraceLineage(output, *sequence, "observation_status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lineage.Operation != "RELATED_SOURCE" || lineage.ProducerStageID != "add_observation_status" || lineage.RelatedSource == nil || lineage.OmissionCode != "" {
+		t.Fatalf("related-source lineage = %#v", lineage)
+	}
+	related := lineage.RelatedSource
+	if related.AnchorColumn != "_key" || related.ResourceType != "Observation" || len(related.Subplan.Captures) != 1 || related.Subplan.Captures[0] != related.InputRowVariable || related.Subplan.Unique {
+		t.Fatalf("related-source route identity or occurrence policy = %#v", related)
+	}
+	producer := sequence.Stages[1]
+	projection, found := stageProjectionByName(producer.OutputProjections, "observation_status")
+	if !found || projection.Expression == nil || projection.Expression.Subplan == nil || !reflect.DeepEqual(related.Subplan, *projection.Expression.Subplan) {
+		t.Fatal("trace did not retain the exact producer route subplan")
+	}
+
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "observation_status", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"SORT __loom_construction_final_row._key ASC",
+		"__loom_construction_final_row.observation_status",
+		"._key == __loom_construction_final_row._key",
+		"__loom_construction_final_row._key",
+		".payload.status",
+		"LIMIT @cell_trace_offset, @cell_trace_fetch_limit",
+		"NO_MATCH",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Errorf("related-source trace query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if strings.Contains(compiled.Query, "UNIQUE(") || strings.Contains(compiled.Query, "SORTED_UNIQUE(") || strings.Contains(compiled.Query, ".payload.status != null") {
+		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", compiled.Query)
+	}
+	for _, want := range []string{
+		"project-a", "generation-a", "subject_Patient", "Patient", "Observation",
+		"resourceType", "resourceId", "value", "outputStageId", "outputColumnId", "observation_status", "add_observation_status", "finalStageId", "RELATED_SOURCE",
+	} {
+		if !containsBindValue(compiled.BindVars, want) {
+			t.Errorf("related-source route bind value %q is missing from %#v", want, compiled.BindVars)
+		}
+	}
+	if !strings.Contains(compiled.Query, "dataset_generation") || !strings.Contains(compiled.Query, "auth_resource_path") {
+		t.Fatalf("related-source trace lost generation or authorization filters:\n%s", compiled.Query)
+	}
+	if compiled.IdentityPartsColumn == "" || compiled.RowIdentity == nil || len(compiled.RowIdentity.Fields) != 1 || compiled.RowIdentity.Fields[0] != "_key" {
+		t.Fatalf("related-source trace lost exact output row identity: %#v", compiled)
+	}
+}
+
+func constructionRelatedSourceCellTraceRecipeOutput() recipe.Output {
+	columns := []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}}
+	outputs := append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{ID: "observation_status", Name: "observation_status"})
+	return recipe.Output{
+		Name: "related_source_cell_trace", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{
+			{
+				ID: "keep_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "patient_id", Operator: recipe.FilterExists}},
+				Outputs:   columns,
+			},
+			{
+				ID: "add_observation_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_patients"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+					AnchorColumnID: "_key", ChoiceID: "trace_route_choice", SourceOccurrenceID: "observation-node",
+					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation_status",
+				}},
+				Outputs: outputs,
+			},
+		}},
 	}
 }
 

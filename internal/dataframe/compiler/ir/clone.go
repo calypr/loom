@@ -513,6 +513,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		if operation.CellTraceReturn.Construction != nil {
 			construction := *operation.CellTraceReturn.Construction
 			construction.Inputs = append([]PhysicalCellTraceConstructionInput(nil), operation.CellTraceReturn.Construction.Inputs...)
+			if construction.RelatedSource != nil {
+				relatedSource := *construction.RelatedSource
+				relatedSource.Subplan = clonePhysicalSubplan(construction.RelatedSource.Subplan)
+				construction.RelatedSource = &relatedSource
+			}
 			traceCopy.Construction = &construction
 		}
 		traceCopy.Value = clonePhysicalExpression(operation.CellTraceReturn.Value)

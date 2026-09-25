@@ -54,7 +54,11 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	pageVariable := r.newInternalVariable("trace_contribution_page")
 	status := fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : "VALUE"`, statusVariable, value)
 	if terminal.Construction != nil {
-		status = fmt.Sprintf(`%s == null ? "RECORDED_NULL" : "VALUE"`, value)
+		if terminal.Construction.RelatedSource != nil {
+			status = fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : "VALUE"`, statusVariable)
+		} else {
+			status = fmt.Sprintf(`%s == null ? "RECORDED_NULL" : "VALUE"`, value)
+		}
 	} else if lossy {
 		status = fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : LENGTH(%s) > 1 ? "AMBIGUOUS" : "VALUE"`, statusVariable, value, statusVariable)
 	}
@@ -138,10 +142,13 @@ func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.P
 	if terminal.Value.Kind != ir.PhysicalValueExpression || terminal.Value.Value == nil || terminal.Value.Value.Variable == "" {
 		return "", "", false, "", fmt.Errorf("construction trace value must be a final-row column")
 	}
+	finalRow := terminal.Value.Value.Variable
+	if lineage.RelatedSource != nil {
+		return r.renderRelatedSourceTraceContributors(finalRow, lineage, terminal)
+	}
 	if len(lineage.Inputs) == 0 {
 		return "[]", "[]", false, "CONSTRUCTION_TRACE_INPUTS_UNAVAILABLE", nil
 	}
-	finalRow := terminal.Value.Value.Variable
 	items := make([]string, 0, len(lineage.Inputs))
 	bind := func(prefix, value string) string {
 		key := r.newInternalBindKey(prefix)
@@ -167,6 +174,82 @@ func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.P
 	array := "[" + strings.Join(items, ", ") + "]"
 	page = fmt.Sprintf("SLICE(%s, @%s, @%s)", array, terminal.OffsetBindKey, terminal.FetchLimitBindKey)
 	return page, array, false, "", nil
+}
+
+func (r *physicalPlanRenderer) renderRelatedSourceTraceContributors(finalRow string, construction ir.PhysicalCellTraceConstruction, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	lineage := construction.RelatedSource
+	if lineage == nil || lineage.InputRowVariable == "" || lineage.AnchorColumn != "_key" || lineage.ResourceType == "" || len(lineage.Subplan.Captures) != 1 || lineage.Subplan.Captures[0] != lineage.InputRowVariable {
+		return "", "", false, "", fmt.Errorf("related-source trace requires its exact captured root identity and route")
+	}
+	subplan := ir.ClonePhysicalSubplan(lineage.Subplan)
+	rebound := 0
+	for index := range subplan.Operations {
+		operation := &subplan.Operations[index]
+		if operation.Kind != ir.PhysicalFilterOp || operation.Filter == nil || operation.Filter.Expression != nil {
+			continue
+		}
+		comparison := &operation.Filter.Predicate
+		if comparison.Right == nil || comparison.Right.Variable != lineage.InputRowVariable {
+			continue
+		}
+		if len(comparison.Right.Path) != 1 || comparison.Right.Path[0] != lineage.AnchorColumn {
+			return "", "", false, "", fmt.Errorf("related-source trace capture is not anchored by the retained root identity")
+		}
+		comparison.Right.Variable = finalRow
+		rebound++
+	}
+	if rebound != 1 {
+		return "", "", false, "", fmt.Errorf("related-source trace expected one exact root-identity capture, found %d", rebound)
+	}
+	subplan.Captures = []string{finalRow}
+	var sourceVariable string
+	for _, operation := range subplan.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp && operation.Traversal != nil {
+			sourceVariable = operation.Traversal.TargetVariable
+		}
+	}
+	if sourceVariable == "" {
+		return "", "", false, "", fmt.Errorf("related-source trace route has no traversed resource")
+	}
+	value := subplan.Return
+	fields := []ir.PhysicalExpressionProjection{
+		{Name: "resourceType", Expression: physicalTraceValue(sourceVariable, "resourceType")},
+		{Name: "resourceId", Expression: physicalTraceValue(sourceVariable, "id")},
+		{Name: "outputStageId", Expression: r.physicalTraceString(construction.ProducerStageID)},
+		{Name: "outputColumnId", Expression: r.physicalTraceString(construction.OutputColumnID)},
+		{Name: "outputColumn", Expression: r.physicalTraceString(construction.OutputColumn)},
+		{Name: "finalStageId", Expression: r.physicalTraceString(construction.FinalStageID)},
+		{Name: "operation", Expression: r.physicalTraceString(construction.Operation)},
+		{Name: "value", Expression: value},
+	}
+	subplan.Return = ir.PhysicalExpression{
+		Kind: ir.PhysicalObjectExpression, Cardinality: ir.PhysicalObjectCardinality,
+		Object: &ir.PhysicalObject{Fields: fields},
+	}
+	route, err := r.renderSubplan(subplan, "  ", false)
+	if err != nil {
+		return "", "", false, "", fmt.Errorf("render related-source trace route: %w", err)
+	}
+	item := r.newInternalVariable("trace_related_source")
+	page = fmt.Sprintf("(FOR %s IN %s LIMIT @%s, @%s RETURN %s)", item, route, terminal.OffsetBindKey, terminal.FetchLimitBindKey, item)
+	status = fmt.Sprintf("(FOR %s IN %s LIMIT 2 RETURN %s)", item, route, item)
+	return page, status, false, "", nil
+}
+
+func (r *physicalPlanRenderer) physicalTraceString(value string) ir.PhysicalExpression {
+	key := r.newInternalBindKey("trace_related_source_metadata")
+	r.bindVars[key] = value
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{BindKey: key},
+	}
+}
+
+func physicalTraceValue(variable, field string) ir.PhysicalExpression {
+	return ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull, Value: &ir.PhysicalValue{Variable: variable, Path: []string{field}},
+	}
 }
 
 func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.PhysicalCellTraceReshape, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {

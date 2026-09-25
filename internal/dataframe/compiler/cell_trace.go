@@ -189,6 +189,15 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 					lineage.ConstructionID = strings.TrimPrefix(descriptorColumn.SemanticPath, "derived:")
 				}
 			}
+			if stage.Kind == ir.PhysicalStageRelatedSourceOp {
+				related, supported := constructionRelatedSourceTrace(stage, outputColumn.Name)
+				if !supported {
+					lineage.OmissionCode = "CONSTRUCTION_TRACE_RELATED_SOURCE_UNAVAILABLE"
+					break
+				}
+				lineage.RelatedSource = related
+				break
+			}
 			if stage.Kind != ir.PhysicalStageDeriveOp {
 				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
 				break
@@ -220,7 +229,7 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 			}
 			break
 		}
-		if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+		if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp && stage.Kind != ir.PhysicalStageRelatedSourceOp {
 			lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
 			producerIndex = index
 			lineage.ProducerStageID = stage.ID
@@ -241,7 +250,7 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 			FinalValueColumn: selected.Name,
 		}}
 		for _, stage := range sequence.Stages {
-			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp && stage.Kind != ir.PhysicalStageRelatedSourceOp {
 				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
 				lineage.Inputs = nil
 				break
@@ -250,7 +259,7 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 	}
 	if lineage.OmissionCode == "" && producerIndex >= 0 {
 		for _, stage := range sequence.Stages[producerIndex+1:] {
-			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp && stage.Kind != ir.PhysicalStageRelatedSourceOp {
 				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
 				lineage.Inputs = nil
 				break
@@ -268,6 +277,32 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 		}
 	}
 	return lineage, nil
+}
+
+func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputColumn string) (*ir.PhysicalCellTraceRelatedSource, bool) {
+	if stage.Kind != ir.PhysicalStageRelatedSourceOp || stage.RelatedSource == nil {
+		return nil, false
+	}
+	projection, found := stageProjectionByName(stage.OutputProjections, outputColumn)
+	if !found || projection.Expression == nil || projection.Expression.Kind != ir.PhysicalSubplanExpression ||
+		projection.Expression.Subplan == nil || projection.Expression.Cardinality != ir.PhysicalArrayCardinality ||
+		projection.Expression.NullBehavior != ir.PhysicalEmptyOnNull {
+		return nil, false
+	}
+	anchor, found := stageColumnByID(stage.InputColumns, stage.RelatedSource.AnchorColumnID)
+	if !found || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" {
+		return nil, false
+	}
+	subplan := ir.ClonePhysicalSubplan(*projection.Expression.Subplan)
+	if len(subplan.Captures) != 1 || subplan.Captures[0] != stage.InputRowVariable {
+		return nil, false
+	}
+	return &ir.PhysicalCellTraceRelatedSource{
+		InputRowVariable: stage.InputRowVariable,
+		AnchorColumn:     anchor.Name,
+		ResourceType:     stage.RelatedSource.ResourceType,
+		Subplan:          subplan,
+	}, true
 }
 
 func constructionDerivedTraceInputs(stage ir.PhysicalConstructionStage, outputColumn string) ([]ir.PhysicalStageColumn, bool) {

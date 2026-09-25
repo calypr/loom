@@ -53,6 +53,42 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 	}
 }
 
+func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *testing.T) {
+	query := compiler.CompiledCellTraceQuery{
+		Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors",
+		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity",
+	}
+	contributor := func(resourceID string, value any) map[string]any {
+		return map[string]any{
+			"resourceType": "Observation", "resourceId": resourceID,
+			"outputStageId": "add_observation_status", "outputColumnId": "observation_status",
+			"outputColumn": "observation_status", "finalStageId": "add_observation_status",
+			"operation": "RELATED_SOURCE", "value": value,
+		}
+	}
+	contributors := []any{contributor("observation-1", nil), contributor("observation-1", nil), contributor("observation-2", "final")}
+	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(map[string]any{
+			"identity": "patient-key", "value": []any{nil, nil, "final"}, "status": "VALUE",
+			"contributors": contributors, "hasMore": false, "omission": "",
+		})
+	}}
+	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "patient-key", Column: "observation_status", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != CellTraceValue || len(result.Contributions) != 3 {
+		t.Fatalf("related-source trace lost the populated list occurrences: %#v", result)
+	}
+	if result.Contributions[0].ResourceID != "observation-1" || result.Contributions[1].ResourceID != "observation-1" ||
+		result.Contributions[0].Value != nil || result.Contributions[1].Value != nil || result.Contributions[2].Value != "final" {
+		t.Fatalf("related-source trace changed duplicate or null contributor evidence: %#v", result.Contributions)
+	}
+	if result.Contributions[0].Operation != "RELATED_SOURCE" || result.Contributions[0].OutputColumnID != "observation_status" {
+		t.Fatalf("related-source stage identity was not retained: %#v", result.Contributions[0])
+	}
+}
+
 func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
