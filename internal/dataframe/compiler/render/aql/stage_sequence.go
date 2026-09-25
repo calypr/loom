@@ -28,7 +28,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	for key, value := range source.BindVars {
 		bindVars[key] = value
 	}
-	for key, value := range plan.BindVars {
+	for key, value := range runtimePhysicalBindVars(plan.BindVars, collectionKeys) {
 		bindVars[key] = value
 	}
 	renderer := physicalPlanRenderer{

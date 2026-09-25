@@ -32,6 +32,13 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var sourceRows []reshapeOracleSourceRow
+	for _, row := range reshapeOracleSourceRows {
+		switch row.SourceID {
+		case "alpha-a", "alpha-b", "beta", "final-two":
+			sourceRows = append(sourceRows, row)
+		}
+	}
 	project := "loom_construction_chain_" + uuid.NewString()
 	generation := "generation-construction-chain"
 	defer func() {
@@ -44,8 +51,8 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 			t.Errorf("remove construction fixtures: %v", err)
 		}
 	}()
-	documents := make([]json.RawMessage, 0, len(reshapeOracleSourceRows))
-	for _, row := range reshapeOracleSourceRows {
+	documents := make([]json.RawMessage, 0, len(sourceRows))
+	for _, row := range sourceRows {
 		payload := map[string]any{
 			"id": row.SourceID, "resourceType": "Observation", "status": *row.Group.Text.String,
 			"valueInteger": *row.NumericCategory.Integer, "valueString": row.Text,

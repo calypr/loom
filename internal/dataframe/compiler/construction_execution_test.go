@@ -53,6 +53,12 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 	if got, exists := query.BindVars["limit"]; !exists || got != 3 {
 		t.Fatalf("preview limit bind = %#v, exists=%t", got, exists)
 	}
+	if got := query.BindVars["@root_collection"]; got != "Patient" {
+		t.Fatalf("root collection bind = %#v, want collection-bind form with Patient", got)
+	}
+	if _, exists := query.BindVars["root_collection"]; exists {
+		t.Fatal("plain root collection bind leaked into executable AQL bind variables")
+	}
 	if strings.Contains(query.Query[:finalRows], "LIMIT @limit") {
 		t.Fatalf("preview limit leaked into source scan before construction stages:\n%s", query.Query)
 	}
