@@ -6,6 +6,8 @@ Implementation planning draft, 2026-09-24. These packages implement the [accepte
 
 The researcher selects a starting table or record type from data already loaded through Loom's API. The workspace shows what one row represents, the current table, its construction steps, and five action families. Each action opens a guided editor with valid choices supplied by the backend.
 
+Every action family, including Combine, consumes a table result and produces another table result. A construction may start from loaded records or an exact published table revision. Actions may be repeated and interleaved: a joined result can be filtered, grouped, joined again, and published through the same proposal and preview lifecycle. An implementation that permits Combine only as a terminal or standalone operation does not satisfy this contract.
+
 Every operation is editable and removable. An earlier edit that breaks later steps remains a proposal until those steps are repaired or explicitly removed. A valid edit automatically previews after a short pause, cancelling superseded requests. Apply requires the latest successful preview for the current proposal. Cancel retains the accepted construction.
 
 Combine retains the version of the other table that was selected. Later edits to that table do not propagate automatically. Update input previews an explicit version change. This is the user's clarified decision and replaces the earlier live-link proposal.
@@ -18,12 +20,12 @@ The finish action saves the configuration, computes the dataframe, and publishes
 
 | Package | Deliverable | Dependencies | Main uncertainty |
 | --- | --- | --- | --- |
-| P01 | Persistent operations and intermediate-result compilation | Existing source/compiler baseline | Extending the fixed physical plan layout without duplicating execution logic. |
+| P01 | Persistent, composable table operations and intermediate-result compilation | Existing source/compiler baseline | Extending the fixed physical plan layout across operation families without duplicating execution logic. |
 | P02 | Workspace shell, history, and shared editor lifecycle | P01 contract; existing source and shape services | Reusing existing controllers while preserving proposal identity and user input. |
 | P03 | Discovery and Add columns | P01 stage context, P02 | Relating source information to rows after transformations, with honest coverage evidence. |
 | P04 | Keep rows and Calculate | P01 stage input, P02 | Exposing existing expressions and adding any absent ordered-row primitives. |
 | P05 | Reshape | P01 stage input, P02 | General grouping over derived columns and repeated shape operations. |
-| P06 | Combine with versioned table inputs | P01, P02 | Table-result joins and append are not present in the current authoring contract. |
+| P06 | Versioned table inputs and cross-engine execution | P01, P02 | Exact published-table references and the AQL-to-ClickHouse boundary needed by table-result joins and append. |
 | P07 | Save, publish to ClickHouse, reopen, and inspect | P01–P06 for included operation families | Preserving construction, source, schema, and evidence identity through publication. |
 | P08 | Preview performance baseline, hillclimb, and regression checks | Baseline can start immediately; extend with P01–P07 | Current end-to-end latency has not been measured. |
 
@@ -31,7 +33,7 @@ P08 starts at the beginning. Each editor package extends its frozen workload and
 
 The packages are ownership and verification boundaries. They are not estimates of equal effort or a requirement to use multiple agents. One implementation instance can complete them in dependency order.
 
-## P01. Persistent operations and intermediate-result compilation
+## P01. Persistent, composable table operations and intermediate-result compilation
 
 **Outcome.** Any supported operation can consume the result of an earlier operation. A construction can be saved, reopened, edited, and restored without inferring its meaning from a command log.
 
@@ -41,6 +43,7 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 - Define durable step identities, typed operation parameters, input references, and stable output-column references. A rename changes a label, not a reference.
 - Distinguish a source projection, an earlier step result, and a selected immutable table-input version. Preserve source-generation and authorization context throughout compilation.
+- Give every action family the same stage input/output, proposal, preview, edit, remove, and reload contract. Combine can be a first, intermediate, or final step; a later step can consume its result. Engine-specific lowering must not impose a product-level terminal-step restriction.
 - Represent the supported sequence explicitly. Existing fixed slots in `Document`, `recipe.Output`, and `semantic.OutputPlan` do not express arbitrary placement and repetition.
 - Extend physical stage boundaries, scopes, and rendering to consume typed output rows. Current validation allows one table reshape and one root scan in an ordinary plan. Removing those checks alone is insufficient; renderer layout, row identity, bounds, and provenance assume that structure too.
 - Reuse existing expressions, source traversals, reductions, pivot/unpivot logic, and AQL execution. The backend remains the single evaluator.
@@ -123,9 +126,9 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 **Completion checks.** Repeated reshape and calculation produce correct rows. Duplicate/missing/unlisted category policies survive reload. Category discovery remains bound to the selected source pair. A refreshed source with new categories preserves the accepted columns until the user accepts their addition. Preview limits apply at the correct output stage.
 
-## P06. Combine with versioned inputs
+## P06. Versioned table inputs and cross-engine execution
 
-**Outcome.** Constructed tables can be matched, appended, and compared without implicit updates between independent constructions.
+**Outcome.** A constructed table can use an exact version of another constructed table as an input at any point in its operation sequence. Match, append, and membership produce ordinary intermediate results that later operations can consume.
 
 **Existing code.** Source relationship traversal, typed predicates, output contracts, persisted revisions, and materialization identity. These do not currently provide a general constructed-output join or append contract.
 
@@ -135,10 +138,11 @@ The packages are ownership and verification boundaries. They are not estimates o
 - Add matching-columns, append, membership, and supported combination operations. Expose compatible key types and match meanings before proposal.
 - Specify unmatched-row treatment, multiple-match behavior, output naming, type alignment, duplicate handling, and row multiplication.
 - Lower table-result operations through the common compiler/execution path. A lexical recipe `DocumentRef` is not an authored-table input reference.
+- Cross an AQL-to-ClickHouse boundary with a typed, scoped, private intermediate result when required. Preserve the same row, column, authorization, and lineage identities across the boundary. Do not expose a terminal-only Combine as completion of this package.
 - Implement Update input as a proposed change with schema and row effects. Changes to the other table's current configuration leave the consumer unchanged.
 - Define explicit lineage for matched, unmatched, appended, and summarized rows so later evidence remains meaningful.
 
-**Completion checks.** Combine two independently constructed inputs. Verify missing/duplicate matches and append alignment. Save, reload, edit one source construction, and confirm the consumer retains its selected version. Update that input explicitly and require a successful preview before Apply. Referenced versions survive removal of a table from navigation.
+**Completion checks.** Combine two independently constructed inputs, then filter or reshape the result and combine it again. Verify missing/duplicate matches and append alignment. Save, reload, edit one source construction, and confirm the consumer retains its selected version. Update that input explicitly and require a successful preview before Apply. Referenced versions survive removal of a table from navigation. A construction can also start from an exact published table revision without requiring a loaded-record root.
 
 ## P07. Save, ClickHouse publication, and evidence
 
@@ -178,7 +182,7 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 ## Handoff and sequencing
 
-Begin P08 baseline measurement on today's preview path while P01 settles its stage contract. P02 can establish the accepted shell using existing controls and the agreed contract. Implement P03–P06 as complete editor-to-backend units, preserving a single evaluator. P07 closes the saved-config-to-ClickHouse workflow. P08 continues through each unit.
+Begin P08 baseline measurement on today's preview path while P01 settles its stage contract. P02 can establish the accepted shell using existing controls and the agreed contract. Implement P03–P06 as complete editor-to-backend units on the same composable stage model, preserving a single evaluator. P06 owns exact table-version inputs and the execution boundary, not a separate Combine lifecycle. P07 closes the saved-config-to-ClickHouse workflow. P08 continues through each unit.
 
 Each package handoff includes the changed contract, actual files, focused executable checks, browser evidence where relevant, and performance impact. Cross-cutting OpenAPI changes originate in `openapi/openapi.yaml`; generated Go and client contracts must stay synchronized.
 

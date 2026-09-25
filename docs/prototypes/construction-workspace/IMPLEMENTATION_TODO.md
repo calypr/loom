@@ -14,7 +14,7 @@
 - [ ] P03: source discovery and Add columns with accurately scoped evidence.
 - [ ] P04: Keep rows and Calculate from source or derived columns; same guided/formula expression.
 - [ ] P05: grouping, pivot, unpivot, and expansion at intermediate stages.
-- [ ] P06: Combine against immutable table revision inputs, explicit update, match and append policies.
+- [ ] P06: exact table-revision inputs and cross-engine execution; match, append, and membership remain composable steps with explicit input updates.
 - [ ] P07: saved construction and ClickHouse publication agree; reload and evidence work.
 - [ ] P08: real action-to-render baseline, targeted optimization, final distribution and correctness.
 - [ ] Integrated focused tests and browser verification on the isolated local stack.
