@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,99 @@ func TestPlanConstructionRoutesKeepsDistinctAlternativesAndPages(t *testing.T) {
 	}
 	if len(first.Routes[0]) != 2 || len(second.Routes[0]) != 2 || first.Routes[0][0].EdgeID == second.Routes[0][0].EdgeID {
 		t.Fatalf("planner collapsed meaningful alternatives: first=%#v second=%#v", first.Routes, second.Routes)
+	}
+}
+
+func TestPlanConstructionRoutesPrioritizesShorterRoutesAndPagesByStableIdentity(t *testing.T) {
+	root := Node{ID: "root", ResourceType: "Patient", RowRootEligible: true}
+	longFirst := Node{ID: "long-first", ResourceType: "Encounter"}
+	longSecond := Node{ID: "long-second", ResourceType: "Specimen"}
+	shortFirst := Node{ID: "short-first", ResourceType: "ResearchSubject"}
+	shortSecond := Node{ID: "short-second", ResourceType: "Condition"}
+	target := Node{ID: "target", ResourceType: "Observation"}
+	nodes := []Node{root, longFirst, longSecond, shortFirst, shortSecond, target}
+	edges := []Edge{
+		{ID: "a-long-first", FromNodeID: root.ID, ToNodeID: longFirst.ID, SourceResourceType: root.ResourceType, TargetResourceType: longFirst.ResourceType, Label: "encounter", StorageDirection: "OUTBOUND"},
+		{ID: "b-long-middle", FromNodeID: longFirst.ID, ToNodeID: longSecond.ID, SourceResourceType: longFirst.ResourceType, TargetResourceType: longSecond.ResourceType, Label: "specimen", StorageDirection: "OUTBOUND"},
+		{ID: "c-long-final", FromNodeID: longSecond.ID, ToNodeID: target.ID, SourceResourceType: longSecond.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND"},
+		{ID: "m-short-first", FromNodeID: root.ID, ToNodeID: shortFirst.ID, SourceResourceType: root.ResourceType, TargetResourceType: shortFirst.ResourceType, Label: "research", StorageDirection: "OUTBOUND"},
+		{ID: "z-short-final", FromNodeID: shortFirst.ID, ToNodeID: target.ID, SourceResourceType: shortFirst.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND"},
+		{ID: "n-short-first", FromNodeID: root.ID, ToNodeID: shortSecond.ID, SourceResourceType: root.ResourceType, TargetResourceType: shortSecond.ResourceType, Label: "condition", StorageDirection: "OUTBOUND"},
+		{ID: "a-short-final", FromNodeID: shortSecond.ID, ToNodeID: target.ID, SourceResourceType: shortSecond.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND"},
+		{ID: "z-direct", FromNodeID: root.ID, ToNodeID: target.ID, SourceResourceType: root.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND"},
+	}
+	snapshot := routeSnapshot(nodes, edges, 5)
+	request := ConstructionRouteSearch{Snapshot: snapshot, RootResource: root.ResourceType, TargetNodeID: target.ID, SourceKey: "field:observation-status", Limit: 1}
+	want := []string{
+		"z-direct",
+		"m-short-first,z-short-final",
+		"n-short-first,a-short-final",
+		"a-long-first,b-long-middle,c-long-final",
+	}
+	var got []string
+	for {
+		page, err := PlanConstructionRoutes(request)
+		if err != nil || len(page.Routes) != 1 {
+			t.Fatalf("route page %d = %#v, %v", len(got)+1, page, err)
+		}
+		got = append(got, strings.Join(routeEdgeIDs(page.Routes[0]), ","))
+		if len(got) == 1 && (page.Routes[0][0].EdgeID != "z-direct" || page.NextCursor == "" || !page.Truncated || page.Complete) {
+			t.Fatalf("longer route preceded direct route on first page: %#v", page)
+		}
+		if page.NextCursor == "" {
+			if !page.Complete || page.Truncated {
+				t.Fatalf("final route page was not complete: %#v", page)
+			}
+			break
+		}
+		request.Cursor = page.NextCursor
+		if len(got) > len(want) {
+			t.Fatalf("pagination returned too many routes: %v", got)
+		}
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("routes were duplicated, omitted, or out of priority order: got %v, want %v", got, want)
+	}
+}
+
+func TestPlanConstructionRoutesKeepsShortestRoutesAheadOfResultCap(t *testing.T) {
+	root := Node{ID: "root", ResourceType: "Patient", RowRootEligible: true}
+	intermediate := Node{ID: "intermediate", ResourceType: "Encounter"}
+	target := Node{ID: "target", ResourceType: "Observation"}
+	edges := []Edge{
+		{ID: "a-long-first", FromNodeID: root.ID, ToNodeID: intermediate.ID, SourceResourceType: root.ResourceType, TargetResourceType: intermediate.ResourceType, Label: "encounter", StorageDirection: "OUTBOUND"},
+		{ID: "b-long-final", FromNodeID: intermediate.ID, ToNodeID: target.ID, SourceResourceType: intermediate.ResourceType, TargetResourceType: target.ResourceType, Label: "observation", StorageDirection: "OUTBOUND"},
+	}
+	for index := 0; index <= constructionRouteMaxResults; index++ {
+		edges = append(edges, Edge{
+			ID: fmt.Sprintf("z-direct-%04d", index), FromNodeID: root.ID, ToNodeID: target.ID,
+			SourceResourceType: root.ResourceType, TargetResourceType: target.ResourceType,
+			Label: "observation", StorageDirection: "OUTBOUND",
+		})
+	}
+	snapshot := routeSnapshot([]Node{root, intermediate, target}, edges, 5)
+	const sourceKey = "field:observation-status"
+	first, err := PlanConstructionRoutes(ConstructionRouteSearch{
+		Snapshot: snapshot, RootResource: root.ResourceType, TargetNodeID: target.ID, SourceKey: sourceKey, Limit: 1,
+	})
+	if err != nil || len(first.Routes) != 1 || first.Routes[0][0].EdgeID != "z-direct-0000" || !first.Truncated || first.Complete || first.NextCursor == "" {
+		t.Fatalf("first page did not prioritize a direct route under the result cap: page=%#v err=%v", first, err)
+	}
+
+	cursor, err := encodeConstructionRouteCursor(constructionRouteCursor{
+		Version: 1, Snapshot: snapshot.Token, RootNodeID: root.ID,
+		TargetKey: constructionRouteTargetKey([]string{target.ID}), SourceKey: sourceKey,
+		Offset: constructionRouteMaxResults - 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := PlanConstructionRoutes(ConstructionRouteSearch{
+		Snapshot: snapshot, RootResource: root.ResourceType, TargetNodeID: target.ID,
+		SourceKey: sourceKey, Limit: 1, Cursor: cursor,
+	})
+	if err != nil || len(last.Routes) != 1 || last.Routes[0][0].EdgeID != fmt.Sprintf("z-direct-%04d", constructionRouteMaxResults-1) || !last.Truncated || last.Complete || last.NextCursor != "" {
+		t.Fatalf("result cap did not retain the full shortest-route prefix: page=%#v err=%v", last, err)
 	}
 }
 

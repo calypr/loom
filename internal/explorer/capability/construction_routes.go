@@ -51,10 +51,10 @@ type constructionRouteCursor struct {
 	Offset     int    `json:"offset"`
 }
 
-// PlanConstructionRoutes enumerates directed, policy-allowed routes in stable
-// edge-identity order. It preserves every distinct route and never prefers a
-// shorter path. The five-hop default is an explicit search budget when policy
-// is unbounded; reaching that horizon is reported as truncated.
+// PlanConstructionRoutes enumerates directed, policy-allowed routes in
+// shortest-first, stable edge-identity order. The five-hop default is an
+// explicit search budget when policy is unbounded; reaching that horizon is
+// reported as truncated.
 func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRoutePage, error) {
 	page := ConstructionRoutePage{Routes: [][]ConstructionRouteStep{}}
 	snapshot := request.Snapshot
@@ -128,60 +128,75 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 	}
 
 	routes := make([][]ConstructionRouteStep, 0, min(limit+1, constructionRouteMaxResults))
-	path := make([]ConstructionRouteStep, 0, maxHops)
-	usedEdges := make(map[string]bool, maxHops)
+	type routeState struct {
+		nodeID string
+		path   []ConstructionRouteStep
+	}
+	// Stable-sorted adjacency and FIFO expansion keep hop layers in edge-key order.
+	states := []routeState{{nodeID: root.ID}}
 	expansions := 0
 	searchTruncated := false
 	resultsCapped := false
-	var walk func(nodeID string, hops int)
-	walk = func(nodeID string, hops int) {
-		if resultsCapped || expansions >= constructionRouteMaxExpansions {
+	expansionCapped := false
+	recordRoute := func(path []ConstructionRouteStep) bool {
+		if len(routes) == constructionRouteMaxResults {
+			resultsCapped = true
 			searchTruncated = true
-			return
+			return false
 		}
-		if targetSet[nodeID] {
-			if len(routes) < constructionRouteMaxResults {
-				routes = append(routes, cloneConstructionRoute(path))
-			} else {
-				resultsCapped = true
-				searchTruncated = true
-				return
-			}
+		routes = append(routes, cloneConstructionRoute(path))
+		return true
+	}
+	for stateIndex := 0; stateIndex < len(states); stateIndex++ {
+		state := states[stateIndex]
+		hops := len(state.path)
+		if targetSet[state.nodeID] && !recordRoute(state.path) {
+			break
 		}
 		if hops >= maxHops {
 			policyAllowsDeeperRoute := snapshot.Policy.Route.MaxHops == 0 || snapshot.Policy.Route.MaxHops > maxHops
-			if maxHops == constructionRouteMaxHops && policyAllowsDeeperRoute && canExtendRoute(adjacency[nodeID], nodeID, snapshot.Policy.Route, usedEdges) {
+			if maxHops == constructionRouteMaxHops && policyAllowsDeeperRoute && canExtendRoute(adjacency[state.nodeID], state.nodeID, snapshot.Policy.Route, state.path) {
 				searchTruncated = true
 			}
-			return
+			continue
 		}
-		for _, edge := range adjacency[nodeID] {
-			if !snapshot.Policy.Route.Allows(append(routeEdgeIDs(path), edge.ID)) {
+		for _, edge := range adjacency[state.nodeID] {
+			if !snapshot.Policy.Route.Allows(append(routeEdgeIDs(state.path), edge.ID)) {
 				continue
 			}
 			if edge.FromNodeID == edge.ToNodeID && !snapshot.Policy.Route.AllowsSelfLoops {
 				continue
 			}
-			if usedEdges[edge.ID] && !snapshot.Policy.Route.AllowsRepeatedEdges {
+			if !snapshot.Policy.Route.AllowsRepeatedEdges && routeContainsEdge(state.path, edge.ID) {
 				continue
 			}
 			expansions++
-			usedEdges[edge.ID] = true
-			path = append(path, ConstructionRouteStep{
+			path := append(cloneConstructionRoute(state.path), ConstructionRouteStep{
 				EdgeID: edge.ID, FromNodeID: edge.FromNodeID, ToNodeID: edge.ToNodeID,
 				FromResourceType: edge.SourceResourceType, ToResourceType: edge.TargetResourceType,
 				Relationship: edge.Label, StorageDirection: strings.ToUpper(edge.StorageDirection), MatchMode: "OPTIONAL",
 			})
-			walk(edge.ToNodeID, hops+1)
-			path = path[:len(path)-1]
-			delete(usedEdges, edge.ID)
-			if resultsCapped || expansions >= constructionRouteMaxExpansions {
+			states = append(states, routeState{nodeID: edge.ToNodeID, path: path})
+			if expansions >= constructionRouteMaxExpansions {
 				searchTruncated = true
-				return
+				expansionCapped = true
+				break
 			}
 		}
+		if resultsCapped {
+			break
+		}
+		if expansionCapped {
+			// Count target routes already reached by the final allowed expansion.
+			// The pending states are still in hop and edge-identity order.
+			for _, pending := range states[stateIndex+1:] {
+				if targetSet[pending.nodeID] && !recordRoute(pending.path) {
+					break
+				}
+			}
+			break
+		}
 	}
-	walk(root.ID, 0)
 
 	start := min(offset, len(routes))
 	end := min(start+limit, len(routes))
@@ -223,12 +238,21 @@ func uniqueRootNode(snapshot Snapshot, resourceType string) (Node, bool) {
 	return result, result.ID != ""
 }
 
-func canExtendRoute(edges []Edge, nodeID string, policy RoutePolicy, used map[string]bool) bool {
+func canExtendRoute(edges []Edge, nodeID string, policy RoutePolicy, route []ConstructionRouteStep) bool {
 	for _, edge := range edges {
-		if edge.FromNodeID != nodeID || (!policy.AllowsSelfLoops && edge.FromNodeID == edge.ToNodeID) || (!policy.AllowsRepeatedEdges && used[edge.ID]) {
+		if edge.FromNodeID != nodeID || (!policy.AllowsSelfLoops && edge.FromNodeID == edge.ToNodeID) || (!policy.AllowsRepeatedEdges && routeContainsEdge(route, edge.ID)) {
 			continue
 		}
 		return true
+	}
+	return false
+}
+
+func routeContainsEdge(route []ConstructionRouteStep, edgeID string) bool {
+	for _, step := range route {
+		if step.EdgeID == edgeID {
+			return true
+		}
 	}
 	return false
 }
