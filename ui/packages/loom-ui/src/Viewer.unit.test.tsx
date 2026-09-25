@@ -11,7 +11,10 @@ const state = {
   draft: { version: 1, digest: 'digest' }, active: {}, generated: {}, activeUrl: '/viewer',
   runtime: {
     generation: 'generation-1', publication: { state: 'READY', revisionId: 'revision-1', executionId: 'execution-1' }, outputs: [{ outputId: 'patients', name: 'patients', title: 'Patients', rowLabel: 'patient', selector: { recipe: 'r', translationVersion: 'v1', output: 'patients' }, columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', visible: true, order: 0, filterable: true, chartable: false }], table: { columns: [{ column: 'patient_id', label: 'Patient ID', visible: true }] }, filters: [], charts: [], fixedFilters: {}, actions: [] }], sharedFilters: {}, diagnostics: [],
-    qualityReports: [{ id: 'quality-1', receiptId: 'receipt-1', project: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', scopeDigest: 'scope-1', output: 'patients', policyVersion: 'loom.quality/v1', completeness: 'COMPLETE', verdict: 'PASSED', rowCount: 1, columns: [{ column: 'patient_id', present: 1, missing: 0, recordedNull: 0, emptyArray: 0 }], keyIntegrity: { distinct: 1, missing: 0, duplicate: 0 }, limits: { maxRows: 1000, maxDistinctKeys: 1000 }, issues: { ambiguous: 0, invalidType: 0, incompatibleUnit: 0 } }],
+    qualityReports: [{ id: 'quality-1', receiptId: 'receipt-1', project: 'NCPI_ACCEPTANCE', datasetGeneration: 'generation-1', scopeDigest: 'scope-1', output: 'patients', policyVersion: 'loom.quality/v1', completeness: 'COMPLETE', verdict: 'PASSED', rowCount: 1, columns: [
+      { column: 'patient_id', present: 1, missing: 0, recordedNull: 0, emptyArray: 0 },
+      { column: 'medication_route', present: 1, missing: 0, recordedNull: 0, emptyArray: 0, relatedSource: { basis: 'ALL_MATCHES_NO_FILTER_OR_WINDOW', outputRows: 1, nonemptyListRows: 1, emptyListRows: 0, totalListEntries: 2, rowsWithMultipleEntries: 1, nullOrAbsentFieldValueEntries: 1, unknownRows: 0 } },
+    ], keyIntegrity: { distinct: 1, missing: 0, duplicate: 0 }, limits: { maxRows: 1000, maxDistinctKeys: 1000 }, issues: { ambiguous: 0, invalidType: 0, incompatibleUnit: 0 } }],
   },
 };
 
@@ -113,7 +116,13 @@ describe('Loom Explorer Viewer', () => {
     render(<LoomExplorerViewer client={client} project="NCPI_ACCEPTANCE" renderRowDetails={(row) => <span>Details for {String(row.patient_id)}</span>} />);
     await waitFor(() => expect(screen.getByText('patient-1')).toBeTruthy());
     expect(screen.getAllByText('Patients').length).toBeGreaterThan(0);
-    expect(screen.getByRole('region', { name: 'Dataset quality' })).toHaveTextContent('1 rows checked');
+    expect(screen.getByRole('region', { name: 'Dataset quality' })).toHaveTextContent('1 row checked');
+    const relatedCoverage = screen.getByRole('region', { name: 'Related source coverage for medication_route' });
+    expect(relatedCoverage).toHaveTextContent('1 output row checked across the complete published output');
+    expect(relatedCoverage).toHaveTextContent('1 row had an authorized route match, 0 rows had no authorized route match, and 0 rows had no usable list result');
+    expect(relatedCoverage).toHaveTextContent('2 route-match entries. 1 row had multiple entries. 1 entry had a null or absent selected field value');
+    expect(relatedCoverage).toHaveTextContent('This ALL_MATCHES step has no filter or time window. Counts cover authorized route matches, and list entries are not distinct-resource counts.');
+    expect(relatedCoverage).toHaveTextContent('A null entry may come from an absent source field or an explicit null; this report cannot tell them apart.');
     const tableControls = screen.getByRole('navigation', { name: 'Table controls' });
     const table = screen.getByRole('table', { name: 'Patients results' });
     expect(tableControls.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -121,6 +130,27 @@ describe('Loom Explorer Viewer', () => {
     expect(await screen.findByRole('dialog')).toHaveTextContent('Details for patient-1');
     fireEvent.click(screen.getByRole('button', { name: 'Close row details' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('does not describe an incomplete related-source report as full-output evidence', async () => {
+    const incompleteState = {
+      ...state,
+      runtime: {
+        ...state.runtime,
+        qualityReports: state.runtime.qualityReports.map((report) => ({ ...report, completeness: 'INCOMPLETE' })),
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      if (String(input).includes('/explorers/default')) return Promise.resolve(new Response(JSON.stringify(incompleteState), { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ data: { dataframeRows: { columns: ['patient_id'], rows: [['patient-1']], totalCount: 1, pageInfo: { hasNextPage: false } } } }), { status: 200 }));
+    });
+    render(<LoomExplorerViewer client={createLoomClient({ fetch })} project="NCPI_ACCEPTANCE" />);
+
+    const quality = await screen.findByRole('region', { name: 'Dataset quality' });
+    const relatedCoverage = screen.getByRole('region', { name: 'Related source coverage for medication_route' });
+    expect(quality).toHaveTextContent('1 row checked before the quality scan stopped; full-output counts are unavailable');
+    expect(relatedCoverage).toHaveTextContent('1 output row checked before the quality scan stopped');
+    expect(relatedCoverage).not.toHaveTextContent('across the complete published output');
   });
 
   it('explains a published feature cell from its receipt-bound source evidence', async () => {

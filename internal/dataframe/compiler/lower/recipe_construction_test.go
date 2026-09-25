@@ -223,6 +223,47 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	}
 }
 
+func TestCompileRelatedSourceMarksNonObservationListsWithCompilerSemanticPath(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "id"}}}
+	output.Construction = &recipe.Construction{
+		Version:       1,
+		SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
+		Steps: []recipe.ConstructionStep{{
+			ID: "add_medication_route", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+				AnchorColumnID: "_key", ChoiceID: "medication-route-choice", SourceOccurrenceID: "medication-route",
+				Source: recipe.ConstructionRelatedFieldSource{
+					CandidateID: "medication-route-field", NodeID: "medication-route", ResourceType: "MedicationAdministration",
+					Path: "MedicationAdministration.status", Cardinality: "optional_one", LogicalType: "string",
+				},
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-medication-administration", FromNodeID: "patient", ToNodeID: "medication-route",
+					FromResourceType: "Patient", ToResourceType: "MedicationAdministration", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "medication-route-id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "patient_id", Name: "patient_id"},
+				{ID: "medication-route-id", Name: "medication_route"},
+			},
+		}},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	for _, column := range compiled.OutputSchema {
+		if column.Name != "medication_route" {
+			continue
+		}
+		if column.SemanticPath != "related_source:medication-route.status" || column.Cardinality != "many" {
+			t.Fatalf("compiled related source metadata = %#v", column)
+		}
+		return
+	}
+	t.Fatal("compiled schema omitted the MedicationAdministration related-source list")
+}
+
 func constructionTestOutput() recipe.Output {
 	groupLabel, categoryLabel, amountLabel := "Group", "Category", "Amount"
 	integerZero, integerOne := int64(0), int64(1)

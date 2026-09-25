@@ -358,6 +358,82 @@ func TestPublishProducesReceiptBoundCompleteQualityReport(t *testing.T) {
 	}
 }
 
+func TestPublishReportsRelatedSourcePopulationWithoutConflatingUnknownRows(t *testing.T) {
+	target := &fakeTarget{}
+	result, err := Publish(context.Background(), target, PublicationIdentity{
+		Name: "r", Project: "project-a", DatasetGeneration: "generation-a", ReceiptID: "receipt-a", ScopeDigest: "scope-a",
+	}, []OutputStream{{
+		Name: "medication_administrations",
+		Columns: []LogicalColumn{
+			{Name: "__loom_row_id", Kind: "string", IsIdentity: true, LoomOwned: true},
+			{Name: "medication_route", SemanticPath: "related_source:medication-route.route", Kind: "string", Repeated: true, Nullable: true},
+			{Name: "names", SemanticPath: "Patient.name", Kind: "string", Repeated: true, Nullable: true},
+		},
+		Stream: func(_ context.Context, visit func(map[string]any) error) error {
+			for _, row := range []map[string]any{
+				{"__loom_row_id": "row-1", "medication_route": []any{"oral"}, "names": []any{"A"}},
+				{"__loom_row_id": "row-2", "medication_route": []any{"topical", nil}, "names": []any{}},
+				{"__loom_row_id": "row-3", "medication_route": []any{}, "names": []any{}},
+				{"__loom_row_id": "row-4", "medication_route": nil, "names": []any{}},
+				{"__loom_row_id": "row-5", "names": []any{}},
+			} {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}}, Limits{Quality: QualityPolicy{Version: "quality-v1", MaxRows: 10, MaxDistinctKeys: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.QualityReports) != 1 || len(target.tx.quality) != 1 {
+		t.Fatalf("published quality evidence = result:%#v durable:%#v", result.QualityReports, target.tx.quality)
+	}
+	var related *RelatedSourcePopulation
+	for _, column := range target.tx.quality[0].Columns {
+		if column.Column == "medication_route" {
+			related = column.RelatedSource
+		}
+		if column.Column == "names" && column.RelatedSource != nil {
+			t.Fatalf("ordinary repeated field was reported as a related source: %#v", column)
+		}
+	}
+	if related == nil {
+		t.Fatal("related-source population evidence is missing from the durable report")
+	}
+	want := RelatedSourcePopulation{
+		Basis: relatedSourceAllMatchesBasis, OutputRows: 5, NonemptyListRows: 2, EmptyListRows: 1,
+		TotalListEntries: 3, RowsWithMultipleEntries: 1, NullOrAbsentFieldValueEntries: 1, UnknownRows: 2,
+	}
+	if *related != want {
+		t.Fatalf("related-source population = %#v, want %#v", *related, want)
+	}
+	if related.NonemptyListRows+related.EmptyListRows+related.UnknownRows != target.tx.quality[0].RowCount {
+		t.Fatalf("related-source rows do not account for output denominator: %#v over %d rows", *related, target.tx.quality[0].RowCount)
+	}
+
+	cloned := CloneQualityReports(target.tx.quality)
+	for columnIndex := range cloned[0].Columns {
+		if cloned[0].Columns[columnIndex].Column == "medication_route" {
+			cloned[0].Columns[columnIndex].RelatedSource.UnknownRows++
+		}
+	}
+	for _, column := range target.tx.quality[0].Columns {
+		if column.Column == "medication_route" && column.RelatedSource.UnknownRows != want.UnknownRows {
+			t.Fatal("cloning quality reports shared mutable related-source evidence")
+		}
+	}
+}
+
+func TestRelatedSourcePopulationMarksMalformedListAsUnknown(t *testing.T) {
+	population := RelatedSourcePopulation{}
+	observeRelatedSourcePopulation(&population, "malformed", true)
+	if population.OutputRows != 1 || population.UnknownRows != 1 || population.EmptyListRows != 0 {
+		t.Fatalf("malformed related-source output = %#v", population)
+	}
+}
+
 type existingTarget struct{ tx *fakeTx }
 
 func (t *existingTarget) SupportsObjectValues() bool { return false }

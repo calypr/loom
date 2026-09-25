@@ -779,6 +779,15 @@ func TestClickHouseBundlePublishesAndReplaysQualityEvidenceAtomically(t *testing
 		DatasetGeneration: identity.DatasetGeneration, ScopeDigest: identity.ScopeDigest,
 		Output: "patients", PolicyVersion: "quality-v1",
 		Completeness: publication.QualityComplete, Verdict: publication.QualityPassed,
+		RowCount: 2,
+		Columns: []publication.ColumnQuality{{
+			Column: "medication_route",
+			RelatedSource: &publication.RelatedSourcePopulation{
+				Basis: "ALL_MATCHES_NO_FILTER_OR_WINDOW", OutputRows: 2, NonemptyListRows: 1,
+				EmptyListRows: 1, TotalListEntries: 2, RowsWithMultipleEntries: 1,
+				NullOrAbsentFieldValueEntries: 1,
+			},
+		}},
 	}
 	if err := tx.SetQualityReports(context.Background(), []publication.QualityReport{report}); err != nil {
 		t.Fatal(err)
@@ -794,8 +803,11 @@ func TestClickHouseBundlePublishesAndReplaysQualityEvidenceAtomically(t *testing
 		t.Fatal("published execution was not recognized as idempotent")
 	}
 	got := retry.ExistingQualityReports()
-	if len(got) != 1 || got[0].ID != report.ID {
+	if len(got) != 1 || got[0].ID != report.ID || got[0].RowCount != report.RowCount || len(got[0].Columns) != 1 || got[0].Columns[0].RelatedSource == nil {
 		t.Fatalf("replayed quality evidence = %#v", got)
+	}
+	if *got[0].Columns[0].RelatedSource != *report.Columns[0].RelatedSource {
+		t.Fatalf("replayed related-source population = %#v, want %#v", *got[0].Columns[0].RelatedSource, *report.Columns[0].RelatedSource)
 	}
 }
 

@@ -2525,6 +2525,18 @@ export interface ExplorerColumnQualityV1 {
   readonly missing: number;
   readonly recordedNull: number;
   readonly emptyArray: number;
+  readonly relatedSource?: RelatedSourcePopulationV1;
+}
+
+export interface RelatedSourcePopulationV1 {
+  readonly basis: 'ALL_MATCHES_NO_FILTER_OR_WINDOW';
+  readonly outputRows: number;
+  readonly nonemptyListRows: number;
+  readonly emptyListRows: number;
+  readonly totalListEntries: number;
+  readonly rowsWithMultipleEntries: number;
+  readonly nullOrAbsentFieldValueEntries: number;
+  readonly unknownRows: number;
 }
 
 export interface ExplorerQualityReportV1 {
@@ -2751,6 +2763,16 @@ const qualityReportSchema = z
       missing: z.number().int().nonnegative(),
       recordedNull: z.number().int().nonnegative(),
       emptyArray: z.number().int().nonnegative(),
+      relatedSource: z.object({
+        basis: z.literal('ALL_MATCHES_NO_FILTER_OR_WINDOW'),
+        outputRows: z.number().int().nonnegative(),
+        nonemptyListRows: z.number().int().nonnegative(),
+        emptyListRows: z.number().int().nonnegative(),
+        totalListEntries: z.number().int().nonnegative(),
+        rowsWithMultipleEntries: z.number().int().nonnegative(),
+        nullOrAbsentFieldValueEntries: z.number().int().nonnegative(),
+        unknownRows: z.number().int().nonnegative(),
+      }).strict().optional(),
     }).strict()),
     keyIntegrity: z.object({
       distinct: z.number().int().nonnegative(),

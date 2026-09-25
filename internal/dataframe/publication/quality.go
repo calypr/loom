@@ -53,11 +53,29 @@ type QualityOmission struct {
 }
 
 type ColumnQuality struct {
-	Column       string `json:"column"`
-	Present      int64  `json:"present"`
-	Missing      int64  `json:"missing"`
-	RecordedNull int64  `json:"recordedNull"`
-	EmptyArray   int64  `json:"emptyArray"`
+	Column        string                   `json:"column"`
+	Present       int64                    `json:"present"`
+	Missing       int64                    `json:"missing"`
+	RecordedNull  int64                    `json:"recordedNull"`
+	EmptyArray    int64                    `json:"emptyArray"`
+	RelatedSource *RelatedSourcePopulation `json:"relatedSource,omitempty"`
+}
+
+const relatedSourceAllMatchesBasis = "ALL_MATCHES_NO_FILTER_OR_WINDOW"
+
+// RelatedSourcePopulation records exact row and list-entry counts for one
+// compiler-identified RELATED_SOURCE column. Null entries may also represent
+// an absent source field because the published list does not retain that
+// distinction.
+type RelatedSourcePopulation struct {
+	Basis                         string `json:"basis"`
+	OutputRows                    int64  `json:"outputRows"`
+	NonemptyListRows              int64  `json:"nonemptyListRows"`
+	EmptyListRows                 int64  `json:"emptyListRows"`
+	TotalListEntries              int64  `json:"totalListEntries"`
+	RowsWithMultipleEntries       int64  `json:"rowsWithMultipleEntries"`
+	NullOrAbsentFieldValueEntries int64  `json:"nullOrAbsentFieldValueEntries"`
+	UnknownRows                   int64  `json:"unknownRows"`
 }
 
 // QualityLimits records the exact bounds under which the full-population
@@ -121,6 +139,12 @@ func CloneQualityReports(reports []QualityReport) []QualityReport {
 	for index, report := range reports {
 		cloned[index] = report
 		cloned[index].Columns = append([]ColumnQuality(nil), report.Columns...)
+		for columnIndex := range cloned[index].Columns {
+			if related := cloned[index].Columns[columnIndex].RelatedSource; related != nil {
+				copy := *related
+				cloned[index].Columns[columnIndex].RelatedSource = &copy
+			}
+		}
 		cloned[index].Omissions = append([]QualityOmission(nil), report.Omissions...)
 	}
 	return cloned
@@ -207,8 +231,12 @@ func newQualityAccumulator(identity PublicationIdentity, output OutputStream, po
 		if column.LoomOwned || column.IsIdentity {
 			continue
 		}
+		quality := ColumnQuality{Column: column.Name}
+		if relatedSourceListColumn(column) {
+			quality.RelatedSource = &RelatedSourcePopulation{Basis: relatedSourceAllMatchesBasis}
+		}
 		accumulator.columnIndex[column.Name] = len(accumulator.report.Columns)
-		accumulator.report.Columns = append(accumulator.report.Columns, ColumnQuality{Column: column.Name})
+		accumulator.report.Columns = append(accumulator.report.Columns, quality)
 	}
 	if len(accumulator.identityColumns) == 0 {
 		accumulator.report.Omissions = append(accumulator.report.Omissions, QualityOmission{Code: "KEY_INTEGRITY_NOT_AVAILABLE", Detail: "The compiled output has no stable identity projection."})
@@ -268,6 +296,9 @@ func (a *qualityAccumulator) observe(row map[string]any) error {
 	for name, index := range a.columnIndex {
 		quality := &a.report.Columns[index]
 		value, ok := row[name]
+		if quality.RelatedSource != nil {
+			observeRelatedSourcePopulation(quality.RelatedSource, value, ok)
+		}
 		switch {
 		case !ok:
 			quality.Missing++
@@ -300,6 +331,39 @@ func (a *qualityAccumulator) observe(row map[string]any) error {
 	a.keys[key] = struct{}{}
 	a.report.KeyIntegrity.Distinct++
 	return nil
+}
+
+func relatedSourceListColumn(column LogicalColumn) bool {
+	return column.Repeated && strings.HasPrefix(column.SemanticPath, "related_source:")
+}
+
+func observeRelatedSourcePopulation(population *RelatedSourcePopulation, value any, present bool) {
+	population.OutputRows++
+	if !present || value == nil {
+		population.UnknownRows++
+		return
+	}
+
+	values := reflect.ValueOf(value)
+	if values.Kind() != reflect.Array && values.Kind() != reflect.Slice {
+		population.UnknownRows++
+		return
+	}
+	if values.Len() == 0 {
+		population.EmptyListRows++
+		return
+	}
+
+	population.NonemptyListRows++
+	population.TotalListEntries += int64(values.Len())
+	if values.Len() > 1 {
+		population.RowsWithMultipleEntries++
+	}
+	for index := 0; index < values.Len(); index++ {
+		if values.Index(index).Interface() == nil {
+			population.NullOrAbsentFieldValueEntries++
+		}
+	}
 }
 
 func (a *qualityAccumulator) complete() (QualityReport, error) {
