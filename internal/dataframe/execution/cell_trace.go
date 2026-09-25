@@ -41,9 +41,18 @@ type CellTraceRequest struct {
 }
 
 type CellTraceContribution struct {
-	ResourceType string `json:"resourceType,omitempty"`
-	ResourceID   string `json:"resourceId,omitempty"`
-	Value        any    `json:"value"`
+	ResourceType   string `json:"resourceType,omitempty"`
+	ResourceID     string `json:"resourceId,omitempty"`
+	InputStageID   string `json:"inputStageId,omitempty"`
+	InputColumnID  string `json:"inputColumnId,omitempty"`
+	InputColumn    string `json:"inputColumn,omitempty"`
+	OutputStageID  string `json:"outputStageId,omitempty"`
+	OutputColumnID string `json:"outputColumnId,omitempty"`
+	OutputColumn   string `json:"outputColumn,omitempty"`
+	FinalStageID   string `json:"finalStageId,omitempty"`
+	ConstructionID string `json:"constructionId,omitempty"`
+	Operation      string `json:"operation,omitempty"`
+	Value          any    `json:"value"`
 }
 
 type CellTraceResult struct {
@@ -209,7 +218,21 @@ func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
 		}
 		resourceType, _ := object["resourceType"].(string)
 		resourceID, _ := object["resourceId"].(string)
-		result = append(result, CellTraceContribution{ResourceType: resourceType, ResourceID: resourceID, Value: object["value"]})
+		inputStageID, _ := object["inputStageId"].(string)
+		inputColumnID, _ := object["inputColumnId"].(string)
+		inputColumn, _ := object["inputColumn"].(string)
+		outputStageID, _ := object["outputStageId"].(string)
+		outputColumnID, _ := object["outputColumnId"].(string)
+		outputColumn, _ := object["outputColumn"].(string)
+		finalStageID, _ := object["finalStageId"].(string)
+		constructionID, _ := object["constructionId"].(string)
+		operation, _ := object["operation"].(string)
+		result = append(result, CellTraceContribution{
+			ResourceType: resourceType, ResourceID: resourceID,
+			InputStageID: inputStageID, InputColumnID: inputColumnID, InputColumn: inputColumn,
+			OutputStageID: outputStageID, OutputColumnID: outputColumnID, OutputColumn: outputColumn, FinalStageID: finalStageID,
+			ConstructionID: constructionID, Operation: operation, Value: object["value"],
+		})
 	}
 	return result, nil
 }

@@ -114,12 +114,38 @@ type PhysicalCellTraceReturn struct {
 	Value             PhysicalExpression
 	Contribution      *PhysicalCellTraceContribution
 	Reshape           *PhysicalCellTraceReshape
+	Construction      *PhysicalCellTraceConstruction
 	IdentityParts     []PhysicalPopulationMappingIdentityPart
 	ExplicitIdentity  *PhysicalExpression
 	OffsetBindKey     string
 	LimitBindKey      string
 	FetchLimitBindKey string
 	OmissionCode      string
+}
+
+// PhysicalCellTraceConstruction describes value lineage through an ordered
+// construction sequence. The renderer evaluates InputColumns on the selected
+// final row and attaches the stable stage and column identities to each item.
+type PhysicalCellTraceConstruction struct {
+	FinalStageID      string
+	RowIdentityColumn string
+	OutputColumnID    string
+	OutputColumn      string
+	ProducerStageID   string
+	ConstructionID    string
+	Operation         string
+	Inputs            []PhysicalCellTraceConstructionInput
+	OmissionCode      string
+}
+
+// PhysicalCellTraceConstructionInput identifies a column read by the
+// construction step that produced the requested cell. FinalValueColumn is the
+// surviving name for that stable column ID in the final stage schema.
+type PhysicalCellTraceConstructionInput struct {
+	StageID          string
+	ColumnID         string
+	Column           string
+	FinalValueColumn string
 }
 
 // PhysicalTableShapeExclusionReturn emits source-level exclusions from the

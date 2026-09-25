@@ -300,6 +300,121 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 	}
 }
 
+func TestConstructionCellTraceResolvesDeriveInputsThroughFilterStage(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	if output.Plan.StageSequence == nil {
+		t.Fatal("compiled output has no construction stage sequence")
+	}
+	lineage, err := constructionCellTraceLineage(output, *output.Plan.StageSequence, "total")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lineage.FinalStageID != "keep_positive" || lineage.ProducerStageID != "derive_total" || lineage.ConstructionID != "calc_total" || lineage.Operation != "DERIVE" {
+		t.Fatalf("construction output provenance = %#v", lineage)
+	}
+	if lineage.OutputColumnID != "total_id" || lineage.OutputColumn != "total" || lineage.RowIdentityColumn != output.Plan.StageSequence.FinalRowIdentity {
+		t.Fatalf("construction output identity = %#v", lineage)
+	}
+	want := ir.PhysicalCellTraceConstructionInput{
+		StageID: "source_projection", ColumnID: "amount_id", Column: "amount", FinalValueColumn: "amount",
+	}
+	if len(lineage.Inputs) != 1 || lineage.Inputs[0] != want || lineage.OmissionCode != "" {
+		t.Fatalf("construction source lineage = %#v, want %#v without omission", lineage, want)
+	}
+}
+
+func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"SORT __loom_construction_final_row._key ASC",
+		"__loom_construction_final_row.total",
+		"__loom_construction_final_row[@",
+		"@cell_trace_offset, @cell_trace_fetch_limit",
+		"inputStageId:", "inputColumnId:", "outputStageId:", "outputColumnId:", "finalStageId:", "constructionId:", "operation:",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Fatalf("construction cell trace query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	for _, want := range []string{
+		"source_projection", "amount_id", "amount", "derive_total", "total_id", "total", "keep_positive", "calc_total", "DERIVE",
+	} {
+		if !containsBindValue(compiled.BindVars, want) {
+			t.Errorf("construction trace bind value %q is missing from %#v", want, compiled.BindVars)
+		}
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+		t.Fatalf("construction trace identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+}
+
+func TestConstructionCellTraceMarksPivotLineageAsUnsupported(t *testing.T) {
+	recipeOutput := constructionOracleOutput()
+	recipeOutput.Construction.Steps = recipeOutput.Construction.Steps[:1]
+	output := compilePopulationMappingOutput(t, recipeOutput)
+	lineage, err := constructionCellTraceLineage(output, *output.Plan.StageSequence, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lineage.Operation != "PIVOT" || lineage.ProducerStageID != "pivot" || lineage.OmissionCode != "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED" || len(lineage.Inputs) != 0 {
+		t.Fatalf("pivot trace lineage = %#v, want explicit unsupported-operation omission", lineage)
+	}
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "alpha", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(compiled.Query, "__loom_construction_final_row.alpha") || !strings.Contains(compiled.Query, "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
+		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", compiled.Query, compiled.BindVars)
+	}
+}
+
+func constructionCellTraceRecipeOutput() recipe.Output {
+	two := int64(2)
+	zero := int64(0)
+	return recipe.Output{
+		Name: "construction_trace", RootResourceType: "Observation", RowGrain: "observation",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
+			{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"},
+			},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
+						ConstructionID: "calc_total", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
+						Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
+						Right:              recipe.ConstructionOperand{Kind: recipe.DerivedLiteralOperand, Literal: &recipe.DerivedLiteral{Kind: recipe.NumericInteger, Integer: &two}},
+						MissingInputPolicy: recipe.MissingInputPropagateNull,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+				{
+					ID: "keep_positive", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "derive_total"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "total_id", Operator: recipe.FilterGreaterThan,
+						Values: []recipe.FilterValue{{Kind: recipe.FilterInteger, Integer: &zero}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "amount_id", Name: "amount"}, {ID: "status_id", Name: "status"}, {ID: "total_id", Name: "total"},
+					},
+				},
+			},
+		},
+	}
+}
+
 func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",

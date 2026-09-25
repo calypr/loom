@@ -52,6 +52,11 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 	copy := *sequence
 	copy.SourceColumns = clonePhysicalStageColumns(sequence.SourceColumns)
 	copy.FinalColumns = clonePhysicalStageColumns(sequence.FinalColumns)
+	if sequence.CellTraceReturn != nil {
+		copy.CellTraceReturn = clonePhysicalOperation(PhysicalOperation{
+			Kind: PhysicalCellTraceReturnOp, CellTraceReturn: sequence.CellTraceReturn,
+		}).CellTraceReturn
+	}
 	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
 	for index, stage := range sequence.Stages {
 		cloned := stage
@@ -477,6 +482,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 				}
 			}
 			traceCopy.Reshape = &reshape
+		}
+		if operation.CellTraceReturn.Construction != nil {
+			construction := *operation.CellTraceReturn.Construction
+			construction.Inputs = append([]PhysicalCellTraceConstructionInput(nil), operation.CellTraceReturn.Construction.Inputs...)
+			traceCopy.Construction = &construction
 		}
 		traceCopy.Value = clonePhysicalExpression(operation.CellTraceReturn.Value)
 		traceCopy.IdentityParts = make([]PhysicalPopulationMappingIdentityPart, len(operation.CellTraceReturn.IdentityParts))

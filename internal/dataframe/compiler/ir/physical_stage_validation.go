@@ -346,6 +346,78 @@ func requireNonEmptyStringBind(bindVars map[string]any, key string) error {
 	return nil
 }
 
+func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal PhysicalCellTraceReturn, bindVars map[string]any) error {
+	construction := terminal.Construction
+	if construction == nil || terminal.Contribution != nil || terminal.Reshape != nil {
+		return fmt.Errorf("construction lineage is required and must be the only contributor contract")
+	}
+	for _, key := range []string{terminal.OffsetBindKey, terminal.LimitBindKey, terminal.FetchLimitBindKey} {
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+	}
+	if construction.FinalStageID != sequence.FinalStageID || construction.RowIdentityColumn != sequence.FinalRowIdentity {
+		return fmt.Errorf("final stage or row identity does not match the construction sequence")
+	}
+	finalColumns := stageColumnsByID(sequence.FinalColumns)
+	output, exists := finalColumns[construction.OutputColumnID]
+	if !exists || output.Name != construction.OutputColumn || output.Internal {
+		return fmt.Errorf("output column ID %q does not identify a public final column", construction.OutputColumnID)
+	}
+	if construction.OmissionCode == "" && len(construction.Inputs) == 0 {
+		return fmt.Errorf("complete construction lineage requires at least one source column")
+	}
+	producerInput := map[string]PhysicalStageColumn{}
+	expectedInputStageID := sequence.SourceStageID
+	producerFound := construction.ProducerStageID == sequence.SourceStageID && construction.Operation == "SOURCE_PROJECTION"
+	if producerFound {
+		producerInput = stageColumnsByID(sequence.SourceColumns)
+	} else {
+		for _, stage := range sequence.Stages {
+			if stage.ID != construction.ProducerStageID {
+				continue
+			}
+			producerFound = true
+			if string(stage.Kind) != construction.Operation {
+				return fmt.Errorf("producer operation %q does not match stage %q kind %q", construction.Operation, stage.ID, stage.Kind)
+			}
+			expectedInputStageID = stage.InputStageID
+			producerInput = stageColumnsByID(stage.InputColumns)
+			if _, ok := stageColumnsByID(stage.OutputColumns)[construction.OutputColumnID]; !ok {
+				return fmt.Errorf("output column ID %q is absent from producer stage %q", construction.OutputColumnID, stage.ID)
+			}
+			break
+		}
+	}
+	if !producerFound {
+		return fmt.Errorf("producer stage %q is absent from the construction sequence", construction.ProducerStageID)
+	}
+	seenInputs := map[string]bool{}
+	for _, input := range construction.Inputs {
+		stageColumn, ok := producerInput[input.ColumnID]
+		if !ok || stageColumn.Name != input.Column || stageColumn.Internal || input.StageID != expectedInputStageID {
+			return fmt.Errorf("input column ID %q is not a public producer input", input.ColumnID)
+		}
+		if seenInputs[input.ColumnID] {
+			return fmt.Errorf("input column ID %q is duplicated", input.ColumnID)
+		}
+		seenInputs[input.ColumnID] = true
+		finalColumn, ok := finalColumns[input.ColumnID]
+		if !ok || finalColumn.Internal || finalColumn.Name != input.FinalValueColumn {
+			return fmt.Errorf("input column ID %q does not survive in the final output", input.ColumnID)
+		}
+	}
+	return nil
+}
+
+func stageColumnsByID(columns []PhysicalStageColumn) map[string]PhysicalStageColumn {
+	result := make(map[string]PhysicalStageColumn, len(columns))
+	for _, column := range columns {
+		result[column.ID] = column
+	}
+	return result
+}
+
 func validatePhysicalStageColumns(columns []PhysicalStageColumn, identityName string) error {
 	if len(columns) == 0 || strings.TrimSpace(identityName) == "" {
 		return fmt.Errorf("columns and row identity are required")

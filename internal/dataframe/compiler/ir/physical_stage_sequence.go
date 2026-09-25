@@ -11,6 +11,7 @@ type PhysicalStageSequence struct {
 	FinalRowIdentity    string
 	FinalColumns        []PhysicalStageColumn
 	PreviewLimitBindKey string
+	CellTraceReturn     *PhysicalCellTraceReturn
 }
 
 type PhysicalStageColumn struct {

@@ -55,6 +55,9 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("apply cell trace execution window: %w", err)
 	}
+	if physical.StageSequence != nil {
+		return compileConstructionCellTrace(output, &physical, column, offset, limit)
+	}
 	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
 	if err != nil {
 		return CompiledCellTraceQuery{}, err
@@ -103,6 +106,283 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
 	}
 	return query, nil
+}
+
+func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *ir.PhysicalPlan, column string, offset, limit int) (CompiledCellTraceQuery, error) {
+	if physical == nil || physical.StageSequence == nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("construction cell trace requires a stage sequence")
+	}
+	lineage, err := constructionCellTraceLineage(output, *physical.StageSequence, column)
+	if err != nil {
+		return CompiledCellTraceQuery{}, err
+	}
+	const offsetBind, limitBind, fetchLimitBind = "cell_trace_offset", "cell_trace_limit", "cell_trace_fetch_limit"
+	physical.BindVars[offsetBind] = offset
+	physical.BindVars[limitBind] = limit
+	physical.BindVars[fetchLimitBind] = limit + 1
+	physical.StageSequence.CellTraceReturn = &ir.PhysicalCellTraceReturn{
+		Construction: lineage, OffsetBindKey: offsetBind, LimitBindKey: limitBind,
+		FetchLimitBindKey: fetchLimitBind,
+	}
+	if err := physical.Validate(); err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("validate construction cell trace plan: %w", err)
+	}
+	if err := ir.ValidateGenericPhysicalPlanScope(*physical); err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("verify construction cell trace physical scope: %w", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(*physical)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("render construction cell trace physical plan: %w", err)
+	}
+	query := CompiledCellTraceQuery{
+		Query: rendered.Query, BindVars: rendered.BindVars,
+		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
+		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
+		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),
+		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(*physical),
+	}
+	if lineage.RowIdentityColumn == "__loom_row_id" {
+		query.ExplicitIdentityColumn = ir.PhysicalCellTraceExplicitIdentityField
+	} else {
+		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
+	}
+	return query, nil
+}
+
+func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir.PhysicalStageSequence, column string) (*ir.PhysicalCellTraceConstruction, error) {
+	var selected ir.PhysicalStageColumn
+	found := false
+	for _, candidate := range sequence.FinalColumns {
+		if candidate.Name == column && !candidate.Internal {
+			selected, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("cell trace column %q is not a public construction output", column)
+	}
+	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+		return nil, fmt.Errorf("construction cell trace row identity does not match the final stage")
+	}
+	lineage := &ir.PhysicalCellTraceConstruction{
+		FinalStageID: sequence.FinalStageID, RowIdentityColumn: sequence.FinalRowIdentity,
+		OutputColumnID: selected.ID, OutputColumn: selected.Name,
+	}
+	finalByID := make(map[string]ir.PhysicalStageColumn, len(sequence.FinalColumns))
+	for _, finalColumn := range sequence.FinalColumns {
+		finalByID[finalColumn.ID] = finalColumn
+	}
+
+	producerIndex := -1
+	for index := len(sequence.Stages) - 1; index >= 0; index-- {
+		stage := sequence.Stages[index]
+		outputColumn, hasOutput := stageColumnByID(stage.OutputColumns, selected.ID)
+		if !hasOutput {
+			continue
+		}
+		if _, wasInput := stageColumnByID(stage.InputColumns, selected.ID); !wasInput {
+			producerIndex = index
+			lineage.ProducerStageID = stage.ID
+			lineage.Operation = string(stage.Kind)
+			if descriptor, ok := constructionStageDescriptor(output.Stages, stage.ID); ok {
+				if descriptorColumn, ok := compiledStageColumnByID(descriptor.Columns, selected.ID); ok && strings.HasPrefix(descriptorColumn.SemanticPath, "derived:") {
+					lineage.ConstructionID = strings.TrimPrefix(descriptorColumn.SemanticPath, "derived:")
+				}
+			}
+			if stage.Kind != ir.PhysicalStageDeriveOp {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
+				break
+			}
+			if lineage.ConstructionID == "" {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_CONSTRUCTION_ID_UNAVAILABLE"
+				break
+			}
+			inputs, supported := constructionDerivedTraceInputs(stage, outputColumn.Name)
+			if !supported {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_EXPRESSION_UNSUPPORTED"
+				break
+			}
+			if len(inputs) == 0 {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_NO_SOURCE_COLUMNS"
+				break
+			}
+			for _, input := range inputs {
+				finalInput, survives := finalByID[input.ID]
+				if !survives || finalInput.Internal {
+					lineage.OmissionCode = "CONSTRUCTION_TRACE_INPUT_NOT_PRESERVED"
+					lineage.Inputs = nil
+					break
+				}
+				lineage.Inputs = append(lineage.Inputs, ir.PhysicalCellTraceConstructionInput{
+					StageID: stage.InputStageID, ColumnID: input.ID, Column: input.Name,
+					FinalValueColumn: finalInput.Name,
+				})
+			}
+			break
+		}
+		if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+			lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
+			producerIndex = index
+			lineage.ProducerStageID = stage.ID
+			lineage.Operation = string(stage.Kind)
+			break
+		}
+	}
+
+	if producerIndex < 0 {
+		sourceColumn, exists := stageColumnByID(sequence.SourceColumns, selected.ID)
+		if !exists || sourceColumn.Internal {
+			return nil, fmt.Errorf("cell trace output column ID %q has no source or construction producer", selected.ID)
+		}
+		lineage.ProducerStageID = sequence.SourceStageID
+		lineage.Operation = "SOURCE_PROJECTION"
+		lineage.Inputs = []ir.PhysicalCellTraceConstructionInput{{
+			StageID: sequence.SourceStageID, ColumnID: sourceColumn.ID, Column: sourceColumn.Name,
+			FinalValueColumn: selected.Name,
+		}}
+		for _, stage := range sequence.Stages {
+			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
+				lineage.Inputs = nil
+				break
+			}
+		}
+	}
+	if lineage.OmissionCode == "" && producerIndex >= 0 {
+		for _, stage := range sequence.Stages[producerIndex+1:] {
+			if stage.Kind != ir.PhysicalStageDeriveOp && stage.Kind != ir.PhysicalStageFilterOp {
+				lineage.OmissionCode = "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED"
+				lineage.Inputs = nil
+				break
+			}
+			for _, input := range lineage.Inputs {
+				if _, exists := stageColumnByID(stage.InputColumns, input.ColumnID); !exists {
+					lineage.OmissionCode = "CONSTRUCTION_TRACE_INPUT_NOT_PRESERVED"
+					lineage.Inputs = nil
+					break
+				}
+			}
+			if lineage.OmissionCode != "" {
+				break
+			}
+		}
+	}
+	return lineage, nil
+}
+
+func constructionDerivedTraceInputs(stage ir.PhysicalConstructionStage, outputColumn string) ([]ir.PhysicalStageColumn, bool) {
+	projection, found := stageProjectionByName(stage.OutputProjections, outputColumn)
+	if !found {
+		return nil, false
+	}
+	expression, err := physicalProjectionExpression(projection)
+	if err != nil {
+		return nil, false
+	}
+	lets := make(map[string]ir.PhysicalExpression, len(stage.DerivedLets))
+	for _, operation := range stage.DerivedLets {
+		if operation.Kind != ir.PhysicalExpressionLetOp || operation.ExpressionLet == nil {
+			return nil, false
+		}
+		lets[operation.ExpressionLet.Variable] = operation.ExpressionLet.Expression
+	}
+	names := make([]string, 0, 2)
+	visiting := map[string]bool{}
+	if !collectConstructionTraceInputNames(expression, stage.InputRowVariable, lets, visiting, &names) {
+		return nil, false
+	}
+	columns := make(map[string]ir.PhysicalStageColumn, len(stage.InputColumns))
+	for _, input := range stage.InputColumns {
+		columns[input.Name] = input
+	}
+	seen := map[string]bool{}
+	result := make([]ir.PhysicalStageColumn, 0, len(names))
+	for _, name := range names {
+		input, ok := columns[name]
+		if !ok || input.Internal {
+			return nil, false
+		}
+		if seen[input.ID] {
+			continue
+		}
+		seen[input.ID] = true
+		result = append(result, input)
+	}
+	return result, true
+}
+
+func collectConstructionTraceInputNames(expression ir.PhysicalExpression, inputRow string, lets map[string]ir.PhysicalExpression, visiting map[string]bool, names *[]string) bool {
+	switch expression.Kind {
+	case ir.PhysicalLiteralExpression:
+		return expression.Literal != nil
+	case ir.PhysicalValueExpression:
+		if expression.Value == nil {
+			return false
+		}
+		value := expression.Value
+		if value.Variable == inputRow && len(value.Path) == 1 {
+			*names = append(*names, value.Path[0])
+			return true
+		}
+		if value.Variable == "" || len(value.Path) != 0 || visiting[value.Variable] {
+			return false
+		}
+		let, ok := lets[value.Variable]
+		if !ok {
+			return false
+		}
+		visiting[value.Variable] = true
+		defer delete(visiting, value.Variable)
+		return collectConstructionTraceInputNames(let, inputRow, lets, visiting, names)
+	case ir.PhysicalCallExpression:
+		if expression.Call == nil {
+			return false
+		}
+		for _, argument := range expression.Call.Args {
+			if !collectConstructionTraceInputNames(argument, inputRow, lets, visiting, names) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func stageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.PhysicalStageColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return ir.PhysicalStageColumn{}, false
+}
+
+func constructionStageDescriptor(stages []lower.CompiledStageDescriptor, id string) (lower.CompiledStageDescriptor, bool) {
+	for _, stage := range stages {
+		if stage.ID == id {
+			return stage, true
+		}
+	}
+	return lower.CompiledStageDescriptor{}, false
+}
+
+func compiledStageColumnByID(columns []lower.CompiledOutputColumn, id string) (lower.CompiledOutputColumn, bool) {
+	for _, column := range columns {
+		if column.ID == id {
+			return column, true
+		}
+	}
+	return lower.CompiledOutputColumn{}, false
+}
+
+func stageProjectionByName(projections []ir.PhysicalProjection, name string) (ir.PhysicalProjection, bool) {
+	for _, projection := range projections {
+		if projection.Name == name {
+			return projection, true
+		}
+	}
+	return ir.PhysicalProjection{}, false
 }
 
 func rootVariable(plan ir.PhysicalPlan) string {

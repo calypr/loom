@@ -133,7 +133,33 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render final stage output: %w", err)
 	}
-	lines = append(lines, "RETURN "+returned)
+	if sequence.CellTraceReturn != nil {
+		terminal := *sequence.CellTraceReturn
+		terminal.Value = ir.PhysicalExpression{
+			Kind:  ir.PhysicalValueExpression,
+			Value: &ir.PhysicalValue{Variable: finalRow, Path: []string{terminal.Construction.OutputColumn}},
+		}
+		identity := ir.PhysicalExpression{
+			Kind:  ir.PhysicalValueExpression,
+			Value: &ir.PhysicalValue{Variable: finalRow, Path: []string{terminal.Construction.RowIdentityColumn}},
+		}
+		if terminal.Construction.RowIdentityColumn == "__loom_row_id" {
+			terminal.ExplicitIdentity = &identity
+			terminal.IdentityParts = nil
+		} else {
+			terminal.ExplicitIdentity = nil
+			terminal.IdentityParts = []ir.PhysicalPopulationMappingIdentityPart{{
+				Name: terminal.Construction.RowIdentityColumn, Expression: identity,
+			}}
+		}
+		traceLines, traceErr := renderer.renderCellTraceReturn(terminal)
+		if traceErr != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render construction cell trace: %w", traceErr)
+		}
+		lines = append(lines, traceLines...)
+	} else {
+		lines = append(lines, "RETURN "+returned)
+	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
 }

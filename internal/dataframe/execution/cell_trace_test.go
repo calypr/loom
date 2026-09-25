@@ -29,7 +29,7 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 		}
 		for _, row := range []map[string]any{
 			{"identity": []any{"other", "generation-a"}},
-			{"identity": parts, "value": "female", "status": "AMBIGUOUS", "hasMore": true, "omission": "", "contributors": []any{map[string]any{"resourceType": "Patient", "resourceId": "123", "value": "female"}}},
+			{"identity": parts, "value": "female", "status": "AMBIGUOUS", "hasMore": true, "omission": "", "contributors": []any{map[string]any{"resourceType": "Patient", "resourceId": "123", "inputStageId": "source_projection", "inputColumnId": "amount_id", "inputColumn": "amount", "outputStageId": "derive_total", "outputColumnId": "total_id", "outputColumn": "total", "finalStageId": "keep_positive", "constructionId": "calc_total", "operation": "DERIVE", "value": "female"}}},
 		} {
 			if err := visit(row); err != nil {
 				return err
@@ -46,6 +46,10 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 	}
 	if len(result.Contributions) != 1 || result.Contributions[0].ResourceID != "123" {
 		t.Fatalf("unexpected contributions: %#v", result.Contributions)
+	}
+	contribution := result.Contributions[0]
+	if contribution.InputStageID != "source_projection" || contribution.InputColumnID != "amount_id" || contribution.InputColumn != "amount" || contribution.OutputStageID != "derive_total" || contribution.OutputColumnID != "total_id" || contribution.OutputColumn != "total" || contribution.FinalStageID != "keep_positive" || contribution.ConstructionID != "calc_total" || contribution.Operation != "DERIVE" {
+		t.Fatalf("construction provenance was not retained: %#v", contribution)
 	}
 }
 

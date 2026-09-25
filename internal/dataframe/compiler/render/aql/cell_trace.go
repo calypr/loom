@@ -53,7 +53,9 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	statusVariable := r.newInternalVariable("trace_status_candidates")
 	pageVariable := r.newInternalVariable("trace_contribution_page")
 	status := fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : "VALUE"`, statusVariable, value)
-	if lossy {
+	if terminal.Construction != nil {
+		status = fmt.Sprintf(`%s == null ? "RECORDED_NULL" : "VALUE"`, value)
+	} else if lossy {
 		status = fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : LENGTH(%s) > 1 ? "AMBIGUOUS" : "VALUE"`, statusVariable, value, statusVariable)
 	}
 	return []string{
@@ -64,6 +66,9 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 }
 
 func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
+	if terminal.Construction != nil {
+		return r.renderConstructionTraceContributors(terminal, *terminal.Construction)
+	}
 	if terminal.Contribution != nil {
 		return r.renderReducedSetTraceContributors(*terminal.Contribution, terminal)
 	}
@@ -124,6 +129,44 @@ func (r *physicalPlanRenderer) renderTraceContributors(terminal ir.PhysicalCellT
 	default:
 		return "[]", "[]", false, "TRACE_CONTRIBUTORS_UNAVAILABLE", nil
 	}
+}
+
+func (r *physicalPlanRenderer) renderConstructionTraceContributors(terminal ir.PhysicalCellTraceReturn, lineage ir.PhysicalCellTraceConstruction) (page, status string, lossy bool, omission string, err error) {
+	if lineage.OmissionCode != "" {
+		return "[]", "[]", false, lineage.OmissionCode, nil
+	}
+	if terminal.Value.Kind != ir.PhysicalValueExpression || terminal.Value.Value == nil || terminal.Value.Value.Variable == "" {
+		return "", "", false, "", fmt.Errorf("construction trace value must be a final-row column")
+	}
+	if len(lineage.Inputs) == 0 {
+		return "[]", "[]", false, "CONSTRUCTION_TRACE_INPUTS_UNAVAILABLE", nil
+	}
+	finalRow := terminal.Value.Value.Variable
+	items := make([]string, 0, len(lineage.Inputs))
+	bind := func(prefix, value string) string {
+		key := r.newInternalBindKey(prefix)
+		r.bindVars[key] = value
+		return "@" + key
+	}
+	for _, input := range lineage.Inputs {
+		columnBind := bind("trace_construction_input_column", input.FinalValueColumn)
+		items = append(items, fmt.Sprintf(
+			"{inputStageId: %s, inputColumnId: %s, inputColumn: %s, outputStageId: %s, outputColumnId: %s, outputColumn: %s, finalStageId: %s, constructionId: %s, operation: %s, value: %s[%s]}",
+			bind("trace_construction_input_stage", input.StageID),
+			bind("trace_construction_input_column_id", input.ColumnID),
+			bind("trace_construction_input_column_name", input.Column),
+			bind("trace_construction_output_stage", lineage.ProducerStageID),
+			bind("trace_construction_output_column_id", lineage.OutputColumnID),
+			bind("trace_construction_output_column_name", lineage.OutputColumn),
+			bind("trace_construction_final_stage", lineage.FinalStageID),
+			bind("trace_construction_id", lineage.ConstructionID),
+			bind("trace_construction_operation", lineage.Operation),
+			finalRow, columnBind,
+		))
+	}
+	array := "[" + strings.Join(items, ", ") + "]"
+	page = fmt.Sprintf("SLICE(%s, @%s, @%s)", array, terminal.OffsetBindKey, terminal.FetchLimitBindKey)
+	return page, array, false, "", nil
 }
 
 func (r *physicalPlanRenderer) renderReshapeTraceContributors(lineage ir.PhysicalCellTraceReshape, terminal ir.PhysicalCellTraceReturn) (page, status string, lossy bool, omission string, err error) {
