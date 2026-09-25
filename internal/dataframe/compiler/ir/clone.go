@@ -105,6 +105,12 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			relatedSourceCopy := *stage.RelatedSource
 			cloned.RelatedSource = &relatedSourceCopy
 		}
+		if stage.RelatedExpand != nil {
+			relatedExpandCopy := *stage.RelatedExpand
+			relatedExpandCopy.RelatedRecords = clonePhysicalSubplan(stage.RelatedExpand.RelatedRecords)
+			relatedExpandCopy.Route = append([]PhysicalStageRelatedRouteStep(nil), stage.RelatedExpand.Route...)
+			cloned.RelatedExpand = &relatedExpandCopy
+		}
 		if stage.GroupedPivot != nil {
 			cloned.GroupedPivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalGroupedPivotOp, GroupedPivot: stage.GroupedPivot}).GroupedPivot
 		}
@@ -260,6 +266,9 @@ func canonicalizePhysicalStageSequence(sequence *PhysicalStageSequence) {
 			for projection := range stage.Unpivot.InputProjections {
 				canonicalizePhysicalExpression(stage.Unpivot.InputProjections[projection].Expression)
 			}
+		}
+		if stage.RelatedExpand != nil {
+			canonicalizePhysicalSubplan(&stage.RelatedExpand.RelatedRecords)
 		}
 	}
 }

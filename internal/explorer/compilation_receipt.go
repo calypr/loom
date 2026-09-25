@@ -22,14 +22,14 @@ import (
 const (
 	// CompilationReceiptFormatVersion changes when the persisted receipt shape
 	// or its execution invariants change incompatibly.
-	CompilationReceiptFormatVersion         = 5
-	previousCompilationReceiptFormatVersion = 4
+	CompilationReceiptFormatVersion         = 6
+	previousCompilationReceiptFormatVersion = 5
 	legacyCompilationReceiptFormatVersion   = 3
 	// CompilationReceiptCompilerContractVersion changes when compilation
 	// semantics change in a way that can alter a resolved receipt.
-	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v15"
-	previousCompilationReceiptCompilerContractVersion  = "loom.explorer.compiler/v14"
-	legacyCompilationReceiptB06CompilerContractVersion = "loom.explorer.compiler/v13"
+	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v16"
+	previousCompilationReceiptCompilerContractVersion  = "loom.explorer.compiler/v15"
+	legacyCompilationReceiptB06CompilerContractVersion = "loom.explorer.compiler/v14"
 	legacyCompilationReceiptCompilerContractVersion    = "loom.explorer.compiler/v12"
 	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
 	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
@@ -252,6 +252,19 @@ type ReceiptConstructionStage struct {
 	RowIdentityColumn string                               `json:"rowIdentityColumn,omitempty"`
 	Columns           []ReceiptConstructionStageColumn     `json:"columns"`
 	Capabilities      []ReceiptConstructionOperationChoice `json:"capabilities"`
+	RelatedExpand     *ReceiptConstructionRelatedExpand    `json:"relatedExpand,omitempty"`
+}
+
+type ReceiptConstructionRelatedExpand struct {
+	AnchorColumnID         string                                `json:"anchorColumnId"`
+	AnchorColumn           string                                `json:"anchorColumn"`
+	RelatedRecordColumnID  string                                `json:"relatedRecordColumnId"`
+	ParentIdentityColumnID string                                `json:"parentIdentityColumnId"`
+	ParentIdentityColumn   string                                `json:"parentIdentityColumn"`
+	TerminalIdentityColumn string                                `json:"terminalIdentityColumn"`
+	TargetNodeID           string                                `json:"targetNodeId"`
+	TargetResourceType     string                                `json:"targetResourceType"`
+	Route                  []recipe.ConstructionRelatedRouteStep `json:"route"`
 }
 
 type ReceiptConstructionStageColumn struct {
@@ -319,7 +332,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE":
+				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
@@ -330,6 +343,38 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				if !choice.Supported && (strings.TrimSpace(choice.ReasonCode) == "" || strings.TrimSpace(choice.Reason) == "") {
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] needs a reason for unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
+			}
+			if stage.Operation == "RELATED_EXPAND" {
+				if stage.RelatedExpand == nil || stage.RelatedExpand.AnchorColumnID != "_key" || stage.RelatedExpand.AnchorColumn != "_key" ||
+					stage.RelatedExpand.RelatedRecordColumnID == "" || stage.RelatedExpand.ParentIdentityColumnID == "" ||
+					stage.RelatedExpand.ParentIdentityColumn == "" || stage.RelatedExpand.TerminalIdentityColumn == "" ||
+					stage.RelatedExpand.TargetNodeID == "" || stage.RelatedExpand.TargetResourceType == "" || len(stage.RelatedExpand.Route) == 0 {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND lacks its exact target and identity metadata", outputID, index)
+				}
+				foundOutput := false
+				for _, column := range stage.Columns {
+					if column.ID == stage.RelatedExpand.RelatedRecordColumnID {
+						foundOutput = true
+						break
+					}
+				}
+				if !foundOutput {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND output ID is absent from stage columns", outputID, index)
+				}
+				priorNode, priorResource := stage.RelatedExpand.Route[0].FromNodeID, stage.RelatedExpand.Route[0].FromResourceType
+				for routeIndex, hop := range stage.RelatedExpand.Route {
+					if hop.EdgeID == "" || hop.FromNodeID != priorNode || hop.FromResourceType != priorResource || hop.ToNodeID == "" ||
+						hop.ToResourceType == "" || hop.Relationship == "" || (hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+						(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+						return fmt.Errorf("constructionStages[%q][%d].relatedExpand.route[%d] is invalid or discontinuous", outputID, index, routeIndex)
+					}
+					priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+				}
+				if priorNode != stage.RelatedExpand.TargetNodeID || priorResource != stage.RelatedExpand.TargetResourceType {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND route terminal differs from target", outputID, index)
+				}
+			} else if stage.RelatedExpand != nil {
+				return fmt.Errorf("constructionStages[%q][%d] has related-expansion metadata for %q", outputID, index, stage.Operation)
 			}
 		}
 	}

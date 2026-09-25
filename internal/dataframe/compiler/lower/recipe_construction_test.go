@@ -37,8 +37,17 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 7 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 8 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
+	}
+	var sourceRelatedExpandCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[0].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			sourceRelatedExpandCapability = &capability
+		}
+	}
+	if sourceRelatedExpandCapability == nil || !sourceRelatedExpandCapability.Supported {
+		t.Fatalf("source stage should retain its root key for related expansion: %#v", sourceRelatedExpandCapability)
 	}
 	var relatedSourceCapability *StageOperationCapability
 	for _, capability := range compiled.Stages[1].Capabilities {
@@ -49,6 +58,15 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	}
 	if relatedSourceCapability == nil || relatedSourceCapability.Supported || relatedSourceCapability.ReasonCode != "NO_SOURCE_ROW_ANCHOR" {
 		t.Fatalf("related source must be unavailable after a reshaped stage loses root identity: %#v", relatedSourceCapability)
+	}
+	var reshapedRelatedExpandCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			reshapedRelatedExpandCapability = &capability
+		}
+	}
+	if reshapedRelatedExpandCapability == nil || reshapedRelatedExpandCapability.Supported || reshapedRelatedExpandCapability.ReasonCode != "NO_SOURCE_ROW_ANCHOR" {
+		t.Fatalf("reshaped stage must not advertise related expansion without root key: %#v", reshapedRelatedExpandCapability)
 	}
 
 	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
@@ -210,17 +228,22 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 		t.Fatalf("zero-column source descriptor exposed %d public columns: %#v", publicColumns, descriptor.Columns)
 	}
 	wantUnsupported := map[recipe.ConstructionOperationKind]string{
-		recipe.ConstructionPivotOp:   "INSUFFICIENT_SCALAR_COLUMNS",
-		recipe.ConstructionDeriveOp:  "NO_NUMERIC_COLUMN",
-		recipe.ConstructionFilterOp:  "NO_PUBLIC_COLUMNS",
-		recipe.ConstructionUnpivotOp: "NO_COMPATIBLE_UNPIVOT_COLUMNS",
-		recipe.ConstructionGroupOp:   "NO_PUBLIC_COLUMNS",
-		recipe.ConstructionExpandOp:  "NO_ARRAY_COLUMNS",
+		recipe.ConstructionPivotOp:         "INSUFFICIENT_SCALAR_COLUMNS",
+		recipe.ConstructionDeriveOp:        "NO_NUMERIC_COLUMN",
+		recipe.ConstructionFilterOp:        "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionUnpivotOp:       "NO_COMPATIBLE_UNPIVOT_COLUMNS",
+		recipe.ConstructionGroupOp:         "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionExpandOp:        "NO_ARRAY_COLUMNS",
 	}
 	var relatedSourceCapability *StageOperationCapability
+	var relatedExpandCapability *StageOperationCapability
 	for _, capability := range descriptor.Capabilities {
 		if capability.Operation == recipe.ConstructionRelatedSourceOp {
 			relatedSourceCapability = &capability
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedExpandOp {
+			relatedExpandCapability = &capability
 			continue
 		}
 		wantReason, exists := wantUnsupported[capability.Operation]
@@ -234,6 +257,9 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	}
 	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
 		t.Fatalf("root row identity should make related-source available: %#v", relatedSourceCapability)
+	}
+	if relatedExpandCapability == nil || !relatedExpandCapability.Supported {
+		t.Fatalf("zero-column source retains its root _key and should advertise related expansion: %#v", relatedExpandCapability)
 	}
 	if compiled.Plan.StageSequence != nil {
 		t.Fatal("capability description introduced an executable construction stage sequence")
@@ -279,6 +305,104 @@ func TestCompileRelatedSourceMarksNonObservationListsWithCompilerSemanticPath(t 
 		return
 	}
 	t.Fatal("compiled schema omitted the MedicationAdministration related-source list")
+}
+
+func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(t *testing.T) {
+	for _, policy := range []recipe.ExpansionEmptyPolicy{
+		recipe.ExpansionError,
+		recipe.ExpansionExclude,
+		recipe.ExpansionPreserveParent,
+	} {
+		t.Run(string(policy), func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Construction = &recipe.Construction{
+				Version: 1,
+				SourceColumns: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"},
+					{ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"},
+				},
+				Steps: []recipe.ConstructionStep{{
+					ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+						AnchorColumnID: "_key", ChoiceID: "related-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+						Route: []recipe.ConstructionRelatedRouteStep{{
+							EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+							FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+							StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+						}},
+						ContributorPolicy: "ALL_MATCHES", EmptyPolicy: policy, RelatedRecordColumnID: "observation_id",
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_id", Name: "group", Label: "Group"},
+						{ID: "category_id", Name: "category", Label: "Category"},
+						{ID: "amount_id", Name: "amount", Label: "Amount"},
+						{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: policy == recipe.ExpansionPreserveParent},
+					},
+				}},
+			}
+
+			compiled := compileDerivedTestOutput(t, output)
+			if len(compiled.Plan.StageSequence.Stages) != 1 {
+				t.Fatalf("physical related expansion stage count = %d", len(compiled.Plan.StageSequence.Stages))
+			}
+			stage := compiled.Plan.StageSequence.Stages[0]
+			if stage.Kind != ir.PhysicalStageRelatedExpandOp || stage.RelatedExpand == nil || !stage.RelatedExpand.RelatedRecords.Unique {
+				t.Fatalf("related expansion lowering did not deduplicate terminal resources: %#v", stage)
+			}
+			parentIdentityColumn := stage.RelatedExpand.ParentIdentityColumnID
+			terminalIdentityColumn := stage.RelatedExpand.TerminalIdentityColumn
+			if stage.RelatedExpand.Route[0].EdgeID != "patient-observation" || stage.RelatedExpand.TargetResourceType != "Observation" {
+				t.Fatalf("compiled related route metadata = %#v", stage.RelatedExpand)
+			}
+			if !hasCompiledColumn(compiled.OutputSchema, "_key", true) ||
+				!hasCompiledColumn(compiled.OutputSchema, parentIdentityColumn, true) ||
+				!hasCompiledColumn(compiled.OutputSchema, terminalIdentityColumn, true) {
+				t.Fatalf("related expansion lost separate root, parent, or terminal identity: %#v", compiled.OutputSchema)
+			}
+			if compiled.Stages[1].RelatedExpand == nil || compiled.Stages[1].RelatedExpand.TargetNodeID != "observation-node" ||
+				compiled.Stages[1].RelatedExpand.ParentIdentityColumn != "_key" || compiled.Stages[1].RelatedExpand.TerminalIdentityColumn != terminalIdentityColumn {
+				t.Fatalf("related expansion stage descriptor lacks downstream identity contract: %#v", compiled.Stages[1])
+			}
+
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			recordsVariable := stage.RelatedExpand.RelatedRecordsVariable
+			for _, expected := range []string{"SORTED_UNIQUE", "terminal_id", "resource_id", parentIdentityColumn, terminalIdentityColumn, `TO_STRING([["input"`} {
+				if !strings.Contains(rendered.Query, expected) {
+					t.Fatalf("rendered related expansion omitted %q: %s", expected, rendered.Query)
+				}
+			}
+			if !strings.Contains(rendered.Query, ".id") || strings.Contains(rendered.Query, "related_key") {
+				t.Fatalf("public related ID must be the required FHIR document id, not Arango _key: %s", rendered.Query)
+			}
+			switch policy {
+			case recipe.ExpansionError:
+				if !strings.Contains(rendered.Query, "FILTER ASSERT(LENGTH("+recordsVariable+") > 0") {
+					t.Fatalf("ERROR policy did not reject a missing related resource: %s", rendered.Query)
+				}
+			case recipe.ExpansionExclude:
+				if !strings.Contains(rendered.Query, "LENGTH("+recordsVariable+") == 0 ? []") {
+					t.Fatalf("EXCLUDE policy did not remove empty parents: %s", rendered.Query)
+				}
+			case recipe.ExpansionPreserveParent:
+				if !strings.Contains(rendered.Query, "LENGTH("+recordsVariable+") == 0 ? [null]") {
+					t.Fatalf("PRESERVE_PARENT policy did not emit an empty related row: %s", rendered.Query)
+				}
+			}
+		})
+	}
+}
+
+func hasCompiledColumn(columns []CompiledOutputColumn, name string, internal bool) bool {
+	for _, column := range columns {
+		if column.Name == name && column.Internal == internal {
+			return true
+		}
+	}
+	return false
 }
 
 func constructionTestOutput() recipe.Output {

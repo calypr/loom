@@ -65,8 +65,9 @@ const (
 type ConstructionChoiceSourceKind string
 
 const (
-	ConstructionChoiceSourceField    ConstructionChoiceSourceKind = "FIELD"
-	ConstructionChoiceSourceSemantic ConstructionChoiceSourceKind = "SEMANTIC"
+	ConstructionChoiceSourceField           ConstructionChoiceSourceKind = "FIELD"
+	ConstructionChoiceSourceSemantic        ConstructionChoiceSourceKind = "SEMANTIC"
+	ConstructionChoiceSourceRelatedResource ConstructionChoiceSourceKind = "RELATED_RESOURCE"
 )
 
 // ConstructionChoiceSource is closed to the variants defined by this package.
@@ -118,6 +119,17 @@ type SemanticBindingChoiceSource struct {
 }
 
 func (SemanticBindingChoiceSource) constructionChoiceSource() {}
+
+// RelatedResourceChoiceSource identifies one exact terminal resource node.
+// It lets lifecycle authorize a route without requiring a field selection.
+type RelatedResourceChoiceSource struct {
+	Kind         ConstructionChoiceSourceKind `json:"kind"`
+	StageID      string                       `json:"stageId"`
+	NodeID       string                       `json:"nodeId"`
+	ResourceType string                       `json:"resourceType"`
+}
+
+func (RelatedResourceChoiceSource) constructionChoiceSource() {}
 
 type ConstructionChoiceOption struct {
 	Form                          ConstructionChoiceForm                `json:"form"`
@@ -175,6 +187,13 @@ type ConstructionChoiceIdentity struct {
 	Route                []ConstructionRouteStep
 }
 
+type ConstructionRelatedResourceRouteChoice struct {
+	ChoiceID       string
+	TargetNodeID   string
+	TargetResource string
+	Route          []ConstructionRouteStep
+}
+
 type constructionChoiceToken struct {
 	Version              string                       `json:"version"`
 	Kind                 ConstructionChoiceSourceKind `json:"kind"`
@@ -219,6 +238,33 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 		return ConstructionChoice{}, fmt.Errorf("candidate %q has no compiler-proved construction output", candidate.ID)
 	}
 	return choice, nil
+}
+
+// NewConstructionRelatedResourceRouteChoice pins a route to one exact terminal
+// resource node without requiring a selected field on that resource.
+func NewConstructionRelatedResourceRouteChoice(snapshotToken, stageID, targetNodeID, targetResource string, route []ConstructionRouteStep) (ConstructionRelatedResourceRouteChoice, error) {
+	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(stageID) == "" || strings.TrimSpace(targetNodeID) == "" || strings.TrimSpace(targetResource) == "" || len(route) == 0 {
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("snapshot, input stage, terminal node, resource type, and non-empty route are required")
+	}
+	if err := validateConstructionRoute(route); err != nil {
+		return ConstructionRelatedResourceRouteChoice{}, err
+	}
+	terminal := route[len(route)-1]
+	if terminal.ToNodeID != targetNodeID || terminal.ToResourceType != targetResource {
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("route does not end at the exact terminal resource")
+	}
+	source := RelatedResourceChoiceSource{Kind: ConstructionChoiceSourceRelatedResource, StageID: stageID, NodeID: targetNodeID, ResourceType: targetResource}
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceRelatedResource,
+		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
+	})
+	if err != nil {
+		return ConstructionRelatedResourceRouteChoice{}, err
+	}
+	return ConstructionRelatedResourceRouteChoice{
+		ChoiceID: choiceID, TargetNodeID: targetNodeID, TargetResource: targetResource,
+		Route: cloneConstructionRoute(route),
+	}, nil
 }
 
 // NewSemanticConstructionChoice binds an inventory observation to the exact
@@ -362,6 +408,17 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is incomplete")
 		}
 		identity.Source = source
+	case ConstructionChoiceSourceRelatedResource:
+		var source RelatedResourceChoiceSource
+		if err := decodeChoiceJSON(token.Source, &source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("decode related resource choice source: %w", err)
+		}
+		if source.Kind != token.Kind || strings.TrimSpace(source.StageID) == "" || strings.TrimSpace(source.NodeID) == "" || strings.TrimSpace(source.ResourceType) == "" ||
+			token.SemanticContextToken != "" || token.BuildID != "" || len(token.Route) == 0 ||
+			token.Route[len(token.Route)-1].ToNodeID != source.NodeID || token.Route[len(token.Route)-1].ToResourceType != source.ResourceType {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("related resource choice identity is incomplete or inconsistent")
+		}
+		identity.Source = source
 	default:
 		return ConstructionChoiceIdentity{}, fmt.Errorf("construction choice id has an unsupported source kind")
 	}
@@ -381,6 +438,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 		kind = source.Kind
 	case SemanticBindingChoiceSource:
 		kind = source.Kind
+	case RelatedResourceChoiceSource:
+		kind = source.Kind
 	default:
 		return "", fmt.Errorf("construction choice identity has an unsupported source")
 	}
@@ -392,6 +451,9 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	}
 	if kind == ConstructionChoiceSourceField && (identity.SemanticContextToken != "" || identity.BuildID != "") {
 		return "", fmt.Errorf("field choice identity cannot include semantic inventory context")
+	}
+	if kind == ConstructionChoiceSourceRelatedResource && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) == 0) {
+		return "", fmt.Errorf("related resource choice identity requires a route and cannot include semantic inventory context")
 	}
 	source, err := json.Marshal(identity.Source)
 	if err != nil {

@@ -156,11 +156,18 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageRelatedSourceOp:
-			if stage.RelatedSource == nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.RelatedSource == nil || stage.RelatedExpand != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s RELATED_SOURCE requires only a related-source payload", path)
 			}
 			if err := validatePhysicalStageRelatedSource(stage, *stage.RelatedSource, bindVars); err != nil {
 				return fmt.Errorf("%s related source: %w", path, err)
+			}
+		case PhysicalStageRelatedExpandOp:
+			if stage.RelatedExpand == nil || stage.RelatedSource != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s RELATED_EXPAND requires only a related-expansion payload", path)
+			}
+			if err := validatePhysicalStageRelatedExpand(stage, *stage.RelatedExpand, bindVars); err != nil {
+				return fmt.Errorf("%s related expansion: %w", path, err)
 			}
 		default:
 			return fmt.Errorf("%s has unsupported operation kind %q", path, stage.Kind)
@@ -180,6 +187,161 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 	}
 	return nil
+}
+
+func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related PhysicalStageRelatedExpand, bindVars map[string]any) error {
+	if related.AnchorColumnID != "_key" || related.RelatedRecordColumnID == "" || related.TargetNodeID == "" ||
+		related.TargetResourceType == "" || related.ParentIdentityColumn == "" || related.ParentIdentityColumnID == "" ||
+		related.TerminalIdentityColumn == "" || related.ConstructionIDBindKey == "" || len(related.Route) == 0 {
+		return fmt.Errorf("root anchor, target, route, identities, and expansion bind are required")
+	}
+	if err := requireNonEmptyStringBind(bindVars, related.ConstructionIDBindKey); err != nil {
+		return fmt.Errorf("construction ID: %w", err)
+	}
+	if related.EmptyPolicy != PhysicalUnnestError && related.EmptyPolicy != PhysicalUnnestExclude && related.EmptyPolicy != PhysicalUnnestPreserveParent {
+		return fmt.Errorf("empty policy %q is unsupported", related.EmptyPolicy)
+	}
+	variables := []string{related.RelatedRecordsVariable, related.IndexVariable, related.ItemVariable, related.IdentityVariable}
+	seenVariables := make(map[string]bool, len(variables)+2)
+	seenVariables[stage.InputRowVariable], seenVariables[stage.OutputRowVariable] = true, true
+	for _, variable := range variables {
+		if !physicalVariablePattern.MatchString(variable) || seenVariables[variable] {
+			return fmt.Errorf("related expansion variable %q is unsafe or duplicated", variable)
+		}
+		seenVariables[variable] = true
+	}
+
+	inputColumns := stageColumnsByID(stage.InputColumns)
+	anchor, found := inputColumns[related.AnchorColumnID]
+	if !found || !anchor.Internal || anchor.Name != "_key" || anchor.Kind != "string" || anchor.Cardinality != "required_one" {
+		return fmt.Errorf("root anchor does not identify a retained required string _key")
+	}
+	parentIdentity, found := physicalStageColumnMap(stage.InputColumns)[related.ParentIdentityColumn]
+	if !found || !parentIdentity.Internal || !parentIdentity.Identity || parentIdentity.Kind != "string" || parentIdentity.Cardinality != "required_one" {
+		return fmt.Errorf("parent identity does not identify the exact input row identity")
+	}
+	for _, column := range stage.InputColumns {
+		if column.Identity && column.Name != related.ParentIdentityColumn {
+			return fmt.Errorf("parent identity differs from the stage input row identity")
+		}
+	}
+	if err := validatePhysicalSubplan(related.RelatedRecords, map[string]bool{stage.InputRowVariable: true}, bindVars); err != nil {
+		return fmt.Errorf("related route subplan: %w", err)
+	}
+	if len(related.RelatedRecords.Captures) != 1 || related.RelatedRecords.Captures[0] != stage.InputRowVariable ||
+		!related.RelatedRecords.Unique || related.RelatedRecords.Sort == nil {
+		return fmt.Errorf("related route must be uniquely sorted and capture only its input row")
+	}
+	if related.RelatedRecords.Return.Kind != PhysicalObjectExpression || related.RelatedRecords.Return.Object == nil || len(related.RelatedRecords.Return.Object.Fields) != 2 {
+		return fmt.Errorf("related route must return typed terminal _id and public FHIR id fields")
+	}
+	terminalVariable := ""
+	traversals := make([]PhysicalOperation, 0, len(related.Route))
+	for _, operation := range related.RelatedRecords.Operations {
+		if operation.Kind == PhysicalTraversalOp {
+			traversals = append(traversals, operation)
+		}
+	}
+	if len(traversals) != len(related.Route) {
+		return fmt.Errorf("related route metadata contains %d hops but subplan contains %d traversals", len(related.Route), len(traversals))
+	}
+	for index, hop := range related.Route {
+		if hop.EdgeID == "" || hop.FromNodeID == "" || hop.ToNodeID == "" || hop.FromResourceType == "" || hop.ToResourceType == "" ||
+			hop.Relationship == "" || (hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") || index > 0 &&
+			(related.Route[index-1].ToNodeID != hop.FromNodeID || related.Route[index-1].ToResourceType != hop.FromResourceType) {
+			return fmt.Errorf("route metadata hop %d is invalid or discontinuous", index)
+		}
+		operation := traversals[index]
+		traversal := operation.Traversal
+		wantDirection := PhysicalInbound
+		if hop.StorageDirection == "OUTBOUND" {
+			wantDirection = PhysicalOutbound
+		}
+		if operation.Source.ResourceType != hop.ToResourceType || operation.Source.SemanticNode != hop.ToNodeID ||
+			operation.Source.Relationship != hop.Relationship || traversal.Direction != wantDirection ||
+			traversal.TargetTypeBindKey == "" || bindVars[traversal.TargetTypeBindKey] != hop.ToResourceType {
+			return fmt.Errorf("route metadata hop %d differs from its compiled traversal", index)
+		}
+		terminalVariable = traversal.TargetVariable
+	}
+	last := related.Route[len(related.Route)-1]
+	if last.ToNodeID != related.TargetNodeID || last.ToResourceType != related.TargetResourceType {
+		return fmt.Errorf("route metadata terminal differs from its exact target")
+	}
+	if terminalVariable == "" || related.RelatedRecords.Sort.Variable != terminalVariable || len(related.RelatedRecords.Sort.Path) != 1 || related.RelatedRecords.Sort.Path[0] != "_id" {
+		return fmt.Errorf("related route sort must use the exact terminal document _id")
+	}
+	fields := map[string]PhysicalExpression{}
+	for _, field := range related.RelatedRecords.Return.Object.Fields {
+		fields[field.Name] = field.Expression
+	}
+	if !physicalValueMatches(fields["terminal_id"], terminalVariable, "_id") || !physicalValueMatches(fields["resource_id"], terminalVariable, "id") {
+		return fmt.Errorf("related route return differs from terminal document identity")
+	}
+
+	outputColumns := stageColumnsByID(stage.OutputColumns)
+	publicID, found := outputColumns[related.RelatedRecordColumnID]
+	wantNullable := related.EmptyPolicy == PhysicalUnnestPreserveParent
+	wantCardinality := "required_one"
+	if wantNullable {
+		wantCardinality = "optional_one"
+	}
+	if !found || publicID.Internal || publicID.Kind != "string" || publicID.Cardinality != wantCardinality || publicID.Nullable != wantNullable {
+		return fmt.Errorf("public related FHIR ID does not match the route or empty policy")
+	}
+	parentID, found := outputColumns[related.ParentIdentityColumnID]
+	if !found || !parentID.Internal || parentID.Identity || parentID.Kind != "string" || parentID.Cardinality != "required_one" || parentID.Nullable {
+		return fmt.Errorf("parent row identity is not retained as a hidden required string")
+	}
+	terminalID, found := outputColumns[related.TerminalIdentityColumn]
+	if !found || !terminalID.Internal || terminalID.Identity || terminalID.Kind != "string" || terminalID.Cardinality != wantCardinality || terminalID.Nullable != wantNullable {
+		return fmt.Errorf("terminal _id is not retained as a typed hidden identity")
+	}
+	rootKey, found := physicalStageColumnMap(stage.OutputColumns)["_key"]
+	if !found || !rootKey.Internal || rootKey.Identity || rootKey.Kind != "string" || rootKey.Cardinality != "required_one" {
+		return fmt.Errorf("root _key anchor is not retained separately from the terminal identity")
+	}
+	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
+		return err
+	}
+	for _, projection := range stage.OutputProjections {
+		switch projection.Name {
+		case publicID.Name:
+			if projection.Value.Variable != related.ItemVariable || len(projection.Value.Path) != 1 || projection.Value.Path[0] != "resource_id" {
+				return fmt.Errorf("public related-record ID must project the terminal FHIR id")
+			}
+		case related.ParentIdentityColumnID:
+			if projection.Value.Variable != stage.InputRowVariable || len(projection.Value.Path) != 1 || projection.Value.Path[0] != related.ParentIdentityColumn {
+				return fmt.Errorf("parent identity must preserve the exact input row ID")
+			}
+		case related.TerminalIdentityColumn:
+			if projection.Value.Variable != related.ItemVariable || len(projection.Value.Path) != 1 || projection.Value.Path[0] != "terminal_id" {
+				return fmt.Errorf("terminal identity must preserve the exact terminal _id")
+			}
+		case stage.RowIdentityColumn:
+			if projection.Value.Variable != related.IdentityVariable || len(projection.Value.Path) != 0 {
+				return fmt.Errorf("row identity must use the parent, step, and terminal identity composite")
+			}
+		case "_key":
+			if projection.Value.Variable != stage.InputRowVariable || len(projection.Value.Path) != 1 || projection.Value.Path[0] != "_key" {
+				return fmt.Errorf("root identity must remain separate from the terminal identity")
+			}
+		}
+		defined := map[string]bool{stage.InputRowVariable: true, related.ItemVariable: true, related.IdentityVariable: true}
+		if err := validatePhysicalProjection(projection, defined, bindVars); err != nil {
+			return fmt.Errorf("output projection %q: %w", projection.Name, err)
+		}
+	}
+	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
+		return err
+	}
+	return nil
+}
+
+func physicalValueMatches(expression PhysicalExpression, variable, path string) bool {
+	return expression.Kind == PhysicalValueExpression && expression.Value != nil && expression.Value.Variable == variable &&
+		len(expression.Value.Path) == 1 && expression.Value.Path[0] == path
 }
 
 func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related PhysicalStageRelatedSource, bindVars map[string]any) error {

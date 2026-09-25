@@ -297,7 +297,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	for _, present := range []bool{
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
 		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
-		step.Operation.Combine != nil, step.Operation.RelatedSource != nil,
+		step.Operation.Combine != nil, step.Operation.RelatedSource != nil, step.Operation.RelatedExpand != nil,
 	} {
 		if present {
 			payloads++
@@ -346,9 +346,105 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 			return fmt.Errorf("operation must contain only a relatedSource payload")
 		}
 		return validateConstructionRelatedSource(step, input, inputColumns)
+	case ConstructionOperationRelatedExpand:
+		if step.Operation.RelatedExpand == nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionRelatedExpand(step, input, inputColumns)
 	default:
 		return fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+}
+
+func validateConstructionRelatedExpand(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	related := step.Operation.RelatedExpand
+	if related.AnchorColumnID != "_key" || !requiredID(related.AnchorColumnID) {
+		return fmt.Errorf("relatedExpand.anchorColumnId must identify the retained root document key")
+	}
+	if !requiredID(related.ChoiceID) || !requiredID(related.TargetNodeID) || !requiredID(related.TargetResourceType) ||
+		!requiredID(related.RelatedRecordColumnID) || len(related.Route) == 0 {
+		return fmt.Errorf("relatedExpand requires a route choice, exact target, non-empty route, and related record output")
+	}
+	for index, hop := range related.Route {
+		if !requiredID(hop.EdgeID) || !requiredID(hop.FromNodeID) || !requiredID(hop.ToNodeID) ||
+			!requiredID(hop.FromResourceType) || !requiredID(hop.ToResourceType) || !requiredID(hop.Relationship) ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("relatedExpand.route[%d] is incomplete", index)
+		}
+		if index > 0 && (related.Route[index-1].ToNodeID != hop.FromNodeID || related.Route[index-1].ToResourceType != hop.FromResourceType) {
+			return fmt.Errorf("relatedExpand.route is discontinuous at step %d", index)
+		}
+	}
+	last := related.Route[len(related.Route)-1]
+	if last.ToNodeID != related.TargetNodeID || last.ToResourceType != related.TargetResourceType {
+		return fmt.Errorf("relatedExpand.route must end at its exact target node and resource type")
+	}
+	if related.ContributorRule.Policy != ConstructionRelatedAllMatches {
+		return fmt.Errorf("relatedExpand.contributorRule policy must be ALL_MATCHES")
+	}
+	if predicate := related.ContributorRule.Predicate; predicate == nil {
+		if related.ContributorSource != nil || related.ContributorChoiceID != "" {
+			return fmt.Errorf("relatedExpand contributor source and choice require a predicate")
+		}
+	} else {
+		if related.ContributorSource == nil || !requiredID(related.ContributorChoiceID) {
+			return fmt.Errorf("relatedExpand predicate requires an exact contributor source and choice")
+		}
+		source := *related.ContributorSource
+		if source.Kind != capability.ConstructionChoiceSourceField || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+			!requiredID(source.CandidateID) || !requiredID(source.Path) || !requiredID(source.LogicalType) ||
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+			return fmt.Errorf("relatedExpand contributor source must be one exact scalar field on the target resource")
+		}
+		if predicate.CandidateID != source.CandidateID {
+			return fmt.Errorf("relatedExpand predicate candidateId must match its contributor source")
+		}
+		if err := predicate.Validate(); err != nil {
+			return fmt.Errorf("relatedExpand.contributorRule.predicate: %w", err)
+		}
+		if predicate.Quantifier != "" {
+			return fmt.Errorf("relatedExpand scalar contributor predicate must not specify a quantifier")
+		}
+		if predicate.Operator == ContributorEquals {
+			wantKind := ContributorString
+			switch strings.ToLower(strings.TrimSpace(source.LogicalType)) {
+			case "string":
+			case "code":
+				wantKind = ContributorValueCode
+			default:
+				return fmt.Errorf("relatedExpand EQUALS predicate supports only string or code fields")
+			}
+			if predicate.Value.Kind != wantKind {
+				return fmt.Errorf("relatedExpand predicate value kind does not match the contributor field")
+			}
+		}
+	}
+	switch related.EmptyPolicy {
+	case ConstructionExpandEmptyError, ConstructionExpandEmptyExclude, ConstructionExpandEmptyPreserveParent:
+	default:
+		return fmt.Errorf("relatedExpand emptyPolicy must be ERROR, EXCLUDE, or PRESERVE_PARENT")
+	}
+	if input[related.RelatedRecordColumnID].ID != "" {
+		return fmt.Errorf("relatedExpand relatedRecordColumnId already exists in the input schema")
+	}
+	expected := orderedStageIDs(inputColumns)
+	expected = append(expected, related.RelatedRecordColumnID)
+	if err := validateDeclaredOutputIDs(step.Outputs, expected); err != nil {
+		return err
+	}
+	var output StageColumn
+	for _, column := range step.Outputs {
+		if column.ID == related.RelatedRecordColumnID {
+			output = column
+			break
+		}
+	}
+	wantNullable := related.EmptyPolicy == ConstructionExpandEmptyPreserveParent
+	if output.Nullable != wantNullable {
+		return fmt.Errorf("relatedExpand output column %q nullable must be %t for emptyPolicy %s", output.ID, wantNullable, related.EmptyPolicy)
+	}
+	return nil
 }
 
 func validateConstructionRelatedSource(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {

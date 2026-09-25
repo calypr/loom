@@ -23,6 +23,19 @@ type CompiledStageDescriptor struct {
 	Columns           []CompiledOutputColumn
 	RowIdentityColumn string
 	Capabilities      []StageOperationCapability
+	RelatedExpand     *CompiledRelatedExpandStage
+}
+
+type CompiledRelatedExpandStage struct {
+	AnchorColumnID         string
+	AnchorColumn           string
+	RelatedRecordColumnID  string
+	ParentIdentityColumnID string
+	ParentIdentityColumn   string
+	TerminalIdentityColumn string
+	TargetNodeID           string
+	TargetResourceType     string
+	Route                  []recipe.ConstructionRelatedRouteStep
 }
 
 type StageOperationCapability struct {
@@ -386,6 +399,21 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			Form: related.Form, ContributorPolicy: related.ContributorPolicy,
 		}
 		outputSchema, outputIdentity = compiled, inputIdentity
+	case recipe.ConstructionRelatedExpandOp:
+		related := step.Operation.RelatedExpand
+		if related == nil {
+			return constructionStageResult{}, fmt.Errorf("related expansion payload is required")
+		}
+		physicalExpand, projections, compiled, err := lowerConstructionRelatedExpand(
+			plan, step, *related, inputByID, outputByID, inputRow, inputIdentity,
+			rootResourceType, policy, usedVariables, index,
+		)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.RelatedExpand = ir.PhysicalStageRelatedExpandOp, &physicalExpand
+		base.OutputProjections = projections
+		outputSchema, outputIdentity = compiled, constructionRowID
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -398,6 +426,10 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			Name: outputIdentity, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
 		})
+	} else if base.Kind == ir.PhysicalStageRelatedExpandOp {
+		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
+			Name: outputIdentity, Hidden: true, Value: ir.PhysicalValue{Variable: base.RelatedExpand.IdentityVariable},
+		})
 	}
 	base.InputRowVariable = inputRow
 	base.RowIdentityColumn = outputIdentity
@@ -409,6 +441,17 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	descriptor := CompiledStageDescriptor{
 		ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
 		Columns: cloneCompiledSchema(outputSchema), RowIdentityColumn: outputIdentity,
+	}
+	if base.RelatedExpand != nil {
+		descriptor.RelatedExpand = &CompiledRelatedExpandStage{
+			AnchorColumnID: base.RelatedExpand.AnchorColumnID, AnchorColumn: "_key",
+			RelatedRecordColumnID:  base.RelatedExpand.RelatedRecordColumnID,
+			ParentIdentityColumnID: base.RelatedExpand.ParentIdentityColumnID,
+			ParentIdentityColumn:   base.RelatedExpand.ParentIdentityColumn,
+			TerminalIdentityColumn: base.RelatedExpand.TerminalIdentityColumn,
+			TargetNodeID:           base.RelatedExpand.TargetNodeID, TargetResourceType: base.RelatedExpand.TargetResourceType,
+			Route: append([]recipe.ConstructionRelatedRouteStep(nil), step.Operation.RelatedExpand.Route...),
+		}
 	}
 	descriptor.Capabilities = stageCapabilities(outputSchema)
 	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, descriptor: descriptor}, nil
@@ -818,10 +861,11 @@ func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
 func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapability {
 	public := publicCompiledSchema(columns)
 	numeric, scalar, unpivotPairs, arrays := 0, 0, false, 0
-	rootKey := false
+	rootKey, rootRowIdentity := false, false
 	for _, column := range columns {
-		if column.Internal && column.Identity && column.Name == "_key" {
+		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
 			rootKey = true
+			rootRowIdentity = column.Identity
 		}
 	}
 	for index, column := range public {
@@ -855,7 +899,8 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
 		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
-		capability(recipe.ConstructionRelatedSourceOp, rootKey, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
+		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
+		capability(recipe.ConstructionRelatedExpandOp, rootKey, "NO_SOURCE_ROW_ANCHOR", "related expansion requires the root document key to survive this stage"),
 	}
 }
 

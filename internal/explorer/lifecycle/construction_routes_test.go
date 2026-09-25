@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -97,6 +99,83 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 	column := document.Columns[len(document.Columns)-1]
 	if column.Source.Field == nil || column.Source.Field.Path != "status" || column.OccurrenceID != document.Route.Children[1].OccurrenceID {
 		t.Fatalf("route-bound field column = %#v", column)
+	}
+}
+
+func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		capabilities := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities},
+			{ID: "keep_patients", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "FILTER", Columns: columns, Capabilities: capabilities},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	result, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "keep_patients", TargetResourceType: "Observation",
+	})
+	if err != nil || !result.Complete || len(result.Choices) != 1 {
+		t.Fatalf("related expand route choices = %#v, %v", result, err)
+	}
+	choice := result.Choices[0]
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, ok := identity.Source.(capability.RelatedResourceChoiceSource)
+	if !ok || source.StageID != "keep_patients" || source.NodeID != "observation" || source.ResourceType != "Observation" ||
+		identity.SnapshotToken != snapshot.Token || len(identity.Route) != 1 || identity.Route[0].EdgeID != "subject-patient" {
+		t.Fatalf("route choice did not bind the selected stage and exact route: source=%#v route=%#v", identity.Source, identity.Route)
+	}
+}
+
+func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}},
+			{ID: "after_group", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP", Columns: columns, Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: false, ReasonCode: "ROOT_KEY_NOT_RETAINED", Reason: "selected stage does not retain a root resource key"}}},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	request := RelatedExpandChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "after_group", TargetResourceType: "Observation",
+	}
+	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_SOURCE_ROW_ANCHOR" {
+		t.Fatalf("unsupported selected stage error = %v, want NO_SOURCE_ROW_ANCHOR", err)
+	}
+	request.StageID = "missing_stage"
+	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+		t.Fatalf("missing selected stage error = %v, want STALE_STAGE_REFERENCE", err)
 	}
 }
 

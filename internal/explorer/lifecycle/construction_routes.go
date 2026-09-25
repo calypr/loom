@@ -46,9 +46,152 @@ type ConstructionChoiceSearchResponse struct {
 	Choices       []capability.ConstructionChoice `json:"choices"`
 }
 
+type RelatedExpandChoiceSearchRequest struct {
+	Project              string
+	ExplorerID           string
+	SnapshotToken        string
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	OutputID             string
+	StageID              string
+	TargetResourceType   string
+	Limit                int
+	Cursor               string
+}
+
+type RelatedExpandRouteChoice struct {
+	ChoiceID           string                             `json:"choiceId"`
+	TargetNodeID       string                             `json:"targetNodeId"`
+	TargetResourceType string                             `json:"targetResourceType"`
+	Route              []capability.ConstructionRouteStep `json:"route"`
+}
+
+type RelatedExpandChoiceSearchResponse struct {
+	SnapshotToken string                     `json:"snapshotToken"`
+	DraftVersion  int64                      `json:"draftVersion"`
+	DraftDigest   string                     `json:"draftDigest"`
+	OutputID      string                     `json:"outputId"`
+	StageID       string                     `json:"stageId"`
+	Complete      bool                       `json:"complete"`
+	Truncated     bool                       `json:"truncated"`
+	NextCursor    string                     `json:"nextCursor,omitempty"`
+	Choices       []RelatedExpandRouteChoice `json:"choices"`
+}
+
 type ResolvedPopulationRouteChoice struct {
 	Route       []capability.ConstructionRouteStep
 	SelectionID string
+}
+
+// SearchRelatedExpandChoices returns server-issued exact routes from the
+// selected compiler stage's retained root resource anchor.
+func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
+	result := RelatedExpandChoiceSearchResponse{
+		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
+		Choices: []RelatedExpandRouteChoice{},
+	}
+	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
+		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" ||
+		strings.TrimSpace(request.StageID) == "" || strings.TrimSpace(request.TargetResourceType) == "" ||
+		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 ||
+		strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftVersion < 1 {
+		return result, malformed("related-expand-choices", "project, explorer, snapshot, draft, output, stage, and target resource identities are required", nil)
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+		return result, unavailable("related-expand-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+	}
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	if err != nil {
+		return result, err
+	}
+	result.DraftVersion, result.DraftDigest = base.owner.DraftVersion, base.owner.DraftDigest
+	var stage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == request.StageID {
+			stage = &base.stages[index]
+			break
+		}
+	}
+	if stage == nil {
+		return result, conflict("related-expand-choices", "STALE_STAGE_REFERENCE", "the selected stage is not in the current compiled output", nil, nil)
+	}
+	anchorAvailable := false
+	for _, operation := range stage.Capabilities {
+		if operation.Kind == "RELATED_EXPAND" {
+			anchorAvailable = operation.Supported
+			break
+		}
+	}
+	if !anchorAvailable {
+		return result, unprocessable("related-expand-choices", "NO_SOURCE_ROW_ANCHOR", "the selected stage does not retain the root resource key", nil)
+	}
+	if err := validateAuthorizedReadScope(base.authorized.Scope, base.snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, conflict("related-expand-choices", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	targetNodeIDs := make([]string, 0)
+	for _, node := range base.snapshot.Nodes {
+		if node.ID != "" && node.ResourceType == request.TargetResourceType {
+			targetNodeIDs = append(targetNodeIDs, node.ID)
+		}
+	}
+	if len(targetNodeIDs) == 0 {
+		result.Complete = true
+		return result, nil
+	}
+	page, err := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
+		Snapshot: base.snapshot, RootResource: base.document.RootResourceType, TargetNodeIDs: targetNodeIDs,
+		SourceKey: "related-resource:" + request.StageID + ":" + request.TargetResourceType,
+		Cursor:    request.Cursor, Limit: request.Limit,
+	})
+	if err != nil {
+		return result, conflict("related-expand-choices", "STALE_OR_INVALID_ROUTE_CURSOR", "restart route search for this stage and resource type", nil, err)
+	}
+	result.Complete, result.Truncated, result.NextCursor = page.Complete, page.Truncated, page.NextCursor
+	for _, route := range page.Routes {
+		if len(route) == 0 {
+			continue
+		}
+		targetNodeID := route[len(route)-1].ToNodeID
+		resolved, routeErr := reauthorizeConstructionRoute(base.snapshot, base.document.RootResourceType, targetNodeID, route)
+		if routeErr != nil || !constructionRouteHasCompilerProof(ctx, base.authorized, resolved) {
+			continue
+		}
+		choice, choiceErr := capability.NewConstructionRelatedResourceRouteChoice(
+			base.snapshot.Token, request.StageID, targetNodeID, request.TargetResourceType, resolved,
+		)
+		if choiceErr != nil {
+			continue
+		}
+		result.Choices = append(result.Choices, RelatedExpandRouteChoice{
+			ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID,
+			TargetResourceType: choice.TargetResource, Route: choice.Route,
+		})
+	}
+	return result, nil
+}
+
+func constructionRouteHasCompilerProof(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep) bool {
+	if len(route) == 0 {
+		return false
+	}
+	for _, hop := range route {
+		matchMode := spec.TraversalMatchOptional
+		if hop.MatchMode == string(spec.TraversalMatchRequired) {
+			matchMode = spec.TraversalMatchRequired
+		}
+		proof, err := compilerprobe.ProbeTraversal(ctx, compilerprobe.TraversalRequest{
+			Scope: constructionCompilerScope(authorized), RootResourceType: hop.FromResourceType,
+			Traversal: compilerprobe.Traversal{
+				FromResourceType: hop.FromResourceType, EdgeLabel: hop.Relationship,
+				ToResourceType: hop.ToResourceType, MatchMode: matchMode,
+			},
+		})
+		if err != nil || proof.Traversal == nil || string(proof.Traversal.StorageDirection) != hop.StorageDirection {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveCapabilityRouteEdge(snapshot capability.Snapshot, parentNodeID string, parent, child authoringv2.RouteNode) (capability.Edge, error) {

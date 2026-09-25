@@ -29,6 +29,7 @@ const (
 	ConstructionOperationExpand        ConstructionOperationKind = "EXPAND"
 	ConstructionOperationCombine       ConstructionOperationKind = "COMBINE"
 	ConstructionOperationRelatedSource ConstructionOperationKind = "RELATED_SOURCE"
+	ConstructionOperationRelatedExpand ConstructionOperationKind = "RELATED_EXPAND"
 )
 
 // Construction stores the ordered, durable operations applied after the
@@ -128,6 +129,7 @@ type ConstructionOperation struct {
 	Expand        *ConstructionExpand        `json:"expand,omitempty"`
 	Combine       *ConstructionCombine       `json:"combine,omitempty"`
 	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
+	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
 }
 
 // ConstructionRelatedSource adds one compiler-authorized field from related
@@ -143,6 +145,21 @@ type ConstructionRelatedSource struct {
 	ContributorRule    ConstructionRelatedContributorRule `json:"contributorRule"`
 	Form               capability.ConstructionChoiceForm  `json:"form"`
 	OutputColumnID     string                             `json:"outputColumnId"`
+}
+
+// ConstructionRelatedExpand emits one row per distinct resource reached by
+// the exact, server-authorized route.
+type ConstructionRelatedExpand struct {
+	AnchorColumnID        string                             `json:"anchorColumnId"`
+	ChoiceID              string                             `json:"choiceId"`
+	TargetNodeID          string                             `json:"targetNodeId"`
+	TargetResourceType    string                             `json:"targetResourceType"`
+	Route                 []capability.ConstructionRouteStep `json:"route"`
+	ContributorRule       ConstructionRelatedContributorRule `json:"contributorRule"`
+	ContributorSource     *ConstructionRelatedFieldSource    `json:"contributorSource,omitempty"`
+	ContributorChoiceID   string                             `json:"contributorChoiceId,omitempty"`
+	EmptyPolicy           ConstructionExpandEmptyPolicy      `json:"emptyPolicy"`
+	RelatedRecordColumnID string                             `json:"relatedRecordColumnId"`
 }
 
 type ConstructionRelatedFieldSource struct {

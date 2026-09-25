@@ -606,6 +606,12 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 			}
 			continue
 		}
+		if string(operation.Kind) == "RELATED_EXPAND" {
+			if !operation.Supported {
+				t.Fatalf("hidden root key should support related expansion: %#v", operation)
+			}
+			continue
+		}
 		if operation.Supported {
 			t.Fatalf("zero-column source unexpectedly supports %s: %#v", operation.Kind, operation)
 		}

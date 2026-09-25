@@ -477,6 +477,17 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 			ReasonCode: reasonCode, Reason: reason,
 		})
 	}
+	if descriptor.RelatedExpand != nil {
+		related := descriptor.RelatedExpand
+		stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
+			AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumn,
+			RelatedRecordColumnID:  related.RelatedRecordColumnID,
+			ParentIdentityColumnID: related.ParentIdentityColumnID, ParentIdentityColumn: related.ParentIdentityColumn,
+			TerminalIdentityColumn: related.TerminalIdentityColumn,
+			TargetNodeID:           related.TargetNodeID, TargetResourceType: related.TargetResourceType,
+			Route: append([]recipe.ConstructionRelatedRouteStep(nil), related.Route...),
+		}
+	}
 	return stage, nil
 }
 

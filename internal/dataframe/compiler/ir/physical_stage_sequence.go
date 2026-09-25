@@ -47,6 +47,7 @@ type PhysicalConstructionStage struct {
 	GroupedPivot      *PhysicalGroupedPivot
 	Unpivot           *PhysicalUnpivot
 	RelatedSource     *PhysicalStageRelatedSource
+	RelatedExpand     *PhysicalStageRelatedExpand
 	RowIdentityColumn string
 }
 
@@ -60,6 +61,7 @@ const (
 	PhysicalStageGroupOp         PhysicalStageOperationKind = "GROUP"
 	PhysicalStageExpandOp        PhysicalStageOperationKind = "EXPAND"
 	PhysicalStageRelatedSourceOp PhysicalStageOperationKind = "RELATED_SOURCE"
+	PhysicalStageRelatedExpandOp PhysicalStageOperationKind = "RELATED_EXPAND"
 )
 
 type PhysicalStageGroup struct {
@@ -118,4 +120,36 @@ type PhysicalStageRelatedSource struct {
 	LogicalType        string
 	Form               string
 	ContributorPolicy  string
+}
+
+// PhysicalStageRelatedExpand emits one row for each distinct terminal
+// resource reached from a retained root key. The terminal _id and parent row
+// identity are retained as hidden columns for downstream related-field stages.
+type PhysicalStageRelatedExpand struct {
+	AnchorColumnID         string
+	RelatedRecordColumnID  string
+	TargetNodeID           string
+	TargetResourceType     string
+	ParentIdentityColumn   string
+	ParentIdentityColumnID string
+	TerminalIdentityColumn string
+	RelatedRecordsVariable string
+	IndexVariable          string
+	ItemVariable           string
+	IdentityVariable       string
+	ConstructionIDBindKey  string
+	EmptyPolicy            PhysicalUnnestEmptyPolicy
+	RelatedRecords         PhysicalSubplan
+	Route                  []PhysicalStageRelatedRouteStep
+}
+
+type PhysicalStageRelatedRouteStep struct {
+	EdgeID           string
+	FromNodeID       string
+	ToNodeID         string
+	FromResourceType string
+	ToResourceType   string
+	Relationship     string
+	StorageDirection string
+	MatchMode        string
 }

@@ -86,6 +86,12 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q expand: %w", stage.ID, renderErr)
 			}
 			lines = appendIndented(lines, rendered)
+		case ir.PhysicalStageRelatedExpandOp:
+			rendered, renderErr := renderer.renderConstructionRelatedExpandStage(stage)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q related expansion: %w", stage.ID, renderErr)
+			}
+			lines = appendIndented(lines, rendered)
 		case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp:
 			for operationIndex, operation := range stage.DerivedLets {
 				if operation.Kind != ir.PhysicalExpressionLetOp {

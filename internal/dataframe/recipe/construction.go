@@ -79,6 +79,7 @@ const (
 	ConstructionExpandOp        ConstructionOperationKind = "EXPAND"
 	ConstructionCombineOp       ConstructionOperationKind = "COMBINE"
 	ConstructionRelatedSourceOp ConstructionOperationKind = "RELATED_SOURCE"
+	ConstructionRelatedExpandOp ConstructionOperationKind = "RELATED_EXPAND"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
@@ -93,6 +94,7 @@ type ConstructionOperation struct {
 	Expand        *ConstructionExpand        `json:"expand,omitempty"`
 	Combine       *ConstructionCombine       `json:"combine,omitempty"`
 	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
+	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
 }
 
 type ConstructionRelatedSource struct {
@@ -105,6 +107,20 @@ type ConstructionRelatedSource struct {
 	Predicate          *ConstructionRelatedPredicate  `json:"predicate,omitempty"`
 	Form               string                         `json:"form"`
 	OutputColumnID     string                         `json:"outputColumnId"`
+}
+
+type ConstructionRelatedExpand struct {
+	AnchorColumnID       string
+	ChoiceID             string
+	TargetNodeID         string
+	TargetResourceType   string
+	Route                []ConstructionRelatedRouteStep
+	ContributorPolicy     string
+	ContributorPredicate *ConstructionRelatedPredicate
+	ContributorSource    *ConstructionRelatedFieldSource
+	ContributorChoiceID  string
+	EmptyPolicy           ExpansionEmptyPolicy
+	RelatedRecordColumnID string
 }
 
 // ConstructionRelatedPredicate narrows the already selected scalar source
@@ -447,7 +463,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil} {
 		if present {
 			payloads++
 		}
@@ -600,11 +616,79 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s related source operation requires only relatedSource payload", path)
 		}
 		return validateConstructionRelatedSource(*operation.RelatedSource, inputByID, outputByID, path)
+	case ConstructionRelatedExpandOp:
+		if operation.RelatedExpand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil {
+			return fmt.Errorf("%s related expansion operation requires only relatedExpand payload", path)
+		}
+		return validateConstructionRelatedExpand(*operation.RelatedExpand, inputByID, outputByID, path)
 	case ConstructionCombineOp:
 		return fmt.Errorf("%s combine must be the sole terminal operation over exact table revision inputs", path)
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}
+}
+
+func validateConstructionRelatedExpand(related ConstructionRelatedExpand, input, output map[string]StageColumn, path string) error {
+	if related.AnchorColumnID != "_key" || !validConstructionColumnID(related.ChoiceID) ||
+		!validConstructionColumnID(related.TargetNodeID) || !validConstructionColumnID(related.TargetResourceType) ||
+		!validConstructionColumnID(related.RelatedRecordColumnID) || len(related.Route) == 0 {
+		return fmt.Errorf("%s.relatedExpand requires a root key, exact choice and target, route, and output", path)
+	}
+	priorNode, priorResource := related.Route[0].FromNodeID, related.Route[0].FromResourceType
+	for index, hop := range related.Route {
+		if !validConstructionColumnID(hop.EdgeID) || !validConstructionColumnID(hop.FromNodeID) ||
+			!validConstructionColumnID(hop.ToNodeID) || !validConstructionColumnID(hop.FromResourceType) ||
+			!validConstructionColumnID(hop.ToResourceType) || !validConstructionColumnID(hop.Relationship) ||
+			hop.FromNodeID != priorNode || hop.FromResourceType != priorResource ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("%s.relatedExpand.route[%d] is not a contiguous exact hop", path, index)
+		}
+		priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+	}
+	if priorNode != related.TargetNodeID || priorResource != related.TargetResourceType {
+		return fmt.Errorf("%s.relatedExpand route terminal differs from its exact target", path)
+	}
+	if related.ContributorPolicy != "ALL_MATCHES" {
+		return fmt.Errorf("%s.relatedExpand contributor policy must be ALL_MATCHES", path)
+	}
+	if related.ContributorPredicate == nil {
+		if related.ContributorSource != nil || related.ContributorChoiceID != "" {
+			return fmt.Errorf("%s.relatedExpand contributor source and choice require a predicate", path)
+		}
+	} else {
+		if related.ContributorSource == nil || !validConstructionColumnID(related.ContributorChoiceID) {
+			return fmt.Errorf("%s.relatedExpand predicate requires a contributor source and choice", path)
+		}
+		source := *related.ContributorSource
+		if !validConstructionColumnID(source.CandidateID) || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+			!validConstructionColumnID(source.Path) || !validConstructionColumnID(source.LogicalType) ||
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+			return fmt.Errorf("%s.relatedExpand contributor source must be a scalar field on the target resource", path)
+		}
+		if err := validateConstructionRelatedPredicate(source, related.ContributorPredicate, path+".relatedExpand.contributorPredicate"); err != nil {
+			return err
+		}
+	}
+	if related.EmptyPolicy != ExpansionError && related.EmptyPolicy != ExpansionExclude && related.EmptyPolicy != ExpansionPreserveParent {
+		return fmt.Errorf("%s.relatedExpand empty policy is unsupported", path)
+	}
+	if input[related.RelatedRecordColumnID].ID != "" {
+		return fmt.Errorf("%s.relatedExpand outputColumnId collides with an input column", path)
+	}
+	want := make(map[string]bool, len(input)+1)
+	for id := range input {
+		want[id] = true
+	}
+	want[related.RelatedRecordColumnID] = true
+	if err := requireExactStageOutputIDs(want, output, path); err != nil {
+		return err
+	}
+	wantNullable := related.EmptyPolicy == ExpansionPreserveParent
+	if output[related.RelatedRecordColumnID].Nullable != wantNullable {
+		return fmt.Errorf("%s.relatedExpand output nullable must be %t for its empty policy", path, wantNullable)
+	}
+	return nil
 }
 
 func validateConstructionRelatedSource(related ConstructionRelatedSource, input, output map[string]StageColumn, path string) error {

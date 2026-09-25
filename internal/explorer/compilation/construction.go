@@ -440,6 +440,39 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.RelatedSource = mapped
+	case authoringv2.ConstructionOperationRelatedExpand:
+		if authored.RelatedExpand == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("relatedExpand payload is required")
+		}
+		related := authored.RelatedExpand
+		predicate, err := constructionRelatedPredicate(related.ContributorRule.Predicate)
+		if err != nil {
+			return recipe.ConstructionOperation{}, err
+		}
+		mapped := &recipe.ConstructionRelatedExpand{
+			AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
+			TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
+			ContributorPolicy: related.ContributorRule.Policy, ContributorPredicate: predicate,
+			ContributorChoiceID: related.ContributorChoiceID,
+			EmptyPolicy: recipe.ExpansionEmptyPolicy(related.EmptyPolicy),
+			RelatedRecordColumnID: related.RelatedRecordColumnID,
+			Route: make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route)),
+		}
+		if related.ContributorSource != nil {
+			source := related.ContributorSource
+			mapped.ContributorSource = &recipe.ConstructionRelatedFieldSource{
+				CandidateID: source.CandidateID, NodeID: source.NodeID, ResourceType: source.ResourceType,
+				Path: source.Path, Cardinality: source.Cardinality, LogicalType: source.LogicalType,
+			}
+		}
+		for _, hop := range related.Route {
+			mapped.Route = append(mapped.Route, recipe.ConstructionRelatedRouteStep{
+				EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
+				FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
+				Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
+			})
+		}
+		operation.RelatedExpand = mapped
 	case authoringv2.ConstructionOperationCombine:
 		if authored.Combine == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")

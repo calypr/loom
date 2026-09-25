@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -305,6 +306,31 @@ func TestDecodeConstructionChoiceIDRejectsTamperedAndMalformedTokens(t *testing.
 	unknownField := []byte(`{"version":"construction-choice/v1","kind":"FIELD","snapshotToken":"snapshot","source":{"kind":"FIELD","candidateId":"c","nodeId":"n","resourceType":"Patient","path":"birthDate","cardinality":"optional_one","unexpected":true}}`)
 	if _, err := DecodeConstructionChoiceID(choiceIDForPayload(unknownField)); err == nil {
 		t.Fatal("choice id decoder accepted an unknown source field")
+	}
+}
+
+func TestRelatedResourceRouteChoicePinsNodeAndRouteWithoutField(t *testing.T) {
+	t.Parallel()
+
+	route := []ConstructionRouteStep{{
+		EdgeID: "edge_patient_observation", FromNodeID: "patient_node", ToNodeID: "observation_node",
+		FromResourceType: "Patient", ToResourceType: "Observation",
+		Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	choice, err := NewConstructionRelatedResourceRouteChoice("snapshot", "stage_1", "observation_node", "Observation", route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatalf("decode route choice: %v", err)
+	}
+	source, ok := identity.Source.(RelatedResourceChoiceSource)
+	if !ok || source.StageID != "stage_1" || source.NodeID != "observation_node" || source.ResourceType != "Observation" || identity.SnapshotToken != "snapshot" || !reflect.DeepEqual(identity.Route, route) {
+		t.Fatalf("route choice lost its pinned identity: %#v", identity)
+	}
+	if _, err := NewConstructionRelatedResourceRouteChoice("snapshot", "stage_1", "other_node", "Observation", route); err == nil {
+		t.Fatal("route choice accepted a target node that differs from its terminal hop")
 	}
 }
 
