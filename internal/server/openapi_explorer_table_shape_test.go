@@ -49,6 +49,14 @@ func (r *tableShapeRouteRepository) GetCatalog(_ context.Context, binding tables
 	return value, nil
 }
 
+func (r *tableShapeRouteRepository) GetCatalogForLookup(_ context.Context, lookup tableshapecap.CatalogLookup, id string) (tableshapecap.CatalogReceipt, error) {
+	value, ok := r.catalogs[id]
+	if !ok || !lookup.Matches(value.Binding) {
+		return tableshapecap.CatalogReceipt{}, tableshapecap.ErrNotFound
+	}
+	return value, nil
+}
+
 func (r *tableShapeRouteRepository) PutCategoryScan(_ context.Context, value tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := value.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err

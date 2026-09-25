@@ -51,6 +51,14 @@ func (r *lifecycleTableShapeRepository) GetCatalog(_ context.Context, binding ta
 	return value, nil
 }
 
+func (r *lifecycleTableShapeRepository) GetCatalogForLookup(_ context.Context, lookup tableshapecap.CatalogLookup, id string) (tableshapecap.CatalogReceipt, error) {
+	value, ok := r.catalogs[id]
+	if !ok || !lookup.Matches(value.Binding) {
+		return tableshapecap.CatalogReceipt{}, tableshapecap.ErrNotFound
+	}
+	return value, nil
+}
+
 func (r *lifecycleTableShapeRepository) PutCategoryScan(_ context.Context, value tableshapecap.CategoryScanReceipt) (tableshapecap.CategoryScanReceipt, error) {
 	if err := value.Validate(); err != nil {
 		return tableshapecap.CategoryScanReceipt{}, err
@@ -552,6 +560,54 @@ func TestTableShapeAuthorizationScopeIsRevalidated(t *testing.T) {
 	}
 	if _, err := service.GetTableShapeCatalog(context.Background(), request); lifecycleErrorCode(err) != "STALE_AUTHORIZATION_SCOPE" {
 		t.Fatalf("changed scope code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+}
+
+func TestTableShapeCatalogReuseValidatesCurrentDraftAndScope(t *testing.T) {
+	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
+	request := tableShapeCatalogRequest(store.created, snapshot)
+	catalogResult, err := service.GetTableShapeCatalog(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	compile := service.config.CompileReceipt
+	compileCalls := 0
+	service.config.CompileReceipt = func(ctx context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		compileCalls++
+		return compile(ctx, request)
+	}
+
+	base, catalog, err := service.tableShapeCatalogForRequest(context.Background(), request, catalogResult.CatalogID)
+	if err != nil {
+		t.Fatalf("reuse current catalog: %v", err)
+	}
+	if compileCalls != 0 {
+		t.Fatalf("unchanged base was recompiled %d times", compileCalls)
+	}
+	if base.binding != catalog.Binding || base.receipt == nil || base.receipt.ID != catalog.Binding.BaseCompilationReceiptID {
+		t.Fatalf("reused base is not bound to persisted catalog receipt: base=%#v catalog=%#v", base.binding, catalog.Binding)
+	}
+
+	staleDraft := request
+	staleDraft.ExpectedDraftVersion++
+	if _, _, err := service.tableShapeCatalogForRequest(context.Background(), staleDraft, catalogResult.CatalogID); lifecycleErrorCode(err) != "DRAFT_CONFLICT" {
+		t.Fatalf("stale draft code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+	if compileCalls != 0 {
+		t.Fatalf("stale draft entered compilation path %d times", compileCalls)
+	}
+
+	service.config.Capability.ForCompilation = func(_ context.Context, project, token string) (AuthorizedCapability, error) {
+		changed := snapshot.Clone()
+		changed.Identity.AuthorizationScopeDigest = "different-scope"
+		return AuthorizedCapability{Snapshot: changed, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+	if _, _, err := service.tableShapeCatalogForRequest(context.Background(), request, catalogResult.CatalogID); lifecycleErrorCode(err) != "STALE_AUTHORIZATION_SCOPE" {
+		t.Fatalf("changed scope code=%s err=%v", lifecycleErrorCode(err), err)
+	}
+	if compileCalls != 0 {
+		t.Fatalf("changed authorization scope entered compilation path %d times", compileCalls)
 	}
 }
 

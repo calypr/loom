@@ -39,11 +39,11 @@ func TestProposeTableShapeBindsCandidateReceiptWithoutMutatingDraft(t *testing.T
 	if proposal.Comparison.Status != TableShapeComparisonUnavailable || proposal.Comparison.ReasonCode != "PREVIEW_UNAVAILABLE" {
 		t.Fatalf("comparison status = %#v", proposal.Comparison)
 	}
-	if len(compileBindings) != 2 || compileBindings[0] != nil || compileBindings[1] == nil {
-		t.Fatalf("compile proposal bindings = %#v, want one loaded base and one bound candidate", compileBindings)
+	if len(compileBindings) != 1 || compileBindings[0] == nil {
+		t.Fatalf("compile proposal bindings = %#v, want only the bound candidate after reusing the persisted base", compileBindings)
 	}
 	binding := store.receipt.TableShapeProposal
-	if binding == nil || *binding != *compileBindings[1] || binding.DraftVersion != beforeVersion ||
+	if binding == nil || *binding != *compileBindings[0] || binding.DraftVersion != beforeVersion ||
 		binding.DraftDigest != beforeDigest || binding.OutputID != "patients" || binding.SnapshotToken != snapshot.Token ||
 		binding.CandidateWorkspaceDigest != proposal.CandidateWorkspaceDigest {
 		t.Fatalf("candidate receipt binding = %#v, proposal = %#v", binding, proposal)

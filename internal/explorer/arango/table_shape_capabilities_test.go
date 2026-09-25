@@ -210,6 +210,61 @@ func TestTableShapeCapabilityRepositoryIsCreateOnceAndTenantScoped(t *testing.T)
 	}
 }
 
+func TestTableShapeCapabilityRepositoryLookupUsesCurrentRequestIdentity(t *testing.T) {
+	baseClient := &capabilitySnapshotClient{}
+	client := &tableShapeCapabilityClient{capabilitySnapshotClient: baseClient, rows: map[string]map[string]any{}}
+	repository, err := NewTableShapeCapabilityRepository(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := tableShapeTestBinding()
+	catalog := tableShapeTestCatalog(t, binding)
+	row, err := catalogDocument(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.rows["CATALOG:"+catalog.ID] = row
+	lookup := tableshapecap.CatalogLookup{
+		Project: binding.Project, ExplorerID: binding.ExplorerID, OutputID: binding.OutputID,
+		SnapshotToken: binding.SnapshotToken, AuthorizationScope: binding.AuthorizationScope,
+		SourceGeneration: binding.SourceGeneration, DraftVersion: binding.DraftVersion,
+		DraftDigest: binding.DraftDigest, BaseDocumentDigest: binding.BaseDocumentDigest,
+	}
+
+	got, err := repository.GetCatalogForLookup(context.Background(), lookup, catalog.ID)
+	if err != nil || got.ID != catalog.ID {
+		t.Fatalf("lookup returned catalog %q, err=%v", got.ID, err)
+	}
+	call := baseClient.calls[len(baseClient.calls)-1]
+	for _, field := range []string{"project", "explorerId", "outputId", "snapshotToken", "authorizationScope", "sourceGeneration", "draftVersion", "draftDigest", "baseDocumentDigest"} {
+		if !strings.Contains(call.query, "d.binding."+field+" == @"+field) {
+			t.Errorf("lookup query missing binding field %s:\n%s", field, call.query)
+		}
+		if _, ok := call.binds[field]; !ok {
+			t.Errorf("lookup bind missing %s", field)
+		}
+	}
+	if call.binds["kind"] != "CATALOG" || call.binds["id"] != catalog.ID {
+		t.Fatalf("lookup is not constrained to its catalog ID: %#v", call.binds)
+	}
+
+	for name, mutate := range map[string]func(*tableshapecap.CatalogLookup){
+		"cross-tenant": func(value *tableshapecap.CatalogLookup) { value.Project = "project-b" },
+		"stale-draft":  func(value *tableshapecap.CatalogLookup) { value.DraftVersion++ },
+		"changed-scope": func(value *tableshapecap.CatalogLookup) {
+			value.AuthorizationScope = "different-scope"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stale := lookup
+			mutate(&stale)
+			if _, err := repository.GetCatalogForLookup(context.Background(), stale, catalog.ID); !errors.Is(err, tableshapecap.ErrNotFound) {
+				t.Fatalf("stale lookup returned %v", err)
+			}
+		})
+	}
+}
+
 func TestTableShapeCapabilityRepositoryScopesResolutionByParent(t *testing.T) {
 	baseClient := &capabilitySnapshotClient{}
 	client := &tableShapeCapabilityClient{capabilitySnapshotClient: baseClient, rows: map[string]map[string]any{}}

@@ -72,11 +72,11 @@ type TableShapeCatalogColumn struct {
 }
 
 type TableShapeCatalogChoice struct {
-	Role  tableshapecap.ChoiceRole `json:"role"`
-	ID    string                   `json:"id"`
-	Label string                   `json:"label"`
-	Type  *tableshapecap.TypeFact  `json:"type,omitempty"`
-	RequiresDivisionByZeroPolicy bool `json:"requiresDivisionByZeroPolicy,omitempty"`
+	Role                         tableshapecap.ChoiceRole `json:"role"`
+	ID                           string                   `json:"id"`
+	Label                        string                   `json:"label"`
+	Type                         *tableshapecap.TypeFact  `json:"type,omitempty"`
+	RequiresDivisionByZeroPolicy bool                     `json:"requiresDivisionByZeroPolicy,omitempty"`
 }
 
 type TableShapeCatalogResult struct {
@@ -113,6 +113,15 @@ type tableShapeBase struct {
 	finalReceipt  *explorer.CompilationReceipt
 	finalContract explorer.PublicOutputContract
 	binding       tableshapecap.Binding
+}
+
+type tableShapeBaseContext struct {
+	owner              *explorer.Explorer
+	workspace          authoringv2.Workspace
+	document           authoringv2.Document
+	snapshot           capability.Snapshot
+	authorized         AuthorizedCapability
+	baseDocumentDigest string
 }
 
 func (s *Service) GetTableShapeCatalog(ctx context.Context, request TableShapeCatalogRequest) (TableShapeCatalogResult, error) {
@@ -156,46 +165,67 @@ func (s *Service) GetTableShapeCatalog(ctx context.Context, request TableShapeCa
 }
 
 func (s *Service) loadTableShapeBase(ctx context.Context, request TableShapeCatalogRequest) (tableShapeBase, error) {
-	if s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {
+	if s.config.CompileReceipt == nil {
 		return tableShapeBase{}, unavailable("table-shape-capabilities", "CAPABILITY_UNAVAILABLE", "authorized table-shape compilation is not configured", nil)
 	}
-	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
-	if err != nil {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
-	}
-	snapshot := authorized.Snapshot.Clone()
-	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
-	}
-	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
-	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	baseContext, err := s.loadTableShapeBaseContext(ctx, request)
 	if err != nil {
 		return tableShapeBase{}, err
 	}
+	return s.compileTableShapeBase(ctx, request, baseContext)
+}
+
+func (s *Service) loadTableShapeBaseContext(ctx context.Context, request TableShapeCatalogRequest) (tableShapeBaseContext, error) {
+	if s.config.Capability.ForCompilation == nil {
+		return tableShapeBaseContext{}, unavailable("table-shape-capabilities", "CAPABILITY_UNAVAILABLE", "authorized table-shape compilation is not configured", nil)
+	}
+	authorized, err := s.config.Capability.ForCompilation(ctx, request.Project, request.SnapshotToken)
+	if err != nil {
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, err)
+	}
+	snapshot := authorized.Snapshot.Clone()
+	if snapshot.ValidateToken(request.SnapshotToken) != nil || projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(request.Project) {
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+	}
+	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	if err != nil {
+		return tableShapeBaseContext{}, err
+	}
 	if owner == nil || owner.ExplorerID != request.ExplorerID || projectid.Canonical(owner.Project) != projectid.Canonical(request.Project) {
-		return tableShapeBase{}, notFound("table-shape-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
+		return tableShapeBaseContext{}, notFound("table-shape-capabilities", "EXPLORER_NOT_FOUND", "the Explorer was not found", explorer.ErrNotFound)
 	}
 	if owner.DraftVersion != request.ExpectedDraftVersion || owner.DraftDigest != request.ExpectedDraftDigest {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting table-shape capabilities", nil, explorer.ErrDraftConflict)
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "DRAFT_CONFLICT", "the Explorer draft changed; reload before requesting table-shape capabilities", nil, explorer.ErrDraftConflict)
 	}
 	workspace, err := authoringv2.DecodeWorkspace(owner.DraftConfig)
 	if err != nil {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "AUTHORING_STATE_MISSING", "the saved Explorer draft cannot be compiled", nil, err)
 	}
 	draftDigest, err := workspace.Digest()
 	if err != nil || draftDigest != owner.DraftDigest {
-		return tableShapeBase{}, conflict("table-shape-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
+		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "DRAFT_CONFLICT", "the saved workspace does not match its draft digest", nil, err)
 	}
 	document := proposalDocument(workspace, request.OutputID)
 	if document == nil {
-		return tableShapeBase{}, unprocessable("table-shape-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
+		return tableShapeBaseContext{}, unprocessable("table-shape-capabilities", "OUTPUT_NOT_FOUND", "outputId does not identify a saved table", nil)
 	}
 	baseDocumentDigest, err := documentDigest(*document)
 	if err != nil {
-		return tableShapeBase{}, fmt.Errorf("digest table-shape output document: %w", err)
+		return tableShapeBaseContext{}, fmt.Errorf("digest table-shape output document: %w", err)
 	}
+	return tableShapeBaseContext{
+		owner: owner, workspace: workspace, document: *document, snapshot: snapshot,
+		authorized: authorized.Clone(), baseDocumentDigest: baseDocumentDigest,
+	}, nil
+}
+
+func (s *Service) compileTableShapeBase(ctx context.Context, request TableShapeCatalogRequest, current tableShapeBaseContext) (tableShapeBase, error) {
+	owner, workspace := current.owner, current.workspace
+	document, snapshot, authorized := current.document, current.snapshot, current.authorized
+	baseDocumentDigest := current.baseDocumentDigest
 	finalReceipt, err := s.compile(ctx, compileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: workspace, SnapshotToken: request.SnapshotToken,
 		RequestID: "table-shape-capabilities",
@@ -270,7 +300,7 @@ func (s *Service) loadTableShapeBase(ctx context.Context, request TableShapeCata
 		return tableShapeBase{}, conflict("table-shape-capabilities", "INVALID_COMPILATION_RECEIPT", "the compiler receipt does not contain a complete capability binding", nil, err)
 	}
 	return tableShapeBase{
-		owner: owner, workspace: workspace, document: *document, snapshot: snapshot, authorized: authorized.Clone(),
+		owner: owner, workspace: workspace, document: document, snapshot: snapshot, authorized: authorized.Clone(),
 		receipt: baseReceipt, contract: baseContract, finalReceipt: finalReceipt, finalContract: finalContract, binding: binding,
 	}, nil
 }
@@ -647,7 +677,29 @@ func savedTableShapeSummary(shape *authoringv2.TableShape) (tableshapecap.SavedS
 }
 
 func (s *Service) tableShapeCatalogForRequest(ctx context.Context, request TableShapeCatalogRequest, catalogID string) (tableShapeBase, tableshapecap.CatalogReceipt, error) {
-	base, err := s.loadTableShapeBase(ctx, request)
+	if s.config.CompileReceipt == nil {
+		return tableShapeBase{}, tableshapecap.CatalogReceipt{}, unavailable("table-shape-capabilities", "CAPABILITY_UNAVAILABLE", "authorized table-shape compilation is not configured", nil)
+	}
+	if s.config.TableShapeCapabilities == nil {
+		return tableShapeBase{}, tableshapecap.CatalogReceipt{}, unavailable("table-shape-capabilities", "CAPABILITY_STORE_UNAVAILABLE", "table-shape capability storage is not configured", nil)
+	}
+	current, err := s.loadTableShapeBaseContext(ctx, request)
+	if err != nil {
+		return tableShapeBase{}, tableshapecap.CatalogReceipt{}, err
+	}
+	if current.document.TableShape == nil {
+		lookup := tableShapeCatalogLookup(request, current)
+		catalog, lookupErr := s.config.TableShapeCapabilities.GetCatalogForLookup(ctx, lookup, catalogID)
+		if lookupErr != nil && !errors.Is(lookupErr, tableshapecap.ErrNotFound) {
+			return tableShapeBase{}, tableshapecap.CatalogReceipt{}, unavailable("table-shape-resolution", "CAPABILITY_STORE_FAILED", "the table-shape capability catalog could not be loaded", lookupErr)
+		}
+		if lookupErr == nil {
+			if base, reusable := s.reuseTableShapeCatalogBase(ctx, request, current, lookup, catalogID, catalog); reusable {
+				return base, catalog, nil
+			}
+		}
+	}
+	base, err := s.compileTableShapeBase(ctx, request, current)
 	if err != nil {
 		return tableShapeBase{}, tableshapecap.CatalogReceipt{}, err
 	}
@@ -662,6 +714,78 @@ func (s *Service) tableShapeCatalogForRequest(ctx context.Context, request Table
 		return tableShapeBase{}, tableshapecap.CatalogReceipt{}, conflict("table-shape-resolution", "INVALID_TABLE_SHAPE_CAPABILITY", "the table-shape catalog failed binding validation", nil, err)
 	}
 	return base, catalog, nil
+}
+
+func tableShapeCatalogLookup(request TableShapeCatalogRequest, current tableShapeBaseContext) tableshapecap.CatalogLookup {
+	return tableshapecap.CatalogLookup{
+		Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, OutputID: request.OutputID,
+		SnapshotToken: request.SnapshotToken, AuthorizationScope: current.snapshot.Identity.AuthorizationScopeDigest,
+		SourceGeneration: current.snapshot.Identity.Generation, DraftVersion: uint64(current.owner.DraftVersion),
+		DraftDigest: current.owner.DraftDigest, BaseDocumentDigest: current.baseDocumentDigest,
+	}
+}
+
+func (s *Service) reuseTableShapeCatalogBase(ctx context.Context, request TableShapeCatalogRequest, current tableShapeBaseContext, lookup tableshapecap.CatalogLookup, catalogID string, catalog tableshapecap.CatalogReceipt) (tableShapeBase, bool) {
+	if catalog.ID != catalogID || catalog.Validate() != nil || !lookup.Matches(catalog.Binding) {
+		return tableShapeBase{}, false
+	}
+	receipt, err := s.lookupReceipt(ctx, request.Project, request.ExplorerID, catalog.Binding.BaseCompilationReceiptID)
+	if err != nil || receipt == nil || receipt.ID != catalog.Binding.BaseCompilationReceiptID {
+		return tableShapeBase{}, false
+	}
+	if err := s.validateReceiptRoute(receipt, request.Project, request.ExplorerID); err != nil {
+		return tableShapeBase{}, false
+	}
+	if _, err := s.verifyProposalReceipt(ctx, "table-shape-capabilities", receipt, request.Project, request.ExplorerID, request.SnapshotToken, current.snapshot, &current.workspace); err != nil {
+		return tableShapeBase{}, false
+	}
+	if err := validateAuthorizedReceiptExecution(receipt, current.authorized); err != nil {
+		return tableShapeBase{}, false
+	}
+	if err := validateReceiptOutputContract(receipt, request.OutputID); err != nil {
+		return tableShapeBase{}, false
+	}
+	outputFingerprint := receipt.OutputFingerprints[request.OutputID]
+	if outputFingerprint != catalog.Binding.OutputFingerprint || receipt.OutputContractDigest != catalog.Binding.CompilerSchemaDigest {
+		return tableShapeBase{}, false
+	}
+	binding := tableshapecap.Binding{
+		Project: lookup.Project, ExplorerID: lookup.ExplorerID, OutputID: lookup.OutputID,
+		SnapshotToken: lookup.SnapshotToken, AuthorizationScope: lookup.AuthorizationScope,
+		SourceGeneration: lookup.SourceGeneration, DraftVersion: lookup.DraftVersion,
+		DraftDigest: lookup.DraftDigest, BaseDocumentDigest: lookup.BaseDocumentDigest,
+		BaseCompilationReceiptID: receipt.ID, OutputFingerprint: outputFingerprint,
+		CompilerSchemaDigest: receipt.OutputContractDigest,
+	}
+	if err := binding.Validate(); err != nil || binding != catalog.Binding {
+		return tableShapeBase{}, false
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		return tableShapeBase{}, false
+	}
+	contract, ok := contracts.Output(request.OutputID)
+	if !ok {
+		return tableShapeBase{}, false
+	}
+	columns, facts, err := tableShapeCatalogColumns(contract)
+	if err != nil {
+		return tableShapeBase{}, false
+	}
+	availability, choices := buildTableShapeChoices(columns, facts, s.config.ScanTableShapeCategories != nil, current.document.TableShape)
+	saved, err := savedTableShapeSummary(current.document.TableShape)
+	if err != nil {
+		return tableShapeBase{}, false
+	}
+	expectedCatalog, err := tableshapecap.NewCatalogReceipt(binding, columns, availability, choices, saved, catalog.CreatedAt)
+	if err != nil || expectedCatalog.ID != catalog.ID || expectedCatalog.ContentDigest != catalog.ContentDigest {
+		return tableShapeBase{}, false
+	}
+	return tableShapeBase{
+		owner: current.owner, workspace: current.workspace, document: current.document,
+		snapshot: current.snapshot, authorized: current.authorized,
+		receipt: receipt, contract: contract, finalReceipt: receipt, finalContract: contract, binding: binding,
+	}, true
 }
 
 func tableShapeTypeFact(column tableshapecap.PublicColumn) tableshapecap.TypeFact {

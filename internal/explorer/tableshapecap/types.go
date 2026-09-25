@@ -36,6 +36,46 @@ type Binding struct {
 	CompilerSchemaDigest     string `json:"compilerSchemaDigest"`
 }
 
+// CatalogLookup is the request-bound subset available before loading the
+// persisted base compilation receipt referenced by a catalog binding.
+type CatalogLookup struct {
+	Project            string `json:"project"`
+	ExplorerID         string `json:"explorerId"`
+	OutputID           string `json:"outputId"`
+	SnapshotToken      string `json:"snapshotToken"`
+	AuthorizationScope string `json:"authorizationScope"`
+	SourceGeneration   string `json:"sourceGeneration"`
+	DraftVersion       uint64 `json:"draftVersion"`
+	DraftDigest        string `json:"draftDigest"`
+	BaseDocumentDigest string `json:"baseDocumentDigest"`
+}
+
+func (l CatalogLookup) Validate() error {
+	if l.Project == "" || projectid.Canonical(l.Project) != l.Project {
+		return invalid("lookup project must be a canonical project identity")
+	}
+	for name, value := range map[string]string{
+		"explorerId": l.ExplorerID, "outputId": l.OutputID, "snapshotToken": l.SnapshotToken,
+		"authorizationScope": l.AuthorizationScope, "sourceGeneration": l.SourceGeneration,
+		"draftDigest": l.DraftDigest, "baseDocumentDigest": l.BaseDocumentDigest,
+	} {
+		if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value {
+			return invalid("lookup %s must be non-empty and trimmed", name)
+		}
+	}
+	if l.DraftVersion == 0 {
+		return invalid("lookup draftVersion must be positive")
+	}
+	return nil
+}
+
+func (l CatalogLookup) Matches(binding Binding) bool {
+	return l.Project == binding.Project && l.ExplorerID == binding.ExplorerID && l.OutputID == binding.OutputID &&
+		l.SnapshotToken == binding.SnapshotToken && l.AuthorizationScope == binding.AuthorizationScope &&
+		l.SourceGeneration == binding.SourceGeneration && l.DraftVersion == binding.DraftVersion &&
+		l.DraftDigest == binding.DraftDigest && l.BaseDocumentDigest == binding.BaseDocumentDigest
+}
+
 func (b Binding) Validate() error {
 	if b.Project == "" || projectid.Canonical(b.Project) != b.Project {
 		return invalid("project must be a canonical project identity")
