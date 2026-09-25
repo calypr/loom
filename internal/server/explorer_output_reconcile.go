@@ -521,6 +521,28 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					break
 				}
 			}
+		case authoringv2.ConstructionOperationRelatedExpand:
+			if step.Operation.RelatedExpand == nil {
+				return fmt.Errorf("related-expansion step %q has no operation payload", step.ID)
+			}
+			related := step.Operation.RelatedExpand
+			quality := constructedOutputQuality{
+				Lossless: false, StructuralSuitability: "requires-review",
+				LossReasons: []string{"RELATED_EXPANSION_CHANGES_ROW_GRAIN"},
+			}
+			if err := addOutput(related.RelatedRecordColumnID, step.ID, nil, quality); err != nil {
+				return err
+			}
+			for _, output := range step.Outputs {
+				if output.ID == related.RelatedRecordColumnID {
+					metadata := authored[output.Name]
+					metadata.NodeID = related.TargetNodeID
+					metadata.SourceResourceType = related.TargetResourceType
+					metadata.SourcePath = "id"
+					authored[output.Name] = metadata
+					break
+				}
+			}
 		default:
 			return fmt.Errorf("step %q has unsupported operation kind %q", step.ID, step.Operation.Kind)
 		}

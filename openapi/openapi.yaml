@@ -240,6 +240,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-choices:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerRelatedExpandChoices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelatedExpandChoiceSearchRequest'}
+      responses:
+        '200':
+          description: Server-issued exact related-resource routes supported from the selected receipt-bound stage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelatedExpandChoiceSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3184,7 +3209,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
@@ -3193,6 +3218,7 @@ components:
         expand: {$ref: '#/components/schemas/ConstructionExpand'}
         combine: {$ref: '#/components/schemas/ConstructionCombine'}
         relatedSource: {$ref: '#/components/schemas/ConstructionRelatedSource'}
+        relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpand'}
     ConstructionRelatedSource:
       type: object
       additionalProperties: false
@@ -3227,6 +3253,24 @@ components:
       properties:
         policy: {type: string, enum: [ALL_MATCHES]}
         predicate: {$ref: '#/components/schemas/ContributorPredicate'}
+    ConstructionRelatedExpand:
+      type: object
+      additionalProperties: false
+      required: [anchorColumnId, choiceId, targetNodeId, targetResourceType, route, contributorRule, emptyPolicy, relatedRecordColumnId]
+      properties:
+        anchorColumnId: {type: string, minLength: 1}
+        choiceId: {type: string, minLength: 1}
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        route:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        contributorRule: {$ref: '#/components/schemas/RelatedSourceContributorRule'}
+        contributorSource: {$ref: '#/components/schemas/RelatedSourceField'}
+        contributorChoiceId: {type: string, minLength: 1}
+        emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
+        relatedRecordColumnId: {type: string, minLength: 1}
     ConstructionPivot:
       type: object
       additionalProperties: false
@@ -3478,7 +3522,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -3497,6 +3541,24 @@ components:
         capabilities:
           type: array
           items: {$ref: '#/components/schemas/ConstructionOperationCapability'}
+        relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpandStageDescriptor'}
+    ConstructionRelatedExpandStageDescriptor:
+      type: object
+      additionalProperties: false
+      required: [anchorColumnId, anchorColumn, relatedRecordColumnId, parentIdentityColumnId, parentIdentityColumn, terminalIdentityColumn, targetNodeId, targetResourceType, route]
+      properties:
+        anchorColumnId: {type: string, minLength: 1}
+        anchorColumn: {type: string, minLength: 1}
+        relatedRecordColumnId: {type: string, minLength: 1}
+        parentIdentityColumnId: {type: string, minLength: 1}
+        parentIdentityColumn: {type: string, minLength: 1}
+        terminalIdentityColumn: {type: string, minLength: 1}
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        route:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
     ConstructionDependencyIssue:
       type: object
       additionalProperties: false
@@ -4565,6 +4627,48 @@ components:
           type: array
           maxItems: 50
           items: {$ref: '#/components/schemas/ConstructionChoice'}
+    RelatedExpandChoiceSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, targetResourceType]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    RelatedExpandRouteChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, targetNodeId, targetResourceType, route]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        route:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+    RelatedExpandChoiceSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, complete, truncated, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string}
+        choices:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/RelatedExpandRouteChoice'}
     PopulationRoutesRequest:
       type: object
       additionalProperties: false

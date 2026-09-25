@@ -1,0 +1,200 @@
+package compiler
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/google/uuid"
+)
+
+func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testing.T) {
+	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, client := openConstructionReshapeArango(t)
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "loom_related_expand_"+uuid.NewString(), "generation-related-expand"
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for _, collection := range []string{"Patient", "Observation", "fhir_edge"} {
+			query := fmt.Sprintf("FOR document IN %s FILTER document.project == @project REMOVE document IN %s", collection, collection)
+			if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"project": project}); err != nil {
+				t.Errorf("remove related-expansion fixtures from %s: %v", collection, err)
+			}
+		}
+	}()
+
+	document := func(key, resourceType, docGeneration string, payload map[string]any) json.RawMessage {
+		t.Helper()
+		encoded, err := json.Marshal(map[string]any{
+			"_key": key, "id": payload["id"], "project": project, "project_id": project,
+			"dataset_generation": docGeneration, "resourceType": resourceType, "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	patients := []json.RawMessage{
+		document(project+"_p1", "Patient", generation, map[string]any{"id": "p1", "resourceType": "Patient", "active": true}),
+		document(project+"_p2", "Patient", generation, map[string]any{"id": "p2", "resourceType": "Patient", "active": true}),
+		document(project+"_p3", "Patient", generation, map[string]any{"id": "p3", "resourceType": "Patient", "active": false}),
+	}
+	observations := []json.RawMessage{
+		document(project+"_o1", "Observation", generation, map[string]any{"id": "o1", "resourceType": "Observation", "status": "registered"}),
+		document(project+"_o2", "Observation", generation, map[string]any{"id": "o2", "resourceType": "Observation", "status": "final"}),
+	}
+	for collection, documents := range map[string][]json.RawMessage{"Patient": patients, "Observation": observations} {
+		if err := client.InsertBatchRaw(ctx, collection, documents, false, "document"); err != nil {
+			t.Fatalf("insert related-expansion fixtures into %s: %v", collection, err)
+		}
+	}
+	edges := make([]json.RawMessage, 0, 3)
+	for index, observationID := range []string{"o1", "o1", "o2"} {
+		encoded, err := json.Marshal(map[string]any{
+			"_key":    fmt.Sprintf("%s_edge_%d", project, index+1),
+			"_from":   "Observation/" + project + "_" + observationID,
+			"_to":     "Patient/" + project + "_p1",
+			"project": project, "project_id": project, "dataset_generation": generation,
+			"label": "subject_Patient", "from_type": "Observation", "to_type": "Patient",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		edges = append(edges, encoded)
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
+		t.Fatalf("insert related-expansion edges: %v", err)
+	}
+
+	for _, policy := range []recipe.ExpansionEmptyPolicy{recipe.ExpansionExclude, recipe.ExpansionPreserveParent} {
+		t.Run(string(policy), func(t *testing.T) {
+			compiled, query := compileRelatedExpandOracleQuery(t, relatedExpandOracleOutput(policy), project, generation)
+			started := time.Now()
+			rows := executeReshapeOracleQuery(t, ctx, client, query)
+			t.Logf("RELATED_EXPAND %s query returned %d rows in %s", policy, len(rows), time.Since(started))
+			ids := make(map[string]bool, len(rows))
+			byParent := make(map[string][]string)
+			for _, row := range rows {
+				parent, _ := row["patient_id"].(string)
+				rowID, _ := row["__loom_row_id"].(string)
+				if rowID == "" || ids[rowID] {
+					t.Errorf("related row identity is missing or duplicated: %#v", row["__loom_row_id"])
+				}
+				ids[rowID] = true
+				if row["observation_id"] == nil {
+					byParent[parent] = append(byParent[parent], "<empty>")
+				} else {
+					byParent[parent] = append(byParent[parent], fmt.Sprint(row["observation_id"]))
+				}
+			}
+			if policy == recipe.ExpansionExclude {
+				if len(rows) != 2 || len(byParent["p1"]) != 2 || len(byParent["p2"]) != 0 || len(byParent["p3"]) != 0 {
+					t.Fatalf("EXCLUDE rows = %#v, want two unique p1 terminals after the active filter", rows)
+				}
+				if byParent["p1"][0] == byParent["p1"][1] || !(byParent["p1"][0] == "o1" || byParent["p1"][1] == "o1") || !(byParent["p1"][0] == "o2" || byParent["p1"][1] == "o2") {
+					t.Fatalf("EXCLUDE related IDs = %#v, want distinct FHIR IDs o1 and o2 despite duplicate paths", byParent["p1"])
+				}
+			} else if len(rows) != 3 || len(byParent["p1"]) != 2 || len(byParent["p2"]) != 1 || byParent["p2"][0] != "<empty>" || len(byParent["p3"]) != 0 {
+				t.Fatalf("PRESERVE_PARENT rows = %#v, want two p1 terminals and a distinct null p2 row after filtering", rows)
+			}
+			if len(compiled.Stages) < 3 || compiled.Stages[1].ID != "filter_active" || compiled.Stages[2].RelatedExpand == nil {
+				t.Fatalf("related expansion was not compiled from the selected filtered stage: %#v", compiled.Stages)
+			}
+			repeated := executeReshapeOracleQuery(t, ctx, client, query)
+			if !sameConstructionRowIdentities(rows, repeated) {
+				t.Fatalf("repeated related-expansion row identities = %#v, want %#v", constructionRowIdentities(repeated), constructionRowIdentities(rows))
+			}
+		})
+	}
+
+	t.Run(string(recipe.ExpansionError), func(t *testing.T) {
+		_, query := compileRelatedExpandOracleQuery(t, relatedExpandOracleOutput(recipe.ExpansionError), project, generation)
+		started := time.Now()
+		err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+		t.Logf("RELATED_EXPAND %s query rejected an empty route in %s", recipe.ExpansionError, time.Since(started))
+		if err == nil {
+			t.Fatalf("ERROR policy returned rows despite active p2 having no related resource")
+		}
+		t.Logf("ERROR policy result: %v", err)
+	})
+}
+
+func relatedExpandOracleOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.Output {
+	trueValue := true
+	columns := []recipe.StageColumn{
+		{ID: "patient-id", Name: "patient_id", Label: "Patient ID"},
+		{ID: "patient-active", Name: "patient_active", Label: "Active"},
+	}
+	filteredColumns := append([]recipe.StageColumn(nil), columns...)
+	finalColumns := append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
+		ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: emptyPolicy == recipe.ExpansionPreserveParent,
+	})
+	return recipe.Output{
+		Name: "related_expand_oracle", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "patient_id", ColumnID: "patient-id", Label: "Patient ID", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "patient_active", ColumnID: "patient-active", Label: "Active", Expr: recipe.Expression{Select: "root.active"}},
+		},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: columns, Steps: []recipe.ConstructionStep{
+			{
+				ID: "filter_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+					ColumnID: "patient-active", Operator: recipe.FilterEquals,
+					Values: []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}},
+				}}, Outputs: filteredColumns,
+			},
+			{
+				ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "filter_active"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: "_key", ChoiceID: "related-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+						FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+					}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: emptyPolicy, RelatedRecordColumnID: "observation-id",
+				}}, Outputs: finalColumns,
+			},
+		}},
+	}
+}
+
+func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project, generation string) (lower.CompiledRecipeOutput, CompiledQuery) {
+	t.Helper()
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatalf("build related-expansion recipe plan: %v", err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatalf("resolve related-expansion recipe plan: %v", err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile related-expansion recipe: %v", err)
+	}
+	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile related-expansion query: %v", err)
+	}
+	return compiled.Outputs[0], query
+}

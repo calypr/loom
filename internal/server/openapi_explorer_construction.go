@@ -45,6 +45,32 @@ func (h *explorerHTTPHandlers) searchConstructionChoicesDirect(ctx context.Conte
 	return directAuthoringJSON[loomapi.ConstructionChoiceSearchResponse](value)
 }
 
+func (h *explorerHTTPHandlers) searchRelatedExpandChoicesDirect(ctx context.Context, project, explorerID string, body *loomapi.RelatedExpandChoiceSearchRequest) (loomapi.RelatedExpandChoiceSearchResponse, error) {
+	var result loomapi.RelatedExpandChoiceSearchResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("related-expand-choices", errors.New("request body with exact stage and target identities is required"))
+	}
+	request := lifecycle.RelatedExpandChoiceSearchRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, StageID: body.StageId, TargetResourceType: body.TargetResourceType,
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	if body.Cursor != nil {
+		request.Cursor = *body.Cursor
+	}
+	value, err := h.application.SearchRelatedExpandChoices(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.RelatedExpandChoiceSearchResponse](value)
+}
+
 func (h *explorerHTTPHandlers) searchPopulationRoutesDirect(ctx context.Context, project, explorerID string, body *loomapi.PopulationRoutesRequest) (loomapi.PopulationRoutesResponse, error) {
 	var result loomapi.PopulationRoutesResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
@@ -117,6 +143,38 @@ func (r *HTTPRoutes) SearchExplorerConstructionChoices(ctx context.Context, requ
 		return loomapi.SearchExplorerConstructionChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("searchExplorerConstructionChoices", status)
+	}
+}
+
+func (r *HTTPRoutes) SearchExplorerRelatedExpandChoices(ctx context.Context, request loomapi.SearchExplorerRelatedExpandChoicesRequestObject) (loomapi.SearchExplorerRelatedExpandChoicesResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandChoices", explorerUnavailable("related-expand-choices", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.searchRelatedExpandChoicesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.SearchExplorerRelatedExpandChoices200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "searchExplorerRelatedExpandChoices", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.SearchExplorerRelatedExpandChoices400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.SearchExplorerRelatedExpandChoices401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.SearchExplorerRelatedExpandChoices403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.SearchExplorerRelatedExpandChoices404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.SearchExplorerRelatedExpandChoices409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.SearchExplorerRelatedExpandChoices422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.SearchExplorerRelatedExpandChoices500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.SearchExplorerRelatedExpandChoices503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("searchExplorerRelatedExpandChoices", status)
 	}
 }
 

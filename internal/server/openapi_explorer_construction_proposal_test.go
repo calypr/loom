@@ -171,6 +171,153 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 }
 
+func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_observation", ResourceType: "Observation"})
+	snapshot.Edges = append(snapshot.Edges, capability.Edge{
+		ID: "e_patient_observation", FromNodeID: "n_patient", ToNodeID: "n_observation",
+		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
+	})
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate route-choice workspace: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "custom", Title: "Patients",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
+			},
+			Catalog: authoringV2Catalog,
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, engine, service, nil)
+		},
+		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if receipt == nil || receipt.ConstructionProposal == nil {
+				return dataframeexecution.PreviewSummary{}, fmt.Errorf("expected a related expansion proposal receipt")
+			}
+			if err := visit(map[string]any{"c_patient": "patient-1", "observation_id": "observation-1"}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{
+				Output: "patients", Columns: []string{"c_patient", "observation_id"}, RowCount: 1, Complete: true,
+			}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
+	response := requestJSON(t, app, http.MethodPost, basePath+"/related-expand-choices", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","targetResourceType":"Observation"}`,
+		snapshot.Token, digest,
+	))
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("related expansion choices status=%d body=%s", response.StatusCode, response.Body)
+	}
+	var result loomapi.RelatedExpandChoiceSearchResponse
+	if err := json.Unmarshal([]byte(response.Body), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.SnapshotToken != snapshot.Token || result.DraftVersion != 1 || result.DraftDigest != digest ||
+		result.OutputId != "patients" || result.StageId != "source_projection" || !result.Complete || len(result.Choices) != 1 {
+		t.Fatalf("related expansion choice identity = %#v", result)
+	}
+	choice := result.Choices[0]
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, ok := identity.Source.(capability.RelatedResourceChoiceSource)
+	if !ok || source.StageID != result.StageId || source.NodeID != choice.TargetNodeId || source.ResourceType != choice.TargetResourceType ||
+		len(choice.Route) != 1 || choice.Route[0].EdgeId != "e_patient_observation" {
+		t.Fatalf("related expansion choice did not bind its exact stage and route: %#v source=%#v", choice, identity.Source)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	for _, column := range document.Columns {
+		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	outputs = append(outputs, authoringv2.StageColumn{ID: "observation_id", Name: "observation_id", Label: "FHIR resource ID", Type: "string"})
+	authoredRoute := make([]capability.ConstructionRouteStep, 0, len(choice.Route))
+	for _, hop := range choice.Route {
+		authoredRoute = append(authoredRoute, capability.ConstructionRouteStep{
+			EdgeID: hop.EdgeId, FromNodeID: hop.FromNodeId, ToNodeID: hop.ToNodeId,
+			FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
+			Relationship: hop.Relationship, StorageDirection: string(hop.StorageDirection), MatchMode: string(hop.MatchMode),
+		})
+	}
+	candidate := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+		ID: "expand_observations", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: &authoringv2.ConstructionRelatedExpand{
+			AnchorColumnID: "_key", ChoiceID: choice.ChoiceId, TargetNodeID: choice.TargetNodeId, TargetResourceType: choice.TargetResourceType,
+			Route: authoredRoute, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+			EmptyPolicy: authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id",
+		}},
+		Outputs: outputs,
+	}}}
+	candidateJSON, err := json.Marshal(candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposalResponse := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"expand_observations","candidateConstruction":%s}`,
+		snapshot.Token, digest, candidateJSON,
+	))
+	if proposalResponse.StatusCode != http.StatusOK {
+		t.Fatalf("related expansion proposal status=%d body=%s", proposalResponse.StatusCode, proposalResponse.Body)
+	}
+	var proposal loomapi.ConstructionProposalResponse
+	if err := json.Unmarshal([]byte(proposalResponse.Body), &proposal); err != nil {
+		t.Fatal(err)
+	}
+	if len(proposal.CandidateConstruction.Steps) != 1 || proposal.CandidateConstruction.Steps[0].Operation.RelatedExpand == nil ||
+		proposal.CandidateConstruction.Steps[0].Operation.RelatedExpand.ChoiceId != choice.ChoiceId ||
+		proposal.CandidateConstruction.Steps[0].Operation.RelatedExpand.RelatedRecordColumnId != "observation_id" {
+		t.Fatalf("strict proposal contract did not preserve RELATED_EXPAND payload: %#v", proposal.CandidateConstruction)
+	}
+}
+
 func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "n_observation", ResourceType: "Observation"})
