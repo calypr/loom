@@ -1,5 +1,22 @@
 # Construction preview performance baseline
 
+## Related-source route menu, 2026-09-25
+
+The construction menu previously requested 50 compiler-proved route choices
+before showing a field's routes. On the local `fixture-v1` Patient to
+Observation.status path, six alternating requests at each limit took a median
+of 1,608 ms for 50 choices and 355 ms for 10 choices. The direct route was
+first in every response. The 10-choice response retained a cursor for later
+routes. The builder now requests 10 initially and exposes Load more routes
+in the selection dialog. A focused UI test selected a route from the next
+page, and the authenticated browser regression journey passed.
+
+This measures route lookup only. It does not establish P08's edit-to-visible-
+preview latency on representative constructions. The route planner still
+enumerates candidates before paging; proving fewer choices explains most of
+the observed improvement on this fixture, and larger graphs need separate
+measurement.
+
 ## Status
 
 The latest validated 10-sample run completed at 2026-09-25 01:58 UTC against API revision `7df9bf029` and the integrated local fixture. Its report is `/private/tmp/construction-preview-phase-timing/2026-09-25T01-58-07-216Z/report.json`. The one-sample browser smoke report is `/private/tmp/construction-preview-phase-smoke/2026-09-25T01-57-45-928Z/report.json` and is excluded from the distribution.
