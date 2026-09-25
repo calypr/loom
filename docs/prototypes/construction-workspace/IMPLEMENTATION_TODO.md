@@ -19,15 +19,18 @@ passed the no-match case and typed root-key paging. The local browser
 verification suite passed. These checks cover one field form and one published
 fixture; they do not close Checkpoint A or the held-out F0 constructions.
 
-Open Checkpoint A work: editing an existing related-source step and checking
-that exact flow in the browser. Before Apply, the UI must distinguish sampled
-preview evidence from full-output coverage; full-output counts currently exist
-only after publication. The current route menu places a direct path first, but
-the 50-choice request took about 1.1 seconds on the local fixture; P08 still
-needs representative latency measurement and improvement.
+The saved related-source step now opens an editor in the live builder. Focused
+tests cover route replacement, stable step and output IDs, downstream input
+references, proposal preview, and Apply. The integrated browser checks found
+the saved step, opened Edit, and confirmed the three intended creation actions.
+Before Apply, the UI must distinguish sampled preview evidence from full-output
+coverage; full-output counts currently exist only after publication. The current
+route menu places a direct path first, but the 50-choice request took about
+1.1 seconds on the local fixture; P08 still needs representative latency
+measurement and improvement.
 
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
-- [ ] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
+- [x] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
 - [ ] Checkpoint B: entity, event, and category frames across held-out FHIR paths, with the promised absence, time, list, Quantity, grouping, and long-output policies.
 - [ ] Checkpoint C: transformed AQL stage combined with a pinned ClickHouse artifact, followed by another operation and publication; G1/G2 input updates stay explicit.
 - [ ] Checkpoint D: independent researcher task study, representative capability and preview latency, authorized evidence, and sampled/unavailable labels.
