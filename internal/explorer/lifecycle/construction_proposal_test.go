@@ -204,7 +204,7 @@ func TestProposeConstructionAllowsRemovalOfOnlyStepWithoutChangedStepID(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.PreviewStatus != "READY" || proposal.ProposalID == "" || proposal.ChangedStepID != "" || len(proposal.CandidateConstruction.Steps) != 0 || len(proposal.DependencyImpact.RemovedStepIDs) != 1 || proposal.DependencyImpact.RemovedStepIDs[0] != "only_step" {
+	if proposal.PreviewStatus != "PREVIEW_PENDING" || proposal.ProposalID == "" || proposal.ChangedStepID != "" || len(proposal.CandidateConstruction.Steps) != 0 || len(proposal.DependencyImpact.RemovedStepIDs) != 1 || proposal.DependencyImpact.RemovedStepIDs[0] != "only_step" {
 		t.Fatalf("remove-only proposal = %#v", proposal)
 	}
 }
@@ -220,7 +220,7 @@ func TestApplyConstructionProposalPreviewsExactReceiptBeforeAtomicSave(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.PreviewStatus != "READY" || proposal.ProposalID == "" || len(proposal.Stages) != 2 {
+	if proposal.PreviewStatus != "PREVIEW_PENDING" || proposal.ProposalID == "" || len(proposal.Stages) != 2 {
 		t.Fatalf("ready proposal = %#v", proposal)
 	}
 	before := append([]byte(nil), store.created.DraftConfig...)

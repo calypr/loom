@@ -66,8 +66,11 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 	if err != nil {
 		return result, err
 	}
-	if result.PreviewStatus != loomapi.ConstructionProposalResponsePreviewStatus("READY") {
+	if result.PreviewStatus == loomapi.ConstructionProposalResponsePreviewStatus("NEEDS_REPAIR") {
 		return result, nil
+	}
+	if result.PreviewStatus != loomapi.ConstructionProposalResponsePreviewStatus("PREVIEW_PENDING") {
+		return result, malformedRouteError("construction-proposal", nil)
 	}
 	if result.ProposalId == nil || *result.ProposalId == "" {
 		return result, malformedRouteError("construction-proposal", nil)
@@ -85,6 +88,7 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 		return result, err
 	}
 	result.Preview = &preview
+	result.PreviewStatus = loomapi.ConstructionProposalResponsePreviewStatus("READY")
 	return result, nil
 }
 

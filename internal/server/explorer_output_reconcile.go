@@ -269,94 +269,248 @@ func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authorin
 		}
 		documents[outputID] = document
 		columns[outputID] = make(map[string]authoredOutputColumn)
-		if document.TableShape == nil {
+		if document.TableShape == nil && document.Construction == nil {
 			continue
 		}
-		add := func(output authoringv2.ColumnOutput, constructionID authoringv2.ConstructionID, inputColumns []string, quality constructedOutputQuality) error {
-			if strings.TrimSpace(output.Column) == "" || strings.TrimSpace(output.Label) == "" || strings.TrimSpace(string(constructionID)) == "" {
-				return fmt.Errorf("table-shape output in document %q is missing its column, label, or construction identity", outputID)
-			}
-			if _, duplicate := columns[outputID][output.Column]; duplicate {
-				return fmt.Errorf("duplicate table-shape output %q for document %q", output.Column, outputID)
-			}
-			inputs, err := uniqueColumnsInOrder(inputColumns)
-			if err != nil {
-				return fmt.Errorf("table-shape output %q in document %q: %w", output.Column, outputID, err)
-			}
-			columns[outputID][output.Column] = authoredOutputColumn{
-				ConstructionID: string(constructionID),
-				Label:          output.Label,
-				InputColumns:   inputs,
-				Quality:        quality,
-			}
-			return nil
-		}
-		shape := document.TableShape
-		if shape.Reshape != nil {
-			switch shape.Reshape.Kind {
-			case "PIVOT":
-				if shape.Reshape.Pivot == nil {
-					return nil, nil, fmt.Errorf("pivot construction for document %q is missing", outputID)
+		if document.TableShape != nil {
+			add := func(output authoringv2.ColumnOutput, constructionID authoringv2.ConstructionID, inputColumns []string, quality constructedOutputQuality) error {
+				if strings.TrimSpace(output.Column) == "" || strings.TrimSpace(output.Label) == "" || strings.TrimSpace(string(constructionID)) == "" {
+					return fmt.Errorf("table-shape output in document %q is missing its column, label, or construction identity", outputID)
 				}
-				pivot := shape.Reshape.Pivot
-				inputs := append([]string(nil), pivot.GroupKeys...)
-				inputs = append(inputs, pivot.CategoryColumn, pivot.ValueColumn)
-				quality, err := pivotOutputQuality(pivot)
+				if _, duplicate := columns[outputID][output.Column]; duplicate {
+					return fmt.Errorf("duplicate table-shape output %q for document %q", output.Column, outputID)
+				}
+				inputs, err := uniqueColumnsInOrder(inputColumns)
 				if err != nil {
-					return nil, nil, fmt.Errorf("pivot construction for document %q: %w", outputID, err)
+					return fmt.Errorf("table-shape output %q in document %q: %w", output.Column, outputID, err)
 				}
-				for _, category := range pivot.Categories {
-					if err := add(category.Output, pivot.ConstructionID, inputs, quality); err != nil {
+				columns[outputID][output.Column] = authoredOutputColumn{
+					ConstructionID: string(constructionID),
+					Label:          output.Label,
+					InputColumns:   inputs,
+					Quality:        quality,
+				}
+				return nil
+			}
+			shape := document.TableShape
+			if shape.Reshape != nil {
+				switch shape.Reshape.Kind {
+				case "PIVOT":
+					if shape.Reshape.Pivot == nil {
+						return nil, nil, fmt.Errorf("pivot construction for document %q is missing", outputID)
+					}
+					pivot := shape.Reshape.Pivot
+					inputs := append([]string(nil), pivot.GroupKeys...)
+					inputs = append(inputs, pivot.CategoryColumn, pivot.ValueColumn)
+					quality, err := pivotOutputQuality(pivot)
+					if err != nil {
+						return nil, nil, fmt.Errorf("pivot construction for document %q: %w", outputID, err)
+					}
+					for _, category := range pivot.Categories {
+						if err := add(category.Output, pivot.ConstructionID, inputs, quality); err != nil {
+							return nil, nil, err
+						}
+					}
+				case "UNPIVOT":
+					if shape.Reshape.Unpivot == nil {
+						return nil, nil, fmt.Errorf("unpivot construction for document %q is missing", outputID)
+					}
+					unpivot := shape.Reshape.Unpivot
+					dependencies := make([]string, 0, len(unpivot.Inputs))
+					for _, input := range unpivot.Inputs {
+						dependencies = append(dependencies, input.Column)
+					}
+					quality, err := unpivotOutputQuality(unpivot)
+					if err != nil {
+						return nil, nil, fmt.Errorf("unpivot construction for document %q: %w", outputID, err)
+					}
+					if err := add(unpivot.KeyOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
 						return nil, nil, err
 					}
+					if err := add(unpivot.ValueOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
+						return nil, nil, err
+					}
+				default:
+					return nil, nil, fmt.Errorf("unsupported table reshape kind %q for document %q", shape.Reshape.Kind, outputID)
 				}
-			case "UNPIVOT":
-				if shape.Reshape.Unpivot == nil {
-					return nil, nil, fmt.Errorf("unpivot construction for document %q is missing", outputID)
+			}
+			for _, derived := range shape.Derived {
+				dependencies := make([]string, 0, 2)
+				for _, operand := range []authoringv2.ArithmeticOperand{derived.Left, derived.Right} {
+					switch operand.Kind {
+					case "COLUMN":
+						if strings.TrimSpace(operand.Column) == "" {
+							return nil, nil, fmt.Errorf("derived output %q in document %q has an empty column dependency", derived.Output.Column, outputID)
+						}
+						dependencies = append(dependencies, operand.Column)
+					case "LITERAL":
+					default:
+						return nil, nil, fmt.Errorf("derived output %q in document %q has unsupported operand kind %q", derived.Output.Column, outputID, operand.Kind)
+					}
 				}
-				unpivot := shape.Reshape.Unpivot
-				dependencies := make([]string, 0, len(unpivot.Inputs))
-				for _, input := range unpivot.Inputs {
-					dependencies = append(dependencies, input.Column)
-				}
-				quality, err := unpivotOutputQuality(unpivot)
+				quality, err := derivedOutputQuality(derived.Operation)
 				if err != nil {
-					return nil, nil, fmt.Errorf("unpivot construction for document %q: %w", outputID, err)
+					return nil, nil, fmt.Errorf("derived output %q in document %q: %w", derived.Output.Column, outputID, err)
 				}
-				if err := add(unpivot.KeyOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
+				if err := add(derived.Output, derived.ConstructionID, dependencies, quality); err != nil {
 					return nil, nil, err
 				}
-				if err := add(unpivot.ValueOutput, unpivot.ConstructionID, dependencies, quality); err != nil {
-					return nil, nil, err
-				}
-			default:
-				return nil, nil, fmt.Errorf("unsupported table reshape kind %q for document %q", shape.Reshape.Kind, outputID)
 			}
 		}
-		for _, derived := range shape.Derived {
-			dependencies := make([]string, 0, 2)
-			for _, operand := range []authoringv2.ArithmeticOperand{derived.Left, derived.Right} {
-				switch operand.Kind {
-				case "COLUMN":
-					if strings.TrimSpace(operand.Column) == "" {
-						return nil, nil, fmt.Errorf("derived output %q in document %q has an empty column dependency", derived.Output.Column, outputID)
-					}
-					dependencies = append(dependencies, operand.Column)
-				case "LITERAL":
-				default:
-					return nil, nil, fmt.Errorf("derived output %q in document %q has unsupported operand kind %q", derived.Output.Column, outputID, operand.Kind)
-				}
-			}
-			quality, err := derivedOutputQuality(derived.Operation)
-			if err != nil {
-				return nil, nil, fmt.Errorf("derived output %q in document %q: %w", derived.Output.Column, outputID, err)
-			}
-			if err := add(derived.Output, derived.ConstructionID, dependencies, quality); err != nil {
-				return nil, nil, err
+		if document.Construction != nil {
+			if err := authoredConstructionOutputs(document, columns[outputID]); err != nil {
+				return nil, nil, fmt.Errorf("construction outputs for document %q: %w", outputID, err)
 			}
 		}
 	}
 	return documents, columns, nil
+}
+
+func authoredConstructionOutputs(document authoringv2.Document, authored map[string]authoredOutputColumn) error {
+	if document.Construction == nil {
+		return nil
+	}
+	prior := make(map[string]string, len(document.Columns))
+	for _, column := range document.Columns {
+		if !requiredConstructionID(column.ColumnID) {
+			return fmt.Errorf("source column %q has no stable column ID", column.Column)
+		}
+		if strings.TrimSpace(column.Column) == "" {
+			return fmt.Errorf("source column %q has no public name", column.ColumnID)
+		}
+		if _, duplicate := prior[column.ColumnID]; duplicate {
+			return fmt.Errorf("source schema duplicates column ID %q", column.ColumnID)
+		}
+		prior[column.ColumnID] = column.Column
+	}
+	for stepIndex, step := range document.Construction.Steps {
+		addOutput := func(outputColumnID, constructionID string, inputIDs []string, quality constructedOutputQuality) error {
+			if strings.TrimSpace(constructionID) == "" {
+				return fmt.Errorf("steps[%d] has no construction identity", stepIndex)
+			}
+			var output authoringv2.StageColumn
+			found := false
+			for _, candidate := range step.Outputs {
+				if candidate.ID == outputColumnID {
+					output, found = candidate, true
+					break
+				}
+			}
+			if !found || !requiredConstructionID(output.ID) || strings.TrimSpace(output.Name) == "" || strings.TrimSpace(output.Label) == "" {
+				return fmt.Errorf("step %q generated output %q is missing a declared stable ID, name, or label", step.ID, outputColumnID)
+			}
+			if _, exists := prior[outputColumnID]; exists {
+				return fmt.Errorf("step %q reuses existing output column ID %q", step.ID, outputColumnID)
+			}
+			if _, duplicate := authored[output.Name]; duplicate {
+				return fmt.Errorf("construction output %q is duplicated for document %q", output.Name, document.Output.ID)
+			}
+			inputColumns, err := constructionInputNames(prior, inputIDs)
+			if err != nil {
+				return fmt.Errorf("step %q output %q: %w", step.ID, output.Name, err)
+			}
+			authored[output.Name] = authoredOutputColumn{
+				ConstructionID: constructionID, Label: output.Label,
+				InputColumns: inputColumns, Quality: quality,
+			}
+			return nil
+		}
+		switch step.Operation.Kind {
+		case authoringv2.ConstructionOperationDerive:
+			if step.Operation.Derive == nil {
+				return fmt.Errorf("derive step %q has no operation payload", step.ID)
+			}
+			derive := step.Operation.Derive
+			inputs := make([]string, 0, 2)
+			for _, operand := range []authoringv2.ConstructionOperand{derive.Left, derive.Right} {
+				switch operand.Kind {
+				case authoringv2.ConstructionColumnOperand:
+					inputs = append(inputs, operand.ColumnID)
+				case authoringv2.ConstructionLiteralOperand:
+				default:
+					return fmt.Errorf("derive step %q has unsupported operand kind %q", step.ID, operand.Kind)
+				}
+			}
+			quality, err := derivedOutputQuality(string(derive.Operation))
+			if err != nil {
+				return fmt.Errorf("derive step %q: %w", step.ID, err)
+			}
+			if err := addOutput(derive.OutputColumnID, derive.ConstructionID, inputs, quality); err != nil {
+				return err
+			}
+		case authoringv2.ConstructionOperationPivot:
+			if step.Operation.Pivot == nil {
+				return fmt.Errorf("pivot step %q has no operation payload", step.ID)
+			}
+			pivot := step.Operation.Pivot
+			dependencies := append([]string(nil), pivot.GroupKeyIDs...)
+			dependencies = append(dependencies, pivot.CategoryColumnID, pivot.ValueColumnID)
+			quality, err := pivotOutputQuality(&authoringv2.PivotConstruction{
+				DuplicatePolicy: string(pivot.DuplicatePolicy), MissingCellPolicy: string(pivot.MissingCellPolicy),
+				UnlistedCategoryPolicy: string(pivot.UnlistedCategoryPolicy),
+			})
+			if err != nil {
+				return fmt.Errorf("pivot step %q: %w", step.ID, err)
+			}
+			for _, category := range pivot.Categories {
+				if err := addOutput(category.OutputColumnID, pivot.ConstructionID, dependencies, quality); err != nil {
+					return err
+				}
+			}
+		case authoringv2.ConstructionOperationUnpivot:
+			if step.Operation.Unpivot == nil {
+				return fmt.Errorf("unpivot step %q has no operation payload", step.ID)
+			}
+			unpivot := step.Operation.Unpivot
+			dependencies := make([]string, 0, len(unpivot.Inputs))
+			for _, input := range unpivot.Inputs {
+				dependencies = append(dependencies, input.ColumnID)
+			}
+			quality, err := unpivotOutputQuality(&authoringv2.UnpivotConstruction{NullRowPolicy: string(unpivot.NullRowPolicy)})
+			if err != nil {
+				return fmt.Errorf("unpivot step %q: %w", step.ID, err)
+			}
+			for _, columnID := range []string{unpivot.KeyOutputColumnID, unpivot.ValueOutputColumnID} {
+				if err := addOutput(columnID, unpivot.ConstructionID, dependencies, quality); err != nil {
+					return err
+				}
+			}
+		case authoringv2.ConstructionOperationFilter:
+			if step.Operation.Filter == nil {
+				return fmt.Errorf("filter step %q has no operation payload", step.ID)
+			}
+		default:
+			return fmt.Errorf("step %q has unsupported operation kind %q", step.ID, step.Operation.Kind)
+		}
+		next := make(map[string]string, len(step.Outputs))
+		for _, output := range step.Outputs {
+			if !requiredConstructionID(output.ID) || strings.TrimSpace(output.Name) == "" {
+				return fmt.Errorf("step %q output schema contains a missing stable ID or public name", step.ID)
+			}
+			if _, duplicate := next[output.ID]; duplicate {
+				return fmt.Errorf("step %q output schema duplicates column ID %q", step.ID, output.ID)
+			}
+			next[output.ID] = output.Name
+		}
+		prior = next
+	}
+	return nil
+}
+
+func constructionInputNames(schema map[string]string, ids []string) ([]string, error) {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name, exists := schema[id]
+		if !exists {
+			return nil, fmt.Errorf("input column ID %q is absent from the prior stage", id)
+		}
+		names = append(names, name)
+	}
+	return uniqueColumnsInOrder(names)
+}
+
+func requiredConstructionID(value string) bool {
+	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
 }
 
 func derivedOutputQuality(operation string) (constructedOutputQuality, error) {

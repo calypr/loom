@@ -102,6 +102,33 @@ describe('explorerBuilderDocumentSchema', () => {
     ).toBe(false);
   });
 
+  it('requires unique stable source column IDs for construction documents', () => {
+    const sourceColumn = {
+      columnId: 'source_patient_id',
+      column: 'patient_id',
+      label: 'Patient ID',
+      occurrenceId: 'base',
+      source: { kind: 'projectId' },
+    };
+    const stagedDocument = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      columns: [sourceColumn],
+      construction: { version: 1, steps: [] },
+    };
+
+    expect(explorerBuilderDocumentSchema.parse(stagedDocument).columns[0]?.columnId)
+      .toBe('source_patient_id');
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...stagedDocument,
+      columns: [{ ...sourceColumn, columnId: undefined }],
+    }).success).toBe(false);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...stagedDocument,
+      columns: [sourceColumn, { ...sourceColumn, column: 'other_id' }],
+    }).success).toBe(false);
+  });
+
   it('preserves a persisted server table shape as opaque JSON during Builder reload parsing', () => {
     const tableShape = {
       reshape: {

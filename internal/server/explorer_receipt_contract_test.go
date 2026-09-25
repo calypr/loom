@@ -176,6 +176,87 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 }
 
+func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
+		Column: "patient_count", Label: "Patient count", LogicalType: "integer", OccurrenceID: "base",
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceAggregate, Aggregate: &authoringv2.AggregateSource{Operation: "COUNT"}},
+	})
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	for _, column := range document.Columns {
+		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	countID := document.Columns[1].ColumnID
+	outputs = append(outputs, authoringv2.StageColumn{ID: "scaled_count_id", Name: "scaled_count", Label: "Scaled count", Type: "integer"})
+	one := int64(1)
+	document.Construction.Steps = []authoringv2.ConstructionStep{{
+		ID: "derive_count", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{
+			Kind: authoringv2.ConstructionOperationDerive,
+			Derive: &authoringv2.ConstructionDerive{
+				ConstructionID: "derive_count", OutputColumnID: "scaled_count_id", Operation: authoringv2.ConstructionDerivedAdd,
+				Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: countID},
+				Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
+				MissingInputPolicy: authoringv2.ConstructionMissingInputError,
+			},
+		},
+		Outputs: outputs,
+	}}
+	workspace.Documents[0] = document
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate typed derived construction: %v", err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("compile and reconcile typed derived construction output: %v", err)
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
+		t.Fatalf("validate typed construction public output contract: %v", err)
+	}
+	var scaled *explorer.EmittedColumn
+	for index := range receipt.EmittedColumns {
+		if receipt.EmittedColumns[index].PublicColumn == "scaled_count" {
+			scaled = &receipt.EmittedColumns[index]
+			break
+		}
+	}
+	if scaled == nil || scaled.ConstructionID != "derive_count" || scaled.Label != "Scaled count" || !reflect.DeepEqual(scaled.InputColumns, []string{"patient_count"}) {
+		t.Fatalf("typed derived output metadata was not reconciled: %#v", scaled)
+	}
+}
+
 func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
@@ -291,6 +372,77 @@ func TestAuthoredOutputColumnsDeduplicatesDirectInputsInAuthoringOrder(t *testin
 	}
 	if got := columns["patients"]["ordered_result"].InputColumns; !reflect.DeepEqual(got, []string{"score", "patient_count"}) {
 		t.Errorf("direct inputs = %#v, want authoring order", got)
+	}
+}
+
+func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
+	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
+	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
+	value := authoringv2.StageColumn{ID: "value-id", Name: "value", Label: "Value", Type: "integer"}
+	pivotValue := authoringv2.StageColumn{ID: "pivot-value-id", Name: "active_value", Label: "Active value", Type: "integer"}
+	derivedValue := authoringv2.StageColumn{ID: "derived-value-id", Name: "adjusted_value", Label: "Adjusted value", Type: "integer"}
+	measureKey := authoringv2.StageColumn{ID: "measure-key-id", Name: "measure", Label: "Measure", Type: "string"}
+	measureValue := authoringv2.StageColumn{ID: "measure-value-id", Name: "measure_value", Label: "Measure value", Type: "integer"}
+	one := int64(1)
+	active := "active"
+	document := authoringv2.Document{
+		Output: authoringv2.Output{ID: "patients"},
+		Columns: []authoringv2.Column{
+			{ColumnID: group.ID, Column: group.Name, Label: group.Label},
+			{ColumnID: category.ID, Column: category.Name, Label: category.Label},
+			{ColumnID: value.ID, Column: value.Name, Label: value.Label},
+		},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+			{
+				ID: "pivot-step",
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+					ConstructionID: "pivot-step", GroupKeyIDs: []string{group.ID}, CategoryColumnID: category.ID, ValueColumnID: value.ID,
+					Categories:      []authoringv2.ConstructionPivotCategory{{Key: authoringv2.TableScalar{Kind: "STRING", String: &active}, OutputColumnID: pivotValue.ID}},
+					DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+				}},
+				Outputs: []authoringv2.StageColumn{group, pivotValue},
+			},
+			{
+				ID: "derive-step",
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
+					ConstructionID: "derive-step", OutputColumnID: derivedValue.ID, Operation: authoringv2.ConstructionDerivedAdd,
+					Left:               authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionColumnOperand, ColumnID: pivotValue.ID},
+					Right:              authoringv2.ConstructionOperand{Kind: authoringv2.ConstructionLiteralOperand, Literal: &authoringv2.ConstructionLiteral{Kind: authoringv2.ConstructionNumericInteger, Integer: &one}},
+					MissingInputPolicy: authoringv2.ConstructionMissingInputError,
+				}},
+				Outputs: []authoringv2.StageColumn{group, pivotValue, derivedValue},
+			},
+			{
+				ID:        "filter-step",
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: derivedValue.ID, Operator: authoringv2.ConstructionFilterExists}},
+				Outputs:   []authoringv2.StageColumn{group, pivotValue, derivedValue},
+			},
+			{
+				ID: "unpivot-step",
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationUnpivot, Unpivot: &authoringv2.ConstructionUnpivot{
+					ConstructionID: "unpivot-step", Inputs: []authoringv2.ConstructionUnpivotInput{{ColumnID: pivotValue.ID, Key: authoringv2.TableScalar{Kind: "STRING", String: &active}}, {ColumnID: derivedValue.ID, Key: authoringv2.TableScalar{Kind: "STRING", String: &active}}},
+					KeyOutputColumnID: measureKey.ID, ValueOutputColumnID: measureValue.ID, NullRowPolicy: authoringv2.ConstructionUnpivotPreserve,
+				}},
+				Outputs: []authoringv2.StageColumn{group, measureKey, measureValue},
+			},
+		}},
+	}
+	_, columns, err := authoredOutputColumns(authoringv2.Workspace{Documents: []authoringv2.Document{document}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"active_value":   {"group", "category", "value"},
+		"adjusted_value": {"active_value"},
+		"measure":        {"active_value", "adjusted_value"},
+		"measure_value":  {"active_value", "adjusted_value"},
+	}
+	for name, inputColumns := range want {
+		got, exists := columns["patients"][name]
+		if !exists || !reflect.DeepEqual(got.InputColumns, inputColumns) {
+			t.Errorf("typed construction output %q = %#v, want inputs %#v", name, got, inputColumns)
+		}
 	}
 }
 

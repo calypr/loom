@@ -3,6 +3,7 @@ import { createLoomClient, populationMappingResponseSchema } from './api';
 import { cellTraceResponseSchema } from './cellTrace';
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
+  type Construction,
   type ExplorerBuilderCommand,
   constructionProposalRequestSchema,
 } from './types';
@@ -23,7 +24,7 @@ describe('Loom project paths', () => {
   });
 
   it('loads compiler stage choices and sends exact construction proposals', async () => {
-    const construction = { version: 1, steps: [] } as const;
+    const construction: Construction = { version: 1, steps: [] };
     const selectedStage = {
       id: 'source_projection',
       inputStageId: '',

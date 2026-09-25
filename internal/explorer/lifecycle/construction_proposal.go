@@ -221,7 +221,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseResponse.ProposalID = candidateReceipt.ID
 	baseResponse.BaseReceiptID = base.receipt.ID
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
-	baseResponse.PreviewStatus = "READY"
+	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil
 }
 

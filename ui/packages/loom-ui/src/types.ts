@@ -997,6 +997,7 @@ export type ColumnTransformationChange = z.infer<
 
 export const explorerBuilderColumnSchema = z
   .object({
+    columnId: opaqueIdSchema.optional(),
     column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
     label: z.string().min(1),
     logicalType: z.string().optional(),
@@ -1293,6 +1294,27 @@ export const explorerBuilderDocumentSchema = z
         code: z.ZodIssueCode.custom,
         message: 'Construction documents cannot also carry legacy tableShape.',
         path: ['tableShape'],
+      });
+    }
+    if (document.construction) {
+      const sourceColumnIds = new Set<string>();
+      document.columns.forEach((column, index) => {
+        if (!column.columnId) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Construction documents require a stable columnId on every source column.',
+            path: ['columns', index, 'columnId'],
+          });
+          return;
+        }
+        if (sourceColumnIds.has(column.columnId)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Construction source column IDs must be unique.',
+            path: ['columns', index, 'columnId'],
+          });
+        }
+        sourceColumnIds.add(column.columnId);
       });
     }
   });
