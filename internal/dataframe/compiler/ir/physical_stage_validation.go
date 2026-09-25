@@ -15,6 +15,15 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 	if _, ok := bindVars[sequence.PreviewLimitBindKey]; sequence.PreviewLimitBindKey != "" && !ok {
 		return fmt.Errorf("preview limit bind %q is missing", sequence.PreviewLimitBindKey)
 	}
+	if sequence.OutputAuthResourcePathBindKey != "" {
+		if !physicalBindKeyPattern.MatchString(sequence.OutputAuthResourcePathBindKey) {
+			return fmt.Errorf("private prefix authorization path bind %q is unsafe", sequence.OutputAuthResourcePathBindKey)
+		}
+		value, ok := bindVars[sequence.OutputAuthResourcePathBindKey].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("private prefix authorization path bind %q is missing or empty", sequence.OutputAuthResourcePathBindKey)
+		}
+	}
 	projectionNames := map[string]bool{}
 	for _, operation := range sourceOperations {
 		if operation.Kind == PhysicalGroupedPivotOp || operation.Kind == PhysicalUnpivotOp {

@@ -124,9 +124,18 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	}
 	projections := make([]ir.PhysicalProjection, 0, len(sequence.FinalColumns))
 	for _, column := range sequence.FinalColumns {
+		if column.Name == "auth_resource_path" && sequence.OutputAuthResourcePathBindKey != "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("final stage already declares the reserved authorization path column")
+		}
 		projections = append(projections, ir.PhysicalProjection{
 			Name: column.Name, Hidden: column.Internal,
 			Value: ir.PhysicalValue{Variable: finalRow, Path: []string{column.Name}},
+		})
+	}
+	if sequence.OutputAuthResourcePathBindKey != "" {
+		projections = append(projections, ir.PhysicalProjection{
+			Name: "auth_resource_path", Hidden: true,
+			Value: ir.PhysicalValue{BindKey: sequence.OutputAuthResourcePathBindKey},
 		})
 	}
 	returned, err := renderer.renderReturn(ir.PhysicalReturn{Projections: projections})

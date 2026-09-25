@@ -21,9 +21,10 @@ const (
 )
 
 type PhysicalCombineInputRef struct {
-	TableID    string
-	RevisionID string
-	OutputID   string
+	TableID        string
+	RevisionID     string
+	OutputID       string
+	PrivateStageID string
 }
 
 type PhysicalCombineKey struct {
@@ -62,11 +63,37 @@ type PhysicalClickHouseCombine struct {
 }
 
 func (combine PhysicalClickHouseCombine) Validate() error {
+	return combine.validate(false)
+}
+
+// ValidateWithPrivateStage is used only by a typed composite physical plan.
+// Standalone combines continue to require exact published table revisions.
+func (combine PhysicalClickHouseCombine) ValidateWithPrivateStage() error {
+	return combine.validate(true)
+}
+
+func (combine PhysicalClickHouseCombine) validate(allowPrivateStage bool) error {
 	if len(combine.Inputs) < 2 {
-		return fmt.Errorf("ClickHouse combine requires at least two exact table inputs")
+		return fmt.Errorf("ClickHouse combine requires at least two exact inputs")
 	}
 	seenRefs := make(map[string]bool, len(combine.Inputs))
+	privateStages := 0
 	for index, input := range combine.Inputs {
+		if input.PrivateStageID != "" {
+			if !allowPrivateStage {
+				return fmt.Errorf("ClickHouse combine input %d cannot reference a private stage outside a composite plan", index)
+			}
+			if strings.TrimSpace(input.PrivateStageID) != input.PrivateStageID || strings.TrimSpace(input.TableID) != "" || strings.TrimSpace(input.RevisionID) != "" || strings.TrimSpace(input.OutputID) != "" {
+				return fmt.Errorf("ClickHouse combine input %d must reference either one private stage or one exact table revision", index)
+			}
+			privateStages++
+			key := "stage\x00" + input.PrivateStageID
+			if seenRefs[key] {
+				return fmt.Errorf("ClickHouse combine input %d duplicates a private stage reference", index)
+			}
+			seenRefs[key] = true
+			continue
+		}
 		if strings.TrimSpace(input.TableID) == "" || strings.TrimSpace(input.RevisionID) == "" || strings.TrimSpace(input.OutputID) == "" {
 			return fmt.Errorf("ClickHouse combine input %d requires table, revision, and output IDs", index)
 		}
@@ -75,6 +102,9 @@ func (combine PhysicalClickHouseCombine) Validate() error {
 			return fmt.Errorf("ClickHouse combine input %d duplicates an exact table revision", index)
 		}
 		seenRefs[key] = true
+	}
+	if allowPrivateStage && privateStages != 1 {
+		return fmt.Errorf("composite ClickHouse combine requires exactly one private stage input")
 	}
 	if len(combine.Outputs) == 0 {
 		return fmt.Errorf("ClickHouse combine output schema is required")
@@ -180,6 +210,88 @@ func (combine PhysicalClickHouseCombine) Validate() error {
 	return nil
 }
 
+// PhysicalClickHousePrefix binds a terminal ClickHouse Combine input to the
+// exact last typed AQL stage. A restricted prefix is supported only for one
+// immutable authorization path; the renderer emits that bound path as hidden
+// row metadata instead of guessing it from result rows.
+type PhysicalClickHousePrefix struct {
+	StageID                 string
+	AuthScopeMode           string
+	AuthResourcePaths       []string
+	IncludeAuthResourcePath bool
+	AuthResourcePathBindKey string
+}
+
+func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	if sequence == nil || strings.TrimSpace(prefix.StageID) == "" || prefix.StageID != sequence.FinalStageID {
+		return fmt.Errorf("private ClickHouse prefix must reference the exact final AQL stage")
+	}
+	if sequence.CellTraceReturn != nil {
+		return fmt.Errorf("cell-trace plans cannot feed a private ClickHouse Combine")
+	}
+	if err := prefix.ValidateScope(); err != nil {
+		return err
+	}
+	paths, pathsOK := bindVars[physicalScopeAuthPathsBind].([]string)
+	unrestricted, unrestrictedOK := bindVars[physicalScopeAuthPathsUnrestrictedBind].(bool)
+	allowed, allowedOK := bindVars[physicalScopeAllowedBind].(bool)
+	if !pathsOK || !samePhysicalStrings(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
+		return fmt.Errorf("private ClickHouse prefix scope differs from the AQL authorization bindings")
+	}
+	for _, column := range sequence.FinalColumns {
+		if column.Name == "auth_resource_path" || column.Name == "project_id" {
+			return fmt.Errorf("private ClickHouse prefix final schema declares reserved column %q", column.Name)
+		}
+	}
+	for _, stage := range sequence.Stages {
+		if stage.Kind == PhysicalStageGroupOp {
+			return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
+		}
+	}
+	if prefix.AuthResourcePathBindKey == "" {
+		return nil
+	}
+	value, ok := bindVars[prefix.AuthResourcePathBindKey].(string)
+	if !ok || value != prefix.AuthResourcePaths[0] {
+		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
+	}
+	return nil
+}
+
+func samePhysicalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (prefix PhysicalClickHousePrefix) ValidateScope() error {
+	if strings.TrimSpace(prefix.StageID) == "" || prefix.StageID != strings.TrimSpace(prefix.StageID) {
+		return fmt.Errorf("private ClickHouse prefix stage ID is required")
+	}
+	switch prefix.AuthScopeMode {
+	case "restricted":
+		if len(prefix.AuthResourcePaths) != 1 || strings.TrimSpace(prefix.AuthResourcePaths[0]) == "" || prefix.AuthResourcePaths[0] != strings.TrimSpace(prefix.AuthResourcePaths[0]) {
+			return fmt.Errorf("restricted private ClickHouse prefixes require exactly one immutable authorization path")
+		}
+		if !prefix.IncludeAuthResourcePath || strings.TrimSpace(prefix.AuthResourcePathBindKey) == "" {
+			return fmt.Errorf("restricted private ClickHouse prefixes require a bound row authorization path")
+		}
+	case "unrestricted":
+		if len(prefix.AuthResourcePaths) != 0 || prefix.IncludeAuthResourcePath || prefix.AuthResourcePathBindKey != "" {
+			return fmt.Errorf("unrestricted private ClickHouse prefixes cannot carry restricted path metadata")
+		}
+	default:
+		return fmt.Errorf("private ClickHouse prefix requires an explicit supported authorization scope")
+	}
+	return nil
+}
+
 func validatePhysicalCombineKeys(keys []PhysicalCombineKey) error {
 	seenLeft, seenRight := map[string]bool{}, map[string]bool{}
 	for index, key := range keys {
@@ -211,6 +323,31 @@ type ResolvedClickHouseTable struct {
 	Unrestricted       bool
 	AuthResourcePaths  []string
 	Columns            []ResolvedClickHouseColumn
+	PrivateStageID     string
+	PrivateArtifact    *ResolvedClickHousePrivateArtifact
+}
+
+// ClickHouseArtifactIdentity carries the exact identity used by the private
+// artifact writer. Expected and actual values are compared in full before the
+// artifact can become a ClickHouse input.
+type ClickHouseArtifactIdentity struct {
+	ExecutionID       string
+	StageID           string
+	Project           string
+	DatasetGeneration string
+	RecipeDigest      string
+	PlanDigest        string
+	SchemaDigest      string
+	ScopeDigest       string
+	AuthScopeMode     string
+	AuthResourcePaths []string
+}
+
+type ResolvedClickHousePrivateArtifact struct {
+	ArtifactID    string
+	Identity      ClickHouseArtifactIdentity
+	PhysicalTable string
+	Columns       []ResolvedClickHouseColumn
 }
 
 type ResolvedClickHouseColumn struct {

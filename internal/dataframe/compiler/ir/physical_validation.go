@@ -16,20 +16,55 @@ func (p PhysicalPlan) Validate() error {
 	}
 	switch p.Engine {
 	case "", PhysicalEngineAQL:
-		if p.ClickHouseCombine != nil {
+		if p.ClickHouseCombine != nil || p.ClickHousePrefix != nil {
 			return fmt.Errorf("AQL physical plan cannot carry a ClickHouse combine payload")
 		}
 	case PhysicalEngineClickHouse:
 		if p.ClickHouseCombine == nil {
 			return fmt.Errorf("ClickHouse physical plan requires a typed combine payload")
 		}
-		if len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
-			return fmt.Errorf("terminal ClickHouse combine cannot carry AQL operations or construction stages")
+		if p.ClickHousePrefix == nil {
+			if len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
+				return fmt.Errorf("standalone ClickHouse combine cannot carry AQL operations or construction stages")
+			}
+			if err := p.ClickHouseCombine.Validate(); err != nil {
+				return fmt.Errorf("ClickHouse combine: %w", err)
+			}
+			return nil
 		}
-		if err := p.ClickHouseCombine.Validate(); err != nil {
-			return fmt.Errorf("ClickHouse combine: %w", err)
+		if len(p.DeferredExpressionLets) != 0 || p.StageSequence == nil {
+			return fmt.Errorf("composite ClickHouse combine requires a typed AQL stage sequence and no deferred expressions")
 		}
-		return nil
+		if p.StageSequence.PreviewLimitBindKey != "" {
+			return fmt.Errorf("bounded AQL preview cannot feed a private ClickHouse artifact")
+		}
+		for _, operation := range p.Operations {
+			if operation.Kind == PhysicalLimitOp {
+				return fmt.Errorf("bounded AQL prefix cannot feed a private ClickHouse artifact")
+			}
+			if operation.Kind == PhysicalGroupRowsOp {
+				return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
+			}
+		}
+		if err := p.ClickHouseCombine.ValidateWithPrivateStage(); err != nil {
+			return fmt.Errorf("composite ClickHouse combine: %w", err)
+		}
+		if err := p.ClickHousePrefix.Validate(p.StageSequence, p.BindVars); err != nil {
+			return fmt.Errorf("composite ClickHouse prefix: %w", err)
+		}
+		if p.StageSequence.OutputAuthResourcePathBindKey != p.ClickHousePrefix.AuthResourcePathBindKey {
+			return fmt.Errorf("composite ClickHouse prefix path bind does not match its typed stage sequence")
+		}
+		privateStageID := ""
+		for _, input := range p.ClickHouseCombine.Inputs {
+			if input.PrivateStageID == "" {
+				continue
+			}
+			privateStageID = input.PrivateStageID
+		}
+		if privateStageID != p.ClickHousePrefix.StageID {
+			return fmt.Errorf("composite ClickHouse input does not match the exact AQL prefix stage")
+		}
 	default:
 		return fmt.Errorf("unsupported physical engine %q", p.Engine)
 	}

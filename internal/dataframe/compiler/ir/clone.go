@@ -37,12 +37,35 @@ func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	copy := plan
 	copy.BindVars = clonePhysicalBindVars(plan.BindVars)
 	copy.OptimizationPolicy = clonePhysicalOptimizationReport(plan.OptimizationPolicy)
+	copy.ClickHouseCombine = clonePhysicalClickHouseCombine(plan.ClickHouseCombine)
+	copy.ClickHousePrefix = clonePhysicalClickHousePrefix(plan.ClickHousePrefix)
 	copy.StageSequence = clonePhysicalStageSequence(plan.StageSequence)
 	copy.Operations = make([]PhysicalOperation, len(plan.Operations))
 	for index, operation := range plan.Operations {
 		copy.Operations[index] = clonePhysicalOperation(operation)
 	}
 	return copy
+}
+
+func clonePhysicalClickHouseCombine(combine *PhysicalClickHouseCombine) *PhysicalClickHouseCombine {
+	if combine == nil {
+		return nil
+	}
+	copy := *combine
+	copy.Inputs = append([]PhysicalCombineInputRef(nil), combine.Inputs...)
+	copy.Keys = append([]PhysicalCombineKey(nil), combine.Keys...)
+	copy.Projections = append([]PhysicalCombineProjection(nil), combine.Projections...)
+	copy.Outputs = append([]PhysicalCombineOutputColumn(nil), combine.Outputs...)
+	return &copy
+}
+
+func clonePhysicalClickHousePrefix(prefix *PhysicalClickHousePrefix) *PhysicalClickHousePrefix {
+	if prefix == nil {
+		return nil
+	}
+	copy := *prefix
+	copy.AuthResourcePaths = cloneStrings(prefix.AuthResourcePaths)
+	return &copy
 }
 
 func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageSequence {

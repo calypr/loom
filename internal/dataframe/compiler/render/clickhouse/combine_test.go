@@ -187,6 +187,74 @@ func TestRenderCombineRejectsWrongExactRevisionAndMissingStableColumnID(t *testi
 	}
 }
 
+func TestRenderCompositeCombineConsumesExactPrivatePrefixArtifact(t *testing.T) {
+	combine := ir.PhysicalClickHouseCombine{
+		Kind: ir.PhysicalCombineAppend,
+		Inputs: []ir.PhysicalCombineInputRef{
+			{PrivateStageID: "derive_status"},
+			{TableID: "right-table", RevisionID: "execution-right", OutputID: "right"},
+		},
+		Projections: []ir.PhysicalCombineProjection{
+			{OutputColumnID: "status", InputIndex: 0, InputColumnID: "status-id"},
+			{OutputColumnID: "status", InputIndex: 1, InputColumnID: "right-status-id"},
+		},
+		Outputs: []ir.PhysicalCombineOutputColumn{{ID: "status", Name: "status", LogicalType: "string", ClickHouseType: "String"}},
+	}
+	prefix := ir.PhysicalClickHousePrefix{
+		StageID: "derive_status", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/programs/p1"},
+		IncludeAuthResourcePath: true, AuthResourcePathBindKey: "construction_private_auth_resource_path",
+	}
+	expected := ir.ClickHouseArtifactIdentity{
+		ExecutionID: "execution-1", StageID: "derive_status", Project: "project-a", DatasetGeneration: "generation-a",
+		RecipeDigest: "recipe-digest", PlanDigest: "prefix-plan-digest", SchemaDigest: "prefix-schema-digest",
+		ScopeDigest: "scope-a", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/programs/p1"},
+	}
+	artifact := ir.ResolvedClickHousePrivateArtifact{
+		ArtifactID: "artifact-1", PhysicalTable: "loom_private_stage_1", Identity: expected,
+		Columns: []ir.ResolvedClickHouseColumn{
+			{ID: "loom:row_id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+			{ID: "status-id", Name: "status", LogicalType: "string", ClickHouseType: "String"},
+			{ID: "loom:auth_resource_path", Name: "auth_resource_path", LogicalType: "string", ClickHouseType: "Nullable(String)", Nullable: true},
+			{ID: "loom:project_id", Name: "project_id", LogicalType: "string", ClickHouseType: "String"},
+		},
+	}
+	right := resolvedInput("right-table", "execution-right", "right", "right_table", []ir.ResolvedClickHouseColumn{
+		{ID: "loom:row_id", Name: "__loom_row_id", LogicalType: "string", ClickHouseType: "String"},
+		{ID: "right-status-id", Name: "right_status", LogicalType: "string", ClickHouseType: "String"},
+		{ID: "loom:auth_resource_path", Name: "auth_resource_path", LogicalType: "string", ClickHouseType: "String"},
+	})
+	right.Unrestricted = false
+	right.AuthResourcePaths = []string{"/programs/p1"}
+	right.ScopeDigest = expected.ScopeDigest
+
+	rendered, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, artifact, expected, "project-a", 0)
+	if err != nil {
+		t.Fatalf("RenderCompositeClickHouseCombine() error = %v", err)
+	}
+	for _, want := range []string{"loom_private_stage_1", "UNION ALL", "__loom_input_0.`auth_resource_path` IN ?", "__loom_input_1.`auth_resource_path` IN ?"} {
+		if !strings.Contains(rendered.Query, want) {
+			t.Errorf("composite SQL is missing %q: %s", want, rendered.Query)
+		}
+	}
+	if !reflect.DeepEqual(rendered.Args, []any{[]string{"/programs/p1"}, []string{"/programs/p1"}}) {
+		t.Fatalf("composite SQL args = %#v", rendered.Args)
+	}
+
+	badArtifact := artifact
+	badArtifact.Identity.PlanDigest = "different-prefix"
+	if _, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, badArtifact, expected, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact compiled prefix identity") {
+		t.Fatalf("mismatched artifact identity error = %v", err)
+	}
+	badArtifact = artifact
+	badArtifact.Identity.ScopeDigest = "different-scope"
+	if _, err := RenderCompositeClickHouseCombine(combine, prefix, []ir.ResolvedClickHouseTable{right}, badArtifact, expected, "project-a", 0); err == nil || !strings.Contains(err.Error(), "exact compiled prefix identity") {
+		t.Fatalf("mismatched artifact scope identity error = %v", err)
+	}
+	if _, err := RenderCombine(combine, []ir.ResolvedClickHouseTable{right}, "project-a"); err == nil || !strings.Contains(err.Error(), "private stage outside a composite plan") {
+		t.Fatalf("standalone Combine accepted private input: %v", err)
+	}
+}
+
 func resolvedInput(tableID, revisionID, outputID, physicalTable string, columns []ir.ResolvedClickHouseColumn) ir.ResolvedClickHouseTable {
 	for index := range columns {
 		if columns[index].LogicalType == "" && columns[index].Name != "__loom_row_id" && columns[index].Name != "auth_resource_path" && columns[index].Name != "project_id" {

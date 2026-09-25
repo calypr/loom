@@ -27,13 +27,89 @@ func RenderCombine(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickH
 // RenderCombineWithLimit applies a bounded preview limit to the typed
 // ClickHouse plan. A zero limit streams the complete result.
 func RenderCombineWithLimit(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string, limit int) (RenderedCombine, error) {
+	return renderCombineWithResolvedInputs(plan, inputs, project, limit, nil, false)
+}
+
+// RenderCompositeClickHouseCombine renders a validated terminal Combine that
+// consumes one exact private AQL-stage artifact plus exact published inputs.
+// expected must come from the compiled AQL stream identity used to create the
+// artifact; the complete manifest identity is checked before SQL is emitted.
+func RenderCompositeClickHouseCombine(plan ir.PhysicalClickHouseCombine, prefix ir.PhysicalClickHousePrefix, published []ir.ResolvedClickHouseTable, artifact ir.ResolvedClickHousePrivateArtifact, expected ir.ClickHouseArtifactIdentity, project string, limit int) (RenderedCombine, error) {
 	if limit < 0 {
 		return RenderedCombine{}, fmt.Errorf("ClickHouse combine limit cannot be negative")
 	}
-	if err := plan.Validate(); err != nil {
-		return RenderedCombine{}, fmt.Errorf("validate ClickHouse combine plan: %w", err)
+	if err := plan.ValidateWithPrivateStage(); err != nil {
+		return RenderedCombine{}, fmt.Errorf("validate composite ClickHouse combine: %w", err)
 	}
-	if err := validateResolvedInputs(plan, inputs, project); err != nil {
+	if err := prefix.ValidateScope(); err != nil {
+		return RenderedCombine{}, fmt.Errorf("validate composite ClickHouse prefix scope: %w", err)
+	}
+	if err := validateArtifactIdentity(expected, artifact.Identity); err != nil {
+		return RenderedCombine{}, err
+	}
+	if strings.TrimSpace(artifact.ArtifactID) == "" || !identifierPattern.MatchString(artifact.PhysicalTable) || !strings.HasPrefix(artifact.PhysicalTable, "loom_private_") {
+		return RenderedCombine{}, fmt.Errorf("private ClickHouse artifact identity or physical table is invalid")
+	}
+	if expected.StageID != prefix.StageID || expected.Project != project || expected.AuthScopeMode != prefix.AuthScopeMode || !sameStrings(expected.AuthResourcePaths, prefix.AuthResourcePaths) {
+		return RenderedCombine{}, fmt.Errorf("private ClickHouse artifact identity differs from the compiled prefix authorization binding")
+	}
+	privateRefFound := false
+	for _, ref := range plan.Inputs {
+		if ref.PrivateStageID == "" {
+			continue
+		}
+		if privateRefFound || ref.PrivateStageID != prefix.StageID {
+			return RenderedCombine{}, fmt.Errorf("private ClickHouse Combine input does not match the exact AQL prefix stage")
+		}
+		privateRefFound = true
+	}
+	if !privateRefFound {
+		return RenderedCombine{}, fmt.Errorf("composite ClickHouse combine has no private AQL prefix input")
+	}
+	inputs := make([]ir.ResolvedClickHouseTable, 0, len(plan.Inputs))
+	publishedIndex := 0
+	privateCount := 0
+	for _, ref := range plan.Inputs {
+		if ref.PrivateStageID != "" {
+			privateCount++
+			inputs = append(inputs, ir.ResolvedClickHouseTable{
+				Project: expected.Project, DatasetGeneration: expected.DatasetGeneration,
+				SchemaDigest: expected.SchemaDigest, ScopeDigest: expected.ScopeDigest,
+				PhysicalTable:     artifact.PhysicalTable,
+				Unrestricted:      expected.AuthScopeMode == "unrestricted",
+				AuthResourcePaths: append([]string(nil), expected.AuthResourcePaths...),
+				Columns:           append([]ir.ResolvedClickHouseColumn(nil), artifact.Columns...),
+				PrivateStageID:    ref.PrivateStageID,
+				PrivateArtifact:   &artifact,
+			})
+			continue
+		}
+		if publishedIndex >= len(published) {
+			return RenderedCombine{}, fmt.Errorf("resolved published ClickHouse inputs are incomplete")
+		}
+		inputs = append(inputs, published[publishedIndex])
+		publishedIndex++
+	}
+	if privateCount != 1 || publishedIndex != len(published) {
+		return RenderedCombine{}, fmt.Errorf("composite ClickHouse combine requires one private prefix artifact and all exact published inputs")
+	}
+	return renderCombineWithResolvedInputs(plan, inputs, project, limit, &expected, true)
+}
+
+func renderCombineWithResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string, limit int, expected *ir.ClickHouseArtifactIdentity, allowPrivate bool) (RenderedCombine, error) {
+	if limit < 0 {
+		return RenderedCombine{}, fmt.Errorf("ClickHouse combine limit cannot be negative")
+	}
+	var validateErr error
+	if allowPrivate {
+		validateErr = plan.ValidateWithPrivateStage()
+	} else {
+		validateErr = plan.Validate()
+	}
+	if validateErr != nil {
+		return RenderedCombine{}, fmt.Errorf("validate ClickHouse combine plan: %w", validateErr)
+	}
+	if err := validateResolvedInputs(plan, inputs, project, expected, allowPrivate); err != nil {
 		return RenderedCombine{}, err
 	}
 	if err := validateResolvedSchema(plan, inputs); err != nil {
@@ -65,7 +141,7 @@ func applyQueryLimit(query string, limit int) string {
 	return query + fmt.Sprintf(" LIMIT %d", limit)
 }
 
-func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string) error {
+func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string, expected *ir.ClickHouseArtifactIdentity, allowPrivate bool) error {
 	if len(inputs) != len(plan.Inputs) {
 		return fmt.Errorf("resolved ClickHouse input count %d does not match plan count %d", len(inputs), len(plan.Inputs))
 	}
@@ -75,14 +151,36 @@ func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 	var firstScope *ir.ResolvedClickHouseTable
 	for index, input := range inputs {
 		ref := plan.Inputs[index]
-		if input.TableID != ref.TableID || input.RevisionID != ref.RevisionID || input.OutputID != ref.OutputID {
-			return fmt.Errorf("resolved ClickHouse input %d does not match its exact table/revision/output reference", index)
+		if ref.PrivateStageID != "" {
+			if !allowPrivate || expected == nil || input.PrivateArtifact == nil || input.PrivateStageID != ref.PrivateStageID {
+				return fmt.Errorf("resolved ClickHouse input %d does not match its typed private stage reference", index)
+			}
+			if input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
+				return fmt.Errorf("resolved ClickHouse private input %d also carries a published table reference", index)
+			}
+			if err := validateArtifactIdentity(*expected, input.PrivateArtifact.Identity); err != nil {
+				return fmt.Errorf("resolved ClickHouse private input %d: %w", index, err)
+			}
+			if input.PhysicalTable != input.PrivateArtifact.PhysicalTable || !strings.HasPrefix(input.PhysicalTable, "loom_private_") {
+				return fmt.Errorf("resolved ClickHouse private input %d table differs from its artifact manifest", index)
+			}
+			if input.DatasetGeneration != expected.DatasetGeneration || input.SchemaDigest != expected.SchemaDigest || input.ScopeDigest != expected.ScopeDigest ||
+				input.Unrestricted != (expected.AuthScopeMode == "unrestricted") || !sameStrings(input.AuthResourcePaths, expected.AuthResourcePaths) {
+				return fmt.Errorf("resolved ClickHouse private input %d metadata differs from its exact artifact identity", index)
+			}
+		} else {
+			if input.PrivateArtifact != nil || input.PrivateStageID != "" {
+				return fmt.Errorf("resolved ClickHouse input %d unexpectedly contains a private artifact", index)
+			}
+			if input.TableID != ref.TableID || input.RevisionID != ref.RevisionID || input.OutputID != ref.OutputID {
+				return fmt.Errorf("resolved ClickHouse input %d does not match its exact table/revision/output reference", index)
+			}
+			if input.RevisionID == "" || input.OutputID == "" || input.SchemaDigest == "" || input.ReceiptID == "" || input.ScopeDigest == "" {
+				return fmt.Errorf("resolved ClickHouse input %d is missing immutable publication identity", index)
+			}
 		}
 		if input.Project != project || input.Project == "" {
 			return fmt.Errorf("resolved ClickHouse input %d belongs to a different project", index)
-		}
-		if input.RevisionID == "" || input.OutputID == "" || input.SchemaDigest == "" || input.ReceiptID == "" || input.ScopeDigest == "" {
-			return fmt.Errorf("resolved ClickHouse input %d is missing immutable publication identity", index)
 		}
 		if !identifierPattern.MatchString(input.PhysicalTable) {
 			return fmt.Errorf("resolved ClickHouse input %d has an unsafe physical table name", index)
@@ -99,6 +197,43 @@ func validateResolvedInputs(plan ir.PhysicalClickHouseCombine, inputs []ir.Resol
 		} else if input.Unrestricted != firstScope.Unrestricted || !sameStrings(input.AuthResourcePaths, firstScope.AuthResourcePaths) {
 			return fmt.Errorf("ClickHouse combine inputs must resolve to the same authorization scope")
 		}
+	}
+	return nil
+}
+
+func validateArtifactIdentity(expected, actual ir.ClickHouseArtifactIdentity) error {
+	for _, field := range []struct{ name, value string }{
+		{name: "execution", value: expected.ExecutionID},
+		{name: "stage", value: expected.StageID},
+		{name: "project", value: expected.Project},
+		{name: "dataset generation", value: expected.DatasetGeneration},
+		{name: "recipe digest", value: expected.RecipeDigest},
+		{name: "plan digest", value: expected.PlanDigest},
+		{name: "schema digest", value: expected.SchemaDigest},
+		{name: "scope digest", value: expected.ScopeDigest},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			return fmt.Errorf("private ClickHouse artifact expected %s identity is required", field.name)
+		}
+	}
+	switch expected.AuthScopeMode {
+	case "restricted":
+		if len(expected.AuthResourcePaths) != 1 || strings.TrimSpace(expected.AuthResourcePaths[0]) == "" || expected.AuthResourcePaths[0] != strings.TrimSpace(expected.AuthResourcePaths[0]) {
+			return fmt.Errorf("private ClickHouse artifact requires one exact restricted authorization path")
+		}
+	case "unrestricted":
+		if len(expected.AuthResourcePaths) != 0 {
+			return fmt.Errorf("unrestricted private ClickHouse artifact cannot carry authorization paths")
+		}
+	default:
+		return fmt.Errorf("private ClickHouse artifact has an unsupported authorization scope mode")
+	}
+	if actual.ExecutionID != expected.ExecutionID || actual.StageID != expected.StageID || actual.Project != expected.Project ||
+		actual.DatasetGeneration != expected.DatasetGeneration || actual.RecipeDigest != expected.RecipeDigest ||
+		actual.PlanDigest != expected.PlanDigest || actual.SchemaDigest != expected.SchemaDigest ||
+		actual.ScopeDigest != expected.ScopeDigest || actual.AuthScopeMode != expected.AuthScopeMode ||
+		!sameStrings(actual.AuthResourcePaths, expected.AuthResourcePaths) {
+		return fmt.Errorf("private ClickHouse artifact manifest does not match the exact compiled prefix identity")
 	}
 	return nil
 }
