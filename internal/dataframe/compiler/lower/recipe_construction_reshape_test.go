@@ -137,6 +137,9 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	if !strings.Contains(rendered.Query, "== 0 ? [null] :") {
 		t.Fatalf("zero-key summary does not synthesize an empty group:\n%s", rendered.Query)
 	}
+	if !strings.Contains(rendered.Query, " = null INTO ") {
+		t.Fatalf("zero-key summary does not COLLECT into one constant group:\n%s", rendered.Query)
+	}
 	if !strings.Contains(rendered.Query, "COUNT") && !strings.Contains(rendered.Query, "LENGTH(") {
 		t.Fatalf("summary AQL has no explicit row count:\n%s", rendered.Query)
 	}

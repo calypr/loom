@@ -52,7 +52,8 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	}
 	groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", stage.InputRowVariable, stage.InputRowVariable)
 	if len(collectKeys) == 0 {
-		lines = append(lines, fmt.Sprintf("  COLLECT INTO %s = %s", group.GroupRowsVariable, groupMembers))
+		allRowsVariable := r.newInternalVariable("construction_group_all_rows")
+		lines = append(lines, fmt.Sprintf("  COLLECT %s = null INTO %s = %s", allRowsVariable, group.GroupRowsVariable, groupMembers))
 	} else {
 		lines = append(lines, fmt.Sprintf("  COLLECT %s INTO %s = %s", strings.Join(collectKeys, ", "), group.GroupRowsVariable, groupMembers))
 		lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
