@@ -541,6 +541,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
+	explorerHandlers.constructionInputs = constructionInputsCatalog{
+		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
+		scopes: scopeResolver, explorers: explorerService,
+	}
 	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
