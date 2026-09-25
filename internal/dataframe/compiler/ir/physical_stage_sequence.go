@@ -46,18 +46,20 @@ type PhysicalConstructionStage struct {
 	Expand            *PhysicalStageExpand
 	GroupedPivot      *PhysicalGroupedPivot
 	Unpivot           *PhysicalUnpivot
+	RelatedSource     *PhysicalStageRelatedSource
 	RowIdentityColumn string
 }
 
 type PhysicalStageOperationKind string
 
 const (
-	PhysicalStageDeriveOp  PhysicalStageOperationKind = "DERIVE"
-	PhysicalStageFilterOp  PhysicalStageOperationKind = "FILTER"
-	PhysicalStagePivotOp   PhysicalStageOperationKind = "PIVOT"
-	PhysicalStageUnpivotOp PhysicalStageOperationKind = "UNPIVOT"
-	PhysicalStageGroupOp   PhysicalStageOperationKind = "GROUP"
-	PhysicalStageExpandOp  PhysicalStageOperationKind = "EXPAND"
+	PhysicalStageDeriveOp        PhysicalStageOperationKind = "DERIVE"
+	PhysicalStageFilterOp        PhysicalStageOperationKind = "FILTER"
+	PhysicalStagePivotOp         PhysicalStageOperationKind = "PIVOT"
+	PhysicalStageUnpivotOp       PhysicalStageOperationKind = "UNPIVOT"
+	PhysicalStageGroupOp         PhysicalStageOperationKind = "GROUP"
+	PhysicalStageExpandOp        PhysicalStageOperationKind = "EXPAND"
+	PhysicalStageRelatedSourceOp PhysicalStageOperationKind = "RELATED_SOURCE"
 )
 
 type PhysicalStageGroup struct {
@@ -95,4 +97,16 @@ type PhysicalStageExpand struct {
 	InputKind             string
 	ConstructionIDBindKey string
 	EmptyPolicy           PhysicalUnnestEmptyPolicy
+}
+
+type PhysicalStageRelatedSource struct {
+	AnchorColumnID     string
+	OutputColumnID     string
+	CandidateID        string
+	SourceOccurrenceID string
+	ResourceType       string
+	Path               string
+	LogicalType        string
+	Form               string
+	ContributorPolicy  string
 }

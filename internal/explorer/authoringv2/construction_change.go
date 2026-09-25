@@ -518,7 +518,9 @@ func (o ConstructionOperation) inputColumnIDs() []string {
 		}
 	case ConstructionOperationRelatedSource:
 		if o.RelatedSource != nil {
-			add(o.RelatedSource.AnchorColumnID)
+			if o.RelatedSource.AnchorColumnID != "_key" {
+				add(o.RelatedSource.AnchorColumnID)
+			}
 		}
 	}
 	return ids

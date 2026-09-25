@@ -353,11 +353,8 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 
 func validateConstructionRelatedSource(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
 	related := step.Operation.RelatedSource
-	if !requiredID(related.AnchorColumnID) {
-		return fmt.Errorf("relatedSource.anchorColumnId is required")
-	}
-	if _, exists := input[related.AnchorColumnID]; !exists {
-		return missingConstructionColumn("relatedSource.anchorColumnId", related.AnchorColumnID)
+	if related.AnchorColumnID != "_key" {
+		return fmt.Errorf("relatedSource.anchorColumnId must identify the hidden root row identity")
 	}
 	if !requiredID(related.ChoiceID) || !requiredID(related.SourceOccurrenceID) {
 		return fmt.Errorf("relatedSource.choiceId and sourceOccurrenceId are required")

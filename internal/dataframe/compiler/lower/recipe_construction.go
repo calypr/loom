@@ -74,7 +74,7 @@ type constructionStageResult struct {
 	descriptor CompiledStageDescriptor
 }
 
-func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName string, construction recipe.Construction, sourceSchema []CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
+func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResourceType string, construction recipe.Construction, sourceSchema []CompiledOutputColumn, policy ir.PhysicalOptimizationPolicy) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
 	if plan == nil {
 		return nil, nil, "", fmt.Errorf("physical plan is required")
 	}
@@ -110,7 +110,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName string, co
 	priorSchema, priorIdentity := resolvedSource, sourceIdentity
 	priorStageID := recipe.ConstructionSourceProjectionID
 	for index, step := range construction.Steps {
-		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, usedVariables, index)
+		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, rootResourceType, policy, usedVariables, index)
 		if stageErr != nil {
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
@@ -215,7 +215,7 @@ func schemaColumn(schema []CompiledOutputColumn, name string) (CompiledOutputCol
 	return CompiledOutputColumn{}, false
 }
 
-func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity string, usedVariables map[string]bool, index int) (constructionStageResult, error) {
+func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity, rootResourceType string, policy ir.PhysicalOptimizationPolicy, usedVariables map[string]bool, index int) (constructionStageResult, error) {
 	inputByID := compiledSchemaByID(inputSchema)
 	outputByID := make(map[string]recipe.StageColumn, len(step.Outputs))
 	for _, column := range step.Outputs {
@@ -369,6 +369,23 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		base.Kind, base.Expand = ir.PhysicalStageExpandOp, &physicalExpand
 		base.OutputProjections = projections
 		outputSchema, outputIdentity = compiled, constructionRowID
+	case recipe.ConstructionRelatedSourceOp:
+		related := step.Operation.RelatedSource
+		if related == nil {
+			return constructionStageResult{}, fmt.Errorf("related source payload is required")
+		}
+		projections, compiled, err := lowerConstructionRelatedSource(plan, step, *related, inputByID, outputByID, inputRow, inputIdentity, rootResourceType, policy, usedVariables, index)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.OutputProjections = ir.PhysicalStageRelatedSourceOp, projections
+		base.RelatedSource = &ir.PhysicalStageRelatedSource{
+			AnchorColumnID: related.AnchorColumnID, OutputColumnID: related.OutputColumnID,
+			CandidateID: related.Source.CandidateID, SourceOccurrenceID: related.SourceOccurrenceID,
+			ResourceType: related.Source.ResourceType, Path: related.Source.Path, LogicalType: related.Source.LogicalType,
+			Form: related.Form, ContributorPolicy: related.ContributorPolicy,
+		}
+		outputSchema, outputIdentity = compiled, inputIdentity
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -376,7 +393,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")
 	}
 	outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp {
 		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
 			Name: outputIdentity, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
@@ -386,15 +403,142 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	base.RowIdentityColumn = outputIdentity
 	base.InputColumns = inputColumns
 	base.OutputColumns = toPhysicalStageColumns(outputSchema)
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp {
 		base.InputProjections = inputProjections
 	}
 	descriptor := CompiledStageDescriptor{
 		ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
 		Columns: cloneCompiledSchema(outputSchema), RowIdentityColumn: outputIdentity,
 	}
-	descriptor.Capabilities = stageCapabilities(publicCompiledSchema(outputSchema))
+	descriptor.Capabilities = stageCapabilities(outputSchema)
 	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, descriptor: descriptor}, nil
+}
+
+func lowerConstructionRelatedSource(
+	plan *ir.PhysicalPlan,
+	step recipe.ConstructionStep,
+	related recipe.ConstructionRelatedSource,
+	inputByID map[string]CompiledOutputColumn,
+	outputByID map[string]recipe.StageColumn,
+	inputRow, inputIdentity, rootResourceType string,
+	policy ir.PhysicalOptimizationPolicy,
+	usedVariables map[string]bool,
+	index int,
+) ([]ir.PhysicalProjection, []CompiledOutputColumn, error) {
+	if related.AnchorColumnID != inputIdentity || inputIdentity != "_key" {
+		return nil, nil, fmt.Errorf("related source anchor must be the retained root document row identity")
+	}
+	anchor, ok := inputByID[related.AnchorColumnID]
+	if !ok || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" || rootResourceType != plan.Source.ResourceType {
+		return nil, nil, fmt.Errorf("related source anchor is not the compiler-proven root document identity")
+	}
+	if related.Source.Cardinality != "optional_one" && related.Source.Cardinality != "required_one" {
+		return nil, nil, fmt.Errorf("related source field must be scalar for ALL_MATCHES")
+	}
+	if related.SourceOccurrenceID != related.Source.NodeID || len(related.Route) == 0 {
+		return nil, nil, fmt.Errorf("related source must persist its exact source occurrence and route")
+	}
+	if _, scalar := tableReshapeScalarKind(related.Source.LogicalType); !scalar {
+		return nil, nil, fmt.Errorf("related source logical type %q is not scalar", related.Source.LogicalType)
+	}
+	selectorPath := strings.TrimPrefix(related.Source.Path, related.Source.ResourceType+".")
+	selector, err := spec.ParseSelector(selectorPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("related source field path: %w", err)
+	}
+
+	rootVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_%d_root", index), index)
+	rootNode := semantic.SemanticNode{Alias: plan.Source.SemanticNode, ResourceType: rootResourceType}
+	subplan := ir.PhysicalSubplan{
+		Captures: []string{inputRow},
+		Operations: []ir.PhysicalOperation{{
+			Kind:           ir.PhysicalCollectionScanOp,
+			Source:         ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType},
+			CollectionScan: &ir.PhysicalCollectionScan{Variable: rootVariable, CollectionBindKey: "root_collection"},
+		}},
+	}
+	subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+		Kind:   ir.PhysicalFilterOp,
+		Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType, SemanticField: "_key"},
+		Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: rootVariable, Path: []string{"_key"}},
+			Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
+		}},
+	})
+	subplan.Operations = appendProjectScope(subplan.Operations, []string{rootVariable}, "", rootNode)
+	subplan.Operations = appendDatasetGenerationScope(subplan.Operations, []string{rootVariable}, "", rootNode)
+	subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{{Variable: rootVariable, Path: []string{"auth_resource_path"}}}, fmt.Sprintf("related_%d_root_scope_allowed", index), rootNode)
+
+	currentVariable := rootVariable
+	currentResource := rootResourceType
+	for routeIndex, hop := range related.Route {
+		if hop.FromResourceType != currentResource || strings.ToUpper(hop.StorageDirection) != hop.StorageDirection ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") {
+			return nil, nil, fmt.Errorf("related source route hop %d does not extend the compiled source", routeIndex)
+		}
+		prefix := fmt.Sprintf("related_%d_hop_%d", index, routeIndex+1)
+		targetVariable := allocateConstructionVariable(usedVariables, prefix+"_target", index)
+		edgeVariable := allocateConstructionVariable(usedVariables, prefix+"_edge", index)
+		traversal, traversalErr := BuildPhysicalTraversal(TraversalLoweringRequest{
+			FromType: currentResource, EdgeLabel: hop.Relationship, ToType: hop.ToResourceType,
+			SourceVariable: currentVariable, TargetVariable: targetVariable, EdgeVariable: edgeVariable,
+			BindPrefix: prefix, Policy: policy,
+		})
+		if traversalErr != nil {
+			return nil, nil, fmt.Errorf("related source route hop %d: %w", routeIndex, traversalErr)
+		}
+		if strings.ToUpper(string(traversal.Traversal.Direction)) != hop.StorageDirection {
+			return nil, nil, fmt.Errorf("related source route hop %d storage direction changed", routeIndex)
+		}
+		for key, value := range traversal.BindVars {
+			plan.BindVars[key] = value
+		}
+		child := semantic.SemanticNode{Alias: hop.ToNodeID, ResourceType: hop.ToResourceType, EdgeLabel: hop.Relationship}
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind:      ir.PhysicalTraversalOp,
+			Source:    ir.PhysicalSource{SemanticNode: child.Alias, ResourceType: child.ResourceType, Relationship: hop.Relationship},
+			Traversal: &traversal.Traversal,
+		})
+		scoped := []string{edgeVariable, targetVariable}
+		subplan.Operations = appendProjectScope(subplan.Operations, scoped, hop.Relationship, child)
+		subplan.Operations = appendDatasetGenerationScope(subplan.Operations, scoped, hop.Relationship, child)
+		subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{{Variable: edgeVariable, Path: []string{"auth_resource_path"}}, {Variable: targetVariable, Path: []string{"auth_resource_path"}}}, prefix+"_scope_allowed", child)
+		currentVariable, currentResource = targetVariable, hop.ToResourceType
+	}
+	if currentResource != related.Source.ResourceType || related.Route[len(related.Route)-1].ToNodeID != related.Source.NodeID {
+		return nil, nil, fmt.Errorf("related source route does not end at the exact source occurrence")
+	}
+	fieldExpression := ir.PhysicalExpression{
+		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: related.Source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(related.Source.ResourceType, selector)},
+	}
+	subplan.Return = fieldExpression
+	allMatches := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
+
+	outputSchema := make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
+	projections := make([]ir.PhysicalProjection, 0, len(step.Outputs)+1)
+	for _, declaration := range step.Outputs {
+		if prior, exists := inputByID[declaration.ID]; exists {
+			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			outputSchema = append(outputSchema, prior)
+			projections = append(projections, ir.PhysicalProjection{Name: prior.Name, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputByID[declaration.ID].Name}}})
+			continue
+		}
+		if declaration.ID != related.OutputColumnID {
+			return nil, nil, fmt.Errorf("related source output schema contains unexpected new column ID %q", declaration.ID)
+		}
+		column := recipe.StageColumn{ID: declaration.ID, Name: declaration.Name}
+		if _, exists := outputByID[column.ID]; !exists {
+			return nil, nil, fmt.Errorf("related source output column %q is missing from step schema", related.OutputColumnID)
+		}
+		outputSchema = append(outputSchema, CompiledOutputColumn{
+			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+			SemanticPath: "related_source:" + related.Source.NodeID + "." + selectorPath,
+			Kind:         related.Source.LogicalType, Cardinality: string(expression.Many), Nullable: true,
+		})
+		projections = append(projections, ir.PhysicalProjection{Name: declaration.Name, Expression: &allMatches})
+	}
+	return projections, outputSchema, nil
 }
 
 func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semanticPivot semantic.SemanticGroupedPivot, outputNames map[string]string, err error) {
@@ -615,6 +759,12 @@ func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
 func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapability {
 	public := publicCompiledSchema(columns)
 	numeric, scalar, unpivotPairs, arrays := 0, 0, false, 0
+	rootKey := false
+	for _, column := range columns {
+		if column.Internal && column.Identity && column.Name == "_key" {
+			rootKey = true
+		}
+	}
 	for index, column := range public {
 		if column.Cardinality == string(expression.Many) {
 			arrays++
@@ -646,6 +796,7 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
 		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
+		capability(recipe.ConstructionRelatedSourceOp, rootKey, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
 	}
 }
 

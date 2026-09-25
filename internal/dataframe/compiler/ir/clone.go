@@ -101,6 +101,10 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		if stage.Filter != nil {
 			cloned.Filter = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalFilterOp, Filter: stage.Filter}).Filter
 		}
+		if stage.RelatedSource != nil {
+			relatedSourceCopy := *stage.RelatedSource
+			cloned.RelatedSource = &relatedSourceCopy
+		}
 		if stage.GroupedPivot != nil {
 			cloned.GroupedPivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalGroupedPivotOp, GroupedPivot: stage.GroupedPivot}).GroupedPivot
 		}

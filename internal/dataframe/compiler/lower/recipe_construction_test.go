@@ -37,8 +37,18 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 6 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 7 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
+	}
+	var relatedSourceCapability *StageOperationCapability
+	for _, capability := range compiled.Stages[1].Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			break
+		}
+	}
+	if relatedSourceCapability == nil || relatedSourceCapability.Supported || relatedSourceCapability.ReasonCode != "NO_SOURCE_ROW_ANCHOR" {
+		t.Fatalf("related source must be unavailable after a reshaped stage loses root identity: %#v", relatedSourceCapability)
 	}
 
 	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
@@ -77,6 +87,86 @@ func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
 	}
 }
 
+func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+		},
+		Steps: []recipe.ConstructionStep{
+			{
+				ID: "keep_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{ColumnID: "group_id", Operator: recipe.FilterExists}},
+				Outputs:   []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}},
+			},
+			{
+				ID: "add_observation_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_patients"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+					AnchorColumnID: "_key", ChoiceID: "choice-token", SourceOccurrenceID: "observation-node",
+					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation-status",
+				}},
+				Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}, {ID: "observation-status", Name: "observation_status", Label: "Observation statuses"}},
+			},
+		},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	if compiled.Plan.StageSequence == nil || len(compiled.Plan.StageSequence.Stages) != 2 {
+		t.Fatalf("stage sequence = %#v, want filter then related source", compiled.Plan.StageSequence)
+	}
+	sequence := compiled.Plan.StageSequence
+	if len(sequence.SourceColumns) != 4 || sequence.SourceColumns[len(sequence.SourceColumns)-1].ID == "observation-status" {
+		t.Fatalf("initial source projection was rewritten: %#v", sequence.SourceColumns)
+	}
+	related := sequence.Stages[1]
+	if related.Kind != ir.PhysicalStageRelatedSourceOp || related.InputStageID != "keep_patients" || related.RelatedSource == nil ||
+		related.RelatedSource.AnchorColumnID != "_key" || related.RelatedSource.OutputColumnID != "observation-status" {
+		t.Fatalf("related source stage is not bound to exact prior row identity and schema: %#v", related)
+	}
+	gotRelatedColumns := make([]string, len(related.OutputColumns))
+	for index, column := range related.OutputColumns {
+		gotRelatedColumns[index] = column.Name
+	}
+	if !equalStringSlices(gotRelatedColumns, []string{"group", "category", "amount", "observation_status", "_key"}) {
+		t.Fatalf("related stage output schema = %#v", gotRelatedColumns)
+	}
+	if related.OutputColumns[3].Cardinality != "many" || related.OutputColumns[3].Kind != "string" {
+		t.Fatalf("related ALL output type = %#v, want string array", related.OutputColumns[3])
+	}
+	var relatedProjection *ir.PhysicalProjection
+	for index := range related.OutputProjections {
+		if related.OutputProjections[index].Name == "observation_status" {
+			relatedProjection = &related.OutputProjections[index]
+		}
+	}
+	if relatedProjection == nil || relatedProjection.Expression == nil || relatedProjection.Expression.Subplan == nil {
+		t.Fatalf("related output has no correlated route subplan: %#v", relatedProjection)
+	}
+	var traversal *ir.PhysicalTraversal
+	for _, operation := range relatedProjection.Expression.Subplan.Operations {
+		if operation.Kind == ir.PhysicalTraversalOp {
+			traversal = operation.Traversal
+		}
+	}
+	if traversal == nil || traversal.Direction != ir.PhysicalInbound || traversal.EndpointField != "_to" || traversal.EndpointJoinField != "_from" {
+		t.Fatalf("related route did not lower through the schema-derived Patient-to-Observation edge: %#v", traversal)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"IN @@root_collection", "._key == __loom_construction_input_2._key", "DOCUMENT(", "dataset_generation", "auth_resource_path", ".status"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered related stage omits %q: %s", expected, rendered.Query)
+		}
+	}
+	if rendered.BindVars["related_1_hop_1_label"] != "subject_Patient" || rendered.BindVars["related_1_hop_1_target_type"] != "Observation" {
+		t.Fatalf("rendered traversal binds do not match selected route: %#v", rendered.BindVars)
+	}
+}
+
 func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	output := constructionTestOutput()
 	output.Fields = nil
@@ -107,7 +197,12 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 		recipe.ConstructionGroupOp:   "NO_PUBLIC_COLUMNS",
 		recipe.ConstructionExpandOp:  "NO_ARRAY_COLUMNS",
 	}
+	var relatedSourceCapability *StageOperationCapability
 	for _, capability := range descriptor.Capabilities {
+		if capability.Operation == recipe.ConstructionRelatedSourceOp {
+			relatedSourceCapability = &capability
+			continue
+		}
 		wantReason, exists := wantUnsupported[capability.Operation]
 		if !exists || capability.Supported || capability.ReasonCode != wantReason {
 			t.Fatalf("zero-column capability = %#v, want unsupported reason %q", capability, wantReason)
@@ -116,6 +211,9 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	}
 	if len(wantUnsupported) != 0 {
 		t.Fatalf("source descriptor omitted compiler capabilities %v", wantUnsupported)
+	}
+	if relatedSourceCapability == nil || !relatedSourceCapability.Supported {
+		t.Fatalf("root row identity should make related-source available: %#v", relatedSourceCapability)
 	}
 	if compiled.Plan.StageSequence != nil {
 		t.Fatal("capability description introduced an executable construction stage sequence")

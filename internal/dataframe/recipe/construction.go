@@ -555,8 +555,8 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 }
 
 func validateConstructionRelatedSource(related ConstructionRelatedSource, input, output map[string]StageColumn, path string) error {
-	if !validConstructionColumnID(related.AnchorColumnID) || input[related.AnchorColumnID].ID == "" {
-		return fmt.Errorf("%s.relatedSource.anchorColumnId is not in the input schema", path)
+	if related.AnchorColumnID != "_key" || !validConstructionColumnID(related.AnchorColumnID) {
+		return fmt.Errorf("%s.relatedSource.anchorColumnId must identify the hidden root row identity", path)
 	}
 	if !validConstructionColumnID(related.ChoiceID) || !validConstructionColumnID(related.SourceOccurrenceID) ||
 		related.SourceOccurrenceID != related.Source.NodeID {

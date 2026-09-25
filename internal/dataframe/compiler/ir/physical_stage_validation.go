@@ -154,6 +154,13 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if err := validateShapeStageOutput(stage, expected); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
+		case PhysicalStageRelatedSourceOp:
+			if stage.RelatedSource == nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s RELATED_SOURCE requires only a related-source payload", path)
+			}
+			if err := validatePhysicalStageRelatedSource(stage, *stage.RelatedSource, bindVars); err != nil {
+				return fmt.Errorf("%s related source: %w", path, err)
+			}
 		default:
 			return fmt.Errorf("%s has unsupported operation kind %q", path, stage.Kind)
 		}
@@ -167,6 +174,50 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		return fmt.Errorf("final output schema differs from the final stage")
 	}
 	return nil
+}
+
+func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related PhysicalStageRelatedSource, bindVars map[string]any) error {
+	if related.AnchorColumnID == "" || related.OutputColumnID == "" || related.CandidateID == "" || related.SourceOccurrenceID == "" ||
+		related.ResourceType == "" || related.Path == "" || related.LogicalType == "" {
+		return fmt.Errorf("source, anchor, and output identities are required")
+	}
+	if related.Form != "ALL" || related.ContributorPolicy != "ALL_MATCHES" {
+		return fmt.Errorf("only ALL form with ALL_MATCHES contributor policy is supported")
+	}
+	var anchor, output *PhysicalStageColumn
+	for index := range stage.InputColumns {
+		if stage.InputColumns[index].ID == related.AnchorColumnID {
+			anchor = &stage.InputColumns[index]
+		}
+	}
+	for index := range stage.OutputColumns {
+		if stage.OutputColumns[index].ID == related.OutputColumnID {
+			output = &stage.OutputColumns[index]
+		}
+	}
+	if anchor == nil || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" || output == nil || output.Internal || output.Kind != related.LogicalType || output.Cardinality != "many" || !output.Nullable {
+		return fmt.Errorf("anchor or related output does not match the typed stage schema")
+	}
+	var relatedProjection *PhysicalProjection
+	var identityProjection *PhysicalProjection
+	for index := range stage.OutputProjections {
+		projection := &stage.OutputProjections[index]
+		if projection.Name == output.Name {
+			relatedProjection = projection
+		}
+		if projection.Name == stage.RowIdentityColumn {
+			identityProjection = projection
+		}
+	}
+	if relatedProjection == nil || relatedProjection.Expression == nil || relatedProjection.Expression.Kind != PhysicalSubplanExpression ||
+		relatedProjection.Expression.Cardinality != PhysicalArrayCardinality || relatedProjection.Expression.NullBehavior != PhysicalEmptyOnNull || relatedProjection.Expression.Subplan == nil {
+		return fmt.Errorf("related output must be a typed ALL subplan array")
+	}
+	if identityProjection == nil || identityProjection.Value.Variable != stage.InputRowVariable ||
+		len(identityProjection.Value.Path) != 1 || identityProjection.Value.Path[0] != stage.RowIdentityColumn {
+		return fmt.Errorf("related source must preserve the exact preceding row identity")
+	}
+	return validateStageRowOperations(stage, bindVars, false)
 }
 
 func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalStageGroup, bindVars map[string]any) error {

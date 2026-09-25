@@ -230,7 +230,7 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	finalStageIdentity := ""
 	var derivedTypes map[string]derivedColumnMetadata
 	if output.Construction != nil {
-		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, *output.Construction, baseOutputSchema)
+		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, output.RootResourceType, *output.Construction, baseOutputSchema, policy)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
 		}
