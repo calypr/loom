@@ -882,7 +882,12 @@ const BuilderWorkspaceContent = ({
               logicalType: candidate.logicalType,
             },
             route: choice.route,
-            contributorRule: { policy: 'ALL_MATCHES' },
+            contributorRule: {
+              policy: 'ALL_MATCHES',
+              ...(relatedSelections[0]?.contributorPredicate
+                ? { predicate: relatedSelections[0].contributorPredicate }
+                : {}),
+            },
             form,
             outputColumnId,
           },

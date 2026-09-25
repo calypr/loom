@@ -18,6 +18,8 @@ const optionLabel = (option: ConstructionChoice['options'][number]): string => {
   return `${option.shape} · ${option.preservation} · ${option.form}`;
 };
 
+type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
+
 export const CatalogSelectionDialog = ({
   groups,
   busy,
@@ -54,16 +56,21 @@ export const CatalogSelectionDialog = ({
       ),
     ),
   );
+  const [conditions, setConditions] = useState<ReadonlyMap<string, ConditionDraft>>(new Map());
 
   const complete = groups.every((group) => {
     const choice = group.choices.find(
       (candidate) => candidate.choiceId === choiceIDs.get(catalogItemKey(group.item)),
     );
     const form = choice ? forms.get(choice.choiceId) : undefined;
+    const option = choice?.options.find((candidate) => candidate.form === form);
+    const condition = choice ? conditions.get(choice.choiceId) : undefined;
     return Boolean(
       choice &&
       form &&
-      choice.options.some((option) => option.form === form)
+      option &&
+      (!condition || condition.mode === 'ALL' || option.contributorPredicateOperators?.includes(condition.mode)) &&
+      (condition?.mode !== 'EQUALS' || Boolean(condition.value.trim()))
     );
   });
 
@@ -75,10 +82,21 @@ export const CatalogSelectionDialog = ({
       );
       const form = choice ? forms.get(choice.choiceId) : undefined;
       if (!choice || !form) return [];
+      const option = choice.options.find((candidate) => candidate.form === form);
+      const condition = conditions.get(choice.choiceId);
       return [
         {
           constructionChoice: { choiceId: choice.choiceId, form },
           title: catalogItemLabel(group.item),
+          ...(choice.source.kind === 'FIELD' && option?.contributorPredicateOperators?.includes('EXISTS') && condition?.mode === 'EXISTS'
+            ? { contributorPredicate: { candidateId: choice.source.candidateId, operator: 'EXISTS' as const } }
+            : choice.source.kind === 'FIELD' && option?.contributorPredicateOperators?.includes('EQUALS') && condition?.mode === 'EQUALS'
+              ? { contributorPredicate: {
+                  candidateId: choice.source.candidateId,
+                  operator: 'EQUALS' as const,
+                  value: { kind: 'STRING' as const, string: condition.value },
+                } }
+              : {}),
         },
       ];
     });
@@ -121,6 +139,8 @@ export const CatalogSelectionDialog = ({
               );
             }
             const selectedForm = choice ? forms.get(choice.choiceId) : undefined;
+            const selectedOption = choice?.options.find((option) => option.form === selectedForm);
+            const predicateOperators = selectedOption?.contributorPredicateOperators ?? [];
             return (
               <article key={key} className="rounded-lg border border-slate-200 p-3">
                 <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
@@ -227,6 +247,48 @@ export const CatalogSelectionDialog = ({
                     );
                   })}
                 </fieldset> : null}
+                {choice?.route.length && item.kind === 'FIELD' && predicateOperators.length > 0 ? (
+                  <fieldset className="mt-3 space-y-2" disabled={busy}>
+                    <legend className="text-sm font-medium text-slate-800">Matching records</legend>
+                    <p className="text-xs text-slate-600">This condition selects related records. It does not remove table rows.</p>
+                    {([
+                      ['ALL', 'All related records'],
+                      ...(predicateOperators.includes('EXISTS')
+                        ? [['EXISTS', `Only records with ${catalogItemLabel(item)}`] as const]
+                        : []),
+                      ...(predicateOperators.includes('EQUALS')
+                        ? [['EQUALS', `Only records where ${catalogItemLabel(item)} equals`] as const]
+                        : []),
+                    ] as const).map(([mode, label]) => (
+                      <label key={mode} className="flex items-center gap-2 text-sm text-slate-800">
+                        <input
+                          type="radio"
+                          name={`construction-condition-${choice.choiceId}`}
+                          checked={(conditions.get(choice.choiceId)?.mode ?? 'ALL') === mode}
+                          onChange={() => setConditions((current) => new Map(current).set(choice.choiceId, {
+                            mode,
+                            value: current.get(choice.choiceId)?.value ?? '',
+                          }))}
+                        />
+                        {label}
+                      </label>
+                    ))}
+                    {conditions.get(choice.choiceId)?.mode === 'EQUALS' ? (
+                      <input
+                        aria-label={`${catalogItemLabel(item)} exact value`}
+                        value={conditions.get(choice.choiceId)?.value ?? ''}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setConditions((current) => new Map(current).set(choice.choiceId, {
+                            mode: 'EQUALS', value,
+                          }));
+                        }}
+                        placeholder="Exact value"
+                        className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+                      />
+                    ) : null}
+                  </fieldset>
+                ) : null}
               </article>
             );
           })}

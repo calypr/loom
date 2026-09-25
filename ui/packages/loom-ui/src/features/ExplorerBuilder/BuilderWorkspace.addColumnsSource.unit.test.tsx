@@ -246,6 +246,7 @@ const relatedSourceChoice: ConstructionChoice = {
     rowEffect: 'PRESERVES_ROW_GRAIN',
     support: 'SUPPORTED',
     reason: 'Loom proves this list form preserves the selected stage row grain.',
+    contributorPredicateOperators: ['EXISTS', 'EQUALS'],
   }, {
     form: 'COUNT',
     shape: 'SCALAR',
@@ -254,6 +255,7 @@ const relatedSourceChoice: ConstructionChoice = {
     rowEffect: 'PRESERVES_ROW_GRAIN',
     support: 'SUPPORTED',
     reason: 'Count distinct matching source records.',
+    contributorPredicateOperators: ['EXISTS', 'EQUALS'],
   }, {
     form: 'PRESENCE',
     shape: 'SCALAR',
@@ -262,6 +264,7 @@ const relatedSourceChoice: ConstructionChoice = {
     rowEffect: 'PRESERVES_ROW_GRAIN',
     support: 'SUPPORTED',
     reason: 'Show whether a matching source record exists.',
+    contributorPredicateOperators: ['EXISTS', 'EQUALS'],
   }],
 };
 
@@ -524,6 +527,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(within(selectionDialog).getByRole('radio', {
       name: 'Observation status: Count distinct matching records',
     }));
+    fireEvent.click(within(selectionDialog).getByRole('radio', {
+      name: 'Only records where Observation status equals',
+    }));
+    fireEvent.change(within(selectionDialog).getByRole('textbox', {
+      name: 'Observation status exact value',
+    }), { target: { value: 'registered' } });
     fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
     await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
@@ -542,7 +551,14 @@ describe('BuilderWorkspace Add columns source selection', () => {
                 anchorColumnId: '_key',
                 choiceId: relatedSourceChoice.choiceId,
                 sourceOccurrenceId: 'observation-node',
-                contributorRule: { policy: 'ALL_MATCHES' },
+                contributorRule: {
+                  policy: 'ALL_MATCHES',
+                  predicate: {
+                    candidateId: 'observation-status',
+                    operator: 'EQUALS',
+                    value: { kind: 'STRING', string: 'registered' },
+                  },
+                },
                 form: 'COUNT',
                 source: expect.objectContaining({
                   candidateId: 'observation-status',

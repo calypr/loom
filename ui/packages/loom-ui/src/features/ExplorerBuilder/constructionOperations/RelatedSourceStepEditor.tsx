@@ -5,6 +5,7 @@ import type {
   ConstructionChoice,
   ConstructionChoiceForm,
   ConstructionChoiceSource,
+  ContributorPredicate,
   ConstructionOperation,
   ConstructionProposalRequest,
   ConstructionStep,
@@ -167,6 +168,7 @@ export const RelatedSourceStepEditor = ({
   const [labelEdited, setLabelEdited] = useState(false);
   const [selectedSource, setSelectedSource] = useState<RelatedSourceIntent>();
   const [selectedForm, setSelectedForm] = useState<RelatedSourceForm>(relatedSource.form);
+  const [selectedPredicate, setSelectedPredicate] = useState<ContributorPredicate | undefined>(relatedSource.contributorRule.predicate);
   const support = relatedSourceSupport(capabilities);
 
   const candidateFor = (
@@ -174,6 +176,7 @@ export const RelatedSourceStepEditor = ({
     nextLabel: string,
     sourceSelection = selectedSource,
     form = selectedForm,
+    predicate = selectedPredicate,
   ): CandidateIntent | undefined => {
     const normalizedName = nextName.trim();
     const normalizedLabel = nextLabel.trim();
@@ -190,6 +193,7 @@ export const RelatedSourceStepEditor = ({
 
     const sourceChanged = sourceSelection !== undefined && (
       form !== relatedSource.form ||
+      JSON.stringify(predicate) !== JSON.stringify(relatedSource.contributorRule.predicate) ||
       sourceSelection.choice.choiceId !== relatedSource.choiceId ||
       sourceSelection.choice.source.kind !== 'FIELD' ||
       sourceSelection.choice.source.candidateId !== relatedSource.source.candidateId ||
@@ -227,7 +231,7 @@ export const RelatedSourceStepEditor = ({
               logicalType: sourceSelection.candidate.logicalType,
             },
             route: sourceSelection.choice.route,
-            contributorRule: { policy: 'ALL_MATCHES' },
+            contributorRule: { policy: 'ALL_MATCHES', ...(predicate ? { predicate } : {}) },
             form,
             outputColumnId: outputId,
           },
@@ -277,6 +281,7 @@ export const RelatedSourceStepEditor = ({
     }
     const selected = selections[0].relatedSource;
     const form = selections[0].constructionChoice.form;
+    const predicate = selections[0].contributorPredicate;
     if ((form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') || !relatedChoiceIsSupported(selected, rowRoot, form)) {
       throw new Error('Loom did not return a supported scalar related field choice for this stage.');
     }
@@ -298,9 +303,10 @@ export const RelatedSourceStepEditor = ({
           : selected.candidate.label.trim() || selected.candidate.fieldPath;
     setSelectedSource(selected);
     setSelectedForm(form);
+    setSelectedPredicate(predicate);
     setOutputName(nextName);
     setOutputLabel(nextLabel);
-    onCandidateChange(candidateFor(nextName, nextLabel, selected, form));
+    onCandidateChange(candidateFor(nextName, nextLabel, selected, form, predicate));
   };
 
   const nameIsValid = isPhysicalColumnName(outputName.trim()) &&
@@ -361,6 +367,15 @@ export const RelatedSourceStepEditor = ({
           Current route: {relatedSource.route.length > 0
             ? relatedSource.route.map((edge) => `${edge.fromResourceType} → ${edge.toResourceType} via ${edge.relationship}`).join(' · ')
             : 'Same resource as each table row'}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          Current matching rule: {relatedSource.contributorRule.predicate?.operator === 'EQUALS'
+            ? `Only records where the selected field equals ${relatedSource.contributorRule.predicate.value?.kind === 'STRING'
+              ? relatedSource.contributorRule.predicate.value.string
+              : relatedSource.contributorRule.predicate.value?.code?.code ?? ''}`
+            : relatedSource.contributorRule.predicate?.operator === 'EXISTS'
+              ? 'Only records with a value in the selected field'
+              : 'All related records'}
         </p>
         <ConceptCatalog
           key={`${snapshotToken}:${outputId}:${step.id}`}

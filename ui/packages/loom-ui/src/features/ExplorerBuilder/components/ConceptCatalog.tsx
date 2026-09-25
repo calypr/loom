@@ -773,12 +773,15 @@ export const ConceptCatalog = ({
             (candidate) => candidate.choiceId === selection.constructionChoice.choiceId,
           );
           return group && choice
-            ? catalogChoiceIntent({
+            ? {
+                ...catalogChoiceIntent({
                 item: group.item,
                 choice,
                 form: selection.constructionChoice.form,
                 ...(relatedSourceAvailability?.supported ? { rowRoot } : {}),
-              })
+                }),
+                ...(selection.contributorPredicate ? { contributorPredicate: selection.contributorPredicate } : {}),
+              }
             : selection;
         })
       : selections;

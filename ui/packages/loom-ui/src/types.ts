@@ -247,6 +247,7 @@ export const contributorPredicateSchema = z
     value: contributorValueSchema.optional(),
   })
   .strict();
+export type ContributorPredicate = z.infer<typeof contributorPredicateSchema>;
 export const explorerColumnSourceSchema = z.union([
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
@@ -1198,7 +1199,10 @@ const relatedSourceSchema = z.object({
     logicalType: opaqueIdSchema,
   }).strict(),
   route: z.array(constructionRouteStepSchema),
-  contributorRule: z.object({ policy: z.literal('ALL_MATCHES') }).strict(),
+  contributorRule: z.object({
+    policy: z.literal('ALL_MATCHES'),
+    predicate: contributorPredicateSchema.optional(),
+  }).strict(),
   form: z.enum(['ALL', 'COUNT', 'PRESENCE']),
   outputColumnId: opaqueIdSchema,
 }).strict();
@@ -1609,6 +1613,7 @@ export const constructionChoiceOptionSchema = z
     rowEffect: z.literal('PRESERVES_ROW_GRAIN'),
     support: z.literal('SUPPORTED'),
     reason: z.string().min(1),
+    contributorPredicateOperators: z.array(z.enum(['EXISTS', 'EQUALS'])).optional(),
   })
   .strict();
 export type ConstructionChoiceOption = z.infer<

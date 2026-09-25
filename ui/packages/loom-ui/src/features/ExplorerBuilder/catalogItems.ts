@@ -2,6 +2,7 @@ import type {
   ConstructionChoice,
   ConstructionChoiceForm,
   ConstructionChoiceSelection,
+  ContributorPredicate,
   ExplorerBuilderCatalog,
   ExplorerBuilderCandidate,
   FieldChoiceSource,
@@ -25,6 +26,7 @@ export type CatalogItem =
 export type CatalogChoiceIntent = {
   readonly constructionChoice: ConstructionChoiceSelection;
   readonly title?: string;
+  readonly contributorPredicate?: ContributorPredicate;
   readonly relatedSource?: {
     readonly choice: ConstructionChoice;
     readonly candidate: ExplorerBuilderCandidate;
