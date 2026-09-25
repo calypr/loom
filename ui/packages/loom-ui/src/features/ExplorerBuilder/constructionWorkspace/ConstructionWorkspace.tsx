@@ -32,7 +32,7 @@ export interface ConstructionHistoryProps {
   readonly onRemoveStep?: (stepId: string) => void;
 }
 
-const actionFamilies = [
+const allOperationFamilies = [
   {
     family: 'ADD_COLUMNS',
     label: 'Add columns',
@@ -64,7 +64,10 @@ const actionFamilies = [
   readonly description: string;
 }>;
 
-export const constructionOperationFamilies = actionFamilies;
+export const constructionOperationFamilies = allOperationFamilies;
+const actionFamilies = allOperationFamilies.filter(
+  ({ family }) => family !== 'CALCULATE' && family !== 'COMBINE',
+);
 
 export const ConstructionActionBar = ({
   activeFamily,
@@ -75,7 +78,7 @@ export const ConstructionActionBar = ({
   readonly disabled?: boolean;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => (
-  <nav aria-label="Table actions" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+  <nav aria-label="Table actions" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
     {actionFamilies.map(({ family, label, description }) => (
       <button
         key={family}

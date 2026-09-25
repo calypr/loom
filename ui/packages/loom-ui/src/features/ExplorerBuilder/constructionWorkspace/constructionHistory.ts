@@ -180,7 +180,7 @@ const formatStep = (
         id: step.id,
         title: 'Related source',
         summary: `Add all matching values from ${source}${route} as ${output}.`,
-        editable: false,
+        editable: true,
       };
     }
     default: {

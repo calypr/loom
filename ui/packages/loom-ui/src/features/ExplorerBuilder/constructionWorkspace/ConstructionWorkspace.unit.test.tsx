@@ -15,7 +15,7 @@ import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
 
 describe('ConstructionWorkspace', () => {
-  it('shows the five described operation families and reports the selected family', () => {
+  it('shows executable operation families and omits Calculate and Combine creation actions', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -23,9 +23,7 @@ describe('ConstructionWorkspace', () => {
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
       ['KEEP_ROWS', 'Keep rows'],
-      ['CALCULATE', 'Calculate'],
       ['RESHAPE', 'Reshape'],
-      ['COMBINE', 'Combine'],
     ] as const;
     for (const [family, label] of actions) {
       const button = screen.getByTestId(
@@ -35,6 +33,8 @@ describe('ConstructionWorkspace', () => {
       fireEvent.click(button);
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
+    expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
   });
 
   it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {

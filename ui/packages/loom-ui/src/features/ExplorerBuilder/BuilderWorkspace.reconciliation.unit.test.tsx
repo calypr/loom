@@ -1344,9 +1344,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-source-setup')).not.toHaveAttribute('open');
     expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-action-calculate')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-reshape')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-action-combine')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
 
     const selectedColumn = screen.getByTestId('construction-column-specimen_identifier_id');
     expect(selectedColumn.tagName).toBe('BUTTON');
@@ -1354,14 +1354,15 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(document.activeElement).toBe(selectedColumn);
     fireEvent.click(selectedColumn);
     expect(selectedColumn).toHaveAttribute('aria-pressed', 'true');
-    const calculateShortcut = screen.getByTestId('construction-selection-calculate');
-    expect(calculateShortcut.tagName).toBe('BUTTON');
-    calculateShortcut.focus();
-    expect(document.activeElement).toBe(calculateShortcut);
-    fireEvent.click(calculateShortcut);
+    expect(screen.queryByTestId('construction-selection-calculate')).not.toBeInTheDocument();
+    const keepRowsShortcut = screen.getByTestId('construction-selection-keep-rows');
+    expect(keepRowsShortcut.tagName).toBe('BUTTON');
+    keepRowsShortcut.focus();
+    expect(document.activeElement).toBe(keepRowsShortcut);
+    fireEvent.click(keepRowsShortcut);
     expect(screen.getByTestId('construction-operation-editor')).toHaveAttribute(
       'data-operation-family',
-      'CALCULATE',
+      'KEEP_ROWS',
     );
     expect(screen.getByTestId('construction-operation-editor').textContent).toContain(
       'Specimen identifier',

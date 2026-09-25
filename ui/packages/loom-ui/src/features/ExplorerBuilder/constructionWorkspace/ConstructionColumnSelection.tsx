@@ -60,15 +60,6 @@ export const ConstructionColumnSelection = ({
             <span className="text-xs text-slate-500">Use selection</span>
             <button
               type="button"
-              data-testid="construction-selection-calculate"
-              disabled={disabled}
-              onClick={() => onOpenFamily('CALCULATE')}
-              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            >
-              Calculate
-            </button>
-            <button
-              type="button"
               data-testid="construction-selection-keep-rows"
               disabled={disabled}
               onClick={() => onOpenFamily('KEEP_ROWS')}

@@ -17,7 +17,9 @@ import {
   useReconcileExplorerBuilderV2Mutation,
 } from '../../react';
 import type {
+  Construction,
   ConstructionChoice,
+  ConstructionProposalResponse,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderState,
@@ -643,5 +645,262 @@ describe('BuilderWorkspace Add columns source selection', () => {
       .toHaveTextContent('Close the saved-step editor before adding related fields');
     expect(mockLoomClient.proposeConstruction).not.toHaveBeenCalled();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
+  });
+
+  it('edits a saved related source in place and keeps its output selectable before a fresh preview', async () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'related-observation',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'RELATED_SOURCE',
+            relatedSource: {
+              anchorColumnId: '_key',
+              choiceId: 'saved-observation-choice',
+              sourceOccurrenceId: 'observation-node',
+              source: {
+                kind: 'FIELD',
+                candidateId: 'observation-status',
+                nodeId: 'observation-node',
+                resourceType: 'Observation',
+                path: 'status',
+                cardinality: 'optional_one',
+                logicalType: 'string',
+              },
+              route: relatedSourceChoice.route,
+              contributorRule: { policy: 'ALL_MATCHES' },
+              form: 'ALL',
+              outputColumnId: 'related-observation-status',
+            },
+          },
+          outputs: [
+            { id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' },
+            { id: 'related-observation-status', name: 'related_observation_status', label: 'Observation status', type: 'string' },
+          ],
+        },
+        {
+          id: 'keep-related-status',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'related-observation' }],
+          operation: {
+            kind: 'FILTER',
+            filter: { columnId: 'related-observation-status', operator: 'EXISTS' },
+          },
+          outputs: [
+            { id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' },
+            { id: 'related-observation-status', name: 'related_observation_status', label: 'Observation status', type: 'string' },
+          ],
+        },
+      ],
+    };
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: '_key',
+      columns: [{ id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' }],
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+    };
+    const relatedStage = {
+      id: 'related-observation',
+      inputStageId: 'source_projection',
+      operation: 'RELATED_SOURCE',
+      rowIdentityColumn: '_key',
+      columns: [
+        { id: 'patient-row-key', name: 'patient_row_key', label: 'Patient row key' },
+        { id: 'related-observation-status', name: 'related_observation_status', label: 'Observation status', type: 'string' },
+      ],
+      capabilities: [],
+    };
+    const finalStage = {
+      id: 'keep-related-status',
+      inputStageId: 'related-observation',
+      operation: 'FILTER',
+      rowIdentityColumn: '_key',
+      columns: relatedStage.columns,
+      capabilities: [{ kind: 'RELATED_SOURCE', supported: true }],
+    };
+    const relatedWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [{ ...workspace.documents[0]!, construction }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: relatedWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: construction,
+      stages: [sourceStage, relatedStage, finalStage],
+      selectedStage: args.stageId === 'source_projection' ? sourceStage : finalStage,
+    }));
+    const reportRelatedChoice: ConstructionChoice = {
+      ...relatedSourceChoice,
+      choiceId: 'server-report-related-choice',
+      route: [{
+        edgeId: 'patient-reports',
+        fromNodeId: 'patient-node',
+        toNodeId: 'report-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'DiagnosticReport',
+        relationship: 'reports',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      source: {
+        kind: 'FIELD',
+        candidateId: 'report-status',
+        nodeId: 'report-node',
+        resourceType: 'DiagnosticReport',
+        path: 'status',
+        cardinality: 'optional_one',
+      },
+      options: [{ ...relatedSourceChoice.options[0]!, decision: 'DEFAULT' }],
+    };
+    mockLoomClient.searchConstructionChoices.mockResolvedValue({
+      snapshotToken: 'snapshot-1',
+      outputId: 'patients',
+      complete: true,
+      truncated: false,
+      choices: [reportRelatedChoice],
+    });
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: {
+      readonly candidateConstruction: Construction;
+      readonly changedStepId?: string;
+    }): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'edit-related-proposal',
+      outputId: 'patients',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-workspace-1',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: ['keep-related-status'] },
+      stages: [],
+      previewStatus: 'READY',
+      previewDurationMs: 7,
+    }));
+    mockLoomClient.preview.mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      receiptId: 'edit-related-proposal',
+      outputId: 'patients',
+      columns: [
+        { column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'related_DiagnosticReport_status', label: 'DiagnosticReport status', logicalType: 'string', filterable: true, chartable: false },
+      ],
+      rows: [{ patient_row_key: 'patient-1', related_DiagnosticReport_status: 'final' }],
+      rowCount: 1,
+      diagnostics: [],
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    await screen.findByTestId('construction-column-selection');
+    expect(screen.getByRole('button', { name: 'Select Observation status (string)' }))
+      .toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-history-step-related-observation'));
+    expect(screen.getByTestId('construction-edit-step-related-observation')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-remove-step-related-observation')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-edit-step-related-observation'));
+
+    expect(await screen.findByTestId('related-source-step-editor')).toBeInTheDocument();
+    const outputName = screen.getByRole('textbox', { name: 'Output column name' });
+    const outputLabel = screen.getByRole('textbox', { name: 'Output column label' });
+    expect(outputName).toBeInstanceOf(HTMLInputElement);
+    expect(outputLabel).toBeInstanceOf(HTMLInputElement);
+    expect((outputName as HTMLInputElement).value).toBe('related_observation_status');
+    expect((outputLabel as HTMLInputElement).value).toBe('Observation status');
+    expect(screen.getByText('Current source: Observation.status')).toBeInTheDocument();
+    expect(screen.getByText('Current route: Patient → Observation via observations')).toBeInTheDocument();
+
+    const editor = within(screen.getByTestId('related-source-step-editor'));
+    fireEvent.change(editor.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+      target: { value: 'DiagnosticReport' },
+    });
+    fireEvent.click(editor.getByRole('button', { name: 'Search' }));
+    fireEvent.click(await editor.findByRole('checkbox', { name: 'Select DiagnosticReport.status' }));
+    fireEvent.click(editor.getByRole('button', { name: 'Add 1 selected feature' }));
+    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0];
+    expect(proposalArgs).toEqual(expect.objectContaining({
+      changedStepId: 'related-observation',
+      candidateConstruction: {
+        version: 1,
+        steps: [
+          expect.objectContaining({
+            id: 'related-observation',
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: {
+              kind: 'RELATED_SOURCE',
+              relatedSource: expect.objectContaining({
+                anchorColumnId: '_key',
+                choiceId: reportRelatedChoice.choiceId,
+                sourceOccurrenceId: 'report-node',
+                source: expect.objectContaining({
+                  candidateId: 'report-status',
+                  nodeId: 'report-node',
+                  resourceType: 'DiagnosticReport',
+                  path: 'status',
+                  cardinality: 'optional_one',
+                  logicalType: 'string',
+                }),
+                route: reportRelatedChoice.route,
+                contributorRule: { policy: 'ALL_MATCHES' },
+                form: 'ALL',
+                outputColumnId: 'related-observation-status',
+              }),
+            },
+            outputs: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'related-observation-status',
+                name: 'related_DiagnosticReport_status',
+                label: 'DiagnosticReport status',
+              }),
+            ]),
+          }),
+          expect.objectContaining({
+            id: 'keep-related-status',
+            inputs: [{ kind: 'STEP_OUTPUT', stepId: 'related-observation' }],
+            outputs: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'related-observation-status',
+                name: 'related_DiagnosticReport_status',
+                label: 'DiagnosticReport status',
+              }),
+            ]),
+          }),
+        ],
+      },
+    }));
+
+    await screen.findByTestId('construction-proposal-ready');
+    fireEvent.click(screen.getByTestId('construction-apply-proposal'));
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'APPLY_CONSTRUCTION_PROPOSAL',
+        outputId: 'patients',
+        proposalId: 'edit-related-proposal',
+      }],
+    })));
   });
 });

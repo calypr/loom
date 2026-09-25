@@ -92,6 +92,10 @@ import {
 } from './constructionWorkspace/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
+import {
+  RelatedSourceStepEditor,
+  type RelatedSourceStep,
+} from './constructionOperations/RelatedSourceStepEditor';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -628,15 +632,11 @@ const BuilderWorkspaceContent = ({
     columnSelection.outputId === table?.outputId
       ? columnSelection.columnIds
       : [];
-  const currentColumnNames = new Set(
-    (tablePreview?.columns ?? table?.document.columns ?? []).map((column) => column.column),
-  );
   const currentStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages.at(-1)
     : undefined;
   const selectableColumns: ReadonlyArray<ConstructionSelectableColumn> = currentStage
     ? currentStage.columns
-        .filter((column) => currentColumnNames.has(column.name))
         .map((column) => ({ id: column.id, label: column.label, type: column.type }))
     : (table?.document.columns ?? []).map((column) => ({
         id: column.column,
@@ -1675,6 +1675,13 @@ const BuilderWorkspaceContent = ({
   const editConstructionStep = (stepId: string) => {
     const step = construction?.steps.find((candidate) => candidate.id === stepId);
     if (!step) return;
+    if (step.operation.kind === 'RELATED_SOURCE') {
+      constructionLifecycle.cancel();
+      setConstructionHistorySelection({ kind: 'step', stepId });
+      setEditingConstructionStepId(stepId);
+      setActiveConstructionFamily(undefined);
+      return;
+    }
     const family = editableConstructionFamily(step.operation);
     if (!family) return;
     constructionLifecycle.cancel();
@@ -1727,6 +1734,9 @@ const BuilderWorkspaceContent = ({
   const activeOperation = constructionOperationFamilies.find(
     (candidate) => candidate.family === activeConstructionFamily,
   );
+  const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
+    ? editingConstructionStep as RelatedSourceStep
+    : undefined;
   const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages
     : undefined;
@@ -1945,6 +1955,39 @@ const BuilderWorkspaceContent = ({
       </div>
     </section>
   ) : undefined;
+  const relatedSourceStepEditor = table && editingRelatedSourceStep ? (
+    <section
+      aria-label="Related source editor"
+      data-testid="construction-related-source-editor"
+      className="overflow-hidden rounded-xl border border-emerald-200 bg-white p-4 shadow-sm"
+    >
+      {constructionLifecycle.capabilities.status === 'loading' ? (
+        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
+      ) : constructionLifecycle.capabilities.status === 'error' ? (
+        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+      ) : constructionLifecycle.capabilities.status === 'ready' ? (
+        <RelatedSourceStepEditor
+          project={projectId}
+          explorerId={state.explorerId}
+          authResourcePath={authResourcePath}
+          snapshotToken={state.catalog.snapshotToken}
+          outputId={table.outputId}
+          rowRoot={table.document.rootResourceType ?? ''}
+          catalog={state.catalog}
+          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+          capabilities={constructionLifecycle.capabilities.response}
+          step={editingRelatedSourceStep}
+          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+          onCandidateChange={constructionLifecycle.onCandidateChange}
+          onCancel={() => {
+            constructionLifecycle.cancel();
+            setEditingConstructionStepId(undefined);
+            setActiveConstructionFamily(undefined);
+          }}
+        />
+      ) : null}
+    </section>
+  ) : undefined;
   const proposalPanel = (
     <ConstructionProposalPanel
       state={constructionLifecycle.proposal}
@@ -1958,8 +2001,8 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const workspaceEditor = operationEditor || constructionLifecycle.proposal.status !== 'idle'
-    ? <>{operationEditor}{proposalPanel}</>
+  const workspaceEditor = operationEditor || relatedSourceStepEditor || constructionLifecycle.proposal.status !== 'idle'
+    ? <>{operationEditor}{relatedSourceStepEditor}{proposalPanel}</>
     : undefined;
   const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
