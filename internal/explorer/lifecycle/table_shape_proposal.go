@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
+	"time"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -251,6 +254,42 @@ type TableShapeProposal struct {
 	CandidateWorkspaceDigest string                 `json:"candidateWorkspaceDigest"`
 	Mode                     TableShapeProposalMode `json:"mode"`
 	Comparison               TableShapeComparison   `json:"comparison"`
+	phaseTimings             tableShapeProposalTimings
+}
+
+type tableShapeProposalTimings struct {
+	candidateCompile time.Duration
+	comparison       time.Duration
+	basePreview      time.Duration
+	candidatePreview time.Duration
+	rowDiff          time.Duration
+	cellTrace        time.Duration
+	receiptEvidence  time.Duration
+}
+
+// ServerTiming returns the proposal work breakdown for the HTTP response.
+// These measurements are deliberately excluded from the proposal JSON body.
+func (p TableShapeProposal) ServerTiming() string {
+	metrics := []struct {
+		name     string
+		duration time.Duration
+	}{
+		{name: "candidate-compile", duration: p.phaseTimings.candidateCompile},
+		{name: "base-preview", duration: p.phaseTimings.basePreview},
+		{name: "candidate-preview", duration: p.phaseTimings.candidatePreview},
+		{name: "row-diff", duration: p.phaseTimings.rowDiff},
+		{name: "cell-trace", duration: p.phaseTimings.cellTrace},
+		{name: "receipt-evidence", duration: p.phaseTimings.receiptEvidence},
+		{name: "comparison", duration: p.phaseTimings.comparison},
+	}
+	parts := make([]string, 0, len(metrics))
+	for _, metric := range metrics {
+		if metric.duration <= 0 {
+			continue
+		}
+		parts = append(parts, metric.name+";dur="+strconv.FormatFloat(float64(metric.duration)/float64(time.Millisecond), 'f', 3, 64))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (s *Service) ProposeTableShape(ctx context.Context, request TableShapeProposalRequest) (TableShapeProposal, error) {
@@ -313,6 +352,7 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
 		SnapshotToken: request.SnapshotToken,
 	}
+	compileStarted := time.Now()
 	candidateReceipt, err := s.compile(ctx, compileRequest{
 		Project: request.Project, ExplorerID: request.ExplorerID, Workspace: candidateWorkspace,
 		SnapshotToken: request.SnapshotToken, RequestID: "table-shape-proposal-candidate",
@@ -324,15 +364,18 @@ func (s *Service) ProposeTableShape(ctx context.Context, request TableShapePropo
 	if _, err := s.verifyProposalReceipt(ctx, "table-shape-proposal", candidateReceipt, request.Project, request.ExplorerID, request.SnapshotToken, base.snapshot, &candidateWorkspace); err != nil {
 		return TableShapeProposal{}, err
 	}
-	comparison, err := s.compareTableShapeReceipts(ctx, request, base.snapshot, base.finalReceipt, candidateReceipt, limit)
+	phaseTimings := tableShapeProposalTimings{candidateCompile: time.Since(compileStarted)}
+	comparisonStarted := time.Now()
+	comparison, err := s.compareTableShapeReceipts(ctx, request, base.snapshot, base.finalReceipt, candidateReceipt, limit, &phaseTimings)
 	if err != nil {
 		return TableShapeProposal{}, err
 	}
+	phaseTimings.comparison = time.Since(comparisonStarted)
 	return TableShapeProposal{
 		ProposalID: candidateReceipt.ID, BaseReceiptID: base.finalReceipt.ID, OutputID: request.OutputID,
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		BaseDocumentDigest: baseDocumentDigest, CandidateWorkspaceDigest: candidateDigest,
-		Mode: mode, Comparison: comparison,
+		Mode: mode, Comparison: comparison, phaseTimings: phaseTimings,
 	}, nil
 }
 

@@ -313,6 +313,15 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 	if proposalHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("table-shape proposal status=%d body=%s", proposalHTTP.StatusCode, proposalHTTP.Body)
 	}
+	serverTiming := proposalHTTP.Headers.Get("Server-Timing")
+	for _, metric := range []string{
+		"candidate-compile;dur=", "base-preview;dur=", "candidate-preview;dur=", "row-diff;dur=",
+		"cell-trace;dur=", "receipt-evidence;dur=", "comparison;dur=",
+	} {
+		if !strings.Contains(serverTiming, metric) {
+			t.Fatalf("proposal Server-Timing=%q; missing %q", serverTiming, metric)
+		}
+	}
 	var proposal loomapi.TableShapeProposal
 	if err := json.Unmarshal([]byte(proposalHTTP.Body), &proposal); err != nil {
 		t.Fatal(err)
@@ -366,7 +375,7 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 	if comparison.EvidenceLimitations[0].Code != "TABLE_SHAPE_EXCLUSIONS_SAMPLED" || comparison.EvidenceLimitations[1].Code != "TABLE_SHAPE_SOURCE_IDENTITY_UNAVAILABLE" {
 		t.Fatalf("proposal evidence limitations=%#v", comparison.EvidenceLimitations)
 	}
-	for _, forbidden := range []string{"tableShape", "constructionId", "columnKey", "query", "sourcePath", "FHIRType", "schemaPath", "__loom_"} {
+	for _, forbidden := range []string{"tableShape", "constructionId", "columnKey", "query", "sourcePath", "FHIRType", "schemaPath", "__loom_", "phaseTimings"} {
 		if strings.Contains(proposalHTTP.Body, forbidden) {
 			t.Fatalf("proposal response leaked durable or compiler detail %q: %s", forbidden, proposalHTTP.Body)
 		}

@@ -11,6 +11,7 @@ import (
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/explorer/tableshapecap"
+	"github.com/gofiber/fiber/v3"
 )
 
 func (h *explorerHTTPHandlers) getTableShapeCapabilitiesDirect(ctx context.Context, project, explorerID string, body *loomapi.TableShapeCapabilitiesRequest) (loomapi.TableShapeCapabilitiesResponse, error) {
@@ -142,12 +143,12 @@ func lifecycleOperandSelection(value loomapi.TableShapeOperandSelection) lifecyc
 	return result
 }
 
-func (h *explorerHTTPHandlers) proposeTableShapeDirect(ctx context.Context, project, explorerID string, body *loomapi.TableShapeProposalRequest) (loomapi.TableShapeProposal, error) {
+func (h *explorerHTTPHandlers) proposeTableShapeDirect(ctx context.Context, project, explorerID string, body *loomapi.TableShapeProposalRequest) (loomapi.TableShapeProposal, string, error) {
 	if err := h.authoringReadDirect(ctx, project); err != nil {
-		return loomapi.TableShapeProposal{}, err
+		return loomapi.TableShapeProposal{}, "", err
 	}
 	if body == nil {
-		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", nil)
+		return loomapi.TableShapeProposal{}, "", malformedRouteError("table-shape-proposal", nil)
 	}
 	raw, err := json.Marshal(struct {
 		Project    string `json:"project"`
@@ -155,17 +156,31 @@ func (h *explorerHTTPHandlers) proposeTableShapeDirect(ctx context.Context, proj
 		*loomapi.TableShapeProposalRequest
 	}{Project: project, ExplorerID: explorerID, TableShapeProposalRequest: body})
 	if err != nil {
-		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", err)
+		return loomapi.TableShapeProposal{}, "", malformedRouteError("table-shape-proposal", err)
 	}
 	var input lifecycle.TableShapeProposalRequest
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return loomapi.TableShapeProposal{}, malformedRouteError("table-shape-proposal", err)
+		return loomapi.TableShapeProposal{}, "", malformedRouteError("table-shape-proposal", err)
 	}
 	proposal, err := h.application.ProposeTableShape(ctx, input)
 	if err != nil {
-		return loomapi.TableShapeProposal{}, err
+		return loomapi.TableShapeProposal{}, "", err
 	}
-	return directAuthoringJSON[loomapi.TableShapeProposal](proposal)
+	timing := proposal.ServerTiming()
+	value, err := directAuthoringJSON[loomapi.TableShapeProposal](proposal)
+	return value, timing, err
+}
+
+type proposeExplorerTableShapeTimedResponse struct {
+	loomapi.ProposeExplorerTableShape200JSONResponse
+	serverTiming string
+}
+
+func (response proposeExplorerTableShapeTimedResponse) VisitProposeExplorerTableShapeResponse(ctx fiber.Ctx) error {
+	if response.serverTiming != "" {
+		ctx.Response().Header.Set("Server-Timing", response.serverTiming)
+	}
+	return response.ProposeExplorerTableShape200JSONResponse.VisitProposeExplorerTableShapeResponse(ctx)
 }
 
 func (r *HTTPRoutes) GetExplorerTableShapeCapabilities(ctx context.Context, request loomapi.GetExplorerTableShapeCapabilitiesRequestObject) (loomapi.GetExplorerTableShapeCapabilitiesResponseObject, error) {
@@ -269,9 +284,12 @@ func (r *HTTPRoutes) ProposeExplorerTableShape(ctx context.Context, request loom
 		_, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerTableShape", explorerUnavailable("table-shape-proposal", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
 		return loomapi.ProposeExplorerTableShape503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	}
-	value, err := r.explorer.proposeTableShapeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	value, timing, err := r.explorer.proposeTableShapeDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
 	if err == nil {
-		return loomapi.ProposeExplorerTableShape200JSONResponse(value), nil
+		return proposeExplorerTableShapeTimedResponse{
+			ProposeExplorerTableShape200JSONResponse: loomapi.ProposeExplorerTableShape200JSONResponse(value),
+			serverTiming:                             timing,
+		}, nil
 	}
 	status, failure := authoringErrorForOpenAPI(ctx, "proposeExplorerTableShape", err)
 	switch status {

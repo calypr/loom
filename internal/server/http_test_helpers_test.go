@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -65,6 +66,7 @@ func (r compilerTestRegistry) LoadRecipeVersion(ctx context.Context, name, _ str
 type testHTTPResponse struct {
 	StatusCode int
 	Body       string
+	Headers    http.Header
 }
 
 func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHTTPResponse {
@@ -82,7 +84,7 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 	if err != nil {
 		t.Fatal(err)
 	}
-	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw)}
+	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw), Headers: response.Header.Clone()}
 }
 
 type testExplorerStore struct {

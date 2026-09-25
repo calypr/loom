@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -17,7 +18,7 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableShapeProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int) (TableShapeComparison, error) {
+func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableShapeProposalRequest, snapshot capability.Snapshot, base, candidate *explorer.CompilationReceipt, limit int, timings *tableShapeProposalTimings) (TableShapeComparison, error) {
 	if s.config.PreviewReceipt == nil || s.config.Capability.ForExecution == nil {
 		comparison := unavailableTableShapeComparison("PREVIEW_UNAVAILABLE", "Receipt preview execution is not configured.")
 		comparison.DeclaredInformationLoss = declaredTableShapeInformationLoss(base, candidate, request.OutputID)
@@ -54,19 +55,25 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 		PreviewLimit: limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
 	}
 	applyAuthorizedScope(&bindings, authorized, false)
+	phaseStarted := time.Now()
 	baseRows, err := s.previewReceiptRows(ctx, base, bindings, limit)
+	timings.basePreview += time.Since(phaseStarted)
 	if err != nil {
 		comparison := unavailableTableShapeComparison("BASE_PREVIEW_UNAVAILABLE", "The base receipt could not be previewed with stable row identities.")
 		comparison.Base = tableShapePreviewSummary(baseRows.Summary)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return TableShapeComparison{}, ctxErr
 		}
+		phaseStarted = time.Now()
 		if err := s.attachTableShapeReceiptEvidence(ctx, base, candidate, bindings, request.OutputID, &comparison); err != nil {
 			return TableShapeComparison{}, err
 		}
+		timings.receiptEvidence += time.Since(phaseStarted)
 		return comparison, nil
 	}
+	phaseStarted = time.Now()
 	candidateRows, err := s.previewReceiptRows(ctx, candidate, bindings, limit)
+	timings.candidatePreview += time.Since(phaseStarted)
 	if err != nil {
 		comparison := unavailableTableShapeComparison("CANDIDATE_PREVIEW_UNAVAILABLE", "The candidate receipt could not be previewed with stable row identities.")
 		comparison.Base = tableShapePreviewSummary(baseRows.Summary)
@@ -74,18 +81,26 @@ func (s *Service) compareTableShapeReceipts(ctx context.Context, request TableSh
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return TableShapeComparison{}, ctxErr
 		}
+		phaseStarted = time.Now()
 		if err := s.attachTableShapeReceiptEvidence(ctx, base, candidate, bindings, request.OutputID, &comparison); err != nil {
 			return TableShapeComparison{}, err
 		}
+		timings.receiptEvidence += time.Since(phaseStarted)
 		return comparison, nil
 	}
+	phaseStarted = time.Now()
 	comparison := compareTableShapePreviewRows(baseRows, candidateRows)
+	timings.rowDiff += time.Since(phaseStarted)
+	phaseStarted = time.Now()
 	if err := s.attachTableShapeCellTraceEvidence(ctx, candidate, bindings, request.OutputID, &comparison); err != nil {
 		return TableShapeComparison{}, err
 	}
+	timings.cellTrace += time.Since(phaseStarted)
+	phaseStarted = time.Now()
 	if err := s.attachTableShapeReceiptEvidence(ctx, base, candidate, bindings, request.OutputID, &comparison); err != nil {
 		return TableShapeComparison{}, err
 	}
+	timings.receiptEvidence += time.Since(phaseStarted)
 	return comparison, nil
 }
 
