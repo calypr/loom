@@ -70,26 +70,59 @@ type StageColumn struct {
 type ConstructionOperationKind string
 
 const (
-	ConstructionPivotOp   ConstructionOperationKind = "PIVOT"
-	ConstructionDeriveOp  ConstructionOperationKind = "DERIVE"
-	ConstructionFilterOp  ConstructionOperationKind = "FILTER"
-	ConstructionUnpivotOp ConstructionOperationKind = "UNPIVOT"
-	ConstructionGroupOp   ConstructionOperationKind = "GROUP"
-	ConstructionExpandOp  ConstructionOperationKind = "EXPAND"
-	ConstructionCombineOp ConstructionOperationKind = "COMBINE"
+	ConstructionPivotOp         ConstructionOperationKind = "PIVOT"
+	ConstructionDeriveOp        ConstructionOperationKind = "DERIVE"
+	ConstructionFilterOp        ConstructionOperationKind = "FILTER"
+	ConstructionUnpivotOp       ConstructionOperationKind = "UNPIVOT"
+	ConstructionGroupOp         ConstructionOperationKind = "GROUP"
+	ConstructionExpandOp        ConstructionOperationKind = "EXPAND"
+	ConstructionCombineOp       ConstructionOperationKind = "COMBINE"
+	ConstructionRelatedSourceOp ConstructionOperationKind = "RELATED_SOURCE"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
 // stable stage column IDs, never mutable display or physical names.
 type ConstructionOperation struct {
-	Kind    ConstructionOperationKind `json:"kind"`
-	Pivot   *ConstructionPivot        `json:"pivot,omitempty"`
-	Derive  *ConstructionDerive       `json:"derive,omitempty"`
-	Filter  *ConstructionFilter       `json:"filter,omitempty"`
-	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
-	Group   *ConstructionGroup        `json:"group,omitempty"`
-	Expand  *ConstructionExpand       `json:"expand,omitempty"`
-	Combine *ConstructionCombine      `json:"combine,omitempty"`
+	Kind          ConstructionOperationKind  `json:"kind"`
+	Pivot         *ConstructionPivot         `json:"pivot,omitempty"`
+	Derive        *ConstructionDerive        `json:"derive,omitempty"`
+	Filter        *ConstructionFilter        `json:"filter,omitempty"`
+	Unpivot       *ConstructionUnpivot       `json:"unpivot,omitempty"`
+	Group         *ConstructionGroup         `json:"group,omitempty"`
+	Expand        *ConstructionExpand        `json:"expand,omitempty"`
+	Combine       *ConstructionCombine       `json:"combine,omitempty"`
+	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
+}
+
+type ConstructionRelatedSource struct {
+	AnchorColumnID     string                         `json:"anchorColumnId"`
+	ChoiceID           string                         `json:"choiceId"`
+	SourceOccurrenceID string                         `json:"sourceOccurrenceId"`
+	Source             ConstructionRelatedFieldSource `json:"source"`
+	Route              []ConstructionRelatedRouteStep `json:"route"`
+	ContributorPolicy  string                         `json:"contributorPolicy"`
+	Form               string                         `json:"form"`
+	OutputColumnID     string                         `json:"outputColumnId"`
+}
+
+type ConstructionRelatedFieldSource struct {
+	CandidateID  string `json:"candidateId"`
+	NodeID       string `json:"nodeId"`
+	ResourceType string `json:"resourceType"`
+	Path         string `json:"path"`
+	Cardinality  string `json:"cardinality"`
+	LogicalType  string `json:"logicalType"`
+}
+
+type ConstructionRelatedRouteStep struct {
+	EdgeID           string `json:"edgeId"`
+	FromNodeID       string `json:"fromNodeId"`
+	ToNodeID         string `json:"toNodeId"`
+	FromResourceType string `json:"fromResourceType"`
+	ToResourceType   string `json:"toResourceType"`
+	Relationship     string `json:"relationship"`
+	StorageDirection string `json:"storageDirection"`
+	MatchMode        string `json:"matchMode"`
 }
 
 type ConstructionPivot struct {
@@ -361,7 +394,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil} {
 		if present {
 			payloads++
 		}
@@ -509,11 +542,62 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s expand operation requires only expand payload", path)
 		}
 		return validateConstructionExpand(*operation.Expand, inputByID, outputByID, path, constructionIDs)
+	case ConstructionRelatedSourceOp:
+		if operation.RelatedSource == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil {
+			return fmt.Errorf("%s related source operation requires only relatedSource payload", path)
+		}
+		return validateConstructionRelatedSource(*operation.RelatedSource, inputByID, outputByID, path)
 	case ConstructionCombineOp:
 		return fmt.Errorf("%s combine must be the sole terminal operation over exact table revision inputs", path)
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}
+}
+
+func validateConstructionRelatedSource(related ConstructionRelatedSource, input, output map[string]StageColumn, path string) error {
+	if !validConstructionColumnID(related.AnchorColumnID) || input[related.AnchorColumnID].ID == "" {
+		return fmt.Errorf("%s.relatedSource.anchorColumnId is not in the input schema", path)
+	}
+	if !validConstructionColumnID(related.ChoiceID) || !validConstructionColumnID(related.SourceOccurrenceID) ||
+		related.SourceOccurrenceID != related.Source.NodeID {
+		return fmt.Errorf("%s.relatedSource requires a durable choice and terminal source occurrence", path)
+	}
+	source := related.Source
+	if !validConstructionColumnID(source.CandidateID) || !validConstructionColumnID(source.NodeID) ||
+		!validConstructionColumnID(source.ResourceType) || !validConstructionColumnID(source.Path) ||
+		!validConstructionColumnID(source.LogicalType) ||
+		(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+		return fmt.Errorf("%s.relatedSource.source must identify one scalar field candidate", path)
+	}
+	if related.Form != "ALL" || related.ContributorPolicy != "ALL_MATCHES" {
+		return fmt.Errorf("%s.relatedSource only supports ALL form with ALL_MATCHES contributor policy", path)
+	}
+	if len(related.Route) == 0 {
+		return fmt.Errorf("%s.relatedSource.route must contain at least one hop", path)
+	}
+	priorNode, priorResource := related.Route[0].FromNodeID, related.Route[0].FromResourceType
+	for index, hop := range related.Route {
+		if !validConstructionColumnID(hop.EdgeID) || !validConstructionColumnID(hop.Relationship) ||
+			!validConstructionColumnID(hop.ToNodeID) || !validConstructionColumnID(hop.ToResourceType) ||
+			hop.FromNodeID != priorNode || hop.FromResourceType != priorResource ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("%s.relatedSource.route[%d] is not a contiguous authorized hop", path, index)
+		}
+		priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+	}
+	if priorNode != source.NodeID || priorResource != source.ResourceType {
+		return fmt.Errorf("%s.relatedSource route terminal does not match source identity", path)
+	}
+	if !validConstructionColumnID(related.OutputColumnID) || input[related.OutputColumnID].ID != "" {
+		return fmt.Errorf("%s.relatedSource.outputColumnId is empty or already exists", path)
+	}
+	want := make(map[string]bool, len(input)+1)
+	for id := range input {
+		want[id] = true
+	}
+	want[related.OutputColumnID] = true
+	return requireExactStageOutputIDs(want, output, path)
 }
 
 func validateConstructionFilter(filter ConstructionFilter, path string) error {
@@ -669,6 +753,10 @@ func validateOpaqueIdentity(value, path string) error {
 		return fmt.Errorf("%s is required, trimmed, and at most 256 characters", path)
 	}
 	return nil
+}
+
+func validConstructionColumnID(value string) bool {
+	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)
 }
 
 func validPivotDuplicatePolicy(policy PivotDuplicatePolicy) bool {

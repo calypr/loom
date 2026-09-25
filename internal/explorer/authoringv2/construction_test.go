@@ -653,6 +653,39 @@ func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
 	}
 }
 
+func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.RootResourceType = "Patient"
+	document.Columns = []Column{{
+		ColumnID: "patient-id", Column: "patient_id", Label: "Patient ID", LogicalType: "string",
+		OccurrenceID: RootOccurrenceID,
+		Source:       ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}},
+	}}
+	raw := `{"version":1,"steps":[
+		{"id":"keep_patients","inputs":[{"kind":"SOURCE_PROJECTION"}],"operation":{"kind":"FILTER","filter":{"columnId":"patient-id","operator":"EXISTS"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"}]},
+		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"patient-id","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES"},"form":"ALL","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
+	]}`
+	var candidate Construction
+	if err := json.Unmarshal([]byte(raw), &candidate); err != nil {
+		t.Fatalf("decode stage-local related source: %v", err)
+	}
+	if err := candidate.Validate(document.Columns); err != nil {
+		t.Fatalf("validate stage-local related source: %v", err)
+	}
+	if got := len(candidate.Steps[0].Outputs); got != 1 || candidate.Steps[0].Outputs[0].ID != "patient-id" {
+		t.Fatalf("source projection changed to %#v; related output must be stage-local", candidate.Steps[0].Outputs)
+	}
+	if got := candidate.Steps[1].Inputs; len(got) != 1 || got[0].Kind != ConstructionInputStepOutput || got[0].StepID != "keep_patients" {
+		t.Fatalf("related source input = %#v, want exact preceding stage output", got)
+	}
+	if got := candidate.Steps[1].Operation.RelatedSource.OutputColumnID; got != "observation-status" {
+		t.Fatalf("related source stable output ID = %q", got)
+	}
+	if len(document.Columns) != 1 || document.Columns[0].ColumnID != "patient-id" {
+		t.Fatalf("related source mutated initial projection columns: %#v", document.Columns)
+	}
+}
+
 func float64Pointer(value float64) *float64 { return &value }
 
 func TestOldV2DocumentSerializationOmitsConstructionFields(t *testing.T) {

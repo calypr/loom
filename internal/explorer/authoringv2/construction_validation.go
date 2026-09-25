@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func (c *Construction) Validate(sourceColumns []Column) error {
@@ -112,7 +114,7 @@ func validateConstructionCombineStep(step ConstructionStep) error {
 	}
 	if step.Operation.Kind != ConstructionOperationCombine || step.Operation.Combine == nil ||
 		step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
-		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.Expand != nil {
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.Expand != nil || step.Operation.RelatedSource != nil {
 		return fmt.Errorf("operation must contain only a combine payload")
 	}
 	if err := validateStageColumns(step.Outputs); err != nil {
@@ -295,7 +297,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	for _, present := range []bool{
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
 		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
-		step.Operation.Combine != nil,
+		step.Operation.Combine != nil, step.Operation.RelatedSource != nil,
 	} {
 		if present {
 			payloads++
@@ -337,9 +339,71 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		return validateConstructionExpand(step, input, inputColumns)
 	case ConstructionOperationCombine:
 		return validateConstructionCombineStep(step)
+	case ConstructionOperationRelatedSource:
+		if step.Operation.RelatedSource == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil ||
+			step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil ||
+			step.Operation.Expand != nil || step.Operation.Combine != nil {
+			return fmt.Errorf("operation must contain only a relatedSource payload")
+		}
+		return validateConstructionRelatedSource(step, input, inputColumns)
 	default:
 		return fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+}
+
+func validateConstructionRelatedSource(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	related := step.Operation.RelatedSource
+	if !requiredID(related.AnchorColumnID) {
+		return fmt.Errorf("relatedSource.anchorColumnId is required")
+	}
+	if _, exists := input[related.AnchorColumnID]; !exists {
+		return missingConstructionColumn("relatedSource.anchorColumnId", related.AnchorColumnID)
+	}
+	if !requiredID(related.ChoiceID) || !requiredID(related.SourceOccurrenceID) {
+		return fmt.Errorf("relatedSource.choiceId and sourceOccurrenceId are required")
+	}
+	source := related.Source
+	if source.Kind != capability.ConstructionChoiceSourceField || !requiredID(source.CandidateID) || !requiredID(source.NodeID) ||
+		!requiredID(source.ResourceType) || !requiredID(source.Path) || !requiredID(source.LogicalType) {
+		return fmt.Errorf("relatedSource.source requires one exact field candidate and field path")
+	}
+	if related.SourceOccurrenceID != source.NodeID {
+		return fmt.Errorf("relatedSource.sourceOccurrenceId must identify the terminal source node")
+	}
+	if source.Cardinality != "optional_one" && source.Cardinality != "required_one" {
+		return fmt.Errorf("relatedSource.source cardinality must be scalar for ALL_MATCHES")
+	}
+	if related.Form != capability.ConstructionChoiceAll {
+		return fmt.Errorf("relatedSource.form must be ALL")
+	}
+	if related.ContributorRule.Policy != ConstructionRelatedAllMatches || related.ContributorRule.Predicate != nil {
+		return fmt.Errorf("relatedSource.contributorRule must be ALL_MATCHES without a predicate")
+	}
+	if len(related.Route) == 0 {
+		return fmt.Errorf("relatedSource.route must contain at least one authorized hop")
+	}
+	priorNode, priorResource := related.Route[0].FromNodeID, related.Route[0].FromResourceType
+	for index, hop := range related.Route {
+		if !requiredID(hop.EdgeID) || !requiredID(hop.Relationship) || !requiredID(hop.ToNodeID) ||
+			!requiredID(hop.ToResourceType) || hop.FromNodeID != priorNode || hop.FromResourceType != priorResource ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("relatedSource.route[%d] does not extend the exact prior route", index)
+		}
+		priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+	}
+	if priorNode != source.NodeID || priorResource != source.ResourceType {
+		return fmt.Errorf("relatedSource route terminal does not match its source candidate")
+	}
+	if !requiredID(related.OutputColumnID) {
+		return fmt.Errorf("relatedSource.outputColumnId is required")
+	}
+	if _, exists := input[related.OutputColumnID]; exists {
+		return fmt.Errorf("relatedSource.outputColumnId %q already exists", related.OutputColumnID)
+	}
+	want := orderedStageIDs(inputColumns)
+	want = append(want, related.OutputColumnID)
+	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 
 func validateStageColumns(columns []StageColumn) error {

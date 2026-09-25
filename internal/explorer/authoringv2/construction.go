@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 const ConstructionVersion = 1
@@ -19,13 +21,14 @@ const (
 type ConstructionOperationKind string
 
 const (
-	ConstructionOperationPivot   ConstructionOperationKind = "PIVOT"
-	ConstructionOperationDerive  ConstructionOperationKind = "DERIVE"
-	ConstructionOperationFilter  ConstructionOperationKind = "FILTER"
-	ConstructionOperationUnpivot ConstructionOperationKind = "UNPIVOT"
-	ConstructionOperationGroup   ConstructionOperationKind = "GROUP"
-	ConstructionOperationExpand  ConstructionOperationKind = "EXPAND"
-	ConstructionOperationCombine ConstructionOperationKind = "COMBINE"
+	ConstructionOperationPivot         ConstructionOperationKind = "PIVOT"
+	ConstructionOperationDerive        ConstructionOperationKind = "DERIVE"
+	ConstructionOperationFilter        ConstructionOperationKind = "FILTER"
+	ConstructionOperationUnpivot       ConstructionOperationKind = "UNPIVOT"
+	ConstructionOperationGroup         ConstructionOperationKind = "GROUP"
+	ConstructionOperationExpand        ConstructionOperationKind = "EXPAND"
+	ConstructionOperationCombine       ConstructionOperationKind = "COMBINE"
+	ConstructionOperationRelatedSource ConstructionOperationKind = "RELATED_SOURCE"
 )
 
 // Construction stores the ordered, durable operations applied after the
@@ -116,15 +119,49 @@ type StageColumn struct {
 }
 
 type ConstructionOperation struct {
-	Kind    ConstructionOperationKind `json:"kind"`
-	Pivot   *ConstructionPivot        `json:"pivot,omitempty"`
-	Derive  *ConstructionDerive       `json:"derive,omitempty"`
-	Filter  *ConstructionFilter       `json:"filter,omitempty"`
-	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
-	Group   *ConstructionGroup        `json:"group,omitempty"`
-	Expand  *ConstructionExpand       `json:"expand,omitempty"`
-	Combine *ConstructionCombine      `json:"combine,omitempty"`
+	Kind          ConstructionOperationKind  `json:"kind"`
+	Pivot         *ConstructionPivot         `json:"pivot,omitempty"`
+	Derive        *ConstructionDerive        `json:"derive,omitempty"`
+	Filter        *ConstructionFilter        `json:"filter,omitempty"`
+	Unpivot       *ConstructionUnpivot       `json:"unpivot,omitempty"`
+	Group         *ConstructionGroup         `json:"group,omitempty"`
+	Expand        *ConstructionExpand        `json:"expand,omitempty"`
+	Combine       *ConstructionCombine       `json:"combine,omitempty"`
+	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
 }
+
+// ConstructionRelatedSource adds one compiler-authorized field from related
+// resources to rows at the exact input stage. Route and field identity are
+// persisted alongside the choice token so saved constructions remain
+// self-contained after the capability snapshot expires.
+type ConstructionRelatedSource struct {
+	AnchorColumnID     string                             `json:"anchorColumnId"`
+	ChoiceID           string                             `json:"choiceId"`
+	SourceOccurrenceID string                             `json:"sourceOccurrenceId"`
+	Source             ConstructionRelatedFieldSource     `json:"source"`
+	Route              []capability.ConstructionRouteStep `json:"route"`
+	ContributorRule    ConstructionRelatedContributorRule `json:"contributorRule"`
+	Form               capability.ConstructionChoiceForm  `json:"form"`
+	OutputColumnID     string                             `json:"outputColumnId"`
+}
+
+type ConstructionRelatedFieldSource struct {
+	Kind               capability.ConstructionChoiceSourceKind `json:"kind"`
+	CandidateID        string                                  `json:"candidateId"`
+	NodeID             string                                  `json:"nodeId"`
+	ResourceType       string                                  `json:"resourceType"`
+	Path               string                                  `json:"path"`
+	Cardinality        string                                  `json:"cardinality"`
+	LogicalType        string                                  `json:"logicalType"`
+	RepeatedBoundaries []capability.RepeatedBoundary           `json:"repeatedBoundaries,omitempty"`
+}
+
+type ConstructionRelatedContributorRule struct {
+	Policy    string                `json:"policy"`
+	Predicate *ContributorPredicate `json:"predicate,omitempty"`
+}
+
+const ConstructionRelatedAllMatches = "ALL_MATCHES"
 
 func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
 	type wire ConstructionOperation

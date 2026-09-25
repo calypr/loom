@@ -440,6 +440,19 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 			}
 			outputs = append(outputs, ordinal)
 		}
+	case ConstructionOperationRelatedSource:
+		if step.Operation.RelatedSource == nil {
+			return nil, fmt.Errorf("relatedSource payload is required")
+		}
+		outputs = append(outputs, input...)
+		column, err := produced(step.Operation.RelatedSource.OutputColumnID)
+		if err != nil {
+			return nil, err
+		}
+		if column.Type == "" || column.Type == "INFER" {
+			column.Type = step.Operation.RelatedSource.Source.LogicalType
+		}
+		outputs = append(outputs, column)
 	default:
 		return nil, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -502,6 +515,10 @@ func (o ConstructionOperation) inputColumnIDs() []string {
 	case ConstructionOperationExpand:
 		if o.Expand != nil {
 			add(o.Expand.InputColumnID)
+		}
+	case ConstructionOperationRelatedSource:
+		if o.RelatedSource != nil {
+			add(o.RelatedSource.AnchorColumnID)
 		}
 	}
 	return ids
