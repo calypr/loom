@@ -12,16 +12,19 @@
 Checkpoint A progress (2026-09-25): a generic `RELATED_SOURCE` step can add an
 `ALL_MATCHES` list at the current row stage. The local Patient-to-Observation
 path passed proposal preview, Apply, reopen, ClickHouse publication, GraphQL
-row comparison, and public per-cell contributor trace. A separate Arango
-oracle passed the no-match case and typed root-key paging. The local browser
+row comparison, and public per-cell contributor trace. Publication also produced
+a complete, output-row-scoped sparse report: 2 output rows, 2 nonempty lists,
+3 list entries, and 1 row with multiple entries. A separate Arango oracle
+passed the no-match case and typed root-key paging. The local browser
 verification suite passed. These checks cover one field form and one published
 fixture; they do not close Checkpoint A or the held-out F0 constructions.
 
-Open Checkpoint A work: population-level sparse counts and coverage denominator,
-editing an existing related-source step, and a browser check of that exact
-editing flow. The current route menu places a direct path first, but the
-50-choice request took about 1.1 seconds on the local fixture; P08 still needs
-representative latency measurement and improvement.
+Open Checkpoint A work: editing an existing related-source step and checking
+that exact flow in the browser. Before Apply, the UI must distinguish sampled
+preview evidence from full-output coverage; full-output counts currently exist
+only after publication. The current route menu places a direct path first, but
+the 50-choice request took about 1.1 seconds on the local fixture; P08 still
+needs representative latency measurement and improvement.
 
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
 - [ ] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
