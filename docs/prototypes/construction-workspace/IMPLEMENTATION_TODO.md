@@ -42,6 +42,16 @@ constructions are open.
 The 50-choice route request took about 1.1 seconds on the local fixture; P08
 still needs representative latency measurement and improvement.
 
+Related-record path expansion now has a guided Reshape editor and a dedicated
+AQL stage. The live Arango oracle passed duplicate paths, a filtered input
+stage, stable identities, and all three no-match policies. The synthetic local
+API returned a ready three-row preview, and a disposable Explorer applied,
+reopened, and published the step. ClickHouse returned the same three
+Patient–Observation ID pairs with distinct row IDs. Exact field selection from
+each expanded record, onward traversal from that record, contributor trace,
+and browser authoring for this operation remain open; the small-fixture query
+timing does not close P08.
+
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
 - [x] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
 - [ ] Checkpoint B: entity, event, and category frames across held-out FHIR paths, with the promised absence, time, list, Quantity, grouping, and long-output policies.
