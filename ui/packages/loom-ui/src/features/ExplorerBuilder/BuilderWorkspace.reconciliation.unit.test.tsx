@@ -1184,4 +1184,34 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       mode: 'ADD', catalogId: 'shape-catalog', derivedResolutionIds: ['derived-resolution'],
     }));
   });
+
+  it('restores the server-provided previous draft revision through the normal CAS command path', async () => {
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, previousDraftRevisionId: 'draft-revision-previous' },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    const undo = await screen.findByTestId('construction-undo');
+    expect(undo).toBeEnabled();
+    fireEvent.click(undo);
+
+    await waitFor(() => expect(applyCommands).toHaveBeenCalledWith(expect.objectContaining({
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1,
+      expectedDraftDigest: 'sha256:draft-1',
+      commands: [{
+        type: 'RESTORE_DRAFT_REVISION',
+        draftRevisionId: 'draft-revision-previous',
+      }],
+    })));
+  });
 });

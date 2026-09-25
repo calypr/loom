@@ -294,6 +294,8 @@ export const ConstructionWorkspace = ({
   onMoveTable,
   title,
   rowMeaning,
+  onUndo,
+  undoDisabled = false,
   previewRowCount,
   previewColumnCount,
   actionsDisabled,
@@ -321,6 +323,8 @@ export const ConstructionWorkspace = ({
   readonly onMoveTable: (outputId: string, beforeOutputId?: string) => void;
   readonly title: string;
   readonly rowMeaning: string;
+  readonly onUndo?: () => void;
+  readonly undoDisabled?: boolean;
   readonly previewRowCount?: number;
   readonly previewColumnCount?: number;
   readonly actionsDisabled?: boolean;
@@ -365,16 +369,30 @@ export const ConstructionWorkspace = ({
           <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-slate-950">{title}</h1>
           <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p>
         </div>
-        <dl className="flex gap-5 text-right text-xs text-slate-500">
-          <div>
-            <dt>Preview rows</dt>
-            <dd className="text-lg font-semibold text-slate-900">{previewRowCount ?? '—'}</dd>
-          </div>
-          <div>
-            <dt>Columns</dt>
-            <dd className="text-lg font-semibold text-slate-900">{previewColumnCount ?? '—'}</dd>
-          </div>
-        </dl>
+        <div className="flex items-center gap-4">
+          <dl className="flex gap-5 text-right text-xs text-slate-500">
+            <div>
+              <dt>Preview rows</dt>
+              <dd className="text-lg font-semibold text-slate-900">{previewRowCount ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Columns</dt>
+              <dd className="text-lg font-semibold text-slate-900">{previewColumnCount ?? '—'}</dd>
+            </div>
+          </dl>
+          {onUndo ? (
+            <button
+              type="button"
+              data-testid="construction-undo"
+              aria-label="Undo last saved draft change"
+              disabled={undoDisabled}
+              onClick={onUndo}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Undo
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <ConstructionActionBar

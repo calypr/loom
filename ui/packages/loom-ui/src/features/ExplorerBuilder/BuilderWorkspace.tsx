@@ -292,6 +292,13 @@ const BuilderWorkspaceContent = ({
     readonly key: string;
     readonly value: BuilderAuthoringState;
   }>();
+  const [restorableDraft, setRestorableDraft] = useState<{
+    readonly ownerKey: string;
+    readonly revisionId?: string;
+  }>();
+  const previousDraftRevisionId = restorableDraft?.ownerKey === ownerKey
+    ? restorableDraft.revisionId
+    : builder.data?.previousDraftRevisionId;
   const state =
     localState?.key === builderDataKey
       ? localState.value
@@ -445,6 +452,10 @@ const BuilderWorkspaceContent = ({
   const syncBuilderData = useCallback(
     (value: ExplorerBuilderState, mode: 'hydrate' | 'catalog') => {
       const nextKey = builderDataKeyFor(builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId), value);
+      setRestorableDraft({
+        ownerKey: builderOwnerKeyFor(projectId, authResourcePath, selectedExplorerId),
+        revisionId: value.previousDraftRevisionId,
+      });
       serverDraft.current = {
         version: value.draftVersion,
         digest: value.draftDigest,
@@ -499,6 +510,10 @@ const BuilderWorkspaceContent = ({
             version: value.draftVersion,
             digest: value.draftDigest,
           };
+          setRestorableDraft({
+            ownerKey: builderOwnerKeyFor(projectId, authResourcePath, current.explorerId),
+            revisionId: value.previousDraftRevisionId,
+          });
           serverDraftKey.current = builderDataKey;
           dispatch({ type: 'commandsApplied', value });
           setMessage(undefined);
@@ -1555,6 +1570,19 @@ const BuilderWorkspaceContent = ({
     }
   };
 
+  const restorePreviousDraft = async () => {
+    if (!previousDraftRevisionId) return;
+    constructionLifecycle.cancel();
+    setActiveConstructionFamily(undefined);
+    setEditingConstructionStepId(undefined);
+    setConstructionHistorySelection({ kind: 'source' });
+    setColumnSelection({ kind: 'empty' });
+    await applyCommands([{
+      type: 'RESTORE_DRAFT_REVISION',
+      draftRevisionId: previousDraftRevisionId,
+    }]);
+  };
+
   const activeOperation = constructionOperationFamilies.find(
     (candidate) => candidate.family === activeConstructionFamily,
   );
@@ -1855,6 +1883,13 @@ const BuilderWorkspaceContent = ({
                 onMoveTable={reorderTable}
                 title={table.title}
                 rowMeaning={rowMeaning}
+                onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
+                undoDisabled={
+                  pendingCommands > 0 ||
+                  publishing ||
+                  state.reconciliation === 'pending' ||
+                  constructionLifecycle.proposal.status === 'applying'
+                }
                 previewRowCount={workspacePreviewIsCurrent ? workspacePreview?.rowCount : undefined}
                 previewColumnCount={workspacePreviewIsCurrent ? workspacePreview?.columns.length : undefined}
                 history={persistedConstructionHistory.length > 0 ? {
