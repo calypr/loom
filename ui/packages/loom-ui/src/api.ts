@@ -10,6 +10,8 @@ import {
   explorerBuilderSuggestionsResultSchema,
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
+  constructionInputsRequestSchema,
+  constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
   constructionCapabilitiesResponseSchema,
   constructionProposalRequestSchema,
@@ -38,6 +40,7 @@ import {
   type ExplorerColumnSourceDescriptor,
   type ConstructionChoiceSearchResponse,
   type ConstructionChoiceSearchSource,
+  type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalRequest,
   type ConstructionProposalResponse,
@@ -365,6 +368,16 @@ export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringSt
   readonly stageId: string;
 }
 
+export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly query?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
 
@@ -570,6 +583,10 @@ export interface LoomClient {
     args: GetConstructionCapabilitiesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionCapabilitiesResponse>;
+  readonly getConstructionInputs: (
+    args: GetConstructionInputsArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionInputsResponse>;
   readonly proposeConstruction: (
     args: ProposeConstructionArgs,
     signal?: AbortSignal,
@@ -1179,6 +1196,12 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         stageId: args.stageId,
       }), signal, args.requestId,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
+  const getConstructionInputs = (args: GetConstructionInputsArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId: _requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/construction-inputs'), withJson(
+      constructionInputsRequestSchema.parse(body), signal, args.requestId,
+    )).then((value) => constructionInputsResponseSchema.parse(value));
+  };
   const proposeConstruction = (args: ProposeConstructionArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
     return request(durableAuthoringPath(args, '/construction-proposals'), withJson(
@@ -1425,6 +1448,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     resolveTableShape,
     proposeTableShape,
     getConstructionCapabilities,
+    getConstructionInputs,
     proposeConstruction,
     preview,
     populationMapping,

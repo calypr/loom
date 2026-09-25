@@ -1063,6 +1063,52 @@ const constructionInputRefSchema = z.discriminatedUnion('kind', [
 ]);
 export type ConstructionInputRef = z.infer<typeof constructionInputRefSchema>;
 
+const constructionInputColumnSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.string().min(1),
+  clickhouseType: z.string().min(1),
+  nullable: z.boolean(),
+  repeated: z.boolean(),
+  semanticPath: z.string().optional(),
+}).strict();
+export type ConstructionInputColumn = z.infer<typeof constructionInputColumnSchema>;
+
+const constructionInputRevisionSchema = z.object({
+  kind: z.literal('TABLE_REVISION'),
+  tableId: opaqueIdSchema,
+  revisionId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  tableTitle: z.string().min(1),
+  outputTitle: z.string().min(1),
+  rowMeaning: z.string().min(1),
+  isCurrent: z.boolean(),
+  createdAt: z.string().datetime(),
+  columns: z.array(constructionInputColumnSchema),
+}).strict();
+export type ConstructionInputRevision = z.infer<typeof constructionInputRevisionSchema>;
+
+export const constructionInputsRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  query: z.string().min(1).optional(),
+  cursor: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+}).strict();
+export type ConstructionInputsRequest = z.infer<typeof constructionInputsRequestSchema>;
+
+export const constructionInputsResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  datasetGeneration: z.string().min(1),
+  entries: z.array(constructionInputRevisionSchema),
+  nextCursor: z.string().min(1).optional(),
+}).strict();
+export type ConstructionInputsResponse = z.infer<typeof constructionInputsResponseSchema>;
+
 const constructionStageColumnBaseSchema = z.object({
   id: opaqueIdSchema,
   name: z.string().min(1),

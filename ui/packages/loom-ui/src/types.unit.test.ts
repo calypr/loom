@@ -9,6 +9,8 @@ import {
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
   constructionCapabilitiesResponseSchema,
+  constructionInputsRequestSchema,
+  constructionInputsResponseSchema,
   constructionSchema,
   explorerBuilderCandidateSchema,
   constructionChoiceSchema,
@@ -334,6 +336,53 @@ describe('staged construction contract', () => {
         ...construction.steps[0],
         outputs: [{ ...outputs[0], nullable: 'false' }],
       }],
+    }).success).toBe(false);
+  });
+
+  it('parses exact published table revision inputs for Combine discovery', () => {
+    const request = {
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7,
+      expectedDraftDigest: 'draft-7',
+      query: 'lab',
+      cursor: 'page-2',
+      limit: 25,
+    };
+    expect(constructionInputsRequestSchema.parse(request)).toEqual(request);
+    expect(constructionInputsRequestSchema.safeParse({ ...request, limit: 101 }).success).toBe(false);
+
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      datasetGeneration: 'generation-a',
+      entries: [{
+        kind: 'TABLE_REVISION',
+        tableId: 'labs',
+        revisionId: 'revision-2',
+        outputId: 'lab-results',
+        tableTitle: 'Laboratory results',
+        outputTitle: 'Results',
+        rowMeaning: 'Observation',
+        isCurrent: false,
+        createdAt: '2026-09-20T00:00:00.000Z',
+        columns: [{
+          id: 'subject-id',
+          name: 'subject_id',
+          label: 'Subject ID',
+          type: 'string',
+          clickhouseType: 'String',
+          nullable: false,
+          repeated: false,
+          semanticPath: 'Observation.subject',
+        }],
+      }],
+      nextCursor: 'page-3',
+    };
+    expect(constructionInputsResponseSchema.parse(response)).toEqual(response);
+    expect(constructionInputsResponseSchema.safeParse({
+      ...response,
+      entries: [{ ...response.entries[0], revisionId: '' }],
     }).success).toBe(false);
   });
 

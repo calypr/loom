@@ -419,6 +419,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerConstructionInputs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionInputsRequest'}
+      responses:
+        '200':
+          description: Exact published table revisions with stable output and column identities available to Combine authoring.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionInputsResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3344,6 +3369,60 @@ components:
         outputColumnId: {type: string, minLength: 1}
         inputIndex: {type: integer, minimum: 0}
         inputColumnId: {type: string, minLength: 1}
+    ConstructionInputsRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        query: {type: string, minLength: 1}
+        cursor: {type: string, minLength: 1}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 25}
+    ConstructionInputsResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, datasetGeneration, entries]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        datasetGeneration: {type: string, minLength: 1}
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionInputRevision'}
+        nextCursor: {type: string, minLength: 1}
+    ConstructionInputRevision:
+      type: object
+      additionalProperties: false
+      required: [kind, tableId, revisionId, outputId, tableTitle, outputTitle, rowMeaning, isCurrent, createdAt, columns]
+      properties:
+        kind: {type: string, enum: [TABLE_REVISION]}
+        tableId: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        tableTitle: {type: string, minLength: 1}
+        outputTitle: {type: string, minLength: 1}
+        rowMeaning: {type: string, minLength: 1}
+        isCurrent: {type: boolean}
+        createdAt: {type: string, format: date-time}
+        columns:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionInputColumn'}
+    ConstructionInputColumn:
+      type: object
+      additionalProperties: false
+      required: [id, name, label, type, clickhouseType, nullable, repeated]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        type: {type: string, minLength: 1}
+        clickhouseType: {type: string, minLength: 1}
+        nullable: {type: boolean}
+        repeated: {type: boolean}
+        semanticPath: {type: string}
     ConstructionCapabilitiesRequest:
       type: object
       additionalProperties: false

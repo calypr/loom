@@ -92,6 +92,56 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('lists exact published revisions with draft identity and pagination', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      datasetGeneration: 'generation-a',
+      entries: [{
+        kind: 'TABLE_REVISION',
+        tableId: 'labs',
+        revisionId: 'revision-2',
+        outputId: 'lab-results',
+        tableTitle: 'Laboratory results',
+        outputTitle: 'Results',
+        rowMeaning: 'Observation',
+        isCurrent: false,
+        createdAt: '2026-09-20T00:00:00.000Z',
+        columns: [{
+          id: 'subject-id',
+          name: 'subject_id',
+          label: 'Subject ID',
+          type: 'string',
+          clickhouseType: 'String',
+          nullable: false,
+          repeated: false,
+          semanticPath: 'Observation.subject',
+        }],
+      }],
+      nextCursor: 'page-3',
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.getConstructionInputs({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', query: 'lab', cursor: 'page-2', limit: 25,
+    })).resolves.toEqual(response);
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-inputs',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 7, expectedDraftDigest: 'draft-7',
+          query: 'lab', cursor: 'page-2', limit: 25,
+        }),
+      }),
+    );
+  });
+
   it('creates explicit groups from opaque source-selection member keys', async () => {
     const response = {
       revisionId: 'grouprev-created',
