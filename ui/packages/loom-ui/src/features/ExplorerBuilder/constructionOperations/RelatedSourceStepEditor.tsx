@@ -38,10 +38,15 @@ const isPhysicalColumnName = (name: string): boolean =>
 const suggestedOutputName = (
   resourceType: string,
   source: RelatedSourceIntent['candidate'],
+  form: RelatedSourceForm,
   columns: ConstructionCapabilitiesResponse['selectedStage']['columns'],
   outputColumnId: string,
 ): string => {
-  const base = `related_${resourceType}_${source.fieldPath}`
+  const base = (form === 'COUNT'
+    ? `related_${resourceType}_count`
+    : form === 'PRESENCE'
+      ? `has_related_${resourceType}`
+      : `related_${resourceType}_${source.fieldPath}`)
     .replace(/[^A-Za-z0-9_]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^([0-9])/, '_$1');
@@ -280,12 +285,17 @@ export const RelatedSourceStepEditor = ({
       : suggestedOutputName(
           selected.choice.source.resourceType,
           selected.candidate,
+          form,
           capabilities.selectedStage.columns,
           relatedSource.outputColumnId,
         );
     const nextLabel = labelEdited
       ? outputLabel
-      : selected.candidate.label.trim() || selected.candidate.fieldPath;
+      : form === 'COUNT'
+        ? `Count of related ${selected.choice.source.resourceType} records`
+        : form === 'PRESENCE'
+          ? `Has related ${selected.choice.source.resourceType} record`
+          : selected.candidate.label.trim() || selected.candidate.fieldPath;
     setSelectedSource(selected);
     setSelectedForm(form);
     setOutputName(nextName);

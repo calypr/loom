@@ -559,7 +559,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
         ],
       },
     }));
-    expect(proposalArgs.candidateConstruction.steps[1].outputs.at(-1)).toEqual(expect.objectContaining({ type: 'integer' }));
+    expect(proposalArgs.candidateConstruction.steps[1].outputs.at(-1)).toEqual(expect.objectContaining({
+      name: 'related_Observation_count',
+      label: 'Count of related Observation records',
+      type: 'integer',
+    }));
     expect(await screen.findByText('Proposal preview')).toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
 

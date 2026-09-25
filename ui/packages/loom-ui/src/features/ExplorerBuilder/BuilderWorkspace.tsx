@@ -848,7 +848,11 @@ const BuilderWorkspaceContent = ({
 
       const stepId = opaqueId('step');
       const outputColumnId = `related-${window.crypto.randomUUID()}`;
-      const baseName = `related_${source.resourceType}_${source.path}`
+      const baseName = (form === 'COUNT'
+        ? `related_${source.resourceType}_count`
+        : form === 'PRESENCE'
+          ? `has_related_${source.resourceType}`
+          : `related_${source.resourceType}_${source.path}`)
         .replace(/[^A-Za-z0-9_]/g, '_')
         .replace(/_+/g, '_')
         .replace(/^([0-9])/, '_$1');
@@ -893,7 +897,11 @@ const BuilderWorkspaceContent = ({
           {
             id: outputColumnId,
             name: outputName,
-            label: candidate.label.trim() || candidate.fieldPath,
+            label: form === 'COUNT'
+              ? `Count of related ${source.resourceType} records`
+              : form === 'PRESENCE'
+                ? `Has related ${source.resourceType} record`
+                : candidate.label.trim() || candidate.fieldPath,
             type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
           },
         ],
