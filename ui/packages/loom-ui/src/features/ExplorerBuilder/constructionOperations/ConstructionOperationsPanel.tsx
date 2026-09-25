@@ -6,7 +6,11 @@ import type {
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import type { CatalogChoiceIntent } from '../catalogItems';
-import { ConceptCatalog, type CatalogRouteContext } from '../components/ConceptCatalog';
+import {
+  ConceptCatalog,
+  type CatalogRouteContext,
+  type CatalogSourceProjectionAvailability,
+} from '../components/ConceptCatalog';
 import { TableShapeSettingsPanel } from '../components/TableShapeSettingsPanel';
 import {
   familyPresentation,
@@ -35,6 +39,7 @@ export interface ConstructionOperationsPanelProps {
   readonly rowRoot: string;
   readonly routeContext?: CatalogRouteContext;
   readonly selectedColumns?: ReadonlyArray<string>;
+  readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly disabled: boolean;
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
   readonly onApplyProposal: (proposalId: string) => Promise<boolean>;
@@ -410,6 +415,7 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
             routeContext={props.routeContext}
             layout="panel"
             catalog={props.catalog}
+            sourceProjectionAvailability={props.sourceProjectionAvailability}
             disabled={props.disabled}
             onAddSelected={props.onAddSelected}
           />

@@ -13,8 +13,9 @@ import { CONSTRUCTION_OPERATION_FAMILIES, familyPresentation, type ConstructionO
 vi.mock('../components/ConceptCatalog', () => ({
   ConceptCatalog: (props: {
     readonly rowRoot: string;
-    readonly layout: string;
-    readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
+  readonly layout: string;
+  readonly sourceProjectionAvailability?: { readonly available: boolean; readonly reason: string };
+  readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
     readonly onAddSelected?: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
   }) => React.createElement(
     'div',
@@ -22,6 +23,8 @@ vi.mock('../components/ConceptCatalog', () => ({
       'data-testid': 'mock-concept-catalog',
       'data-row-root': props.rowRoot,
       'data-layout': props.layout,
+      'data-source-available': props.sourceProjectionAvailability?.available,
+      'data-source-reason': props.sourceProjectionAvailability?.reason,
       'data-occurrence-id': props.routeContext?.occurrenceId,
       'data-node-id': props.routeContext?.nodeId,
     },
@@ -103,6 +106,7 @@ const renderPanel = (args: {
   readonly family?: ConstructionOperationFamily;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
+  readonly sourceProjectionAvailability?: { readonly available: boolean; readonly reason: string };
   readonly onAddSelected?: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
   readonly client?: LoomClient;
 } = {}) => render(
@@ -119,6 +123,7 @@ const renderPanel = (args: {
       rowRoot="Patient"
       selectedColumns={args.selectedColumns ?? []}
       routeContext={args.routeContext}
+      sourceProjectionAvailability={args.sourceProjectionAvailability}
       disabled={false}
       onAddSelected={args.onAddSelected ?? (async () => undefined)}
       onApplyProposal={async () => true}
@@ -178,6 +183,21 @@ describe('construction operation families', () => {
       constructionChoice: { choiceId: 'choice-1', form: 'VALUE' },
       title: 'Blood pressure',
     }]);
+  });
+
+  it('forwards source projection availability to information discovery', () => {
+    renderPanel({
+      family: 'ADD_COLUMNS',
+      sourceProjectionAvailability: {
+        available: false,
+        reason: 'The current stage no longer has the source projection needed to add fields.',
+      },
+    });
+
+    fireEvent.click(screen.getByTestId('construction-operation-intention-add_columns-find_information'));
+    const catalogPanel = screen.getByTestId('mock-concept-catalog');
+    expect(catalogPanel).toHaveAttribute('data-source-available', 'false');
+    expect(catalogPanel).toHaveAttribute('data-source-reason', 'The current stage no longer has the source projection needed to add fields.');
   });
 
   it('enables calculated values only when the current server choices support them', async () => {
