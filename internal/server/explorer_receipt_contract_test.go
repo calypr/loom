@@ -161,8 +161,15 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if len(stages) != 2 || stages[0].ID != recipe.ConstructionSourceProjectionID || stages[0].Operation != "" || stages[1].ID != "filter_step" || stages[1].InputStageID != recipe.ConstructionSourceProjectionID || stages[1].Operation != "FILTER" {
 		t.Fatalf("receipt stages = %#v", stages)
 	}
-	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "c_patient" || len(stages[0].Capabilities) != 4 {
+	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "c_patient" {
 		t.Fatalf("source stage descriptor = %#v", stages[0])
+	}
+	wantCapabilities := map[string]bool{"PIVOT": true, "DERIVE": true, "FILTER": true, "UNPIVOT": true, "GROUP": true, "EXPAND": true}
+	for _, capability := range stages[0].Capabilities {
+		delete(wantCapabilities, capability.Kind)
+	}
+	if len(wantCapabilities) != 0 {
+		t.Fatalf("source stage capabilities omitted %v: %#v", wantCapabilities, stages[0].Capabilities)
 	}
 	if len(stages[1].Columns) != 1 || stages[1].Columns[0].ID != document.Columns[0].ColumnID || stages[1].Columns[0].Type == "" {
 		t.Fatalf("filter stage descriptor = %#v", stages[1])
