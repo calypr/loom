@@ -34,6 +34,16 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 
 	project := "loom_construction_chain_" + uuid.NewString()
 	generation := "generation-construction-chain"
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Observation FILTER document.project == @project REMOVE document IN Observation",
+			map[string]any{"project": project},
+		); err != nil {
+			t.Errorf("remove construction fixtures: %v", err)
+		}
+	}()
 	documents := make([]json.RawMessage, 0, len(reshapeOracleSourceRows))
 	for _, row := range reshapeOracleSourceRows {
 		payload := map[string]any{
