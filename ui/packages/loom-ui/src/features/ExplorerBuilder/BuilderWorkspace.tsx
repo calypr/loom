@@ -25,6 +25,7 @@ import type {
   ConstructionRouteStep,
   Construction,
   ConstructionOperation,
+  ConstructionStep,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../types';
@@ -796,6 +797,107 @@ const BuilderWorkspaceContent = ({
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
+    const relatedSelections = selections.filter((selection) => selection.relatedSource);
+    if (relatedSelections.length > 0) {
+      if (relatedSelections.length !== 1 || selections.length !== 1) {
+        throw new Error('Add one related field at a time so Loom can preview its exact route.');
+      }
+      const relatedSource = relatedSelections[0]?.relatedSource;
+      if (!relatedSource) return;
+      const capabilities = constructionLifecycle.capabilities;
+      if (capabilities.status !== 'ready') {
+        throw new Error('Loom is still checking whether this stage can add a related field.');
+      }
+      const { selectedStage, baseConstruction } = capabilities.response;
+      const support = selectedStage.capabilities.find(
+        (capability) => capability.kind === 'RELATED_SOURCE',
+      );
+      if (!support?.supported || !selectedStage.rowIdentityColumn) {
+        throw new Error(
+          support?.reason || 'Loom has not proved that this stage retains a source row anchor.',
+        );
+      }
+      const { choice, candidate } = relatedSource;
+      const source = choice.source;
+      const supportedForm = choice.options.find((option) =>
+        option.form === 'ALL' &&
+        option.shape === 'LIST' &&
+        option.support === 'SUPPORTED',
+      );
+      if (
+        source.kind !== 'FIELD' ||
+        source.candidateId !== candidate.candidateId ||
+        source.nodeId !== candidate.nodeId ||
+        source.path !== candidate.fieldPath ||
+        source.cardinality !== candidate.cardinality ||
+        (source.resourceType === table.document.rootResourceType && choice.route.length === 0) ||
+        !supportedForm ||
+        (source.cardinality !== 'optional_one' && source.cardinality !== 'required_one')
+      ) {
+        throw new Error('Loom did not provide a supported scalar related field choice for this stage.');
+      }
+
+      const stepId = opaqueId('step');
+      const outputColumnId = `related-${window.crypto.randomUUID()}`;
+      const baseName = `related_${source.resourceType}_${source.path}`
+        .replace(/[^A-Za-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^([0-9])/, '_$1');
+      const usedNames = new Set(selectedStage.columns.map((column) => column.name.toLowerCase()));
+      let outputName = baseName;
+      for (let suffix = 2; usedNames.has(outputName.toLowerCase()); suffix += 1) {
+        outputName = `${baseName}_${suffix}`;
+      }
+      const step = {
+        id: stepId,
+        inputs: [selectedStage.operation
+          ? { kind: 'STEP_OUTPUT' as const, stepId: selectedStage.id }
+          : { kind: 'SOURCE_PROJECTION' as const }],
+        operation: {
+          kind: 'RELATED_SOURCE',
+          relatedSource: {
+            anchorColumnId: selectedStage.rowIdentityColumn,
+            choiceId: choice.choiceId,
+            sourceOccurrenceId: source.nodeId,
+            source: {
+              kind: 'FIELD',
+              candidateId: source.candidateId,
+              nodeId: source.nodeId,
+              resourceType: source.resourceType,
+              path: source.path,
+              cardinality: source.cardinality,
+              logicalType: candidate.logicalType,
+            },
+            route: choice.route,
+            contributorRule: { policy: 'ALL_MATCHES' },
+            form: 'ALL',
+            outputColumnId,
+          },
+        },
+        outputs: [
+          ...selectedStage.columns.map((column) => ({
+            id: column.id,
+            name: column.name,
+            label: column.label,
+            ...(column.type === undefined ? {} : { type: column.type }),
+          })),
+          {
+            id: outputColumnId,
+            name: outputName,
+            label: candidate.label.trim() || candidate.fieldPath,
+            type: candidate.logicalType,
+          },
+        ],
+      } satisfies ConstructionStep;
+      constructionLifecycle.onCandidateChange({
+        candidateConstruction: {
+          ...baseConstruction,
+          steps: [...baseConstruction.steps, step],
+        },
+        changedStepId: step.id,
+      });
+      return;
+    }
     const applied = await applyCommands(selections.map((selection) => ({
       type: 'APPLY_CONSTRUCTION_CHOICE',
       outputId: table.outputId,
@@ -1623,6 +1725,28 @@ const BuilderWorkspaceContent = ({
   const sourceAvailability = constructionLifecycle.capabilities.status === 'error'
     ? { available: false, reason: constructionLifecycle.capabilities.message }
     : sourceProjectionAvailability(sourceStageDescriptors);
+  const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.selectedStage
+    : undefined;
+  const relatedSourceCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'RELATED_SOURCE',
+  );
+  const relatedSourceReason = [
+    relatedSourceCapability?.reasonCode,
+    relatedSourceCapability?.reason,
+  ].filter((reason): reason is string => Boolean(reason?.trim())).join(': ');
+  const relatedSourceAvailability = relatedSourceCapability?.supported && capabilityStage?.rowIdentityColumn
+    ? { supported: true }
+    : {
+        supported: false,
+        reason: relatedSourceReason || (
+          constructionLifecycle.capabilities.status === 'error'
+            ? constructionLifecycle.capabilities.message
+            : constructionLifecycle.capabilities.status === 'ready'
+              ? 'Loom has not proved that this stage retains a source row anchor.'
+              : 'Loom is checking whether this stage supports related-source fields.'
+        ),
+      };
   const sourceSelectionDisabledReason = pendingCommands > 0
     ? 'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.'
     : state.reconciliation === 'pending'
@@ -1723,6 +1847,7 @@ const BuilderWorkspaceContent = ({
               layout="panel"
               catalog={state.catalog}
               sourceProjectionAvailability={sourceAvailability}
+              relatedSourceAvailability={relatedSourceAvailability}
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
               onAddSelected={addSelectedFeatures}
@@ -2172,6 +2297,7 @@ const BuilderWorkspaceContent = ({
                   rowRoot={table.document.rootResourceType}
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
+                  relatedSourceAvailability={relatedSourceAvailability}
                   disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                   onAddSelected={addSelectedFeatures}
@@ -2435,6 +2561,7 @@ const BuilderWorkspaceContent = ({
                       layout="panel"
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
+                      relatedSourceAvailability={relatedSourceAvailability}
                       disabledReason={sourceSelectionDisabledReason}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
