@@ -980,7 +980,9 @@ func (e ConstructionOperandKind) Valid() bool {
 // Defines values for ConstructionOperationKind.
 const (
 	ConstructionOperationKindDERIVE  ConstructionOperationKind = "DERIVE"
+	ConstructionOperationKindEXPAND  ConstructionOperationKind = "EXPAND"
 	ConstructionOperationKindFILTER  ConstructionOperationKind = "FILTER"
+	ConstructionOperationKindGROUP   ConstructionOperationKind = "GROUP"
 	ConstructionOperationKindPIVOT   ConstructionOperationKind = "PIVOT"
 	ConstructionOperationKindUNPIVOT ConstructionOperationKind = "UNPIVOT"
 )
@@ -990,7 +992,11 @@ func (e ConstructionOperationKind) Valid() bool {
 	switch e {
 	case ConstructionOperationKindDERIVE:
 		return true
+	case ConstructionOperationKindEXPAND:
+		return true
 	case ConstructionOperationKindFILTER:
+		return true
+	case ConstructionOperationKindGROUP:
 		return true
 	case ConstructionOperationKindPIVOT:
 		return true
@@ -1004,7 +1010,9 @@ func (e ConstructionOperationKind) Valid() bool {
 // Defines values for ConstructionOperationCapabilityKind.
 const (
 	ConstructionOperationCapabilityKindDERIVE  ConstructionOperationCapabilityKind = "DERIVE"
+	ConstructionOperationCapabilityKindEXPAND  ConstructionOperationCapabilityKind = "EXPAND"
 	ConstructionOperationCapabilityKindFILTER  ConstructionOperationCapabilityKind = "FILTER"
+	ConstructionOperationCapabilityKindGROUP   ConstructionOperationCapabilityKind = "GROUP"
 	ConstructionOperationCapabilityKindPIVOT   ConstructionOperationCapabilityKind = "PIVOT"
 	ConstructionOperationCapabilityKindUNPIVOT ConstructionOperationCapabilityKind = "UNPIVOT"
 )
@@ -1014,11 +1022,76 @@ func (e ConstructionOperationCapabilityKind) Valid() bool {
 	switch e {
 	case ConstructionOperationCapabilityKindDERIVE:
 		return true
+	case ConstructionOperationCapabilityKindEXPAND:
+		return true
 	case ConstructionOperationCapabilityKindFILTER:
+		return true
+	case ConstructionOperationCapabilityKindGROUP:
 		return true
 	case ConstructionOperationCapabilityKindPIVOT:
 		return true
 	case ConstructionOperationCapabilityKindUNPIVOT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionGroupAggregateOperation.
+const (
+	ConstructionGroupAggregateOperationCOUNTDISTINCT ConstructionGroupAggregateOperation = "COUNT_DISTINCT"
+	ConstructionGroupAggregateOperationCOUNTNONNULL  ConstructionGroupAggregateOperation = "COUNT_NON_NULL"
+	ConstructionGroupAggregateOperationCOUNTROWS     ConstructionGroupAggregateOperation = "COUNT_ROWS"
+	ConstructionGroupAggregateOperationMEAN          ConstructionGroupAggregateOperation = "MEAN"
+	ConstructionGroupAggregateOperationSUM           ConstructionGroupAggregateOperation = "SUM"
+)
+
+// Valid indicates whether the value is a known member of ConstructionGroupAggregateOperation.
+func (e ConstructionGroupAggregateOperation) Valid() bool {
+	switch e {
+	case ConstructionGroupAggregateOperationCOUNTDISTINCT,
+		ConstructionGroupAggregateOperationCOUNTNONNULL,
+		ConstructionGroupAggregateOperationCOUNTROWS,
+		ConstructionGroupAggregateOperationMEAN,
+		ConstructionGroupAggregateOperationSUM:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionExpandEmptyPolicy.
+const (
+	ConstructionExpandEmptyPolicyERROR          ConstructionExpandEmptyPolicy = "ERROR"
+	ConstructionExpandEmptyPolicyEXCLUDE        ConstructionExpandEmptyPolicy = "EXCLUDE"
+	ConstructionExpandEmptyPolicyPRESERVEPARENT ConstructionExpandEmptyPolicy = "PRESERVE_PARENT"
+)
+
+// Valid indicates whether the value is a known member of ConstructionExpandEmptyPolicy.
+func (e ConstructionExpandEmptyPolicy) Valid() bool {
+	switch e {
+	case ConstructionExpandEmptyPolicyERROR,
+		ConstructionExpandEmptyPolicyEXCLUDE,
+		ConstructionExpandEmptyPolicyPRESERVEPARENT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConstructionStageColumnDescriptorCardinality.
+const (
+	ConstructionStageColumnDescriptorCardinalityMANY        ConstructionStageColumnDescriptorCardinality = "many"
+	ConstructionStageColumnDescriptorCardinalityOPTIONALONE ConstructionStageColumnDescriptorCardinality = "optional_one"
+	ConstructionStageColumnDescriptorCardinalityREQUIREDONE ConstructionStageColumnDescriptorCardinality = "required_one"
+)
+
+// Valid indicates whether the value is a known member of ConstructionStageColumnDescriptorCardinality.
+func (e ConstructionStageColumnDescriptorCardinality) Valid() bool {
+	switch e {
+	case ConstructionStageColumnDescriptorCardinalityMANY,
+		ConstructionStageColumnDescriptorCardinalityOPTIONALONE,
+		ConstructionStageColumnDescriptorCardinalityREQUIREDONE:
 		return true
 	default:
 		return false
@@ -3680,6 +3753,41 @@ type ConstructionFilterValue struct {
 // ConstructionFilterValueKind defines model for ConstructionFilterValue.Kind.
 type ConstructionFilterValueKind string
 
+// ConstructionGroup defines model for ConstructionGroup.
+type ConstructionGroup struct {
+	Aggregates     *[]ConstructionGroupAggregate `json:"aggregates,omitempty"`
+	ConstructionId string                        `json:"constructionId"`
+	Keys           *[]ConstructionGroupKey       `json:"keys,omitempty"`
+}
+
+// ConstructionGroupAggregate defines model for ConstructionGroupAggregate.
+type ConstructionGroupAggregate struct {
+	InputColumnId  *string                             `json:"inputColumnId,omitempty"`
+	Operation      ConstructionGroupAggregateOperation `json:"operation"`
+	OutputColumnId string                              `json:"outputColumnId"`
+}
+
+// ConstructionGroupAggregateOperation defines model for ConstructionGroupAggregate.Operation.
+type ConstructionGroupAggregateOperation string
+
+// ConstructionGroupKey defines model for ConstructionGroupKey.
+type ConstructionGroupKey struct {
+	InputColumnId  string `json:"inputColumnId"`
+	OutputColumnId string `json:"outputColumnId"`
+}
+
+// ConstructionExpand defines model for ConstructionExpand.
+type ConstructionExpand struct {
+	ConstructionId  string                         `json:"constructionId"`
+	EmptyPolicy     *ConstructionExpandEmptyPolicy `json:"emptyPolicy,omitempty"`
+	InputColumnId   string                         `json:"inputColumnId"`
+	OrdinalColumnId *string                        `json:"ordinalColumnId,omitempty"`
+	OutputColumnId  string                         `json:"outputColumnId"`
+}
+
+// ConstructionExpandEmptyPolicy defines model for ConstructionExpand.EmptyPolicy.
+type ConstructionExpandEmptyPolicy string
+
 // ConstructionInputRef defines model for ConstructionInputRef.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputRefKind `json:"kind"`
@@ -3715,7 +3823,9 @@ type ConstructionOperandKind string
 // ConstructionOperation defines model for ConstructionOperation.
 type ConstructionOperation struct {
 	Derive  *ConstructionDerive       `json:"derive,omitempty"`
+	Expand  *ConstructionExpand       `json:"expand,omitempty"`
 	Filter  *ConstructionFilter       `json:"filter,omitempty"`
+	Group   *ConstructionGroup        `json:"group,omitempty"`
 	Kind    ConstructionOperationKind `json:"kind"`
 	Pivot   *ConstructionPivot        `json:"pivot,omitempty"`
 	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
@@ -3822,12 +3932,24 @@ type ConstructionStageColumn struct {
 	Type  *string `json:"type,omitempty"`
 }
 
+// ConstructionStageColumnDescriptor defines model for ConstructionStageColumnDescriptor.
+type ConstructionStageColumnDescriptor struct {
+	Cardinality *ConstructionStageColumnDescriptorCardinality `json:"cardinality,omitempty"`
+	Id          string                                        `json:"id"`
+	Label       string                                        `json:"label"`
+	Name        string                                        `json:"name"`
+	Type        *string                                       `json:"type,omitempty"`
+}
+
+// ConstructionStageColumnDescriptorCardinality defines model for ConstructionStageColumnDescriptor.Cardinality.
+type ConstructionStageColumnDescriptorCardinality string
+
 // ConstructionStageDescriptor defines model for ConstructionStageDescriptor.
 type ConstructionStageDescriptor struct {
-	Capabilities []ConstructionOperationCapability `json:"capabilities"`
-	Columns      []ConstructionStageColumn         `json:"columns"`
-	Id           string                            `json:"id"`
-	InputStageId string                            `json:"inputStageId"`
+	Capabilities []ConstructionOperationCapability   `json:"capabilities"`
+	Columns      []ConstructionStageColumnDescriptor `json:"columns"`
+	Id           string                              `json:"id"`
+	InputStageId string                              `json:"inputStageId"`
 
 	// Operation Empty for the implicit source projection stage.
 	Operation         *string `json:"operation,omitempty"`

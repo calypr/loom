@@ -164,6 +164,9 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "c_patient" {
 		t.Fatalf("source stage descriptor = %#v", stages[0])
 	}
+	if stages[0].Columns[0].Cardinality != "optional_one" {
+		t.Fatalf("source stage cardinality = %q, want optional_one", stages[0].Columns[0].Cardinality)
+	}
 	wantCapabilities := map[string]bool{"PIVOT": true, "DERIVE": true, "FILTER": true, "UNPIVOT": true, "GROUP": true, "EXPAND": true}
 	for _, capability := range stages[0].Capabilities {
 		delete(wantCapabilities, capability.Kind)
@@ -171,7 +174,7 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	if len(wantCapabilities) != 0 {
 		t.Fatalf("source stage capabilities omitted %v: %#v", wantCapabilities, stages[0].Capabilities)
 	}
-	if len(stages[1].Columns) != 1 || stages[1].Columns[0].ID != document.Columns[0].ColumnID || stages[1].Columns[0].Type == "" {
+	if len(stages[1].Columns) != 1 || stages[1].Columns[0].ID != document.Columns[0].ColumnID || stages[1].Columns[0].Type == "" || stages[1].Columns[0].Cardinality != "optional_one" {
 		t.Fatalf("filter stage descriptor = %#v", stages[1])
 	}
 	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)

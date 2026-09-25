@@ -278,7 +278,7 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
 		{
 			ID:      recipe.ConstructionSourceProjectionID,
-			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
 			Capabilities: []ReceiptConstructionOperationChoice{
 				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
 			},
@@ -286,7 +286,7 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 		{
 			ID: "filter_step", InputStageID: recipe.ConstructionSourceProjectionID,
 			Operation: "FILTER", RowIdentityColumn: "row_id",
-			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
 			Capabilities: []ReceiptConstructionOperationChoice{
 				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
 			},
@@ -303,7 +303,7 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	changed := base
 	changed.ConstructionStages = map[string][]ReceiptConstructionStage{"out": append([]ReceiptConstructionStage(nil), base.ConstructionStages["out"]...)}
 	changed.ConstructionStages["out"][1].Columns = append([]ReceiptConstructionStageColumn(nil), base.ConstructionStages["out"][1].Columns...)
-	changed.ConstructionStages["out"][1].Columns[0].Type = "decimal"
+	changed.ConstructionStages["out"][1].Columns[0].Cardinality = "many"
 	key, err := CompilationKey(changed)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +314,48 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 		t.Fatal(err)
 	}
 	if id == first {
-		t.Fatal("inferred construction stage schema did not change receipt identity")
+		t.Fatal("construction stage cardinality did not change receipt identity")
+	}
+}
+
+func TestCompilationReceiptRejectsUnknownConstructionStageColumnCardinality(t *testing.T) {
+	receipt := testReceipt()
+	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{
+		ID:      recipe.ConstructionSourceProjectionID,
+		Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Cardinality: "MANY"}},
+	}}}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted a construction stage column with an unknown cardinality")
+	}
+}
+
+func TestCompilationReceiptAcceptsLegacyConstructionStagesWithoutCardinality(t *testing.T) {
+	receipt := testReceipt()
+	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{
+		ID: recipe.ConstructionSourceProjectionID,
+		Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+	}}}
+	columnJSON, err := json.Marshal(receipt.ConstructionStages["out"][0].Columns[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var columnProperties map[string]json.RawMessage
+	if err := json.Unmarshal(columnJSON, &columnProperties); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := columnProperties["cardinality"]; present {
+		t.Fatalf("legacy column JSON added cardinality: %s", columnJSON)
+	}
+	receipt.CompilationKey, err = CompilationKey(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ID, err = ReceiptID(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("legacy construction stage without cardinality failed receipt validation: %v", err)
 	}
 }
 

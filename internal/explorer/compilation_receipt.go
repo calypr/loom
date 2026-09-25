@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -258,6 +259,8 @@ type ReceiptConstructionStageColumn struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	Type  string `json:"type,omitempty"`
+	// Cardinality is empty only on receipts created before stage cardinality was recorded.
+	Cardinality expression.Cardinality `json:"cardinality,omitempty"`
 }
 
 type ReceiptConstructionOperationChoice struct {
@@ -306,6 +309,9 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				}
 				if _, exists := seenNames[column.Name]; exists {
 					return fmt.Errorf("constructionStages[%q][%d] duplicates public column name %q", outputID, index, column.Name)
+				}
+				if column.Cardinality != "" && !column.Cardinality.Valid() {
+					return fmt.Errorf("constructionStages[%q][%d].columns[%d] has unsupported cardinality %q", outputID, index, columnIndex, column.Cardinality)
 				}
 				seenColumns[column.ID] = struct{}{}
 				seenNames[column.Name] = struct{}{}

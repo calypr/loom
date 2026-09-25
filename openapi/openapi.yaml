@@ -3136,16 +3136,28 @@ components:
         name: {type: string, minLength: 1}
         label: {type: string, minLength: 1}
         type: {type: string}
+    ConstructionStageColumnDescriptor:
+      type: object
+      additionalProperties: false
+      required: [id, name, label]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        type: {type: string}
+        cardinality: {type: string, enum: [required_one, optional_one, many]}
     ConstructionOperation:
       type: object
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
         unpivot: {$ref: '#/components/schemas/ConstructionUnpivot'}
+        group: {$ref: '#/components/schemas/ConstructionGroup'}
+        expand: {$ref: '#/components/schemas/ConstructionExpand'}
     ConstructionPivot:
       type: object
       additionalProperties: false
@@ -3258,6 +3270,43 @@ components:
       properties:
         columnId: {type: string, minLength: 1}
         key: {$ref: '#/components/schemas/ConstructionTableScalar'}
+    ConstructionGroup:
+      type: object
+      additionalProperties: false
+      required: [constructionId]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        keys:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupKey'}
+        aggregates:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionGroupAggregate'}
+    ConstructionGroupKey:
+      type: object
+      additionalProperties: false
+      required: [inputColumnId, outputColumnId]
+      properties:
+        inputColumnId: {type: string, minLength: 1}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionGroupAggregate:
+      type: object
+      additionalProperties: false
+      required: [operation, outputColumnId]
+      properties:
+        operation: {type: string, enum: [COUNT_ROWS, COUNT_NON_NULL, COUNT_DISTINCT, SUM, MEAN]}
+        inputColumnId: {type: string, minLength: 1, description: Omit for COUNT_ROWS. Required for all other operations.}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionExpand:
+      type: object
+      additionalProperties: false
+      required: [constructionId, inputColumnId, outputColumnId]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        inputColumnId: {type: string, minLength: 1}
+        outputColumnId: {type: string, minLength: 1}
+        ordinalColumnId: {type: string, minLength: 1}
+        emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
     ConstructionCapabilitiesRequest:
       type: object
       additionalProperties: false
@@ -3273,7 +3322,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -3288,7 +3337,7 @@ components:
         rowIdentityColumn: {type: string}
         columns:
           type: array
-          items: {$ref: '#/components/schemas/ConstructionStageColumn'}
+          items: {$ref: '#/components/schemas/ConstructionStageColumnDescriptor'}
         capabilities:
           type: array
           items: {$ref: '#/components/schemas/ConstructionOperationCapability'}

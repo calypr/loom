@@ -13,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -60,7 +61,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 		if err != nil {
 			return explorer.ReceiptConstructionStage{}, err
 		}
-		return receiptConstructionStageFromDescriptor(descriptor), nil
+		return receiptConstructionStageFromDescriptor(descriptor)
 	}
 	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
 }
@@ -433,7 +434,10 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 		}
 		stages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
 		for index, descriptor := range output.Stages {
-			stage := receiptConstructionStageFromDescriptor(descriptor)
+			stage, err := receiptConstructionStageFromDescriptor(descriptor)
+			if err != nil {
+				return nil, err
+			}
 			if index == 0 && descriptor.ID == recipe.ConstructionSourceProjectionID {
 				stage.Operation = ""
 			}
@@ -444,7 +448,7 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 	return stagesByOutput, nil
 }
 
-func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) explorer.ReceiptConstructionStage {
+func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
 	stage := explorer.ReceiptConstructionStage{
 		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
 		RowIdentityColumn: descriptor.RowIdentityColumn,
@@ -455,8 +459,12 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 		if column.Internal || column.Identity {
 			continue
 		}
+		cardinality := expression.Cardinality(column.Cardinality)
+		if !cardinality.Valid() {
+			return explorer.ReceiptConstructionStage{}, fmt.Errorf("construction stage %q column %q has unsupported cardinality %q", descriptor.ID, column.ID, column.Cardinality)
+		}
 		stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
-			ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind,
+			ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind, Cardinality: cardinality,
 		})
 	}
 	for _, capability := range descriptor.Capabilities {
@@ -469,7 +477,7 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 			ReasonCode: reasonCode, Reason: reason,
 		})
 	}
-	return stage
+	return stage, nil
 }
 
 // compileValidatedReceiptResolution validates the complete immutable receipt

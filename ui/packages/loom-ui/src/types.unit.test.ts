@@ -8,6 +8,8 @@ import {
   columnTransformationChangeSchema,
   columnValueTransformationCapabilitiesSchema,
   columnValueTransformationSchema,
+  constructionCapabilitiesResponseSchema,
+  constructionSchema,
   explorerBuilderCandidateSchema,
   constructionChoiceSchema,
   explorerBuilderCommandSchema,
@@ -166,6 +168,108 @@ describe('explorerBuilderDocumentSchema', () => {
         tableShape: invalidTableShape,
       }).success).toBe(false);
     }
+  });
+});
+
+describe('staged construction contract', () => {
+  it('parses typed GROUP and EXPAND operations and enforces aggregate inputs', () => {
+    const column = { id: 'source', name: 'source', label: 'Source' };
+    const construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group-step',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'GROUP',
+            group: {
+              constructionId: 'group-step',
+              keys: [{ inputColumnId: 'source', outputColumnId: 'grouped' }],
+              aggregates: [
+                { operation: 'COUNT_ROWS', outputColumnId: 'row_count' },
+                { operation: 'SUM', inputColumnId: 'source', outputColumnId: 'sum' },
+              ],
+            },
+          },
+          outputs: [column],
+        },
+        {
+          id: 'expand-step',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-step' }],
+          operation: {
+            kind: 'EXPAND',
+            expand: {
+              constructionId: 'expand-step',
+              inputColumnId: 'source',
+              outputColumnId: 'item',
+              ordinalColumnId: 'position',
+              emptyPolicy: 'PRESERVE_PARENT',
+            },
+          },
+          outputs: [column],
+        },
+      ],
+    };
+
+    expect(constructionSchema.parse(construction)).toEqual(construction);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        operation: {
+          kind: 'GROUP',
+          group: {
+            constructionId: 'group-step',
+            aggregates: [{ operation: 'COUNT_ROWS', inputColumnId: 'source', outputColumnId: 'row_count' }],
+          },
+        },
+      }],
+    }).success).toBe(false);
+    expect(constructionSchema.safeParse({
+      ...construction,
+      steps: [{
+        ...construction.steps[0],
+        operation: {
+          kind: 'GROUP',
+          group: {
+            constructionId: 'group-step',
+            aggregates: [{ operation: 'SUM', outputColumnId: 'sum' }],
+          },
+        },
+      }],
+    }).success).toBe(false);
+  });
+
+  it('parses stage cardinality and GROUP/EXPAND capabilities using exact wire values', () => {
+    const stage = {
+      id: 'source_projection',
+      inputStageId: '',
+      columns: [{ id: 'codes', name: 'codes', label: 'Codes', cardinality: 'many' }],
+      capabilities: [
+        { kind: 'GROUP', supported: true },
+        { kind: 'EXPAND', supported: true },
+      ],
+    };
+    const response = {
+      snapshotToken: 'snapshot',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      baseConstruction: { version: 1, steps: [] },
+      stages: [stage],
+      selectedStage: stage,
+    };
+
+    expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.columns[0]?.cardinality)
+      .toBe('many');
+    expect(constructionCapabilitiesResponseSchema.safeParse({
+      ...response,
+      selectedStage: {
+        ...stage,
+        columns: [{ ...stage.columns[0], cardinality: 'MANY' }],
+      },
+    }).success).toBe(false);
   });
 });
 

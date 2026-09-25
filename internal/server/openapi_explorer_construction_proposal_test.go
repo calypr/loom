@@ -117,6 +117,20 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	if capabilities.SelectedStage.Id != "source_projection" || len(capabilities.Stages) != 2 || len(capabilities.SelectedStage.Columns) != 1 {
 		t.Fatalf("capabilities did not return exact public source stage: %#v", capabilities)
 	}
+	columnCardinality := capabilities.SelectedStage.Columns[0].Cardinality
+	if columnCardinality == nil || *columnCardinality != loomapi.ConstructionStageColumnDescriptorCardinalityOPTIONALONE {
+		t.Fatalf("source stage cardinality = %v, want optional_one", columnCardinality)
+	}
+	stageCapabilities := make(map[loomapi.ConstructionOperationCapabilityKind]bool)
+	for _, capability := range capabilities.SelectedStage.Capabilities {
+		stageCapabilities[capability.Kind] = capability.Supported
+	}
+	if supported, exists := stageCapabilities[loomapi.ConstructionOperationCapabilityKindGROUP]; !exists || !supported {
+		t.Fatalf("source stage does not support GROUP: %#v", capabilities.SelectedStage.Capabilities)
+	}
+	if supported, exists := stageCapabilities[loomapi.ConstructionOperationCapabilityKindEXPAND]; !exists || supported {
+		t.Fatalf("scalar source stage should expose EXPAND as unsupported: %#v", capabilities.SelectedStage.Capabilities)
+	}
 
 	proposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","removeStepIds":["only_step"],"candidateConstruction":{"version":1,"steps":[]}}`,

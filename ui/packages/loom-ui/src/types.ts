@@ -1071,6 +1071,11 @@ const constructionStageColumnSchema = z.object({
 }).strict();
 export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSchema>;
 
+const constructionStageColumnDescriptorSchema = constructionStageColumnSchema.extend({
+  cardinality: z.enum(['required_one', 'optional_one', 'many']).optional(),
+}).strict();
+export type ConstructionStageColumnDescriptor = z.infer<typeof constructionStageColumnDescriptorSchema>;
+
 const constructionFilterValueSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
   z.object({ kind: z.literal('CODE'), code: z.object({
@@ -1141,6 +1146,52 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       nullRowPolicy: z.enum(['DROP', 'PRESERVE']),
     }).strict(),
   }).strict(),
+  z.object({
+    kind: z.literal('GROUP'),
+    group: z.object({
+      constructionId: opaqueIdSchema,
+      keys: z.array(z.object({
+        inputColumnId: opaqueIdSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict()).optional(),
+      aggregates: z.array(z.discriminatedUnion('operation', [
+        z.object({
+          operation: z.literal('COUNT_ROWS'),
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('COUNT_NON_NULL'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('COUNT_DISTINCT'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('SUM'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+        z.object({
+          operation: z.literal('MEAN'),
+          inputColumnId: opaqueIdSchema,
+          outputColumnId: opaqueIdSchema,
+        }).strict(),
+      ])).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('EXPAND'),
+    expand: z.object({
+      constructionId: opaqueIdSchema,
+      inputColumnId: opaqueIdSchema,
+      outputColumnId: opaqueIdSchema,
+      ordinalColumnId: opaqueIdSchema.optional(),
+      emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']).optional(),
+    }).strict(),
+  }).strict(),
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
@@ -1159,7 +1210,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1169,7 +1220,7 @@ const constructionStageDescriptorSchema = z.object({
   inputStageId: z.string(),
   operation: z.string().optional(),
   rowIdentityColumn: z.string().optional(),
-  columns: z.array(constructionStageColumnSchema),
+  columns: z.array(constructionStageColumnDescriptorSchema),
   capabilities: z.array(constructionOperationCapabilitySchema),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
