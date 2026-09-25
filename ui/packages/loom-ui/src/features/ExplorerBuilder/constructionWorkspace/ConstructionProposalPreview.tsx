@@ -59,7 +59,7 @@ export const ConstructionProposalPreview = ({
       </table>
     )}
     <p className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
-      Showing {preview.rows?.length ?? 0} of {preview.rowCount.toLocaleString()} rows from the proposal preview.
+      Showing {preview.rows?.length ?? 0} preview rows. The full table row count is unavailable here.
     </p>
   </div>
 );
