@@ -169,6 +169,20 @@ const formatStep = (
         summary: `${description}${source}.`,
       };
     }
+    case 'RELATED_SOURCE': {
+      const related = step.operation.relatedSource;
+      const output = step.outputs.find((column) => column.id === related.outputColumnId)?.label ?? 'a related field';
+      const source = `${related.source.resourceType}.${related.source.path}`;
+      const route = related.route.length > 0
+        ? ` via ${related.route.map((edge) => edge.relationship).join(' → ')}`
+        : '';
+      return {
+        id: step.id,
+        title: 'Related source',
+        summary: `Add all matching values from ${source}${route} as ${output}.`,
+        editable: false,
+      };
+    }
     default: {
       const exhaustive: never = step.operation;
       return exhaustive;

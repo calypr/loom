@@ -175,6 +175,7 @@ const editableConstructionFamily = (
     case 'UNPIVOT':
     case 'GROUP':
     case 'EXPAND': return 'RESHAPE';
+    case 'RELATED_SOURCE': return undefined;
     case 'COMBINE': return undefined;
     default: {
       const exhaustive: never = operation;
