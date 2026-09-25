@@ -217,10 +217,24 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create recipe revision registry: %w", err)
 	}
+	var clickHouseQueryRows dataframeexecution.ClickHouseQueryRows
+	if clickhouse != nil {
+		clickHouseQueryRows = clickhouse.QueryRowsArgsVisit
+	}
+	var resolveClickHouseInputs dataframeexecution.ResolveClickHouseInputs
+	var withExecutionReadPins dataframeexecution.WithExecutionReadPins
+	if materializationReader != nil {
+		resolver := clickHouseCombineInputResolver{reader: materializationReader, scopes: scopeResolver}
+		resolveClickHouseInputs = resolver.resolve
+		withExecutionReadPins = materializationReader.WithExecutionReadPins
+	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:      recipeRegistry,
-		Revisions:     recipeRevisions,
-		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		Registry:                recipeRegistry,
+		Revisions:               recipeRevisions,
+		ResolveBundle:           recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		ClickHouseQueryRows:     clickHouseQueryRows,
+		ResolveClickHouseInputs: resolveClickHouseInputs,
+		WithExecutionReadPins:   withExecutionReadPins,
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			started := time.Now()
 			digest := sha256.Sum256([]byte(query))
