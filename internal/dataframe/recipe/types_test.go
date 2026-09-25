@@ -112,6 +112,35 @@ func TestParseAcceptsBuilderFieldMetadataWithoutPersistingIt(t *testing.T) {
 	}
 }
 
+func TestParseRoundTripsFieldLabelAndColumnID(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","columnId":"status_slot_1","label":"Current status","expr":{"select":"root.status"}}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := bundle.Outputs[0].Fields[0]
+	if field.ColumnID != "status_slot_1" || field.Label != "Current status" {
+		t.Fatalf("parsed field metadata = columnId %q, label %q", field.ColumnID, field.Label)
+	}
+
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(canonical, []byte(`"columnId":"status_slot_1"`)) || !bytes.Contains(canonical, []byte(`"label":"Current status"`)) {
+		t.Fatalf("canonical recipe lost stable field metadata: %s", canonical)
+	}
+
+	roundTripped, err := Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := roundTripped.Outputs[0].Fields[0]
+	if got.ColumnID != field.ColumnID || got.Label != field.Label {
+		t.Fatalf("round-tripped field metadata = columnId %q, label %q; want %q, %q", got.ColumnID, got.Label, field.ColumnID, field.Label)
+	}
+}
+
 func TestParseStillRejectsUnknownBuilderFieldMetadata(t *testing.T) {
 	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","expr":{"select":"root.status"},"logicalTypo":"scalar"}]}]}`
 	if _, err := Parse([]byte(input)); err == nil || !strings.HasPrefix(err.Error(), "parse_error ") {
