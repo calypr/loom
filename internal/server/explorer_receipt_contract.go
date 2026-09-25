@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -20,6 +21,49 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
 )
+
+// compileConstructionSourceStage runs the normal semantic and physical
+// compiler for a source-only capability probe. The empty document never
+// becomes a receipt or public output; only the compiler-derived source schema,
+// row identity, and operation reasons are returned to lifecycle discovery.
+func compileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine) (explorer.ReceiptConstructionStage, error) {
+	if recipeEngine == nil {
+		return explorer.ReceiptConstructionStage{}, fmt.Errorf("recipe engine is required")
+	}
+	if request.Document.Output.ID != request.OutputID {
+		return explorer.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
+	}
+	document := request.Document
+	document.Construction = nil
+	document.TableShape = nil
+	translated, err := explorercompilation.Compile(ctx, request.Project, request.ExplorerID, document, request.Authorized.Snapshot)
+	if err != nil {
+		return explorer.ReceiptConstructionStage{}, fmt.Errorf("compile source projection: %w", err)
+	}
+	bindings := recipe.RuntimeBindings{
+		Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project),
+		DatasetGeneration:          request.Authorized.Snapshot.Identity.Generation,
+		AuthResourcePaths:          append([]string(nil), request.Authorized.Scope.AuthResourcePaths...),
+		AuthScopeMode:              request.Authorized.Scope.Mode,
+		SelectionMembersCollection: request.SelectionMembersCollection,
+		OutputNames:                []string{request.OutputID},
+	}
+	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
+	if err != nil {
+		return explorer.ReceiptConstructionStage{}, fmt.Errorf("lower source projection: %w", err)
+	}
+	for _, output := range resolved.Compiled.Outputs {
+		if output.Name != request.OutputID {
+			continue
+		}
+		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema)
+		if err != nil {
+			return explorer.ReceiptConstructionStage{}, err
+		}
+		return receiptConstructionStageFromDescriptor(descriptor), nil
+	}
+	return explorer.ReceiptConstructionStage{}, fmt.Errorf("source projection compiler returned no output %q", request.OutputID)
+}
 
 func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger) (*explorer.CompilationReceipt, error) {
 	started := time.Now()
@@ -389,39 +433,43 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 		}
 		stages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
 		for index, descriptor := range output.Stages {
-			operation := descriptor.Operation
+			stage := receiptConstructionStageFromDescriptor(descriptor)
 			if index == 0 && descriptor.ID == recipe.ConstructionSourceProjectionID {
-				operation = ""
-			}
-			stage := explorer.ReceiptConstructionStage{
-				ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: operation,
-				RowIdentityColumn: descriptor.RowIdentityColumn,
-				Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
-				Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
-			}
-			for _, column := range descriptor.Columns {
-				if column.Internal || column.Identity {
-					continue
-				}
-				stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
-					ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind,
-				})
-			}
-			for _, capability := range descriptor.Capabilities {
-				reasonCode, reason := capability.ReasonCode, capability.Reason
-				if capability.Supported {
-					reasonCode, reason = "", ""
-				}
-				stage.Capabilities = append(stage.Capabilities, explorer.ReceiptConstructionOperationChoice{
-					Kind: string(capability.Operation), Supported: capability.Supported,
-					ReasonCode: reasonCode, Reason: reason,
-				})
+				stage.Operation = ""
 			}
 			stages = append(stages, stage)
 		}
 		stagesByOutput[output.Name] = stages
 	}
 	return stagesByOutput, nil
+}
+
+func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) explorer.ReceiptConstructionStage {
+	stage := explorer.ReceiptConstructionStage{
+		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
+		RowIdentityColumn: descriptor.RowIdentityColumn,
+		Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
+		Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
+	}
+	for _, column := range descriptor.Columns {
+		if column.Internal || column.Identity {
+			continue
+		}
+		stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
+			ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind,
+		})
+	}
+	for _, capability := range descriptor.Capabilities {
+		reasonCode, reason := capability.ReasonCode, capability.Reason
+		if capability.Supported {
+			reasonCode, reason = "", ""
+		}
+		stage.Capabilities = append(stage.Capabilities, explorer.ReceiptConstructionOperationChoice{
+			Kind: string(capability.Operation), Supported: capability.Supported,
+			ReasonCode: reasonCode, Reason: reason,
+		})
+	}
+	return stage
 }
 
 // compileValidatedReceiptResolution validates the complete immutable receipt

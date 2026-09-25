@@ -433,6 +433,9 @@ func run(ctx context.Context, serverConfig Config) error {
 			return recipeEngine.ScanCategories(ctx, resolved, request)
 		},
 		CompileReceipt: compileReceipt,
+		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
+			return compileConstructionSourceStage(ctx, request, recipeEngine)
+		},
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
 				return capabilityResolver.Resolve(ctx, project, generation)

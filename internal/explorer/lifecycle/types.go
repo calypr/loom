@@ -63,6 +63,20 @@ type ReceiptCompiler func(context.Context, CompileReceiptRequest) (*explorer.Com
 type ReceiptReader func(context.Context, string, string, string) (*explorer.CompilationReceipt, error)
 type ReceiptPreviewer func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, func(map[string]any) error) (dataframeexecution.PreviewSummary, error)
 
+// ConstructionSourceStageCompiler describes a compiler-resolved source
+// projection for capability discovery. Its result is metadata only; callers
+// must not treat an empty public schema as an executable output.
+type ConstructionSourceStageCompiler func(context.Context, ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error)
+
+type ConstructionSourceStageRequest struct {
+	Project                    string
+	ExplorerID                 string
+	OutputID                   string
+	Document                   authoringv2.Document
+	Authorized                 AuthorizedCapability
+	SelectionMembersCollection string
+}
+
 // TableShapeCategoryScanner executes an exact compiler-owned category scan
 // for one already-validated base receipt. The result is persisted only after
 // lifecycle verifies its proof against the receipt and current snapshot.
@@ -145,6 +159,7 @@ type Config struct {
 	ExplicitGroupRepository     explorer.ExplicitGroupRepository
 
 	CompileReceipt               ReceiptCompiler
+	ConstructionSourceStage      ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
 	TableShapeCapabilities       tableshapecap.Repository
 	ScanTableShapeCategories     TableShapeCategoryScanner

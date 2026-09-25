@@ -77,6 +77,51 @@ func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
 	}
 }
 
+func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
+	output := constructionTestOutput()
+	output.Fields = nil
+	output.Construction = nil
+	compiled := compileDerivedTestOutput(t, output)
+
+	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema)
+	if err != nil {
+		t.Fatalf("describe compiler-resolved source stage: %v", err)
+	}
+	if descriptor.ID != recipe.ConstructionSourceProjectionID || descriptor.RowIdentityColumn == "" {
+		t.Fatalf("source descriptor identity = %#v", descriptor)
+	}
+	publicColumns := 0
+	for _, column := range descriptor.Columns {
+		if !column.Internal {
+			publicColumns++
+		}
+	}
+	if publicColumns != 0 {
+		t.Fatalf("zero-column source descriptor exposed %d public columns: %#v", publicColumns, descriptor.Columns)
+	}
+	wantUnsupported := map[recipe.ConstructionOperationKind]string{
+		recipe.ConstructionPivotOp:   "INSUFFICIENT_SCALAR_COLUMNS",
+		recipe.ConstructionDeriveOp:  "NO_NUMERIC_COLUMN",
+		recipe.ConstructionFilterOp:  "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionUnpivotOp: "NO_COMPATIBLE_UNPIVOT_COLUMNS",
+		recipe.ConstructionGroupOp:   "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionExpandOp:  "NO_ARRAY_COLUMNS",
+	}
+	for _, capability := range descriptor.Capabilities {
+		wantReason, exists := wantUnsupported[capability.Operation]
+		if !exists || capability.Supported || capability.ReasonCode != wantReason {
+			t.Fatalf("zero-column capability = %#v, want unsupported reason %q", capability, wantReason)
+		}
+		delete(wantUnsupported, capability.Operation)
+	}
+	if len(wantUnsupported) != 0 {
+		t.Fatalf("source descriptor omitted compiler capabilities %v", wantUnsupported)
+	}
+	if compiled.Plan.StageSequence != nil {
+		t.Fatal("capability description introduced an executable construction stage sequence")
+	}
+}
+
 func constructionTestOutput() recipe.Output {
 	groupLabel, categoryLabel, amountLabel := "Group", "Category", "Amount"
 	integerZero, integerOne := int64(0), int64(1)

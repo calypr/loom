@@ -31,6 +31,41 @@ type StageOperationCapability struct {
 	Reason     string
 }
 
+// DescribeConstructionSourceStage returns the compiler-owned capability view
+// for the exact resolved source schema. It is also used by capability-only
+// discovery for a new, zero-column table: the physical compiler has still
+// resolved row identity and source columns, but the result is never treated
+// as an executable public output.
+func DescribeConstructionSourceStage(schema []CompiledOutputColumn) (CompiledStageDescriptor, error) {
+	identity := constructionSourceIdentity(schema)
+	if identity == "" {
+		return CompiledStageDescriptor{}, fmt.Errorf("construction source has no supported row identity projection")
+	}
+	columns := cloneCompiledSchema(schema)
+	identityFound := false
+	for index := range columns {
+		if columns[index].Name == identity {
+			columns[index].ID = columns[index].Name
+			columns[index].Internal = true
+			columns[index].Identity = true
+			identityFound = true
+			continue
+		}
+		if !columns[index].Internal && strings.TrimSpace(columns[index].ID) == "" {
+			return CompiledStageDescriptor{}, fmt.Errorf("construction source column %q has no stable compiled ID", columns[index].Name)
+		}
+	}
+	if !identityFound {
+		return CompiledStageDescriptor{}, fmt.Errorf("construction source row identity %q is missing from its compiled schema", identity)
+	}
+	descriptor := CompiledStageDescriptor{
+		ID: recipe.ConstructionSourceProjectionID, Operation: "SOURCE_PROJECTION",
+		Columns: columns, RowIdentityColumn: identity,
+	}
+	descriptor.Capabilities = stageCapabilities(columns)
+	return descriptor, nil
+}
+
 type constructionStageResult struct {
 	physical   ir.PhysicalConstructionStage
 	schema     []CompiledOutputColumn

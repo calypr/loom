@@ -9,6 +9,7 @@ import (
 	"reflect"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -127,6 +128,7 @@ type constructionBase struct {
 	construction    authoringv2.Construction
 	snapshot        capability.Snapshot
 	receipt         *explorer.CompilationReceipt
+	stages          []explorer.ReceiptConstructionStage
 	baseDocumentSHA string
 }
 
@@ -138,7 +140,7 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
-	stages := base.receipt.ConstructionStages[request.OutputID]
+	stages := base.stages
 	if len(stages) == 0 {
 		return ConstructionCapabilitiesResponse{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
@@ -193,7 +195,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		BaseDocumentDigest: base.baseDocumentSHA, CandidateWorkspaceDigest: candidateDigest,
 		ChangedStepID: request.ChangedStepID, CandidateConstruction: *candidateDocument.Construction,
-		DependencyImpact: impact, Stages: base.receipt.ConstructionStages[request.OutputID],
+		DependencyImpact: impact, Stages: base.stages,
 		PreviewStatus: "NEEDS_REPAIR",
 	}
 	if impact.HasMissingInputs() {
@@ -226,7 +228,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 }
 
 func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
-	if s.config.Capability.ForCompilation == nil || s.config.CompileReceipt == nil {
+	if s.config.Capability.ForCompilation == nil {
 		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
 	}
 	if s.config.Capability.Catalog == nil {
@@ -277,6 +279,29 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	if upgraded.Construction == nil {
 		return constructionBase{}, conflict("construction-capabilities", "INVALID_CONSTRUCTION_BASE", "the source projection has no construction contract", nil, nil)
 	}
+	if len(upgraded.Columns) == 0 && len(upgraded.Construction.Steps) == 0 {
+		if s.config.ConstructionSourceStage == nil {
+			return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "compiler-resolved source-stage discovery is not configured", nil)
+		}
+		stage, err := s.config.ConstructionSourceStage(ctx, ConstructionSourceStageRequest{
+			Project: project, ExplorerID: explorerID, OutputID: outputID, Document: document,
+			Authorized: authorized.Clone(), SelectionMembersCollection: s.config.SelectionMembersCollection,
+		})
+		if err != nil {
+			return constructionBase{}, unprocessable("construction-capabilities", "SOURCE_STAGE_DISCOVERY_FAILED", "the compiler could not resolve the empty source projection", err)
+		}
+		if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn == "" || len(stage.Columns) != 0 {
+			return constructionBase{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
+		}
+		return constructionBase{
+			owner: owner, workspace: workspace, document: document,
+			construction: *upgraded.Construction, snapshot: snapshot,
+			stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
+		}, nil
+	}
+	if s.config.CompileReceipt == nil {
+		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
+	}
 	workspace.Documents[documentIndex] = upgraded
 	receipt, err := s.compile(ctx, compileRequest{
 		Project: project, ExplorerID: explorerID, Workspace: workspace, SnapshotToken: snapshotToken,
@@ -297,7 +322,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	return constructionBase{
 		owner: owner, workspace: workspace, document: document,
 		construction: *upgraded.Construction, snapshot: snapshot,
-		receipt: receipt, baseDocumentSHA: baseDocumentSHA,
+		receipt: receipt, stages: receipt.ConstructionStages[outputID], baseDocumentSHA: baseDocumentSHA,
 	}, nil
 }
 

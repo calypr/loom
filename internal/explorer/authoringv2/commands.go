@@ -1019,6 +1019,17 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		if routeErr != nil {
 			return result, routeErr
 		}
+		// A blank table has no legacy shape to preserve. Enter typed
+		// construction before assigning its first stable source column ID so
+		// the next capability request and proposal use the same source-stage
+		// contract as every later staged edit.
+		if len(workspace.Documents[documentPos].Columns) == 0 && workspace.Documents[documentPos].Construction == nil && workspace.Documents[documentPos].TableShape == nil {
+			upgraded, upgradeErr := UpgradeDocumentToConstruction(workspace.Documents[documentPos])
+			if upgradeErr != nil {
+				return result, fmt.Errorf("initialize empty source construction: %w", upgradeErr)
+			}
+			workspace.Documents[documentPos] = upgraded
+		}
 		command.OccurrenceID = occurrenceID
 		return applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
 	case CommandAddSemanticSelections:
