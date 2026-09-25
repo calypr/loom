@@ -2287,6 +2287,7 @@ export const explorerBuilderPreviewResultSchema = z
     columns: z.array(explorerBuilderPreviewColumnSchema),
     rows: z.array(unknownRecordSchema).nullable(),
     rowCount: z.number().int().nonnegative(),
+    sampled: z.boolean().optional(),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),
   })
   .strict();

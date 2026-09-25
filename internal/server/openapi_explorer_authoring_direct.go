@@ -408,7 +408,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 		}
 	}
 	var finish func() ([]byte, error)
-	_, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		encoder, encoderErr := newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
 			return nil, encoderErr
@@ -429,6 +429,7 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		return result, err
 	}
+	result.Sampled = !preview.Summary.Complete || preview.Summary.Truncated
 	return result, nil
 }
 

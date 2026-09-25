@@ -4789,7 +4789,7 @@ components:
     PreviewResponse:
       type: object
       additionalProperties: false
-      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowCount, diagnostics]
+      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowCount, sampled, diagnostics]
       properties:
         apiVersion: {$ref: '#/components/schemas/APIVersion'}
         kind: {type: string, enum: [ExplorerBuilderPreview]}
@@ -4804,6 +4804,9 @@ components:
             type: object
             additionalProperties: true
         rowCount: {type: integer, minimum: 0}
+        sampled:
+          type: boolean
+          description: True when the preview did not prove that it exhausted the full output.
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
