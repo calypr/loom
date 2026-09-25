@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -86,14 +87,15 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 
 type testExplorerStore struct {
 	explorer.Store
-	mu        sync.Mutex
-	explorers map[string]explorer.Explorer
-	receipts  map[string]explorer.CompilationReceipt
-	revisions map[string]explorer.Revision
+	mu             sync.Mutex
+	explorers      map[string]explorer.Explorer
+	receipts       map[string]explorer.CompilationReceipt
+	revisions      map[string]explorer.Revision
+	draftRevisions map[string]explorer.DraftRevision
 }
 
 func newTestExplorerStore() *testExplorerStore {
-	return &testExplorerStore{explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}}
+	return &testExplorerStore{explorers: map[string]explorer.Explorer{}, receipts: map[string]explorer.CompilationReceipt{}, revisions: map[string]explorer.Revision{}, draftRevisions: map[string]explorer.DraftRevision{}}
 }
 
 func testExplorerKey(project, id string) string { return project + "\x00" + id }
@@ -146,8 +148,30 @@ func (s *testExplorerStore) SaveDraft(_ context.Context, value explorer.Explorer
 	if prior.DraftVersion != expected || (len(expectedDigest) > 0 && expectedDigest[0] != "" && prior.DraftDigest != expectedDigest[0]) {
 		return nil, explorer.ErrDraftConflict
 	}
+	if s.draftRevisions == nil {
+		s.draftRevisions = map[string]explorer.DraftRevision{}
+	}
+	revisionID := fmt.Sprintf("draft_revision_%s_%d", prior.ExplorerID, prior.DraftVersion)
+	s.draftRevisions[testExplorerKey(prior.Project, prior.ExplorerID)+"\x00"+revisionID] = explorer.DraftRevision{
+		ID: revisionID, Project: prior.Project, ExplorerID: prior.ExplorerID, DraftVersion: prior.DraftVersion,
+		DraftDigest: prior.DraftDigest, DraftConfig: append([]byte(nil), prior.DraftConfig...), Title: prior.Title,
+		SnapshotToken: prior.DraftSnapshotToken, SourceGeneration: prior.DraftSourceGeneration,
+		AuthorizationScopeDigest: prior.DraftAuthorizationScopeDigest, UpdatedBy: prior.UpdatedBy, UpdatedAt: prior.UpdatedAt,
+	}
+	value.PreviousDraftRevisionID = revisionID
 	value.DraftVersion++
 	s.explorers[key] = value
+	return &value, nil
+}
+
+func (s *testExplorerStore) GetDraftRevision(_ context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.draftRevisions[testExplorerKey(project, explorerID)+"\x00"+revisionID]
+	if !ok {
+		return nil, explorer.ErrNotFound
+	}
+	value.DraftConfig = append([]byte(nil), value.DraftConfig...)
 	return &value, nil
 }
 

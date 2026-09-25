@@ -340,6 +340,7 @@ const (
 	DELETETABLE                  AuthoringCommandType = "DELETE_TABLE"
 	DUPLICATETABLE               AuthoringCommandType = "DUPLICATE_TABLE"
 	REMOVECOLUMN                 AuthoringCommandType = "REMOVE_COLUMN"
+	RESTOREDRAFTREVISION         AuthoringCommandType = "RESTORE_DRAFT_REVISION"
 	REMOVEROUTE                  AuthoringCommandType = "REMOVE_ROUTE"
 	RENAMETABLE                  AuthoringCommandType = "RENAME_TABLE"
 	REORDERTABLES                AuthoringCommandType = "REORDER_TABLES"
@@ -385,6 +386,8 @@ func (e AuthoringCommandType) Valid() bool {
 	case DUPLICATETABLE:
 		return true
 	case REMOVECOLUMN:
+		return true
+	case RESTOREDRAFTREVISION:
 		return true
 	case REMOVEROUTE:
 		return true
@@ -568,6 +571,7 @@ const (
 	COLUMNADDED             CommandResultType = "COLUMN_ADDED"
 	ROUTEADDED              CommandResultType = "ROUTE_ADDED"
 	SEMANTICSELECTIONSADDED CommandResultType = "SEMANTIC_SELECTIONS_ADDED"
+	DRAFTRESTORED           CommandResultType = "DRAFT_RESTORED"
 	TABLECHANGED            CommandResultType = "TABLE_CHANGED"
 	TABLECREATED            CommandResultType = "TABLE_CREATED"
 )
@@ -580,6 +584,8 @@ func (e CommandResultType) Valid() bool {
 	case ROUTEADDED:
 		return true
 	case SEMANTICSELECTIONSADDED:
+		return true
+	case DRAFTRESTORED:
 		return true
 	case TABLECHANGED:
 		return true
@@ -3013,12 +3019,13 @@ type ApplyCommandsRequest struct {
 
 // ApplyCommandsResponse defines model for ApplyCommandsResponse.
 type ApplyCommandsResponse struct {
-	CommandId    string          `json:"commandId"`
-	Diagnostics  []Diagnostic    `json:"diagnostics"`
-	DraftDigest  string          `json:"draftDigest"`
-	DraftVersion int64           `json:"draftVersion"`
-	Results      []CommandResult `json:"results"`
-	Workspace    Workspace       `json:"workspace"`
+	CommandId               string          `json:"commandId"`
+	Diagnostics             []Diagnostic    `json:"diagnostics"`
+	DraftDigest             string          `json:"draftDigest"`
+	DraftVersion            int64           `json:"draftVersion"`
+	PreviousDraftRevisionId *string         `json:"previousDraftRevisionId,omitempty"`
+	Results                 []CommandResult `json:"results"`
+	Workspace               Workspace       `json:"workspace"`
 }
 
 // Artifact defines model for Artifact.
@@ -3094,6 +3101,7 @@ type AuthoringCommand struct {
 	ColumnValue             *Column                              `json:"columnValue,omitempty"`
 	ConstructionChoice      *ConstructionChoiceSelection         `json:"constructionChoice,omitempty"`
 	ContextToken            *string                              `json:"contextToken,omitempty"`
+	DraftRevisionId         *string                              `json:"draftRevisionId,omitempty"`
 	Contributor             *ContributorPredicate                `json:"contributor,omitempty"`
 	EdgeId                  *string                              `json:"edgeId,omitempty"`
 	InitialPresentation     *AuthoringCommandInitialPresentation `json:"initialPresentation,omitempty"`
@@ -3138,13 +3146,14 @@ type AuthoringFeatures struct {
 
 // BuilderState defines model for BuilderState.
 type BuilderState struct {
-	ApiVersion     APIVersion                 `json:"apiVersion"`
-	Catalog        Catalog                    `json:"catalog"`
-	DraftDigest    string                     `json:"draftDigest"`
-	DraftVersion   int64                      `json:"draftVersion"`
-	Kind           BuilderStateKind           `json:"kind"`
-	LifecycleState BuilderStateLifecycleState `json:"lifecycleState"`
-	Workspace      *Workspace                 `json:"workspace"`
+	ApiVersion              APIVersion                 `json:"apiVersion"`
+	Catalog                 Catalog                    `json:"catalog"`
+	DraftDigest             string                     `json:"draftDigest"`
+	DraftVersion            int64                      `json:"draftVersion"`
+	Kind                    BuilderStateKind           `json:"kind"`
+	LifecycleState          BuilderStateLifecycleState `json:"lifecycleState"`
+	PreviousDraftRevisionId *string                    `json:"previousDraftRevisionId,omitempty"`
+	Workspace               *Workspace                 `json:"workspace"`
 }
 
 // BuilderStateKind defines model for BuilderState.Kind.

@@ -1815,6 +1815,7 @@ export const explorerBuilderStateSchema = z
     lifecycleState: z.enum(['NEW', 'READY']),
     draftVersion: z.number().int().nonnegative(),
     draftDigest: z.string(),
+    previousDraftRevisionId: opaqueIdSchema.optional(),
     workspace: explorerBuilderWorkspaceSchema.nullable(),
     catalog: explorerBuilderCatalogSchema,
   })
@@ -1935,6 +1936,7 @@ export const explorerBuilderCommandSchema = z
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
       'APPLY_TABLE_SHAPE_PROPOSAL',
+      'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
     sourceOutputId: opaqueIdSchema.optional(),
@@ -1964,12 +1966,32 @@ export const explorerBuilderCommandSchema = z
       .strict()
       .optional(),
     proposalId: opaqueIdSchema.optional(),
+    draftRevisionId: opaqueIdSchema.optional(),
     contextToken: opaqueIdSchema.optional(),
     semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
     constructionChoice: constructionChoiceSelectionSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((command, context) => {
+    if (command.type !== 'RESTORE_DRAFT_REVISION') return;
+    if (!command.draftRevisionId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['draftRevisionId'],
+        message: 'RESTORE_DRAFT_REVISION requires a draft revision ID.',
+      });
+    }
+    for (const [key, value] of Object.entries(command)) {
+      if (key !== 'type' && key !== 'draftRevisionId' && value !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: [key],
+          message: 'RESTORE_DRAFT_REVISION accepts only its revision ID.',
+        });
+      }
+    }
+  });
 export type ExplorerBuilderCommand = z.infer<
   typeof explorerBuilderCommandSchema
 >;
@@ -1981,6 +2003,7 @@ export const explorerBuilderCommandResultSchema = z
       'ROUTE_ADDED',
       'COLUMN_ADDED',
       'SEMANTIC_SELECTIONS_ADDED',
+      'DRAFT_RESTORED',
     ]),
     outputId: opaqueIdSchema.optional(),
     tabId: opaqueIdSchema.optional(),
@@ -1995,6 +2018,7 @@ export const explorerBuilderCommandsResultSchema = z
     workspace: explorerBuilderWorkspaceSchema,
     draftVersion: z.number().int().positive(),
     draftDigest: opaqueIdSchema,
+    previousDraftRevisionId: opaqueIdSchema.optional(),
     results: z.array(explorerBuilderCommandResultSchema),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),
   })

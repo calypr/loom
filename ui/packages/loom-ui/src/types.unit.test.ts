@@ -169,6 +169,27 @@ describe('explorerBuilderDocumentSchema', () => {
   });
 });
 
+describe('explorerBuilderCommandSchema', () => {
+  it('accepts only the server-issued revision ID for Undo', () => {
+    expect(
+      explorerBuilderCommandSchema.parse({
+        type: 'RESTORE_DRAFT_REVISION',
+        draftRevisionId: 'draft_revision_1',
+      }),
+    ).toEqual({
+      type: 'RESTORE_DRAFT_REVISION',
+      draftRevisionId: 'draft_revision_1',
+    });
+    expect(() =>
+      explorerBuilderCommandSchema.parse({
+        type: 'RESTORE_DRAFT_REVISION',
+        draftRevisionId: 'draft_revision_1',
+        outputId: 'patients',
+      }),
+    ).toThrow();
+  });
+});
+
 describe('row-definition contract schemas', () => {
   it('keeps empty descriptions, zero counts, false flags, and empty collections intact', () => {
     const choices = {

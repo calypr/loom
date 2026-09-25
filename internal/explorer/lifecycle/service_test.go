@@ -45,6 +45,7 @@ type fakeStore struct {
 	selection          *explorer.SelectionRevision
 	selectionMembers   []explorer.SelectionMember
 	memberVisits       int
+	draftRevisions     map[string]explorer.DraftRevision
 }
 
 func (f *fakeStore) List(context.Context, string) ([]explorer.Explorer, error) {
@@ -91,12 +92,36 @@ func (f *fakeStore) SaveDraft(_ context.Context, value explorer.Explorer, _ int6
 	if f.applyErr != nil {
 		return nil, f.applyErr
 	}
+	if f.created != nil {
+		previous := *f.created
+		revisionID := fmt.Sprintf("draft-revision-%d", previous.DraftVersion)
+		if f.draftRevisions == nil {
+			f.draftRevisions = map[string]explorer.DraftRevision{}
+		}
+		f.draftRevisions[revisionID] = explorer.DraftRevision{
+			ID: revisionID, Project: previous.Project, ExplorerID: previous.ExplorerID, DraftVersion: previous.DraftVersion,
+			DraftDigest: previous.DraftDigest, DraftConfig: append([]byte(nil), previous.DraftConfig...), Title: previous.Title,
+			SnapshotToken: previous.DraftSnapshotToken, SourceGeneration: previous.DraftSourceGeneration,
+			AuthorizationScopeDigest: previous.DraftAuthorizationScopeDigest,
+		}
+		value.PreviousDraftRevisionID = revisionID
+	}
 	value.DraftVersion++
 	if value.ExplorerID == "default" {
 		f.repositoryOwner = &value
 	}
 	f.created = &value
 	return &value, nil
+}
+
+func (f *fakeStore) GetDraftRevision(_ context.Context, project, explorerID, revisionID string) (*explorer.DraftRevision, error) {
+	revision, ok := f.draftRevisions[revisionID]
+	if !ok || revision.Project != project || revision.ExplorerID != explorerID {
+		return nil, explorer.ErrNotFound
+	}
+	copy := revision
+	copy.DraftConfig = append([]byte(nil), revision.DraftConfig...)
+	return &copy, nil
 }
 
 func (f *fakeStore) InsertCompilationReceipt(_ context.Context, value explorer.CompilationReceipt) (*explorer.CompilationReceipt, error) {

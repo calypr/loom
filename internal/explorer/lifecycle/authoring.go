@@ -29,6 +29,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
 	var tableShapeCandidate *explorer.CompilationReceipt
 	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
+	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	var constructionCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	populationRouteCount := 0
@@ -76,7 +77,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -98,6 +99,16 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	}
 	if projectid.Canonical(snapshot.Identity.Project) != projectid.Canonical(project) || snapshot.Identity.Generation == "" {
 		return nil, conflict("commands", "STALE_CATALOG_SNAPSHOT", "the catalog snapshot is stale or unavailable", nil, nil)
+	}
+	if snapshot.Token != "" && snapshot.Identity.Generation != "" && snapshot.Identity.AuthorizationScopeDigest != "" {
+		if sourceErr := request.ResolveDraftSourceContext(authoringv2.DraftSourceContext{
+			SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation,
+			AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest,
+		}); sourceErr != nil {
+			return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, sourceErr)
+		}
+	} else if restoreDraftRevisionCommand {
+		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
@@ -130,6 +141,10 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			prepared, receipt, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
 			constructionCandidate = receipt
 			return prepared, prepareErr
+		}
+	} else if restoreDraftRevisionCommand {
+		prepare = func(ctx context.Context, _ authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, commands)
 		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {

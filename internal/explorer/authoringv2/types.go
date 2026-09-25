@@ -226,11 +226,12 @@ type RoutePolicy struct {
 
 // BuilderState joins one workspace to the one catalog snapshot that proves it.
 type BuilderState struct {
-	APIVersion     string          `json:"apiVersion"`
-	Kind           string          `json:"kind"`
-	LifecycleState string          `json:"lifecycleState"`
-	DraftVersion   int64           `json:"draftVersion"`
-	DraftDigest    string          `json:"draftDigest"`
-	Workspace      *Workspace      `json:"workspace"`
-	Catalog        CatalogSnapshot `json:"catalog"`
+	APIVersion              string          `json:"apiVersion"`
+	Kind                    string          `json:"kind"`
+	LifecycleState          string          `json:"lifecycleState"`
+	DraftVersion            int64           `json:"draftVersion"`
+	DraftDigest             string          `json:"draftDigest"`
+	PreviousDraftRevisionID string          `json:"previousDraftRevisionId,omitempty"`
+	Workspace               *Workspace      `json:"workspace"`
+	Catalog                 CatalogSnapshot `json:"catalog"`
 }

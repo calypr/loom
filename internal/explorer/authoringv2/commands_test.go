@@ -514,6 +514,44 @@ func TestApplyCommandsRequestRequiresSemanticsV3(t *testing.T) {
 	}
 }
 
+func TestRestoreDraftRevisionCommandIsStrictAndRestoresServerResolvedWorkspace(t *testing.T) {
+	base := emptyCommandWorkspace()
+	base.Explorer.Title = "Before edit"
+	base.Documents = []Document{{Kind: Kind, Output: Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient", Route: RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "Patient"}}}
+	base.Tabs = []Tab{{ID: "patients", Title: "Patients", OutputID: "patients", Order: 0, Visible: true}}
+	command := Command{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}
+	if err := command.ResolveDraftRevision(base); err != nil {
+		t.Fatal(err)
+	}
+	restored, results, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "restore", []Command{command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Explorer.Title != "Before edit" || len(restored.Documents) != 1 || restored.Documents[0].Output.ID != "patients" {
+		t.Fatalf("restore result = %#v", restored)
+	}
+	if len(results) != 1 || results[0].Type != CommandResultDraftRestored {
+		t.Fatalf("restore results = %#v", results)
+	}
+
+	request := ApplyCommandsRequest{
+		CommandID: "restore-command", SemanticsVersion: CurrentSemanticsVersion, SnapshotToken: "snapshot",
+		ExpectedDraftVersion: 2, ExpectedDraftDigest: "sha256:current", Commands: []Command{{Type: CommandRestoreDraftRevision, DraftRevisionID: "draft_revision_1"}},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("valid restore request rejected: %v", err)
+	}
+	request.Commands = append(request.Commands, Command{Type: CommandDeleteTable, OutputID: "patients"})
+	if err := request.Validate(); err == nil || !strings.Contains(err.Error(), "only command") {
+		t.Fatalf("mixed restore request error = %v", err)
+	}
+
+	var decoded Command
+	if err := json.Unmarshal([]byte(`{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":"draft_revision_1","outputId":"patients"}`), &decoded); err == nil {
+		t.Fatal("restore command accepted an unrelated outputId")
+	}
+}
+
 func TestApplyCommandsOwnsNestedRouteAndColumnIdentities(t *testing.T) {
 	workspace, create, err := ApplyCommands(emptyCommandWorkspace(), commandCatalog(), "create", []Command{{Type: CommandCreateTable, Title: "Patients", RootNodeID: "patient"}})
 	if err != nil {

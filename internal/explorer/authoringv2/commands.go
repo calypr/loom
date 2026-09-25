@@ -38,6 +38,7 @@ const (
 	CommandApplyRowDefinitionProposal    = "APPLY_ROW_DEFINITION_PROPOSAL"
 	CommandApplyTableShapeProposal       = "APPLY_TABLE_SHAPE_PROPOSAL"
 	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
+	CommandRestoreDraftRevision          = "RESTORE_DRAFT_REVISION"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
@@ -47,6 +48,7 @@ const (
 	CommandResultRouteAdded              = "ROUTE_ADDED"
 	CommandResultColumnAdded             = "COLUMN_ADDED"
 	CommandResultSemanticSelectionsAdded = "SEMANTIC_SELECTIONS_ADDED"
+	CommandResultDraftRestored           = "DRAFT_RESTORED"
 	SemanticSelectionAdded               = "ADDED"
 	SemanticSelectionAlreadyPresent      = "ALREADY_PRESENT"
 	InitialPresentationTable             = "TABLE"
@@ -65,6 +67,33 @@ type ApplyCommandsRequest struct {
 	ExpectedDraftVersion int64     `json:"expectedDraftVersion"`
 	ExpectedDraftDigest  string    `json:"expectedDraftDigest,omitempty"`
 	Commands             []Command `json:"commands"`
+	draftSourceContext   *DraftSourceContext
+}
+
+// DraftSourceContext is attached by lifecycle after resolving the request's
+// authorized snapshot. It is never accepted from the browser.
+type DraftSourceContext struct {
+	SnapshotToken            string
+	SourceGeneration         string
+	AuthorizationScopeDigest string
+}
+
+func (r *ApplyCommandsRequest) ResolveDraftSourceContext(value DraftSourceContext) error {
+	if r == nil || strings.TrimSpace(value.SnapshotToken) == "" || value.SnapshotToken != strings.TrimSpace(value.SnapshotToken) ||
+		strings.TrimSpace(value.SourceGeneration) == "" || value.SourceGeneration != strings.TrimSpace(value.SourceGeneration) ||
+		strings.TrimSpace(value.AuthorizationScopeDigest) == "" || value.AuthorizationScopeDigest != strings.TrimSpace(value.AuthorizationScopeDigest) {
+		return fmt.Errorf("resolved draft source context requires exact snapshot, generation, and authorization scope identities")
+	}
+	r.draftSourceContext = &value
+	return nil
+}
+
+func (r ApplyCommandsRequest) ResolvedDraftSourceContext() *DraftSourceContext {
+	if r.draftSourceContext == nil {
+		return nil
+	}
+	value := *r.draftSourceContext
+	return &value
 }
 
 func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
@@ -101,6 +130,7 @@ type Command struct {
 	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
 	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
 	ProposalID              string                        `json:"proposalId,omitempty"`
+	DraftRevisionID         string                        `json:"draftRevisionId,omitempty"`
 	ContextToken            string                        `json:"contextToken,omitempty"`
 	SemanticSelections      []SemanticSelection           `json:"semanticSelections,omitempty"`
 	ConstructionChoice      *ConstructionChoiceSelection  `json:"constructionChoice,omitempty"`
@@ -112,6 +142,21 @@ type Command struct {
 	resolvedTableShapeSet   bool
 	resolvedConstruction    *Construction
 	resolvedConstructionSet bool
+	resolvedDraftRevision   *Workspace
+}
+
+// ResolveDraftRevision binds a restore command to a workspace resolved by the
+// lifecycle service from the owner's exact previous-draft pointer.
+func (c *Command) ResolveDraftRevision(workspace Workspace) error {
+	if c == nil || c.Type != CommandRestoreDraftRevision || strings.TrimSpace(c.DraftRevisionID) == "" || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
+		return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact server-resolved draft revision")
+	}
+	cloned, err := cloneWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	c.resolvedDraftRevision = &cloned
+	return nil
 }
 
 // ColumnTransformationChange replaces or removes the one typed value
@@ -233,6 +278,18 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
+	if decoded.Type == CommandRestoreDraftRevision {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		allowed := map[string]bool{"type": true, "draftRevisionId": true}
+		for name := range fields {
+			if !allowed[name] {
+				return fmt.Errorf("RESTORE_DRAFT_REVISION does not accept field %q", name)
+			}
+		}
+	}
 	if decoded.Type == CommandApplyRowDefinitionProposal || decoded.Type == CommandApplyTableShapeProposal || decoded.Type == CommandApplyConstructionProposal {
 		if err := rejectUnknownProposalCommandFields(raw, decoded.Type); err != nil {
 			return err
@@ -337,12 +394,13 @@ type SemanticSelectionResult struct {
 }
 
 type ApplyCommandsResponse struct {
-	CommandID    string          `json:"commandId"`
-	Workspace    Workspace       `json:"workspace"`
-	DraftVersion int64           `json:"draftVersion"`
-	DraftDigest  string          `json:"draftDigest"`
-	Results      []CommandResult `json:"results"`
-	Diagnostics  []any           `json:"diagnostics"`
+	CommandID               string          `json:"commandId"`
+	Workspace               Workspace       `json:"workspace"`
+	DraftVersion            int64           `json:"draftVersion"`
+	DraftDigest             string          `json:"draftDigest"`
+	PreviousDraftRevisionID string          `json:"previousDraftRevisionId,omitempty"`
+	Results                 []CommandResult `json:"results"`
+	Diagnostics             []any           `json:"diagnostics"`
 }
 
 func (r ApplyCommandsRequest) Validate() error {
@@ -361,6 +419,7 @@ func (r ApplyCommandsRequest) Validate() error {
 	semanticCommandCount := 0
 	constructionChoiceCommandCount := 0
 	proposalCommandCount := 0
+	restoreCommandCount := 0
 	for i, command := range r.Commands {
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
@@ -370,6 +429,9 @@ func (r ApplyCommandsRequest) Validate() error {
 		}
 		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal {
 			proposalCommandCount++
+		}
+		if command.Type == CommandRestoreDraftRevision {
+			restoreCommandCount++
 		}
 		if err := command.validate(); err != nil {
 			return fmt.Errorf("commands[%d]: %w", i, err)
@@ -387,6 +449,14 @@ func (r ApplyCommandsRequest) Validate() error {
 		}
 		if r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest) {
 			return fmt.Errorf("proposal apply requires an exact expected draft version and digest")
+		}
+	}
+	if restoreCommandCount > 0 {
+		if restoreCommandCount != 1 || len(r.Commands) != 1 {
+			return fmt.Errorf("RESTORE_DRAFT_REVISION must be the only command in its atomic request")
+		}
+		if r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" || r.ExpectedDraftDigest != strings.TrimSpace(r.ExpectedDraftDigest) {
+			return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact expected draft version and digest")
 		}
 	}
 	return nil
@@ -527,6 +597,17 @@ func (c Command) validate() error {
 			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
 			c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 {
 			return fmt.Errorf("%s accepts only outputId and proposalId", c.Type)
+		}
+	case CommandRestoreDraftRevision:
+		if !required(c.DraftRevisionID) || c.DraftRevisionID != strings.TrimSpace(c.DraftRevisionID) {
+			return fmt.Errorf("RESTORE_DRAFT_REVISION requires an exact draftRevisionId")
+		}
+		if c.OutputID != "" || c.SourceOutputID != "" || c.Title != "" || c.RootNodeID != "" || c.SelectionRevisionID != "" ||
+			len(c.EdgeIDs) != 0 || c.RouteChoiceID != "" || c.ParentOccurrenceID != "" || c.OccurrenceID != "" || c.EdgeID != "" || c.MatchMode != "" ||
+			c.CandidateID != "" || c.ProjectionMode != "" || c.InitialPresentation != "" || c.Column != "" || c.ColumnValue != nil || c.TransformationChange != nil || c.Contributor != nil ||
+			c.Source != nil || c.RowChange != nil || c.InterpretationCandidate != nil || c.ProposalID != "" || c.ContextToken != "" || len(c.SemanticSelections) != 0 ||
+			c.ConstructionChoice != nil || c.ResolvedChoice != nil || len(c.ResolvedPopulationRoute) != 0 || len(c.OutputIDs) != 0 || c.resolvedDraftRevision != nil {
+			return fmt.Errorf("RESTORE_DRAFT_REVISION accepts only draftRevisionId")
 		}
 	case CommandAddColumnSource:
 		if !required(c.OutputID, c.OccurrenceID) || c.Source == nil {
@@ -1100,6 +1181,16 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		workspace.Documents[documentIndexValue] = document
 		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
+	case CommandRestoreDraftRevision:
+		if command.resolvedDraftRevision == nil {
+			return result, fmt.Errorf("RESTORE_DRAFT_REVISION has no lifecycle-resolved draft revision")
+		}
+		restored, err := cloneWorkspace(*command.resolvedDraftRevision)
+		if err != nil {
+			return result, err
+		}
+		*workspace = restored
+		return CommandResult{Type: CommandResultDraftRestored}, nil
 	case CommandUpdateColumnSource:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {

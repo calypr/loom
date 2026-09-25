@@ -2430,9 +2430,10 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
+        draftRevisionId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
         title: {type: string, minLength: 1}
         rootNodeId: {type: string, minLength: 1}
@@ -2558,7 +2559,7 @@ components:
       additionalProperties: false
       required: [type]
       properties:
-        type: {type: string, enum: [TABLE_CREATED, TABLE_CHANGED, ROUTE_ADDED, COLUMN_ADDED, SEMANTIC_SELECTIONS_ADDED]}
+        type: {type: string, enum: [TABLE_CREATED, TABLE_CHANGED, ROUTE_ADDED, COLUMN_ADDED, SEMANTIC_SELECTIONS_ADDED, DRAFT_RESTORED]}
         outputId: {type: string}
         tabId: {type: string}
         occurrenceId: {type: string}
@@ -2585,6 +2586,7 @@ components:
         workspace: {$ref: '#/components/schemas/Workspace'}
         draftVersion: {type: integer, format: int64, minimum: 1}
         draftDigest: {type: string, minLength: 1}
+        previousDraftRevisionId: {type: string, minLength: 1}
         results:
           type: array
           items: {$ref: '#/components/schemas/CommandResult'}
@@ -2609,6 +2611,7 @@ components:
         lifecycleState: {type: string, enum: [NEW, READY]}
         draftVersion: {type: integer, format: int64, minimum: 0}
         draftDigest: {type: string}
+        previousDraftRevisionId: {type: string, minLength: 1}
         workspace:
           allOf:
             - $ref: '#/components/schemas/Workspace'

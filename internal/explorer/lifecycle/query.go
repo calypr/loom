@@ -110,7 +110,7 @@ func (s *Service) Builder(ctx context.Context, request BuilderRequest) (authorin
 		}
 		return authoringv2.BuilderState{}, err
 	}
-	state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Catalog: catalog}
+	state := authoringv2.BuilderState{APIVersion: authoringv2.APIVersion, Kind: authoringv2.StateKind, LifecycleState: authoringv2.LifecycleNew, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, PreviousDraftRevisionID: owner.PreviousDraftRevisionID, Catalog: catalog}
 	var activeWorkspace *authoringv2.Workspace
 	if owner.ActiveRevisionID != "" {
 		active, activeErr := s.store.ActiveRevision(ctx, request.Project, request.ExplorerID)

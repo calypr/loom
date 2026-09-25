@@ -216,7 +216,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 				return nil, fmt.Errorf("decode replayed authoring command results: %w", decodeErr)
 			}
 		}
-		return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, Results: results, Diagnostics: []any{}}, nil
+		return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: owner.DraftVersion, DraftDigest: owner.DraftDigest, PreviousDraftRevisionID: owner.PreviousDraftRevisionID, Results: results, Diagnostics: []any{}}, nil
 	}
 	if owner.DraftVersion != request.ExpectedDraftVersion || (request.ExpectedDraftDigest != "" && owner.DraftDigest != request.ExpectedDraftDigest) {
 		return nil, ErrDraftConflict
@@ -276,6 +276,11 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	owner.LastAuthoringCommandID = request.CommandID
 	owner.LastAuthoringCommandDigest = commandDigest
 	owner.LastAuthoringCommandResults = resultJSON
+	if sourceContext := request.ResolvedDraftSourceContext(); sourceContext != nil {
+		owner.DraftSnapshotToken = sourceContext.SnapshotToken
+		owner.DraftSourceGeneration = sourceContext.SourceGeneration
+		owner.DraftAuthorizationScopeDigest = sourceContext.AuthorizationScopeDigest
+	}
 	owner.UpdatedBy = actor
 	owner.UpdatedAt = s.now()
 	if strings.TrimSpace(workspace.Explorer.Title) != "" {
@@ -285,7 +290,7 @@ func (s *Service) applyWorkspaceCommands(ctx context.Context, project, id string
 	if err != nil {
 		return nil, err
 	}
-	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, Results: results, Diagnostics: []any{}}, nil
+	return &authoringv2.ApplyCommandsResponse{CommandID: request.CommandID, Workspace: workspace, DraftVersion: stored.DraftVersion, DraftDigest: stored.DraftDigest, PreviousDraftRevisionID: stored.PreviousDraftRevisionID, Results: results, Diagnostics: []any{}}, nil
 }
 
 func cloneAuthoringCommands(commands []authoringv2.Command) []authoringv2.Command {
@@ -352,6 +357,17 @@ func (s *Service) GetSelection(ctx context.Context, project, selectionID string)
 
 func (s *Service) GetRevision(ctx context.Context, revisionID string) (*Revision, error) {
 	return s.store.GetRevision(ctx, strings.TrimSpace(revisionID))
+}
+
+// GetDraftRevision performs the tenant and Explorer scoped lookup required by
+// the Builder's server-resolved restore command. Stores without draft history
+// support cannot authorize a browser-supplied revision ID.
+func (s *Service) GetDraftRevision(ctx context.Context, project, explorerID, revisionID string) (*DraftRevision, error) {
+	reader, ok := s.store.(DraftRevisionReader)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return reader.GetDraftRevision(ctx, projectid.Legacy(project), strings.TrimSpace(explorerID), strings.TrimSpace(revisionID))
 }
 
 func (s *Service) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(SelectionMember) error) (string, error) {
