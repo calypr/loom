@@ -1,6 +1,6 @@
 # Construction workspace submenu specification
 
-Interaction contract under refinement, 2026-09-24. The user accepted the workspace layout, explicit updates of versioned table inputs, repair before Apply, guided calculations with an optional formula editor, and discovery results with meaning, examples, and available coverage. The later [ML dataset contract](ML_DATASET_CONTRACT.md) supersedes generic operation families as the primary navigation; the menus below remain advanced or contextual editor specifications. Other details below remain proposals. The [gap analysis](GAP_ANALYSIS.md) distinguishes existing support from required work.
+Interaction contract under refinement, 2026-09-24. The user accepted the workspace layout, explicit updates of versioned table inputs, repair before Apply, and discovery results with meaning, examples, and available coverage. The later [ArangoDB dataframe framing contract](FRAMING_CONTRACT.md) supersedes generic operation families as the primary navigation and removes Calculate from builder scope. The menus below remain advanced or contextual editor specifications. Other details remain proposals. The [gap analysis](GAP_ANALYSIS.md) distinguishes existing support from required work.
 
 ## Shared editor behavior
 
@@ -31,18 +31,21 @@ Supported intentions appear first. **Unavailable here** lists relevant alternati
 | --- | --- |
 | Find information | Browse fields, observed codes, and concepts available for these records. |
 | Summarize related records | Add a count, total, or other summary of matching records to each row. |
-| Reuse a saved calculation | Choose a saved definition and connect its inputs to this table. |
 
-**Find information** opens a search and browse view inside the panel. Results show the meaning, source, value type, units when relevant, and available coverage evidence. A result can be inspected before it is selected. Search results distinguish a code observed in the source from a concept that is known but not observed there.
+**Find information** opens a search and browse view inside the panel. Results show the meaning, source, value type, units when relevant, and available coverage evidence. A result can be inspected before it is selected. Search results distinguish a code observed in the authorized source population from a concept that is known but not observed there. Counts and examples never include records outside the viewer's resource security-label policy.
+
+The researcher can select an explicit set of observed codes across search pages. The panel keeps the selected members visible with each code system, version when known, output-row coverage, and proposed output column. The saved step stores those exact identities. New codes found on refresh appear as suggestions, not automatic set members.
 
 After selection, the editor asks these questions:
 
 1. **Which information?** Retain the selected field or concept and its source.
 2. **How does it relate to these rows?** Present named relationship choices when more than one interpretation is valid.
-3. **Which matching records contribute?** Offer an optional condition and, where supported, a time window.
+3. **Which matching records contribute?** Offer an optional condition and, where supported, a time window. A condition on a repeated FHIR element and its selected value refer to the same element.
 4. **What should each row receive?** Offer supported forms such as a value, a count, a flag, a list, a sum, or an ordered first value.
 5. **What happens with several matches or no matches?** Require a policy whenever the selected form needs one.
 6. **What is the column called?** Suggest a name derived from the selected meaning. Keep it editable.
+
+The editor names the row anchor used for a related source at the selected stage. After grouping or expansion, it offers only paths supported by the retained anchor. Where two graph paths reach one source record, counts use distinct records by default; path-occurrence counting requires an explicit choice. A dangling reference appears as a source-data issue only when the viewer is authorized to know it exists. The time selector shows the declared role and precision of each field. It does not describe an event or update time as an availability time without a versioned source assertion. Partial dates need an explicit window policy or an upfront unavailable reason. A row with no usable time anchor remains in the output with no eligible windowed contributor unless the researcher adds a row filter.
 
 An unambiguous direct field can go from selection to proposal without six separate screens. Ambiguity expands the relevant question in the same panel.
 
@@ -77,42 +80,19 @@ The editor states what happens when a comparison encounters a missing value. Neg
 
 **Saved step example:** “Kept rows with age at least 18 and any qualifying measurement.” The full condition tree is saved. A Viewer display filter does not substitute for a construction step that changes the dataset.
 
-## Calculate
-
-**Panel introduction:** “Create or update values using the columns in this table.”
-
-| Intention | Description |
-| --- | --- |
-| Calculate a value | Combine numbers, dates, or text into a new value. |
-| Set values by condition | Assign values when rules match, with an explicit fallback. |
-| Recode values | Map existing values or categories to new ones. |
-| Handle missing values | Fill missing values using a chosen value or supported calculation. |
-| Calculate across rows | Use ordered or grouped rows to calculate ranks, changes, or running values. |
-
-**Calculate a value** starts with selected inputs and compatible operations. Each argument accepts a column, a typed literal, or a nested calculation. More complex expressions expand in place. Parentheses and nested inputs have visible boundaries. The user accepted an optional formula editor that shares the same expression structure with the guided controls. SQL is not required for composition.
-
-**Set values by condition** displays ordered rule rows with a result for each rule and a required **Otherwise** value. **Recode values** displays observed inputs, a search or selection control, replacement values, and a policy for values outside the mapping. Units and code-system identity accompany values when relevant.
-
-**Handle missing values** distinguishes a fixed replacement, another column, and a supported group-based estimate. The panel states which rows supply an estimate. **Calculate across rows** asks for the value, grouping, order, frame or offset, and tie behavior. Ordering the displayed grid alone does not define an analytical window.
-
-Every calculation defaults to **Add a column**, with an explicit **Replace values in a column** option when supported. Replacement is recorded as a reversible transformation. It does not overwrite source records.
-
-**Information needed before choices:** function signatures, input and output types, supported nesting, units, allowable casts, partition/order capabilities, references to earlier derived outputs, and exception policies. Compatible next inputs come from the backend's current expression context.
-
-**Saved step example:** “Calculated marker ratio.” Reopening restores the expression and policies, including missing operands and division by zero. Renaming either input does not break its identity.
-
 ## Reshape
 
 **Panel introduction:** “Change the table shape. Choose what the new rows and columns should represent.”
 
 | Intention | Description |
 | --- | --- |
-| Summarize into groups | Make one row for each group and calculate summaries. |
+| Summarize into groups | Make one row for each group and reduce matching source records. |
 | Turn values into columns | Make selected category values into named columns. |
 | Turn columns into rows | Stack selected columns into a name column and a value column. |
+| Expand related records | Make a separate row for each record on a selected relationship path. |
 | Expand repeated values | Make a separate row for each item in a repeated value. |
 
-**Summarize into groups** asks what defines one output row, then offers repeatable summary rows. Each summary specifies its contributors, calculation, name, and missing policy. “Number of records,” “Number of populated values,” and “Number of distinct values” are separate choices. A summary can be used by another operation after Apply.
+**Summarize into groups** asks what defines one output row, then offers supported reductions of source records. The editor asks whether absent and null keys share a named missing-key group or those rows are excluded. Each summary specifies its contributors, reduction, name, and missing policy. A comparator-bearing Quantity cannot be reduced as an exact point value without an approved interval-aware policy. “Number of records,” “Number of populated values,” and “Number of distinct values” are separate choices. A summary can be used by another operation after Apply.
 
 **Turn values into columns** asks these questions:
 
@@ -128,7 +108,7 @@ Discovered categories are paged and scoped to the selected category/value pair. 
 
 **Turn columns into rows** asks which columns to stack, which keys to retain, how the source column names map to row labels, and what to call the label/value columns. Mixed input types require an offered common output type or explicit conversion. Empty input cells have an explicit retain/drop policy.
 
-**Expand repeated values** asks which repeated field to expand, what happens to empty lists, and whether to retain item position. Expanding several fields requires a choice between pairing items and producing combinations when both are supported. Row multiplication is shown before Apply.
+**Expand related records** asks for a relationship path, which related records qualify, which parent identity stays on each output row, and what happens when a parent has no matching record. It shows the new row identity and estimated row multiplication before preview. The saved step keeps the path, contributor rule, and empty-match policy. **Expand repeated values** asks which repeated field to expand, what happens to empty lists, and whether to retain item position. Expanding several fields requires a declared shared item identity or separate sequential steps; Loom never silently zips or crosses values. Row multiplication is shown before Apply.
 
 **Information needed before choices:** current stage schema, valid keys, source pairs, output forms, reduction and missing policies, category discovery, units, inferred output identities, and row effects. The same editor works on a source table or a previously derived table when execution supports that input.
 
@@ -143,9 +123,8 @@ Discovered categories are paged and scoped to the selected category/value pair. 
 | Add matching columns | Match rows in another table and bring over selected columns. |
 | Append rows | Stack tables with an explicit alignment of their columns. |
 | Compare membership | Keep rows that also appear, or do not appear, in another table. |
-| Make combinations | Create rows from supported pairs of records in two tables. |
 
-Every intention starts by selecting the other named table or an available source. Derived tables are eligible inputs when the backend can execute the composition. Table names alone do not imply a relationship.
+Every intention starts by selecting the other named table and its exact published artifact. Derived tables are eligible inputs when the backend can execute the composition. Table names alone do not imply a relationship.
 
 **Add matching columns** asks these questions:
 
@@ -156,17 +135,17 @@ Every intention starts by selecting the other named table or an available source
 
 Candidate keys can be suggested from declared relationships. Observed uniqueness is labeled with its scope. Identical column names and a small preview do not establish a reliable match.
 
-**Append rows** displays a mapping from each input's fields to output columns, including the type and missing behavior. It asks whether to retain duplicates and whether to add a source-table column. **Compare membership** asks for matching fields and whether matches or nonmatches remain. **Make combinations** explicitly describes its pairing rule and possible row growth.
+**Append rows** displays a mapping from each input's fields to output columns, including the type, code-system identity, unit identity, and missing behavior. Incompatible semantic columns need an approved mapping or separate outputs. It asks whether to retain duplicates and whether to add a source-table column. **Compare membership** asks for matching fields and whether matches or nonmatches remain; the proposal shows the population added or excluded.
 
-**Information needed before choices:** compatible input revisions, match modes, key types, declared relationships, supported cardinality policies, column alignments, and cycle detection. Match coverage and row growth estimates load as separate evidence.
+**Information needed before choices:** compatible published input artifacts, match modes, key types, declared relationships, supported cardinality policies, column alignments, and cycle detection. Match coverage and row growth estimates load as separate evidence.
 
-**Saved step example:** “Added age from specimen details.” Reopening restores the input table reference, match meaning, outputs, and policies. The consuming table retains the input version it used. Update input explicitly proposes a different version. The prototype's simple specimen join demonstrates the panel; it does not establish support for general joins.
+**Saved step example:** “Added age from specimen details.” Reopening restores the input table reference, match meaning, outputs, and policies. The consuming table retains the exact published artifact it used. Update input explicitly proposes a different artifact. The prototype's simple specimen join demonstrates the panel; it does not establish support for general joins.
 
 ## Table and column menus
 
 The left navigation contains named useful tables and **New table**. Data is already loaded through the existing API. The accepted starting flow offers available starting tables or record types; selecting one establishes row meaning and shows its records. A new construction can also copy an existing one. **Create table from here** copies the construction through a selected historical step. A Combine operation records an explicit reference to another table's result.
 
-The table menu offers Rename, Duplicate, inspect inputs, and Delete. Combine retains the selected input version. Update input previews a deliberate change to a newer version. Removing a table from navigation must not silently delete an immutable input version used by another construction. Version retention is a backend lifecycle requirement.
+The table menu offers Rename, Duplicate, inspect inputs, and Delete. Combine retains the selected published artifact, including its source generation and materialization. Update input previews a deliberate change to a newer artifact. Removing a table from navigation must not silently delete an immutable input artifact used by another construction. Artifact retention is a backend lifecycle requirement.
 
 Column menus offer a profile and relevant transformation shortcuts. Rename and visual position are lightweight metadata edits. **Hide in this view** changes display only. **Remove from dataset** changes the construction and can affect later operations. These actions have separate labels.
 
@@ -194,7 +173,7 @@ Step reordering is available only through a backend-supported move with an impac
 
 ## Dataset understanding
 
-Evidence appears where it informs a choice. The table header identifies row meaning, source scope, and preview completeness. Column profiles expose missingness, distributions, codes, units, and the applicable denominator. Source discovery shows what is observed before a column is added. Proposal comparisons show changes caused by an operation.
+Evidence appears where it informs a choice. The table header identifies row meaning, source scope, and preview completeness. Column profiles expose missingness, distributions, codes, units, and the applicable denominator. Source discovery shows what is observed before a column is added. Proposal comparisons show changes caused by an operation. Exact, sampled, and unavailable counts have separate labels. An unavailable count never appears as zero.
 
 Selecting a displayed result can lead to its contributing records and saved construction. A count of source records, a count of distinct entities, and a count of populated output rows retain different labels. Unavailable evidence stays unavailable; it never displays as zero.
 

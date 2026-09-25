@@ -2,9 +2,9 @@
 
 Accepted workspace direction, 2026-09-24. Open [the interactive prototype](index.html), the [submenu specification](SUBMENUS.md), the [gap analysis](GAP_ANALYSIS.md), or the [work packages](WORK_PACKAGES.md).
 
-The user accepted the table-first workspace and editable/removable operations, then clarified that ML dataset construction must organize the primary flow. The five generic operation families are useful advanced actions, not the product's success criteria. The [ML dataset contract](ML_DATASET_CONTRACT.md) now governs the primary path and work-package acceptance. Detailed submenu behavior remains a proposal. The prototype uses fictional records and simulated responses. Its local calculations exist only to make the design inspectable; production calculations remain backend-owned.
+The user accepted the table-first workspace and editable/removable operations, then clarified that the builder frames ArangoDB records into a dataframe. [The framing contract](FRAMING_CONTRACT.md) governs the primary path and work-package acceptance. Calculate and derived-column authoring are outside scope. Detailed submenu behavior remains a proposal. The prototype uses fictional records and simulated responses; its calculation interaction is historical design material, not a planned builder feature.
 
-The audience understands the intended dataset but does not write SQL. General dataframe construction remains the product scope. Measurement records illustrate the interactions without defining the supported domains.
+The audience understands the intended dataframe but does not write AQL or SQL. General framing of ArangoDB records remains the product scope. Measurement records illustrate the interactions without defining the supported domains.
 
 ## Accepted interaction decisions
 
@@ -12,18 +12,18 @@ The audience understands the intended dataset but does not write SQL. General da
 | --- | --- |
 | Data loading | Use the existing Loom ingestion API. The builder constructs tables from already loaded data. |
 | Starting flow | Default to available starting tables or record types. Selecting one establishes row meaning and shows its records before further construction. |
-| Referenced tables | Combine retains the input version it used. Later edits do not propagate automatically; Update input previews a deliberate version change. |
+| Referenced tables | Combine retains the exact published artifact it used. Later edits or republishing do not propagate automatically; Update input previews a deliberate artifact change. |
 | Broken dependencies | Keep the accepted result until affected steps are repaired or explicitly removed, then apply the coherent change. |
-| Calculations | Guided controls and an optional formula editor manipulate the same calculation. |
 | Discovery results | Show meaning, example values, and available coverage beside results, with deeper inspection. |
-| Calculation default | Add a new column, with an explicit option to replace the selected column. |
 | Apply and preview | Require a successful row preview before Apply, including for expensive operations. |
 | Preview triggering | Run automatically after a short pause once the edit is valid. Cancel superseded requests; only the latest successful preview enables Apply. |
 | New pivot categories | Show new categories and require acceptance before changing the saved columns. |
 | Finish action | Save the configuration, compute the dataframe, and publish it to ClickHouse for fast querying. |
 | Preview performance | Treat iterative preview latency as a core requirement with a dedicated performance work package. |
 
-The Combine answer with a concrete example supersedes the earlier answer about live links. Preview latency targets remain proposed until measured; routine warm previews should aim for under one second.
+The Combine answer with a concrete example supersedes the earlier answer about live links. Current latency is unmeasured. P08 defines the representative workload and release targets for structural choices and warm previews.
+
+The later framing decision supersedes the earlier answers about guided calculations and the default behavior for derived columns. Those answers no longer create builder requirements.
 
 ## The accepted workspace
 
@@ -44,7 +44,7 @@ The current table is the default view. History becomes useful after someone has 
 | --- | --- |
 | Table navigation | Name the independently useful tables. An intermediate step does not automatically create a new table. |
 | Table header | State what one row represents, the current scope, and whether displayed counts are exact or sampled. |
-| Table actions | Lead with defining examples, adding signal, reviewing readiness, and publishing; expose Filter, Calculate, Reshape, and Combine as contextual or advanced operations when they answer a dataset decision. |
+| Table actions | Lead with defining rows, adding columns, arranging related records, reviewing the frame, and publishing. Filter, Reshape, and Combine can appear where they serve those decisions. |
 | Column selection | Offer actions appropriate to selected columns and provide entry to profiles. Selection never changes data. |
 | Operation editor | Ask about one intended transformation, reveal dependent choices, and show the proposed effect. |
 | Result | Keep current rows visible while a new preview loads. Switch explicitly between current and proposed results. |
@@ -74,7 +74,6 @@ The backend defines applicability, available inputs, compatible combinations, ou
 | --- | --- |
 | Discover and select | Search or browse source fields and concepts, inspect observed data, select a supported construction. |
 | Conditions | Nested all, any, and not groups; typed comparisons; explicit scope of the condition. |
-| Calculations | Select compatible inputs, construct typed expressions, name results, choose missing-value handling. |
 | Summaries | Select grouping keys, contributors, and reductions; distinguish counts of records from counts of populated values. |
 | Relationships | Select another input, matching meaning and keys, multiplicity handling, and unmatched-row behavior. |
 | Reshaping | Configure pivot, unpivot, and expansion with explicit output identities and empty-value behavior. |
@@ -82,7 +81,7 @@ The backend defines applicability, available inputs, compatible combinations, ou
 
 These are a frontend presentation taxonomy, not a proposal for new backend operation types. An editor can reveal controls progressively without maintaining its own evaluator. Backend evidence drives the choices within the editor. The frontend owns wording, grouping, focus, navigation, and the presentation of that evidence.
 
-The prototype demonstrates some of these interactions. Nested condition groups, temporal controls, arbitrary expression trees, union, publication, and a full source browser are not implemented in this design study.
+The prototype demonstrates some of these interactions. Nested condition groups, temporal controls, union, publication, and a full source browser are not implemented in this design study. Its formula interaction remains only as a record of the earlier design direction.
 
 ## Information required at each interaction
 
@@ -107,19 +106,20 @@ Structural capability answers and observed-data answers are different. “A nume
 
 The complete downstream context also matters when editing history. An operation that is valid in isolation may remove a column required later. The backend supplies the affected steps and repair choices before Apply. Dependencies must not make the earlier step permanently uneditable. The UI must not silently delete dependent steps.
 
-## Responsiveness requirements to evaluate later
+## Responsiveness targets
 
-These are proposed experience targets, not measured backend performance or promised service levels:
+P08 measures these targets on its frozen representative workload. They are requirements for plan closure, not claims about the current backend:
 
-- Selection, opening a cached menu, and opening the editor frame should respond within about 100 ms.
-- Small capability refinements should normally arrive within about 250 ms on a warm connection. A loading state must still work when they do not.
+- Selection, opening a cached menu, and opening the editor frame must reach the usable state within 100 ms at the 95th percentile.
+- Small capability refinements must reach usable choices within 250 ms at the 95th percentile on a warm connection. A loading state still works when they do not.
 - Debounce text changes by about 200 ms. Avoid canceling and rebuilding the entire table on every keystroke.
-- Aim to display a useful bounded preview within about one second for ordinary interactions. Heavy operations can take longer without blocking further editing or Cancel.
+- The first page of a warm field or observed-code search must appear within 500 ms at the 95th percentile. Coverage evidence can load independently.
+- Routine warm edit-to-visible-row preview must complete in less than one second at the 95th percentile. Heavy operations remain separately measured and do not block editing or Cancel.
 - Full-data checks and exports have separate progress. A bounded preview is never labeled a complete check.
 
 The prototype uses 320 ms and two-second simulated preview delays. They demonstrate behavior only. There is no real backend request in this artifact.
 
-Do not prefetch every possible combination of columns or enumerate every valid expression. Load the table's structural context, resolve the selected action and inputs, and cache by the exact context. Authorization scope, source generation, table revision, and selected step participate in cache identity. An old response cannot supply validity for a newer table.
+Do not prefetch every possible combination of columns. Load the table's structural context, resolve the selected action and inputs, and cache by the exact context. Authorization scope, source generation, table revision, and selected step participate in cache identity. An old response cannot supply validity for a newer table.
 
 ## Loading, unknown data, and refusal
 
@@ -144,7 +144,7 @@ Selecting history is read-only. Edit this step reopens its parameters and shows 
 
 Remove this step previews the surviving construction. If later operations need its outputs, the panel identifies them and requires an explicit choice to remove them too. Other steps remain and run again. Cancel retains the construction; Undo restores it. The prototype implements one in-memory Undo for removal. Production needs persisted revisions and the downstream repair flow specified in [SUBMENUS.md](SUBMENUS.md#editable-steps).
 
-The prototype branches by copying the construction through the selected step. The accepted Combine behavior retains the input version used by the consuming table. Later edits to that input do not change the consumer. Update input creates a proposal against the selected newer version. Within one construction, editing an earlier step still requires repair or explicit removal of broken later steps before Apply.
+The prototype branches by copying the construction through the selected step. The accepted Combine behavior retains the exact input artifact used by the consuming table. Later edits or republishing do not change the consumer. Update input creates a proposal against the selected newer artifact. Within one construction, editing an earlier step still requires repair or explicit removal of broken later steps before Apply.
 
 Reordering steps should be offered only where the backend can supply a valid move and its consequence. An unrestricted drag gesture would imply operations commute when they do not.
 
@@ -153,9 +153,9 @@ Reordering steps should be offered only where the backend can supply a valid mov
 1. Switch between visible actions and the compact task menu. Inspect the same operation in both layouts.
 2. Select Value, then inspect its distribution. Compare opening the local action menu with loading the profile.
 3. Open Reshape, then Turn values into columns. Choose how duplicate values combine. Compare current and proposed rows before Apply.
-4. Select both resulting numeric columns and calculate a ratio. Add Age at collection from Specimen details.
-5. Select the first applied step, edit its reduction, and observe the later calculations update after Apply.
-6. Select the first applied step and choose Remove this step. Review the dependent ratio. Explicitly include its removal, inspect the surviving rows with age, then Apply and Undo.
+4. Add Age at collection from Specimen details.
+5. Select the first applied step, edit its reduction, and observe the updated frame after Apply.
+6. Select the first applied step and choose Remove this step. Review the affected later steps, inspect the surviving rows with age, then Apply and Undo.
 7. Select Slow, change a parameter, and then change it again. The form remains available, and only the latest proposal can enable Apply.
 8. Select Unavailable, then retry with Quick. The editor preserves the same choices.
 9. Inspect an earlier step and create another table from it. The original construction remains available.
@@ -165,6 +165,8 @@ The layout decision is accepted. The next design review concerns submenu wording
 ## Observed prototype behavior
 
 A local Chrome walkthrough recorded 22 states in [observations.json](observations.json), with no JavaScript exceptions. This verifies the prototype, not Loom's backend.
+
+The walkthrough includes a ratio calculation from the earlier design. That result is retained as historical prototype evidence and does not define builder scope.
 
 - A pivot combined 8 source records into 4 specimen rows. The first specimen's Marker A average was 9 and its ratio to Marker B was 3.
 - Editing the earlier reduction to sum changed that value to 18 and the downstream ratio to 6. The added age column remained present.
