@@ -280,9 +280,10 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:    compilerTestRegistry{},
-		ScopeDigest: recipeScopeDigest,
-		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry:     compilerTestRegistry{},
+		ScopeDigest:  recipeScopeDigest,
+		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		RootPageRows: 100,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -326,8 +327,12 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if err := json.Unmarshal(storedRaw, &storedReceipt); err != nil {
 				t.Fatalf("decode related-source receipt as the Arango store does: %v", err)
 			}
-			if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, &storedReceipt, bindings); err != nil {
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, &storedReceipt, bindings)
+			if err != nil {
 				t.Fatalf("validate the JSON round-tripped related-source receipt before preview: %v", err)
+			}
+			if _, err := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: "patients", Limit: 100}, func(map[string]any) error { return nil }); err != nil {
+				t.Fatalf("preview the JSON round-tripped related-source receipt through root paging: %v", err)
 			}
 			var relatedEmission *explorer.EmittedColumn
 			for index := range receipt.EmittedColumns {

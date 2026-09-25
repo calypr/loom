@@ -60,6 +60,68 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 	}
 }
 
+func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testing.T) {
+	sourceFields := []recipe.Field{
+		{Name: "patient_id", ColumnID: "patient-id", Expr: recipe.Expression{Select: "root.id"}},
+		{Name: "patient_active", ColumnID: "patient-active", Expr: recipe.Expression{Select: "root.active"}},
+		{Name: "patient_gender", ColumnID: "patient-gender", Expr: recipe.Expression{Select: "root.gender"}},
+		{Name: "patient_birth_date", ColumnID: "patient-birth-date", Expr: recipe.Expression{Select: "root.birthDate"}},
+		{Name: "patient_deceased", ColumnID: "patient-deceased", Expr: recipe.Expression{Select: "root.deceasedBoolean"}},
+		{Name: "patient_multiple_birth", ColumnID: "patient-multiple-birth", Expr: recipe.Expression{Select: "root.multipleBirthBoolean"}},
+		{Name: "patient_family", ColumnID: "patient-family", Expr: recipe.Expression{Select: "root.name[].family"}, ValueMode: recipe.ValueModeFirst},
+		{Name: "patient_telecom", ColumnID: "patient-telecom", Expr: recipe.Expression{Select: "root.telecom[].value"}, ValueMode: recipe.ValueModeFirst},
+	}
+	sourceColumns := make([]recipe.StageColumn, 0, len(sourceFields))
+	for _, field := range sourceFields {
+		sourceColumns = append(sourceColumns, recipe.StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label})
+	}
+	outputColumns := append(append([]recipe.StageColumn(nil), sourceColumns...), recipe.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation statuses"})
+	output := recipe.Output{
+		Name: "patients", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: sourceFields,
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: sourceColumns,
+			Steps: []recipe.ConstructionStep{{
+				ID: "related_observation_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+					AnchorColumnID: "_key", ChoiceID: "choice-observation-status", SourceOccurrenceID: "observation-node",
+					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
+					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation-status",
+				}},
+				Outputs: outputColumns,
+			}},
+		},
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "related-source-paging", TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile paged related-source output: %v", err)
+	}
+	if strings.Contains(page.RootKeysQuery, "observation_status") || strings.Contains(page.RootKeysQuery, "@@related_") {
+		t.Fatalf("root-key discovery evaluated the related-source stage:\n%s", page.RootKeysQuery)
+	}
+	if !strings.Contains(page.RootKeysQuery, "root._key > @"+RootPageAfterKeyBind) || page.RootKeysBindVars[RootPageSizeBind] != 2 {
+		t.Fatalf("root-key discovery lost its keyset window: query=%s binds=%#v", page.RootKeysQuery, page.RootKeysBindVars)
+	}
+	if !strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) || !strings.Contains(page.RowsQuery, "observation_status") || !strings.Contains(page.RowsQuery, "@@related_0_hop_1_edge_collection") {
+		t.Fatalf("selected-root page did not retain the related-source stage:\n%s", page.RowsQuery)
+	}
+}
+
 func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T) {
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,

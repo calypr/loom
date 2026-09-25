@@ -170,8 +170,16 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		return encoded
 	}
 	patients := []json.RawMessage{
-		document(patientKey("p1"), "Patient", generation, map[string]any{"id": "p1", "resourceType": "Patient"}),
-		document(patientKey("p2"), "Patient", generation, map[string]any{"id": "p2", "resourceType": "Patient"}),
+		document(patientKey("p1"), "Patient", generation, map[string]any{
+			"id": "p1", "resourceType": "Patient", "active": true, "gender": "female", "birthDate": "1980-01-02",
+			"deceasedBoolean": false, "multipleBirthBoolean": false,
+			"name": []any{map[string]any{"family": "Patient One"}}, "telecom": []any{map[string]any{"value": "one@example.test"}},
+		}),
+		document(patientKey("p2"), "Patient", generation, map[string]any{
+			"id": "p2", "resourceType": "Patient", "active": false, "gender": "male", "birthDate": "1985-03-04",
+			"deceasedBoolean": false, "multipleBirthBoolean": false,
+			"name": []any{map[string]any{"family": "Patient Two"}}, "telecom": []any{map[string]any{"value": "two@example.test"}},
+		}),
 	}
 	observations := []json.RawMessage{
 		document(patientKey("o1"), "Observation", generation, map[string]any{"id": "o1", "resourceType": "Observation", "status": "registered"}),
@@ -197,13 +205,26 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		}
 	}
 
-	sourceColumns := []recipe.StageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+	sourceFields := []recipe.Field{
+		{Name: "patient_id", ColumnID: "patient-id", Label: "Patient ID", Expr: recipe.Expression{Select: "root.id"}},
+		{Name: "patient_active", ColumnID: "patient-active", Label: "Active", Expr: recipe.Expression{Select: "root.active"}},
+		{Name: "patient_gender", ColumnID: "patient-gender", Label: "Gender", Expr: recipe.Expression{Select: "root.gender"}},
+		{Name: "patient_birth_date", ColumnID: "patient-birth-date", Label: "Birth date", Expr: recipe.Expression{Select: "root.birthDate"}},
+		{Name: "patient_deceased", ColumnID: "patient-deceased", Label: "Deceased", Expr: recipe.Expression{Select: "root.deceasedBoolean"}},
+		{Name: "patient_multiple_birth", ColumnID: "patient-multiple-birth", Label: "Multiple birth", Expr: recipe.Expression{Select: "root.multipleBirthBoolean"}},
+		{Name: "patient_family", ColumnID: "patient-family", Label: "Family name", Expr: recipe.Expression{Select: "root.name[].family"}, ValueMode: recipe.ValueModeFirst},
+		{Name: "patient_telecom", ColumnID: "patient-telecom", Label: "Telecom", Expr: recipe.Expression{Select: "root.telecom[].value"}, ValueMode: recipe.ValueModeFirst},
+	}
+	sourceColumns := make([]recipe.StageColumn, 0, len(sourceFields))
+	for _, field := range sourceFields {
+		sourceColumns = append(sourceColumns, recipe.StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label})
+	}
 	relatedColumns := append([]recipe.StageColumn(nil), sourceColumns...)
 	relatedColumns = append(relatedColumns, recipe.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation statuses"})
 	output := recipe.Output{
 		Name: "related_source_oracle", RootResourceType: "Patient", RowGrain: "patient",
 		RootColumnNaming: recipe.RootColumnNamingExact,
-		Fields:           []recipe.Field{{Name: "patient_id", ColumnID: "patient-id", Label: "Patient ID", Expr: recipe.Expression{Select: "root.id"}}},
+		Fields:           sourceFields,
 		Construction: &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: []recipe.ConstructionStep{
 			{
 				ID: "keep_patients", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
@@ -308,6 +329,73 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 				t.Fatalf("p1 related-source trace values = %#v, want only current-generation observations", values)
 			}
 		}
+	}
+
+	pageSize := 1
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile paged related-source output: %v", err)
+	}
+	cloneBinds := func(input map[string]any) map[string]any {
+		output := make(map[string]any, len(input))
+		for key, value := range input {
+			output[key] = value
+		}
+		return output
+	}
+	pagedRows := make([]map[string]any, 0, len(patients))
+	afterKey := ""
+	for pageIndex := 0; pageIndex <= len(patients); pageIndex++ {
+		keyBinds := cloneBinds(page.RootKeysBindVars)
+		keyBinds[RootPageAfterKeyBind] = afterKey
+		rootKeys := make([]string, 0, pageSize)
+		if err := client.QueryRows(ctx, page.RootKeysQuery, 100, keyBinds, func(row map[string]any) error {
+			key, ok := row["_key"].(string)
+			if !ok || key == "" {
+				return fmt.Errorf("root-key page returned invalid _key %v", row["_key"])
+			}
+			rootKeys = append(rootKeys, key)
+			return nil
+		}); err != nil {
+			t.Fatalf("execute related-source root-key page %d: %v\n%s", pageIndex, err, page.RootKeysQuery)
+		}
+		if len(rootKeys) == 0 {
+			break
+		}
+		if len(rootKeys) > pageSize {
+			t.Fatalf("root-key page returned %d keys, want at most %d", len(rootKeys), pageSize)
+		}
+		rowBinds := cloneBinds(page.RowsBindVars)
+		rowBinds[RootPageKeysBind] = rootKeys
+		if err := client.QueryRows(ctx, page.RowsQuery, 100, rowBinds, func(row map[string]any) error {
+			pagedRows = append(pagedRows, row)
+			return nil
+		}); err != nil {
+			t.Fatalf("execute related-source selected-root page %d: %v\n%s", pageIndex, err, page.RowsQuery)
+		}
+		afterKey = rootKeys[len(rootKeys)-1]
+	}
+	pagedByPatient := make(map[string]map[string]any, len(pagedRows))
+	for _, row := range pagedRows {
+		pagedByPatient[fmt.Sprint(row["patient_id"])] = row
+	}
+	if len(pagedByPatient) != 2 {
+		t.Fatalf("paged related-source rows = %#v, want both Patient roots", pagedRows)
+	}
+	pagedStatuses, ok := pagedByPatient["p1"]["observation_status"].([]any)
+	if !ok || len(pagedStatuses) != 2 {
+		t.Fatalf("paged p1 statuses = %#v, want both related rows", pagedByPatient["p1"]["observation_status"])
+	}
+	pagedStatusSet := map[string]int{}
+	for _, status := range pagedStatuses {
+		pagedStatusSet[fmt.Sprint(status)]++
+	}
+	if pagedStatusSet["registered"] != 1 || pagedStatusSet["cancelled"] != 1 || pagedStatusSet["stale-generation"] != 0 {
+		t.Fatalf("paged p1 statuses = %#v, want registered + cancelled and no old-generation target", pagedStatuses)
+	}
+	pagedSparse, ok := pagedByPatient["p2"]["observation_status"].([]any)
+	if !ok || len(pagedSparse) != 0 {
+		t.Fatalf("paged sparse p2 statuses = %#v, want empty list", pagedByPatient["p2"]["observation_status"])
 	}
 }
 

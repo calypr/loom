@@ -106,6 +106,11 @@ func rootKeysPagePlan(plan ir.PhysicalPlan, pageSize int) (ir.PhysicalPlan, erro
 		ir.PhysicalOperation{Kind: ir.PhysicalLimitOp, Source: source, Limit: &ir.PhysicalLimit{BindKey: RootPageSizeBind}},
 		ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Source: source, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{Name: "_key", Value: left}}}},
 	)
+	// Root-key discovery deliberately stops before the typed construction
+	// stages. Its RETURN contains only _key, so carrying the final row schema
+	// through validation would incorrectly require every source-stage column.
+	// The selected-roots rows plan retains this sequence and executes it fully.
+	out.StageSequence = nil
 	if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
 		return ir.PhysicalPlan{}, err
 	}
