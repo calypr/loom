@@ -15,7 +15,10 @@ const SAFE_TIMING_KEYS = new Set([
   'baserowcount', 'candidaterowcount', 'outputrowcount', 'previewrowcount', 'resultrowcount', 'rowcount', 'totalrows',
   'serializationms', 'serializems', 'transportms', 'reusedinputs', 'reusedstages',
 ]);
-const SAFE_IDENTITY_KEYS = new Set(['proposalid', 'receiptid', 'resolutionid', 'draftversion', 'draftdigest', 'outputid']);
+const SAFE_IDENTITY_KEYS = new Set([
+  'proposalid', 'receiptid', 'basereceiptid', 'resolutionid', 'snapshottoken',
+  'basedocumentdigest', 'candidateworkspacedigest', 'draftversion', 'draftdigest', 'outputid',
+]);
 const SAFE_TIMING_HEADERS = new Set([
   'server-timing', 'x-cache', 'x-query-cache', 'x-preview-cache', 'x-query-rows-read',
   'x-query-bytes-read', 'x-query-duration-ms', 'x-request-id', 'x-reqid',
@@ -111,10 +114,25 @@ function routeCategory(url) {
   const parts = new URL(url).pathname.toLowerCase().split('/').filter(Boolean);
   const joined = parts.join('/');
   if (/capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(joined)) return 'capability-refinement';
-  if (/resolv|resolution|context|builder|explorers/.test(joined)) return 'context-resolution';
   if (/reconcile|compile/.test(joined)) return 'compilation';
   if (/propos|preview|query/.test(joined)) return 'backend-preview-query';
+  if (/resolv|resolution|context|builder|explorers/.test(joined)) return 'context-resolution';
   return 'other-api';
+}
+
+function isApiPath(pathname) {
+  return pathname.startsWith('/api/') || pathname.startsWith('/graphql/')
+    || pathname === '/readyz' || pathname === '/healthz';
+}
+
+function isApiRequestUrl(value, pageOrigin, apiOrigin) {
+  const url = new URL(value);
+  return url.origin === apiOrigin || (url.origin === pageOrigin && isApiPath(url.pathname));
+}
+
+function shouldCaptureSafeResponse(value) {
+  const endpoint = new URL(value).pathname.toLowerCase().split('/').filter(Boolean).at(-1) ?? '';
+  return /(?:proposal|proposals|resolution|resolutions|preview|query)$/.test(endpoint);
 }
 
 function safeRoute(url) {
@@ -262,6 +280,18 @@ function validateWorkload(workload) {
   if (!completion || typeof completion !== 'object') throw new UsageError(`${workload.id}.completion is required`);
   for (const field of ['rootSelector', 'applySelector']) {
     requireString(completion[field], `${workload.id}.completion.${field}`);
+  }
+  if (completion.networkIdentity !== undefined) requireString(completion.networkIdentity, `${workload.id}.completion.networkIdentity`);
+  if (completion.identityContext !== undefined) {
+    requireString(completion.identityContext.selector, `${workload.id}.completion.identityContext.selector`);
+    const fields = completion.identityContext.fields;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).length === 0) {
+      throw new UsageError(`${workload.id}.completion.identityContext.fields must map response identities to DOM attributes`);
+    }
+    for (const [field, attribute] of Object.entries(fields)) {
+      requireString(field, `${workload.id}.completion.identityContext.fields key`);
+      requireString(attribute, `${workload.id}.completion.identityContext.fields.${field}`);
+    }
   }
   if (!completion.tableSelector && !completion.tablesSelector) {
     throw new UsageError(`${workload.id}.completion needs tableSelector or tablesSelector`);
@@ -421,13 +451,14 @@ class BrowserSession {
     this.requestById = new Map();
     this.bodyTasks = new Set();
     this.allowedOrigins = [...new Set([new URL(options.pageUrl).origin, new URL(options.apiUrl).origin])];
+    this.pageOrigin = new URL(options.pageUrl).origin;
     this.apiOrigin = new URL(options.apiUrl).origin;
   }
 
   async initialize() {
     this.client.on('Network.requestWillBeSent', ({ requestId, request, type, timestamp }) => {
-      const apiRequest = (type === 'Fetch' || type === 'XHR') && new URL(request.url).origin === this.apiOrigin;
-      const item = { requestId, route: safeRoute(request.url), category: routeCategory(request.url), apiRequest, type, startTimestamp: timestamp, response: null, failed: null, metrics: null, identities: null };
+      const apiRequest = isApiRequestUrl(request.url, this.pageOrigin, this.apiOrigin);
+      const item = { requestId, url: request.url, route: safeRoute(request.url), category: routeCategory(request.url), apiRequest, type, startTimestamp: timestamp, response: null, failed: null, metrics: null, identities: null };
       this.requests.push(item);
       this.requestById.set(requestId, item);
     });
@@ -452,7 +483,7 @@ class BrowserSession {
       if (!item) return;
       item.finishedTimestamp = timestamp;
       item.encodedDataLength = encodedDataLength;
-      if (item.apiRequest && item.response?.status >= 200 && /preview|proposal|query/i.test(item.route)) {
+      if (item.apiRequest && item.response?.status >= 200 && shouldCaptureSafeResponse(item.url)) {
         const task = this.captureSafeBodyMetrics(requestId, item).finally(() => this.bodyTasks.delete(task));
         this.bodyTasks.add(task);
       }
@@ -721,6 +752,11 @@ function completionExpression(config, expected, previousIdentity, requireIdentit
     };
     const metrics = Object.fromEntries(Object.entries(args.config.metricSelectors ?? {})
       .map(([name, selector]) => [name, readMetric(selector)]));
+    const contextConfig = args.config.identityContext;
+    const contextRoot = contextConfig ? document.querySelector(contextConfig.selector) : null;
+    const identityContext = contextConfig
+      ? Object.fromEntries(Object.entries(contextConfig.fields).map(([name, attribute]) => [name, contextRoot?.getAttribute(attribute) ?? '']))
+      : null;
     const checkedChoices = args.config.checkedChoiceSelector
       ? [...document.querySelectorAll(args.config.checkedChoiceSelector)]
         .filter((input) => input.checked && input.getClientRects().length)
@@ -745,7 +781,7 @@ function completionExpression(config, expected, previousIdentity, requireIdentit
     const ready = statusReady && identityReady
       && apply && !apply.disabled && apply.getAttribute('aria-disabled') !== 'true'
       && renderedTables.length > 0 && candidateRowsReady;
-    return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, metrics, checkedChoices, completedAt: performance.now() } : null;
+    return ready ? { identity, tables: renderedTables, matchesExpected: tablesMatch, metrics, checkedChoices, identityContext, completedAt: performance.now() } : null;
   })()`;
 }
 
@@ -813,9 +849,10 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
   const resources = await session.evaluate(`performance.getEntriesByType('resource').filter((entry) => entry.startTime >= ${startAt}).map((entry) => {
     let url; try { url = new URL(entry.name); } catch { return null; }
     const path = url.pathname.toLowerCase();
+    const apiPath = path.startsWith('/api/') || path.startsWith('/graphql/') || path === '/readyz' || path === '/healthz';
     const category = /capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(path) ? 'capability-refinement' : /resolv|resolution|context|builder|explorers/.test(path) ? 'context-resolution' : /reconcile|compile/.test(path) ? 'compilation' : /propos|preview|query/.test(path) ? 'backend-preview-query' : 'other-api';
-    return { origin: url.origin, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
-  }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && entry.origin === ${JSON.stringify(session.apiOrigin)})`);
+    return { origin: url.origin, apiPath, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
+  }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && (entry.origin === ${JSON.stringify(session.apiOrigin)} || (entry.origin === ${JSON.stringify(session.pageOrigin)} && entry.apiPath)))`);
   const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => ({
     route: request.route,
     category: request.category,
@@ -842,11 +879,32 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     const evidence = await session.captureAssertionDom(completion, workload.id, `visible rows differed; expectedSha256=${expectedHash} actualSha256=${observedHash}`);
     throw new Error(`visible preview rows differ from expected rows; expectedSha256=${expectedHash} actualSha256=${observedHash}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
   }
-  const backendIdentity = completion.networkIdentity
-    ? session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => request.identities?.[completion.networkIdentity]).filter(Boolean).at(-1)
+  const apiRequests = session.requests.slice(requestOffset).filter((request) => request.apiRequest);
+  const proposalRequest = completion.networkIdentity
+    ? apiRequests.filter((request) => request.identities?.[completion.networkIdentity]).at(-1)
     : undefined;
+  const backendIdentity = proposalRequest?.identities?.[completion.networkIdentity];
   if (!rendered.identity && completion.networkIdentity && !backendIdentity) {
-    throw new Error(`preview response omitted the configured ${completion.networkIdentity} identity`);
+    const identityEvidence = requests.map((request) => ({ route: request.route, status: request.status, identityKinds: request.backendIdentityKinds }));
+    const unclassifiedFetchCategories = [...new Set(session.requests.slice(requestOffset)
+      .filter((request) => !request.apiRequest && ['Fetch', 'XHR'].includes(request.type))
+      .map((request) => request.category))].slice(0, 12);
+    throw new Error(`preview response omitted the configured ${completion.networkIdentity} identity; apiIdentityEvidence=${JSON.stringify(identityEvidence)}; unclassifiedFetchCategories=${JSON.stringify(unclassifiedFetchCategories)}`);
+  }
+  let identityContextMatched = null;
+  if (completion.identityContext) {
+    const identities = proposalRequest?.identities ?? {};
+    const fields = Object.entries(completion.identityContext.fields);
+    const mismatches = fields.filter(([name]) => String(identities[name] ?? '') !== String(rendered.identityContext?.[name] ?? ''))
+      .map(([name]) => ({
+        field: name,
+        proposalValueSha256: identities[name] === undefined ? null : hash(String(identities[name])),
+        visibleValueSha256: rendered.identityContext?.[name] ? hash(String(rendered.identityContext[name])) : null,
+      }));
+    if (mismatches.length > 0) {
+      throw new Error(`proposal identity context does not match the visible Builder draft/receipt; mismatches=${JSON.stringify(mismatches)}; responseIdentityKinds=${JSON.stringify(Object.keys(identities))}`);
+    }
+    identityContextMatched = true;
   }
   if (rendered.identity && backendIdentity && rendered.identity !== backendIdentity) {
     throw new Error('visible preview identity does not match the latest backend identity');
@@ -869,6 +927,8 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     previewIdentitySha256: previewIdentity ? hash(previewIdentity) : null,
     identityObservedInDOM: Boolean(rendered.identity),
     backendIdentityObserved: Boolean(backendIdentity),
+    identityContextMatched,
+    identityContextSha256: rendered.identityContext ? hash(rendered.identityContext) : null,
     correctRows: true,
     applicable: true,
     previewIdentityChanged: rendered.identity ? rendered.identity !== previousIdentity : null,
