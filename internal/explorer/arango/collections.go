@@ -5,6 +5,7 @@ import store "github.com/calypr/loom/internal/store/arango"
 
 const (
 	ExplorersCollection                = "loom_explorers"
+	DraftRevisionsCollection           = "loom_explorer_draft_revisions"
 	RevisionsCollection                = "loom_explorer_revisions"
 	CompilationReceiptsCollection      = "loom_explorer_compilation_receipts"
 	SelectionsCollection               = "loom_explorer_selections"
@@ -25,6 +26,7 @@ const (
 func CollectionSpecs() []store.CollectionSpec {
 	return []store.CollectionSpec{
 		{Name: ExplorersCollection, Indexes: [][]string{{"project", "explorerId"}}},
+		{Name: DraftRevisionsCollection, Indexes: [][]string{{"project", "explorerId", "draftVersion"}}},
 		{Name: RevisionsCollection, Indexes: [][]string{{"project", "explorerId", "createdAt"}, {"project", "status"}}},
 		{Name: CompilationReceiptsCollection, Indexes: [][]string{
 			{"project", "explorerId", "intentDigest"},

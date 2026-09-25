@@ -70,16 +70,40 @@ type Explorer struct {
 	ManagementMode ManagementMode `json:"managementMode"`
 	// DraftConfig is the lossless, canonical ExplorerConfigV2 packet used by
 	// the Builder.
-	DraftConfig                 json.RawMessage `json:"draftConfig,omitempty"`
-	DraftVersion                int64           `json:"draftVersion"`
-	DraftDigest                 string          `json:"draftDigest,omitempty"`
-	LastAuthoringCommandID      string          `json:"lastAuthoringCommandId,omitempty"`
-	LastAuthoringCommandDigest  string          `json:"lastAuthoringCommandDigest,omitempty"`
-	LastAuthoringCommandResults json.RawMessage `json:"lastAuthoringCommandResults,omitempty"`
-	ActiveRevisionID            string          `json:"activeRevisionId,omitempty"`
-	UpdatedBy                   string          `json:"updatedBy,omitempty"`
-	UpdatedAt                   time.Time       `json:"updatedAt"`
+	DraftConfig                   json.RawMessage `json:"draftConfig,omitempty"`
+	DraftVersion                  int64           `json:"draftVersion"`
+	DraftDigest                   string          `json:"draftDigest,omitempty"`
+	DraftSnapshotToken            string          `json:"draftSnapshotToken,omitempty"`
+	DraftSourceGeneration         string          `json:"draftSourceGeneration,omitempty"`
+	DraftAuthorizationScopeDigest string          `json:"draftAuthorizationScopeDigest,omitempty"`
+	PreviousDraftRevisionID       string          `json:"previousDraftRevisionId,omitempty"`
+	LastAuthoringCommandID        string          `json:"lastAuthoringCommandId,omitempty"`
+	LastAuthoringCommandDigest    string          `json:"lastAuthoringCommandDigest,omitempty"`
+	LastAuthoringCommandResults   json.RawMessage `json:"lastAuthoringCommandResults,omitempty"`
+	ActiveRevisionID              string          `json:"activeRevisionId,omitempty"`
+	UpdatedBy                     string          `json:"updatedBy,omitempty"`
+	UpdatedAt                     time.Time       `json:"updatedAt"`
 }
+
+// DraftRevision is an immutable snapshot of one accepted Explorer draft
+// state. It keeps the exact serialized workspace and the source context used
+// to accept it so restoration never reconstructs construction semantics from
+// a command log.
+type DraftRevision struct {
+	ID                       string          `json:"id"`
+	Project                  string          `json:"project"`
+	ExplorerID               string          `json:"explorerId"`
+	DraftVersion             int64           `json:"draftVersion"`
+	DraftDigest              string          `json:"draftDigest,omitempty"`
+	DraftConfig              json.RawMessage `json:"draftConfig,omitempty"`
+	Title                    string          `json:"title"`
+	SnapshotToken            string          `json:"snapshotToken,omitempty"`
+	SourceGeneration         string          `json:"sourceGeneration,omitempty"`
+	AuthorizationScopeDigest string          `json:"authorizationScopeDigest,omitempty"`
+	UpdatedBy                string          `json:"updatedBy,omitempty"`
+	UpdatedAt                time.Time       `json:"updatedAt"`
+}
+
 type Materialization struct {
 	OutputID          string                       `json:"outputId"`
 	Output            string                       `json:"output"`

@@ -48,6 +48,13 @@ type Store interface {
 	VisitSelectionMembers(context.Context, string, string, string, int, func(SelectionMember) error) (string, error)
 }
 
+// DraftRevisionReader is the narrow history lookup used by the server-side
+// restore command. It is optional on older Store implementations; accepting
+// a revision ID never grants access to a draft outside its project/Explorer.
+type DraftRevisionReader interface {
+	GetDraftRevision(context.Context, string, string, string) (*DraftRevision, error)
+}
+
 // InterpretationRepository is intentionally narrower than Store. Lifecycle
 // code that resolves an exact interpretation revision should not depend on
 // unrelated Explorer draft, receipt, or publication methods.
