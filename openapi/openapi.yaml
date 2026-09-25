@@ -394,6 +394,56 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-capabilities:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: getExplorerConstructionCapabilities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionCapabilitiesRequest'}
+      responses:
+        '200':
+          description: Server-derived operation support and exact compiled stage schemas for the requested stable stage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionCapabilitiesResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerConstruction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionProposalRequest'}
+      responses:
+        '200':
+          description: A typed staged-construction candidate, compiler-derived stages, dependency impact, and successful exact-output preview.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionProposalResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -1921,6 +1971,7 @@ components:
         actions:
           type: array
           items: {$ref: '#/components/schemas/Action'}
+        construction: {$ref: '#/components/schemas/Construction'}
     RowDefinition:
       x-go-type: authoringv2.RowDefinition
       x-go-type-import:
@@ -2379,7 +2430,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         sourceOutputId: {type: string, minLength: 1}
@@ -3041,6 +3092,277 @@ components:
         candidateWorkspaceDigest: {type: string, minLength: 1}
         mode: {type: string, enum: [RECORDS, FIELD_GROUP, EXPLICIT_GROUP, EXPANDED]}
         comparison: {$ref: '#/components/schemas/RowDefinitionComparison'}
+    Construction:
+      type: object
+      additionalProperties: false
+      required: [version, steps]
+      properties:
+        version: {type: integer, minimum: 1}
+        steps:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionStep'}
+    ConstructionStep:
+      type: object
+      additionalProperties: false
+      required: [id, inputs, operation, outputs]
+      properties:
+        id: {type: string, minLength: 1}
+        inputs:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionInputRef'}
+        operation: {$ref: '#/components/schemas/ConstructionOperation'}
+        outputs:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionStageColumn'}
+    ConstructionInputRef:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [SOURCE_PROJECTION, STEP_OUTPUT, TABLE_REVISION]}
+        stepId: {type: string, minLength: 1}
+        tableId: {type: string, minLength: 1}
+        revisionId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+    ConstructionStageColumn:
+      type: object
+      additionalProperties: false
+      required: [id, name, label]
+      properties:
+        id: {type: string, minLength: 1}
+        name: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        type: {type: string}
+    ConstructionOperation:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT]}
+        pivot: {$ref: '#/components/schemas/ConstructionPivot'}
+        derive: {$ref: '#/components/schemas/ConstructionDerive'}
+        filter: {$ref: '#/components/schemas/ConstructionFilter'}
+        unpivot: {$ref: '#/components/schemas/ConstructionUnpivot'}
+    ConstructionPivot:
+      type: object
+      additionalProperties: false
+      required: [constructionId, groupKeyIds, categoryColumnId, valueColumnId, categories, duplicatePolicy, missingCellPolicy, unlistedCategoryPolicy]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        groupKeyIds:
+          type: array
+          items: {type: string, minLength: 1}
+        categoryColumnId: {type: string, minLength: 1}
+        valueColumnId: {type: string, minLength: 1}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionPivotCategory'}
+        duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
+        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+        unlistedCategoryPolicy: {type: string, enum: [ERROR, EXCLUDE_WITH_EVIDENCE]}
+    ConstructionPivotCategory:
+      type: object
+      additionalProperties: false
+      required: [key, outputColumnId]
+      properties:
+        key: {$ref: '#/components/schemas/ConstructionTableScalar'}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionTableScalar:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [STRING, INTEGER, DECIMAL, BOOLEAN, NULL, MISSING]}
+        string: {type: string}
+        integer: {type: integer, format: int64}
+        decimal: {type: number}
+        boolean: {type: boolean}
+    ConstructionDerive:
+      type: object
+      additionalProperties: false
+      required: [constructionId, outputColumnId, operation, left, right, missingInputPolicy]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        outputColumnId: {type: string, minLength: 1}
+        operation: {type: string, enum: [ADD, SUBTRACT, MULTIPLY, DIVIDE]}
+        left: {$ref: '#/components/schemas/ConstructionOperand'}
+        right: {$ref: '#/components/schemas/ConstructionOperand'}
+        missingInputPolicy: {type: string, enum: [PROPAGATE_NULL, ERROR]}
+        divisionByZeroPolicy: {type: string, enum: [NULL, ERROR]}
+    ConstructionOperand:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [COLUMN, LITERAL]}
+        columnId: {type: string, minLength: 1}
+        literal: {$ref: '#/components/schemas/ConstructionLiteral'}
+    ConstructionLiteral:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [INTEGER, DECIMAL]}
+        integer: {type: integer, format: int64}
+        decimal: {type: number}
+    ConstructionFilter:
+      type: object
+      additionalProperties: false
+      required: [columnId, operator]
+      properties:
+        columnId: {type: string, minLength: 1}
+        operator: {type: string, enum: [EQUALS, NOT_EQUALS, IN, EXISTS, MISSING, CONTAINS_TEXT, GT, GTE, LT, LTE]}
+        values:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionFilterValue'}
+    ConstructionFilterValue:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [STRING, CODE, BOOLEAN, INTEGER, DECIMAL, DATE, DATE_TIME]}
+        string: {type: string}
+        code: {$ref: '#/components/schemas/ConstructionCodeValue'}
+        boolean: {type: boolean}
+        integer: {type: integer, format: int64}
+        decimal: {type: number}
+        date: {type: string, format: date}
+        dateTime: {type: string, format: date-time}
+    ConstructionCodeValue:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        system: {type: string}
+        code: {type: string, minLength: 1}
+        display: {type: string}
+    ConstructionUnpivot:
+      type: object
+      additionalProperties: false
+      required: [constructionId, inputs, keyOutputColumnId, valueOutputColumnId, nullRowPolicy]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        inputs:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionUnpivotInput'}
+        keyOutputColumnId: {type: string, minLength: 1}
+        valueOutputColumnId: {type: string, minLength: 1}
+        nullRowPolicy: {type: string, enum: [DROP, PRESERVE]}
+    ConstructionUnpivotInput:
+      type: object
+      additionalProperties: false
+      required: [columnId, key]
+      properties:
+        columnId: {type: string, minLength: 1}
+        key: {$ref: '#/components/schemas/ConstructionTableScalar'}
+    ConstructionCapabilitiesRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+    ConstructionOperationCapability:
+      type: object
+      additionalProperties: false
+      required: [kind, supported]
+      properties:
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT]}
+        supported: {type: boolean}
+        reasonCode: {type: string}
+        reason: {type: string}
+    ConstructionStageDescriptor:
+      type: object
+      additionalProperties: false
+      required: [id, inputStageId, columns, capabilities]
+      properties:
+        id: {type: string, minLength: 1}
+        inputStageId: {type: string}
+        operation: {type: string, description: Empty for the implicit source projection stage.}
+        rowIdentityColumn: {type: string}
+        columns:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionStageColumn'}
+        capabilities:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionOperationCapability'}
+    ConstructionDependencyIssue:
+      type: object
+      additionalProperties: false
+      required: [stepId, columnId]
+      properties:
+        stepId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+    ConstructionDependencyImpact:
+      type: object
+      additionalProperties: false
+      required: [affectedStepIds]
+      properties:
+        changedStepId: {type: string}
+        removedStepIds:
+          type: array
+          items: {type: string}
+        affectedStepIds:
+          type: array
+          items: {type: string}
+        missingInputs:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionDependencyIssue'}
+    ConstructionCapabilitiesResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, baseConstruction, stages, selectedStage]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        baseConstruction: {$ref: '#/components/schemas/Construction'}
+        stages:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
+        selectedStage: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
+    ConstructionProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, candidateConstruction]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        changedStepId: {type: string}
+        removeStepIds:
+          type: array
+          items: {type: string, minLength: 1}
+        candidateConstruction: {$ref: '#/components/schemas/Construction'}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    ConstructionProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [outputId, snapshotToken, draftVersion, draftDigest, baseDocumentDigest, candidateWorkspaceDigest, changedStepId, candidateConstruction, dependencyImpact, stages, previewStatus, previewDurationMs]
+      properties:
+        proposalId: {type: string, minLength: 1}
+        baseReceiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        baseDocumentDigest: {type: string, minLength: 1}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        changedStepId: {type: string}
+        candidateConstruction: {$ref: '#/components/schemas/Construction'}
+        dependencyImpact: {$ref: '#/components/schemas/ConstructionDependencyImpact'}
+        stages:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
+        previewStatus: {type: string, enum: [READY, NEEDS_REPAIR]}
+        previewDurationMs: {type: integer, format: int64, minimum: 0}
+        preview: {$ref: '#/components/schemas/PreviewResponse'}
     TableShapeCapabilitiesRequest:
       type: object
       additionalProperties: false

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -83,6 +84,10 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, fmt.Errorf("build receipt execution contract: %w", err)
 	}
+	constructionStages, err := receiptConstructionStages(&resolved)
+	if err != nil {
+		return nil, fmt.Errorf("build receipt construction stages: %w", err)
+	}
 	var rowDefinitionProposal *explorer.RowDefinitionProposalBinding
 	if request.RowDefinitionProposal != nil {
 		binding := *request.RowDefinitionProposal
@@ -98,7 +103,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		binding := *request.ConstructionProposal
 		constructionProposal = &binding
 	}
-	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
+	receipt := explorer.CompilationReceipt{ReceiptFormatVersion: explorer.CurrentReceiptFormatVersion, CompilerContractVersion: explorer.CurrentCompilerContractVersion, Project: projectid.Canonical(request.Project), ExplorerID: request.ExplorerID, IntentDigest: intentDigest, ResolvedInputsDigest: translated.ResolvedInputsDigest, ResolvedInterpretations: append([]explorer.ResolvedInterpretation(nil), request.ResolvedInputs.Interpretations...), SnapshotToken: request.SnapshotToken, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest, CapabilitySchemaDigest: snapshot.Identity.SchemaDigest, ShapeDigest: snapshot.Identity.ShapeDigest, SourceGeneration: snapshot.Identity.Generation, RecipeDigest: resolved.StoredRecipeDigest, ResolvedRecipeDigest: resolvedRecipeDigest, ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, OutputContractDigest: contractDigest, NormalizedBundle: normalized, Bundle: resolved.Bundle, CompiledConfig: compiledConfig, PublicOutputContract: contract, IdentityMappings: translated.IdentityMappings, EmittedColumns: translated.EmittedColumns, OutputFingerprints: fingerprints, OutputColumnProvenance: columnProvenance, RowDefinitionProposal: rowDefinitionProposal, TableShapeProposal: tableShapeProposal, ConstructionProposal: constructionProposal, ConstructionStages: constructionStages, RequestID: request.RequestID, CreatedAt: time.Now().UTC()}
 	receipt.CompilationKey, err = explorer.CompilationKey(receipt)
 	if err != nil {
 		return nil, err
@@ -341,6 +346,13 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *d
 			return contractMismatch("output_execution", output, receipt.OutputFingerprints[output], fingerprint)
 		}
 	}
+	constructionStages, err := receiptConstructionStages(resolved)
+	if err != nil {
+		return contractMismatch("construction_stages", "", "valid compiler stages", err.Error())
+	}
+	if !reflect.DeepEqual(receipt.ConstructionStages, constructionStages) {
+		return contractMismatch("construction_stages", "", "compiler-derived stage descriptors", "receipt stage descriptors differ")
+	}
 	if len(receipt.OutputColumnProvenance) != len(resolved.Compiled.Outputs) {
 		return contractMismatch("provenance", "", fmt.Sprint(len(resolved.Compiled.Outputs)), fmt.Sprint(len(receipt.OutputColumnProvenance)))
 	}
@@ -355,6 +367,61 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *d
 		}
 	}
 	return nil
+}
+
+// receiptConstructionStages freezes the compiler's exact stage schemas and
+// capabilities into the receipt identity. The implicit source projection is
+// represented with an empty operation because it is not an authored step.
+func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptConstructionStage, error) {
+	if resolved == nil {
+		return nil, fmt.Errorf("resolved compilation is required")
+	}
+	var stagesByOutput map[string][]explorer.ReceiptConstructionStage
+	for _, output := range resolved.Compiled.Outputs {
+		if len(output.Stages) == 0 {
+			continue
+		}
+		if stagesByOutput == nil {
+			stagesByOutput = make(map[string][]explorer.ReceiptConstructionStage)
+		}
+		if _, exists := stagesByOutput[output.Name]; exists {
+			return nil, fmt.Errorf("compiled output %q has duplicate construction stage descriptors", output.Name)
+		}
+		stages := make([]explorer.ReceiptConstructionStage, 0, len(output.Stages))
+		for index, descriptor := range output.Stages {
+			operation := descriptor.Operation
+			if index == 0 && descriptor.ID == recipe.ConstructionSourceProjectionID {
+				operation = ""
+			}
+			stage := explorer.ReceiptConstructionStage{
+				ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: operation,
+				RowIdentityColumn: descriptor.RowIdentityColumn,
+				Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
+				Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
+			}
+			for _, column := range descriptor.Columns {
+				if column.Internal || column.Identity {
+					continue
+				}
+				stage.Columns = append(stage.Columns, explorer.ReceiptConstructionStageColumn{
+					ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Kind,
+				})
+			}
+			for _, capability := range descriptor.Capabilities {
+				reasonCode, reason := capability.ReasonCode, capability.Reason
+				if capability.Supported {
+					reasonCode, reason = "", ""
+				}
+				stage.Capabilities = append(stage.Capabilities, explorer.ReceiptConstructionOperationChoice{
+					Kind: string(capability.Operation), Supported: capability.Supported,
+					ReasonCode: reasonCode, Reason: reason,
+				})
+			}
+			stages = append(stages, stage)
+		}
+		stagesByOutput[output.Name] = stages
+	}
+	return stagesByOutput, nil
 }
 
 // compileValidatedReceiptResolution validates the complete immutable receipt

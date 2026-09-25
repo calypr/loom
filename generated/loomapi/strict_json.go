@@ -232,15 +232,15 @@ func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
 	resolution := decoded.ResolutionId != nil
 	literal := decoded.Literal != nil
 	switch decoded.Kind {
-	case CATALOGCHOICE:
+	case TableShapeOperandSelectionKindCATALOGCHOICE:
 		if !choice || resolution || literal {
 			return errors.New("CATALOG_CHOICE operand requires only choiceId")
 		}
-	case RESOLUTIONOUTPUT:
+	case TableShapeOperandSelectionKindRESOLUTIONOUTPUT:
 		if !resolution || choice || literal {
 			return errors.New("RESOLUTION_OUTPUT operand requires only resolutionId")
 		}
-	case LITERAL:
+	case TableShapeOperandSelectionKindLITERAL:
 		if !literal || choice || resolution {
 			return errors.New("LITERAL operand requires only literal")
 		}

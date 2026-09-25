@@ -10,6 +10,10 @@ import {
   explorerBuilderSuggestionsResultSchema,
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
+  constructionCapabilitiesRequestSchema,
+  constructionCapabilitiesResponseSchema,
+  constructionProposalRequestSchema,
+  constructionProposalResponseSchema,
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
@@ -34,6 +38,9 @@ import {
   type ExplorerColumnSourceDescriptor,
   type ConstructionChoiceSearchResponse,
   type ConstructionChoiceSearchSource,
+  type ConstructionCapabilitiesResponse,
+  type ConstructionProposalRequest,
+  type ConstructionProposalResponse,
   type PopulationRoutesResponse,
   type RowDefinitionChoicesResponse,
   type RowDefinitionProposal,
@@ -346,6 +353,21 @@ export type ResolveTableShapeArgs = ExplorerAuthoringStateArgs &
 export type ProposeTableShapeArgs = ExplorerAuthoringStateArgs &
   TableShapeProposalRequest & { readonly requestId?: string };
 
+export type ConstructionAuthoringStateArgs = ExplorerAuthoringStateArgs & {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly requestId?: string;
+};
+
+export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringStateArgs {
+  readonly stageId: string;
+}
+
+export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
+  ConstructionProposalRequest & { readonly requestId?: string };
+
 export interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly selectionRevision: string;
@@ -544,6 +566,14 @@ export interface LoomClient {
     args: ProposeTableShapeArgs,
     signal?: AbortSignal,
   ) => Promise<TableShapeProposal>;
+  readonly getConstructionCapabilities: (
+    args: GetConstructionCapabilitiesArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionCapabilitiesResponse>;
+  readonly proposeConstruction: (
+    args: ProposeConstructionArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionProposalResponse>;
   readonly preview: (
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -1139,6 +1169,22 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       tableShapeProposalRequestSchema.parse(body), signal, requestId,
     )).then((value) => tableShapeProposalSchema.parse(value));
   };
+  const getConstructionCapabilities = (args: GetConstructionCapabilitiesArgs, signal?: AbortSignal) =>
+    request(durableAuthoringPath(args, '/construction-capabilities'), withJson(
+      constructionCapabilitiesRequestSchema.parse({
+        expectedDraftDigest: args.expectedDraftDigest,
+        expectedDraftVersion: args.expectedDraftVersion,
+        outputId: args.outputId,
+        snapshotToken: args.snapshotToken,
+        stageId: args.stageId,
+      }), signal, args.requestId,
+    )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
+  const proposeConstruction = (args: ProposeConstructionArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/construction-proposals'), withJson(
+      constructionProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => constructionProposalResponseSchema.parse(value));
+  };
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
@@ -1378,6 +1424,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     discoverTableShapeCategories,
     resolveTableShape,
     proposeTableShape,
+    getConstructionCapabilities,
+    proposeConstruction,
     preview,
     populationMapping,
     cellTrace,

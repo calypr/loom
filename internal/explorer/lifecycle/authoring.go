@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -27,6 +28,8 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var rowDefinitionCandidate *explorer.CompilationReceipt
 	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
 	var tableShapeCandidate *explorer.CompilationReceipt
+	constructionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionProposal
+	var constructionCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
 	populationRouteCount := 0
 	for _, command := range request.Commands {
@@ -73,7 +76,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -122,6 +125,12 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 			tableShapeCandidate = receipt
 			return prepared, prepareErr
 		}
+	} else if constructionProposalCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			prepared, receipt, prepareErr := s.prepareConstructionProposal(ctx, project, explorerID, request, snapshot, workspace, commands)
+			constructionCandidate = receipt
+			return prepared, prepareErr
+		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {
 		if _, validationErr := s.resolveWorkspacePopulations(ctx, project, workspace, snapshot, snapshot.Identity.AuthorizationScopeDigest); validationErr != nil {
@@ -138,6 +147,9 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		}
 		if tableShapeProposalCommand {
 			return checkTableShapeProposalResult(workspace, tableShapeCandidate)
+		}
+		if constructionProposalCommand {
+			return checkConstructionProposalResult(workspace, constructionCandidate)
 		}
 		return nil
 	})
@@ -309,6 +321,9 @@ func (s *Service) validateCompiledReceipt(ctx context.Context, request compileRe
 	if !sameTableShapeProposalBinding(request.TableShapeProposal, receipt.TableShapeProposal) {
 		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt table-shape proposal binding does not match the request", nil, nil)
 	}
+	if !sameConstructionProposalBinding(request.ConstructionProposal, receipt.ConstructionProposal) {
+		return failureDetails(ClassUnprocessable, "compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt construction proposal binding does not match the request", nil, nil)
+	}
 	if authorized.Scope.Mode != "" {
 		if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 			return unprocessable("compile", "INVALID_COMPILATION_RECEIPT", "compiled authoring receipt scope is not authorized", err)
@@ -365,7 +380,12 @@ func cloneConstructionProposalBinding(binding *explorer.ConstructionProposalBind
 		return nil
 	}
 	cloned := *binding
+	cloned.RemoveStepIDs = append([]string(nil), binding.RemoveStepIDs...)
 	return &cloned
+}
+
+func sameConstructionProposalBinding(left, right *explorer.ConstructionProposalBinding) bool {
+	return reflect.DeepEqual(left, right)
 }
 
 func (s *Service) Reconcile(ctx context.Context, request ReconcileRequest) (*explorer.CompilationReceipt, error) {

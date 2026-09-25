@@ -184,7 +184,7 @@ func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testin
 	base.ConstructionProposal = &ConstructionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: base.IntentDigest,
-		SnapshotToken: base.SnapshotToken,
+		SnapshotToken: base.SnapshotToken, PreviewLimit: 100,
 	}
 	base.CompilationKey, _ = CompilationKey(base)
 	first, err := ReceiptID(base)
@@ -199,11 +199,13 @@ func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testin
 		{name: "draft digest", change: func(binding *ConstructionProposalBinding) { binding.DraftDigest = "sha256:other-draft" }},
 		{name: "output", change: func(binding *ConstructionProposalBinding) { binding.OutputID = "other" }},
 		{name: "step", change: func(binding *ConstructionProposalBinding) { binding.ChangedStepID = "other-step" }},
+		{name: "removed steps", change: func(binding *ConstructionProposalBinding) { binding.RemoveStepIDs = []string{"downstream"} }},
 		{name: "base document", change: func(binding *ConstructionProposalBinding) { binding.BaseDocumentDigest = "sha256:other-document" }},
 		{name: "candidate workspace", change: func(binding *ConstructionProposalBinding) {
 			binding.CandidateWorkspaceDigest = "sha256:other-candidate"
 		}},
 		{name: "snapshot", change: func(binding *ConstructionProposalBinding) { binding.SnapshotToken = "sha256:other-snapshot" }},
+		{name: "preview limit", change: func(binding *ConstructionProposalBinding) { binding.PreviewLimit++ }},
 	}
 	for _, test := range mutations {
 		t.Run(test.name, func(t *testing.T) {
@@ -227,6 +229,24 @@ func TestCompilationReceiptIdentityIncludesConstructionProposalBinding(t *testin
 	}
 }
 
+func TestCompilationReceiptAcceptsRemovalOnlyConstructionProposalBinding(t *testing.T) {
+	receipt := testReceipt()
+	receipt.IntentDigest = "sha256:candidate"
+	receipt.ConstructionProposal = &ConstructionProposalBinding{
+		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", RemoveStepIDs: []string{"last-step"},
+		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: receipt.IntentDigest,
+		SnapshotToken: receipt.SnapshotToken, PreviewLimit: 100,
+	}
+	receipt.CompilationKey, _ = CompilationKey(receipt)
+	if err := receipt.Validate(); err != nil {
+		t.Fatalf("validate removal-only construction proposal binding: %v", err)
+	}
+	receipt.ConstructionProposal.RemoveStepIDs = nil
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted a construction proposal binding without a changed step or removals")
+	}
+}
+
 func TestCompilationReceiptRejectsInvalidTableShapeProposalBinding(t *testing.T) {
 	receipt := testReceipt()
 	receipt.IntentDigest = "sha256:candidate"
@@ -246,10 +266,62 @@ func TestCompilationReceiptRejectsInvalidConstructionProposalBinding(t *testing.
 	receipt.ConstructionProposal = &ConstructionProposalBinding{
 		DraftVersion: 7, DraftDigest: "sha256:draft", OutputID: "out", ChangedStepID: "step-2",
 		BaseDocumentDigest: "sha256:document", CandidateWorkspaceDigest: "sha256:other-candidate",
-		SnapshotToken: receipt.SnapshotToken,
+		SnapshotToken: receipt.SnapshotToken, PreviewLimit: 100,
 	}
 	if err := receipt.Validate(); err == nil {
 		t.Fatal("accepted construction proposal binding for a different candidate workspace")
+	}
+}
+
+func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testing.T) {
+	base := testReceipt()
+	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+		{
+			ID:           recipe.ConstructionSourceProjectionID,
+			Columns:      []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "FILTER", Supported: true}},
+		},
+		{
+			ID: "filter_step", InputStageID: recipe.ConstructionSourceProjectionID,
+			Operation: "FILTER", RowIdentityColumn: "row_id",
+			Columns:      []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "FILTER", Supported: true}},
+		},
+	}}
+	base.CompilationKey, _ = CompilationKey(base)
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid stage descriptors failed receipt validation: %v", err)
+	}
+	first, err := ReceiptID(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	changed.ConstructionStages = map[string][]ReceiptConstructionStage{"out": append([]ReceiptConstructionStage(nil), base.ConstructionStages["out"]...)}
+	changed.ConstructionStages["out"][1].Columns = append([]ReceiptConstructionStageColumn(nil), base.ConstructionStages["out"][1].Columns...)
+	changed.ConstructionStages["out"][1].Columns[0].Type = "decimal"
+	key, err := CompilationKey(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed.CompilationKey = key
+	id, err := ReceiptID(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == first {
+		t.Fatal("inferred construction stage schema did not change receipt identity")
+	}
+}
+
+func TestCompilationReceiptRejectsBrokenConstructionStageChain(t *testing.T) {
+	receipt := testReceipt()
+	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
+		{ID: recipe.ConstructionSourceProjectionID},
+		{ID: "derive_step", InputStageID: "unknown", Operation: "DERIVE"},
+	}}
+	if err := receipt.Validate(); err == nil {
+		t.Fatal("accepted a construction stage whose input does not match its previous stage")
 	}
 }
 

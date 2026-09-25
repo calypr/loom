@@ -1039,6 +1039,204 @@ export const explorerColumnSourceDescriptorSchema = z
 export type ExplorerColumnSourceDescriptor = z.infer<
   typeof explorerColumnSourceDescriptorSchema
 >;
+
+const constructionTableScalarSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
+  z.object({ kind: z.literal('NULL') }).strict(),
+  z.object({ kind: z.literal('MISSING') }).strict(),
+]);
+export type ConstructionTableScalar = z.infer<typeof constructionTableScalarSchema>;
+
+const constructionInputRefSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('SOURCE_PROJECTION') }).strict(),
+  z.object({ kind: z.literal('STEP_OUTPUT'), stepId: opaqueIdSchema }).strict(),
+  z.object({
+    kind: z.literal('TABLE_REVISION'),
+    tableId: opaqueIdSchema,
+    revisionId: opaqueIdSchema,
+    outputId: opaqueIdSchema,
+  }).strict(),
+]);
+export type ConstructionInputRef = z.infer<typeof constructionInputRefSchema>;
+
+const constructionStageColumnSchema = z.object({
+  id: opaqueIdSchema,
+  name: z.string().min(1),
+  label: z.string().min(1),
+  type: z.string().optional(),
+}).strict();
+export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSchema>;
+
+const constructionFilterValueSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('STRING'), string: z.string() }).strict(),
+  z.object({ kind: z.literal('CODE'), code: z.object({
+    system: z.string().optional(), code: z.string().min(1), display: z.string().optional(),
+  }).strict() }).strict(),
+  z.object({ kind: z.literal('BOOLEAN'), boolean: z.boolean() }).strict(),
+  z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+  z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+  z.object({ kind: z.literal('DATE'), date: z.string() }).strict(),
+  z.object({ kind: z.literal('DATE_TIME'), dateTime: z.string().datetime() }).strict(),
+]);
+
+const constructionOperandSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('COLUMN'), columnId: opaqueIdSchema }).strict(),
+  z.object({
+    kind: z.literal('LITERAL'),
+    literal: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('INTEGER'), integer: z.number().int() }).strict(),
+      z.object({ kind: z.literal('DECIMAL'), decimal: z.number() }).strict(),
+    ]),
+  }).strict(),
+]);
+
+const constructionOperationSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('PIVOT'),
+    pivot: z.object({
+      constructionId: opaqueIdSchema,
+      groupKeyIds: z.array(opaqueIdSchema),
+      categoryColumnId: opaqueIdSchema,
+      valueColumnId: opaqueIdSchema,
+      categories: z.array(z.object({
+        key: constructionTableScalarSchema,
+        outputColumnId: opaqueIdSchema,
+      }).strict()),
+      duplicatePolicy: z.enum(['ERROR', 'SUM', 'MIN', 'MAX']),
+      missingCellPolicy: z.enum(['NULL', 'ERROR']),
+      unlistedCategoryPolicy: z.enum(['ERROR', 'EXCLUDE_WITH_EVIDENCE']),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('DERIVE'),
+    derive: z.object({
+      constructionId: opaqueIdSchema,
+      outputColumnId: opaqueIdSchema,
+      operation: z.enum(['ADD', 'SUBTRACT', 'MULTIPLY', 'DIVIDE']),
+      left: constructionOperandSchema,
+      right: constructionOperandSchema,
+      missingInputPolicy: z.enum(['PROPAGATE_NULL', 'ERROR']),
+      divisionByZeroPolicy: z.enum(['NULL', 'ERROR']).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('FILTER'),
+    filter: z.object({
+      columnId: opaqueIdSchema,
+      operator: z.enum(['EQUALS', 'NOT_EQUALS', 'IN', 'EXISTS', 'MISSING', 'CONTAINS_TEXT', 'GT', 'GTE', 'LT', 'LTE']),
+      values: z.array(constructionFilterValueSchema).optional(),
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('UNPIVOT'),
+    unpivot: z.object({
+      constructionId: opaqueIdSchema,
+      inputs: z.array(z.object({ columnId: opaqueIdSchema, key: constructionTableScalarSchema }).strict()),
+      keyOutputColumnId: opaqueIdSchema,
+      valueOutputColumnId: opaqueIdSchema,
+      nullRowPolicy: z.enum(['DROP', 'PRESERVE']),
+    }).strict(),
+  }).strict(),
+]);
+export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
+
+const constructionStepSchema = z.object({
+  id: opaqueIdSchema,
+  inputs: z.array(constructionInputRefSchema),
+  operation: constructionOperationSchema,
+  outputs: z.array(constructionStageColumnSchema),
+}).strict();
+export type ConstructionStep = z.infer<typeof constructionStepSchema>;
+
+export const constructionSchema = z.object({
+  version: z.number().int().positive(),
+  steps: z.array(constructionStepSchema),
+}).strict();
+export type Construction = z.infer<typeof constructionSchema>;
+
+const constructionOperationCapabilitySchema = z.object({
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT']),
+  supported: z.boolean(),
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+}).strict();
+const constructionStageDescriptorSchema = z.object({
+  id: opaqueIdSchema,
+  inputStageId: z.string(),
+  operation: z.string().optional(),
+  rowIdentityColumn: z.string().optional(),
+  columns: z.array(constructionStageColumnSchema),
+  capabilities: z.array(constructionOperationCapabilitySchema),
+}).strict();
+export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
+
+const constructionDependencyIssueSchema = z.object({
+  stepId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+const constructionDependencyImpactSchema = z.object({
+  changedStepId: opaqueIdSchema.optional(),
+  removedStepIds: z.array(opaqueIdSchema).optional(),
+  affectedStepIds: z.array(opaqueIdSchema),
+  missingInputs: z.array(constructionDependencyIssueSchema).optional(),
+}).strict();
+export type ConstructionDependencyImpact = z.infer<typeof constructionDependencyImpactSchema>;
+
+export const constructionCapabilitiesRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+}).strict();
+export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
+
+export const constructionCapabilitiesResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  baseConstruction: constructionSchema,
+  stages: z.array(constructionStageDescriptorSchema),
+  selectedStage: constructionStageDescriptorSchema,
+}).strict();
+export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
+
+export const constructionProposalRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  changedStepId: z.string().optional(),
+  removeStepIds: z.array(opaqueIdSchema).optional(),
+  candidateConstruction: constructionSchema,
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
+
+export const constructionProposalResponseSchema = z.object({
+  proposalId: opaqueIdSchema.optional(),
+  baseReceiptId: opaqueIdSchema.optional(),
+  outputId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  baseDocumentDigest: z.string().min(1),
+  candidateWorkspaceDigest: z.string().min(1),
+  changedStepId: z.string(),
+  candidateConstruction: constructionSchema,
+  dependencyImpact: constructionDependencyImpactSchema,
+  stages: z.array(constructionStageDescriptorSchema),
+  previewStatus: z.enum(['READY', 'NEEDS_REPAIR']),
+  previewDurationMs: z.number().int().nonnegative(),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema).optional(),
+}).strict();
+export type ConstructionProposalResponse = z.infer<typeof constructionProposalResponseSchema>;
+
 export const explorerBuilderDocumentSchema = z
   .object({
     kind: z.literal('ExplorerBuilderDocument'),
@@ -1055,6 +1253,7 @@ export const explorerBuilderDocumentSchema = z
     rows: explorerRowDefinitionSchema,
     columns: z.array(explorerBuilderColumnSchema),
     tableShape: persistedTableShapeSchema.optional(),
+    construction: constructionSchema.optional(),
     fixedFilters: z
       .array(
         z
@@ -1087,7 +1286,16 @@ export const explorerBuilderDocumentSchema = z
       )
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((document, context) => {
+    if (document.construction && document.tableShape) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Construction documents cannot also carry legacy tableShape.',
+        path: ['tableShape'],
+      });
+    }
+  });
 export type ExplorerBuilderDocument = z.infer<
   typeof explorerBuilderDocumentSchema
 >;
@@ -1703,6 +1911,7 @@ export const explorerBuilderCommandSchema = z
       'ADD_SEMANTIC_SELECTIONS',
       'APPLY_CONSTRUCTION_CHOICE',
       'APPLY_ROW_DEFINITION_PROPOSAL',
+      'APPLY_CONSTRUCTION_PROPOSAL',
       'APPLY_TABLE_SHAPE_PROPOSAL',
     ]),
     outputId: opaqueIdSchema.optional(),

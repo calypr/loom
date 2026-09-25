@@ -112,6 +112,70 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	}
 }
 
+func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	for _, column := range document.Columns {
+		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	document.Construction.Steps = []authoringv2.ConstructionStep{{
+		ID: "filter_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{
+			Kind:   authoringv2.ConstructionOperationFilter,
+			Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+		},
+		Outputs: columns,
+	}}
+	workspace.Documents[0] = document
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate typed construction workspace: %v", err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(newTestExplorerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}},
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("compile receipt with typed construction stages: %v", err)
+	}
+	stages := receipt.ConstructionStages["patients"]
+	if len(stages) != 2 || stages[0].ID != recipe.ConstructionSourceProjectionID || stages[0].Operation != "" || stages[1].ID != "filter_step" || stages[1].InputStageID != recipe.ConstructionSourceProjectionID || stages[1].Operation != "FILTER" {
+		t.Fatalf("receipt stages = %#v", stages)
+	}
+	if len(stages[0].Columns) != 1 || stages[0].Columns[0].ID != document.Columns[0].ColumnID || stages[0].Columns[0].Name != "c_patient" || len(stages[0].Capabilities) != 4 {
+		t.Fatalf("source stage descriptor = %#v", stages[0])
+	}
+	if len(stages[1].Columns) != 1 || stages[1].Columns[0].ID != document.Columns[0].ColumnID || stages[1].Columns[0].Type == "" {
+		t.Fatalf("filter stage descriptor = %#v", stages[1])
+	}
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("recompile identical typed construction receipt: %v", err)
+	}
+	if receipt.CompilationKey != repeated.CompilationKey || receipt.ID != repeated.ID {
+		t.Fatalf("construction receipt identity changed across exact recompilation: (%q,%q) != (%q,%q)", receipt.CompilationKey, receipt.ID, repeated.CompilationKey, repeated.ID)
+	}
+}
+
 func TestReconcileFinalOutputMetadataUsesCompilerSchemaOrderAndTypes(t *testing.T) {
 	translated, resolved := reconciliationFixture()
 	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)

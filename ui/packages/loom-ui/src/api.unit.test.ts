@@ -4,11 +4,93 @@ import { cellTraceResponseSchema } from './cellTrace';
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
   type ExplorerBuilderCommand,
+  constructionProposalRequestSchema,
 } from './types';
 
 const tracedFeature = { outputId: 'patients', column: 'gender', authoredColumn: 'patient_gender', occurrenceId: 'base', label: 'Gender', logicalType: 'string', sourceResourceType: 'Patient', sourcePath: 'gender', projectionMode: 'VALUE', lossless: true, lossReasons: [] };
 
 describe('Loom project paths', () => {
+  it('accepts a removal-only construction proposal without a changed step', () => {
+    const parsed = constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7,
+      expectedDraftDigest: 'draft-7',
+      outputId: 'patients',
+      removeStepIds: ['last-step'],
+      candidateConstruction: { version: 1, steps: [] },
+    });
+    expect(parsed.changedStepId).toBeUndefined();
+  });
+
+  it('loads compiler stage choices and sends exact construction proposals', async () => {
+    const construction = { version: 1, steps: [] } as const;
+    const selectedStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      columns: [{ id: 'column_patient_id', name: 'patient_id', label: 'Patient ID', type: 'string' }],
+      capabilities: [{ kind: 'FILTER', supported: true }],
+    } as const;
+    const capabilities = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      baseConstruction: construction,
+      stages: [selectedStage],
+      selectedStage,
+    } as const;
+    const proposal = {
+      outputId: 'patients',
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      baseDocumentDigest: 'document-7',
+      candidateWorkspaceDigest: 'candidate-8',
+      changedStepId: 'filter-1',
+      candidateConstruction: construction,
+      dependencyImpact: { changedStepId: 'filter-1', affectedStepIds: [] },
+      stages: [selectedStage],
+      previewStatus: 'NEEDS_REPAIR',
+      previewDurationMs: 0,
+    } as const;
+    const fetch = vi.fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(capabilities), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.getConstructionCapabilities({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+    })).resolves.toEqual(capabilities);
+    await expect(client.proposeConstruction({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', changedStepId: 'filter-1',
+      candidateConstruction: construction,
+    })).resolves.toEqual(proposal);
+
+    expect(fetch).toHaveBeenNthCalledWith(1,
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-capabilities',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 7, expectedDraftDigest: 'draft-7',
+          outputId: 'patients', stageId: 'source_projection',
+        }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(2,
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 7, expectedDraftDigest: 'draft-7',
+          outputId: 'patients', changedStepId: 'filter-1', candidateConstruction: construction,
+        }),
+      }),
+    );
+  });
+
   it('creates explicit groups from opaque source-selection member keys', async () => {
     const response = {
       revisionId: 'grouprev-created',
