@@ -180,6 +180,38 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			mapped.Inputs = append(mapped.Inputs, recipe.ConstructionUnpivotInput{ColumnID: input.ColumnID, Key: key})
 		}
 		operation.Unpivot = mapped
+	case authoringv2.ConstructionOperationGroup:
+		if authored.Group == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("group payload is required")
+		}
+		group := authored.Group
+		mapped := &recipe.ConstructionGroup{
+			ConstructionID: group.ConstructionID,
+			Keys:           make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
+			Aggregates:     make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
+		}
+		for _, key := range group.Keys {
+			mapped.Keys = append(mapped.Keys, recipe.ConstructionGroupKey{
+				InputColumnID: key.InputColumnID, OutputColumnID: key.OutputColumnID,
+			})
+		}
+		for _, aggregate := range group.Aggregates {
+			mapped.Aggregates = append(mapped.Aggregates, recipe.ConstructionGroupAggregate{
+				Operation:     recipe.ConstructionGroupAggregateOp(aggregate.Operation),
+				InputColumnID: aggregate.InputColumnID, OutputColumnID: aggregate.OutputColumnID,
+			})
+		}
+		operation.Group = mapped
+	case authoringv2.ConstructionOperationExpand:
+		if authored.Expand == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("expand payload is required")
+		}
+		expand := authored.Expand
+		operation.Expand = &recipe.ConstructionExpand{
+			ConstructionID: expand.ConstructionID, InputColumnID: expand.InputColumnID,
+			OutputColumnID: expand.OutputColumnID, OrdinalColumnID: expand.OrdinalColumnID,
+			EmptyPolicy: recipe.ExpansionEmptyPolicy(expand.EmptyPolicy),
+		}
 	default:
 		return recipe.ConstructionOperation{}, fmt.Errorf("unsupported operation kind %q", authored.Kind)
 	}

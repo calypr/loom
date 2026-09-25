@@ -277,15 +277,19 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 	base := testReceipt()
 	base.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {
 		{
-			ID:           recipe.ConstructionSourceProjectionID,
-			Columns:      []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
-			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "FILTER", Supported: true}},
+			ID:      recipe.ConstructionSourceProjectionID,
+			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Capabilities: []ReceiptConstructionOperationChoice{
+				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
+			},
 		},
 		{
 			ID: "filter_step", InputStageID: recipe.ConstructionSourceProjectionID,
 			Operation: "FILTER", RowIdentityColumn: "row_id",
-			Columns:      []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
-			Capabilities: []ReceiptConstructionOperationChoice{{Kind: "FILTER", Supported: true}},
+			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
+			Capabilities: []ReceiptConstructionOperationChoice{
+				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
+			},
 		},
 	}}
 	base.CompilationKey, _ = CompilationKey(base)

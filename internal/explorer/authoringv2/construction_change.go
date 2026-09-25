@@ -379,6 +379,50 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 			return nil, err
 		}
 		outputs = append(outputs, key, value)
+	case ConstructionOperationGroup:
+		if step.Operation.Group == nil {
+			return nil, fmt.Errorf("group payload is required")
+		}
+		for _, key := range step.Operation.Group.Keys {
+			column, err := produced(key.OutputColumnID)
+			if err != nil {
+				return nil, err
+			}
+			if column.Type == "" || column.Type == "INFER" {
+				if inputColumn, exists := findStageColumnByID(input, key.InputColumnID); exists {
+					column.Type = inputColumn.Type
+				}
+			}
+			outputs = append(outputs, column)
+		}
+		for _, aggregate := range step.Operation.Group.Aggregates {
+			column, err := produced(aggregate.OutputColumnID)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, column)
+		}
+	case ConstructionOperationExpand:
+		if step.Operation.Expand == nil {
+			return nil, fmt.Errorf("expand payload is required")
+		}
+		for _, column := range input {
+			if column.ID != step.Operation.Expand.InputColumnID {
+				outputs = append(outputs, column)
+			}
+		}
+		item, err := produced(step.Operation.Expand.OutputColumnID)
+		if err != nil {
+			return nil, err
+		}
+		outputs = append(outputs, item)
+		if step.Operation.Expand.OrdinalColumnID != "" {
+			ordinal, err := produced(step.Operation.Expand.OrdinalColumnID)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, ordinal)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -428,6 +472,19 @@ func (o ConstructionOperation) inputColumnIDs() []string {
 			for _, input := range o.Unpivot.Inputs {
 				add(input.ColumnID)
 			}
+		}
+	case ConstructionOperationGroup:
+		if o.Group != nil {
+			for _, key := range o.Group.Keys {
+				add(key.InputColumnID)
+			}
+			for _, aggregate := range o.Group.Aggregates {
+				add(aggregate.InputColumnID)
+			}
+		}
+	case ConstructionOperationExpand:
+		if o.Expand != nil {
+			add(o.Expand.InputColumnID)
 		}
 	}
 	return ids

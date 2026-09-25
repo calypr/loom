@@ -98,7 +98,10 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		return fmt.Errorf("outputs: %w", err)
 	}
 	payloads := 0
-	for _, present := range []bool{step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil, step.Operation.Unpivot != nil} {
+	for _, present := range []bool{
+		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
+		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
+	} {
 		if present {
 			payloads++
 		}
@@ -123,10 +126,20 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		}
 		return validateConstructionFilter(step, input, inputColumns)
 	case ConstructionOperationUnpivot:
-		if step.Operation.Unpivot == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil {
+		if step.Operation.Unpivot == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Group != nil || step.Operation.Expand != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
 		return validateConstructionUnpivot(step, input, inputColumns)
+	case ConstructionOperationGroup:
+		if step.Operation.Group == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Expand != nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionGroup(step, input, inputColumns)
+	case ConstructionOperationExpand:
+		if step.Operation.Expand == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionExpand(step, input, inputColumns)
 	default:
 		return fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
@@ -461,6 +474,97 @@ func validateConstructionUnpivot(step ConstructionStep, input map[string]StageCo
 		}
 	}
 	want = append(want, unpivot.KeyOutputColumnID, unpivot.ValueOutputColumnID)
+	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	group := step.Operation.Group
+	if !sameOperationID(step.ID, group.ConstructionID) {
+		return fmt.Errorf("group constructionId must equal step id")
+	}
+	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
+		return fmt.Errorf("group requires at least one key or summary")
+	}
+	want := make([]string, 0, len(group.Keys)+len(group.Aggregates))
+	inputIDs := make(map[string]bool, len(group.Keys))
+	outputIDs := make(map[string]bool, len(group.Keys)+len(group.Aggregates))
+	for index, key := range group.Keys {
+		if !requiredID(key.InputColumnID) {
+			return fmt.Errorf("keys[%d].inputColumnId is required", index)
+		}
+		if _, exists := input[key.InputColumnID]; !exists {
+			return missingConstructionColumn(fmt.Sprintf("keys[%d].inputColumnId", index), key.InputColumnID)
+		}
+		if inputIDs[key.InputColumnID] {
+			return fmt.Errorf("group keys contain duplicate input column id %q", key.InputColumnID)
+		}
+		inputIDs[key.InputColumnID] = true
+		if !requiredID(key.OutputColumnID) || outputIDs[key.OutputColumnID] {
+			return fmt.Errorf("keys[%d].outputColumnId is empty or duplicated", index)
+		}
+		outputIDs[key.OutputColumnID] = true
+		want = append(want, key.OutputColumnID)
+	}
+	for index, aggregate := range group.Aggregates {
+		if !requiredID(aggregate.OutputColumnID) || outputIDs[aggregate.OutputColumnID] {
+			return fmt.Errorf("aggregates[%d].outputColumnId is empty or duplicated", index)
+		}
+		switch aggregate.Operation {
+		case ConstructionGroupCountRows:
+			if aggregate.InputColumnID != "" {
+				return fmt.Errorf("aggregates[%d] COUNT_ROWS does not accept inputColumnId", index)
+			}
+		case ConstructionGroupCountNonNull, ConstructionGroupCountDistinct, ConstructionGroupSum, ConstructionGroupMean:
+			if !requiredID(aggregate.InputColumnID) {
+				return fmt.Errorf("aggregates[%d] %s requires inputColumnId", index, aggregate.Operation)
+			}
+			if _, exists := input[aggregate.InputColumnID]; !exists {
+				return missingConstructionColumn(fmt.Sprintf("aggregates[%d].inputColumnId", index), aggregate.InputColumnID)
+			}
+		default:
+			return fmt.Errorf("aggregates[%d] has unsupported operation %q", index, aggregate.Operation)
+		}
+		outputIDs[aggregate.OutputColumnID] = true
+		want = append(want, aggregate.OutputColumnID)
+	}
+	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionExpand(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	expand := step.Operation.Expand
+	if !sameOperationID(step.ID, expand.ConstructionID) {
+		return fmt.Errorf("expand constructionId must equal step id")
+	}
+	if !requiredID(expand.InputColumnID) {
+		return fmt.Errorf("inputColumnId is required")
+	}
+	if _, exists := input[expand.InputColumnID]; !exists {
+		return missingConstructionColumn("inputColumnId", expand.InputColumnID)
+	}
+	if !requiredID(expand.OutputColumnID) {
+		return fmt.Errorf("outputColumnId is required")
+	}
+	if !oneOf(string(expand.EmptyPolicy), "", "ERROR", "EXCLUDE", "PRESERVE_PARENT") {
+		return fmt.Errorf("emptyPolicy must be ERROR, EXCLUDE, or PRESERVE_PARENT")
+	}
+	if expand.OrdinalColumnID != "" {
+		if !requiredID(expand.OrdinalColumnID) || expand.OrdinalColumnID == expand.OutputColumnID {
+			return fmt.Errorf("ordinalColumnId must be an exact ID distinct from outputColumnId")
+		}
+		if _, exists := input[expand.OrdinalColumnID]; exists {
+			return fmt.Errorf("ordinalColumnId collides with an input column")
+		}
+	}
+	want := make([]string, 0, len(inputColumns)+1)
+	for _, column := range inputColumns {
+		if column.ID != expand.InputColumnID {
+			want = append(want, column.ID)
+		}
+	}
+	want = append(want, expand.OutputColumnID)
+	if expand.OrdinalColumnID != "" {
+		want = append(want, expand.OrdinalColumnID)
+	}
 	return validateDeclaredOutputIDs(step.Outputs, want)
 }
 

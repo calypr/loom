@@ -22,6 +22,8 @@ const (
 	ConstructionOperationDerive  ConstructionOperationKind = "DERIVE"
 	ConstructionOperationFilter  ConstructionOperationKind = "FILTER"
 	ConstructionOperationUnpivot ConstructionOperationKind = "UNPIVOT"
+	ConstructionOperationGroup   ConstructionOperationKind = "GROUP"
+	ConstructionOperationExpand  ConstructionOperationKind = "EXPAND"
 )
 
 // Construction stores the ordered, durable operations applied after the
@@ -104,6 +106,8 @@ type ConstructionOperation struct {
 	Derive  *ConstructionDerive       `json:"derive,omitempty"`
 	Filter  *ConstructionFilter       `json:"filter,omitempty"`
 	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
+	Group   *ConstructionGroup        `json:"group,omitempty"`
+	Expand  *ConstructionExpand       `json:"expand,omitempty"`
 }
 
 func (o *ConstructionOperation) UnmarshalJSON(raw []byte) error {
@@ -313,6 +317,53 @@ type ConstructionUnpivotInput struct {
 	ColumnID string      `json:"columnId"`
 	Key      TableScalar `json:"key"`
 }
+
+// ConstructionGroup replaces a stage's rows with one row per distinct key
+// tuple, or one table summary row when Keys is empty.
+type ConstructionGroup struct {
+	ConstructionID string                       `json:"constructionId"`
+	Keys           []ConstructionGroupKey       `json:"keys,omitempty"`
+	Aggregates     []ConstructionGroupAggregate `json:"aggregates,omitempty"`
+}
+
+type ConstructionGroupKey struct {
+	InputColumnID  string `json:"inputColumnId"`
+	OutputColumnID string `json:"outputColumnId"`
+}
+
+type ConstructionGroupAggregate struct {
+	Operation      ConstructionGroupAggregateOp `json:"operation"`
+	InputColumnID  string                       `json:"inputColumnId,omitempty"`
+	OutputColumnID string                       `json:"outputColumnId"`
+}
+
+type ConstructionGroupAggregateOp string
+
+const (
+	ConstructionGroupCountRows     ConstructionGroupAggregateOp = "COUNT_ROWS"
+	ConstructionGroupCountNonNull  ConstructionGroupAggregateOp = "COUNT_NON_NULL"
+	ConstructionGroupCountDistinct ConstructionGroupAggregateOp = "COUNT_DISTINCT"
+	ConstructionGroupSum           ConstructionGroupAggregateOp = "SUM"
+	ConstructionGroupMean          ConstructionGroupAggregateOp = "MEAN"
+)
+
+// ConstructionExpand replaces one public list column with its items and, if
+// requested, the zero-based position of each item.
+type ConstructionExpand struct {
+	ConstructionID  string                        `json:"constructionId"`
+	InputColumnID   string                        `json:"inputColumnId"`
+	OutputColumnID  string                        `json:"outputColumnId"`
+	OrdinalColumnID string                        `json:"ordinalColumnId,omitempty"`
+	EmptyPolicy     ConstructionExpandEmptyPolicy `json:"emptyPolicy,omitempty"`
+}
+
+type ConstructionExpandEmptyPolicy string
+
+const (
+	ConstructionExpandEmptyError          ConstructionExpandEmptyPolicy = "ERROR"
+	ConstructionExpandEmptyExclude        ConstructionExpandEmptyPolicy = "EXCLUDE"
+	ConstructionExpandEmptyPreserveParent ConstructionExpandEmptyPolicy = "PRESERVE_PARENT"
+)
 
 func requiredID(value string) bool {
 	return strings.TrimSpace(value) != "" && value == strings.TrimSpace(value)

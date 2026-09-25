@@ -188,3 +188,90 @@ func TestRecipeConstructionRejectsIndexedSourceFanout(t *testing.T) {
 		t.Fatalf("indexed source error = %v, want explicit fanout limitation", err)
 	}
 }
+
+func TestRecipeConstructionMapsTypedGroupAndExpandOperations(t *testing.T) {
+	authoredColumns := []authoringv2.Column{
+		{ColumnID: "status_id", Column: "status", Label: "Status", LogicalType: "string"},
+		{ColumnID: "amount_id", Column: "amount", Label: "Amount", LogicalType: "decimal"},
+		{ColumnID: "tags_id", Column: "tags", Label: "Tags", LogicalType: "string"},
+	}
+	authored := &authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion,
+		Steps: []authoringv2.ConstructionStep{
+			{
+				ID: "expand_tags", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationExpand, Expand: &authoringv2.ConstructionExpand{
+					ConstructionID: "expand_tags", InputColumnID: "tags_id", OutputColumnID: "tag_id",
+					OrdinalColumnID: "position_id", EmptyPolicy: authoringv2.ConstructionExpandEmptyPreserveParent,
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "status_id", Name: "status", Label: "Status"}, {ID: "amount_id", Name: "amount", Label: "Amount"},
+					{ID: "tag_id", Name: "tag", Label: "Tag"}, {ID: "position_id", Name: "position", Label: "Position"},
+				},
+			},
+			{
+				ID: "group_tags", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "expand_tags"}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+					ConstructionID: "group_tags",
+					Keys:           []authoringv2.ConstructionGroupKey{{InputColumnID: "tag_id", OutputColumnID: "grouped_tag_id"}},
+					Aggregates: []authoringv2.ConstructionGroupAggregate{
+						{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "rows_id"},
+						{Operation: authoringv2.ConstructionGroupCountNonNull, InputColumnID: "status_id", OutputColumnID: "status_count_id"},
+						{Operation: authoringv2.ConstructionGroupCountDistinct, InputColumnID: "status_id", OutputColumnID: "status_distinct_id"},
+						{Operation: authoringv2.ConstructionGroupSum, InputColumnID: "amount_id", OutputColumnID: "amount_sum_id"},
+						{Operation: authoringv2.ConstructionGroupMean, InputColumnID: "amount_id", OutputColumnID: "amount_mean_id"},
+					},
+				}},
+				Outputs: []authoringv2.StageColumn{
+					{ID: "grouped_tag_id", Name: "tag", Label: "Tag"}, {ID: "rows_id", Name: "rows", Label: "Rows"},
+					{ID: "status_count_id", Name: "status_count", Label: "Status count"},
+					{ID: "status_distinct_id", Name: "status_distinct", Label: "Distinct statuses"},
+					{ID: "amount_sum_id", Name: "amount_sum", Label: "Amount sum"},
+					{ID: "amount_mean_id", Name: "amount_mean", Label: "Amount mean"},
+				},
+			},
+		},
+	}
+	if err := authored.Validate(authoredColumns); err != nil {
+		t.Fatalf("validate authored construction: %v", err)
+	}
+	emitted := []explorer.EmittedColumn{
+		{EmissionID: "status-emission", AuthoredColumns: []string{"status"}, PublicColumn: "resolved_status"},
+		{EmissionID: "amount-emission", AuthoredColumns: []string{"amount"}, PublicColumn: "resolved_amount"},
+		{EmissionID: "tags-emission", AuthoredColumns: []string{"tags"}, PublicColumn: "resolved_tags"},
+	}
+	mapped, err := recipeConstruction(authored, authoredColumns, emitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mapped.Validate(nil); err != nil {
+		t.Fatalf("validate mapped recipe construction: %v", err)
+	}
+	if len(mapped.Steps) != 2 {
+		t.Fatalf("mapped steps = %d, want EXPAND and GROUP", len(mapped.Steps))
+	}
+	expand := mapped.Steps[0].Operation.Expand
+	if expand == nil || expand.InputColumnID != "tags_id" || expand.OutputColumnID != "tag_id" ||
+		expand.OrdinalColumnID != "position_id" || expand.EmptyPolicy != recipe.ExpansionPreserveParent {
+		t.Fatalf("mapped expand = %#v", expand)
+	}
+	group := mapped.Steps[1].Operation.Group
+	if group == nil || len(group.Keys) != 1 || group.Keys[0] != (recipe.ConstructionGroupKey{InputColumnID: "tag_id", OutputColumnID: "grouped_tag_id"}) {
+		t.Fatalf("mapped group keys = %#v", group)
+	}
+	wantOperations := []recipe.ConstructionGroupAggregateOp{
+		recipe.ConstructionGroupCountRows, recipe.ConstructionGroupCountNonNull,
+		recipe.ConstructionGroupCountDistinct, recipe.ConstructionGroupSum, recipe.ConstructionGroupMean,
+	}
+	if len(group.Aggregates) != len(wantOperations) {
+		t.Fatalf("mapped summaries = %#v", group.Aggregates)
+	}
+	for index, operation := range wantOperations {
+		if group.Aggregates[index].Operation != operation {
+			t.Errorf("summary %d operation = %q, want %q", index, group.Aggregates[index].Operation, operation)
+		}
+	}
+	if mapped.SourceColumns[2].Name != "resolved_tags" {
+		t.Fatalf("mapped source name = %q, want resolved public emission", mapped.SourceColumns[2].Name)
+	}
+}
