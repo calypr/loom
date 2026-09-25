@@ -1010,10 +1010,15 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const expandSupport = capabilityFor(stage, 'EXPAND');
   const pivotSupport = capabilityFor(stage, 'PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
+  const expandColumns = listColumnsFor(stage);
+  const expandReason = !expandSupport.supported
+    ? expandSupport.reason
+    : expandColumns.length === 0
+      ? 'No field with multiple values is available at this stage.'
+      : '';
   const newPivotSupport = props.onDiscoverCategories
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
-  const expandColumns = listColumnsFor(stage);
   const pivotDiscovery = props.pivotDiscovery;
 
   useEffect(() => {
@@ -1118,7 +1123,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             title="Expand a repeated value"
             description="Make a separate row for each item in a list. Choose what happens to rows with empty lists."
             supported={expandSupport.supported}
-            reason={expandSupport.reason || (expandColumns.length === 0 ? 'Loom has not identified a list-valued column at this stage.' : '')}
+            reason={expandReason}
             selected={form.kind === 'expand'}
             disabled={disabled || expandColumns.length === 0}
             onChoose={() => updateForm(initialExpandForm(stage))}
@@ -1307,6 +1312,9 @@ const GroupEditor = (props: {
       <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
         <legend className="px-1 text-sm font-semibold text-slate-800">Summaries</legend>
         <p className="text-sm text-slate-600">Choose the value to calculate for each group. Count rows works without a selected field.</p>
+        {props.form.aggregates.length === 0 ? (
+          <p role="status" className="text-sm text-amber-900">Add at least one summary before proposing this group.</p>
+        ) : null}
         {props.form.aggregates.map((aggregate, index) => {
           const inputColumns = aggregateInputColumnsFor(props.stage, aggregate.operation);
           const operation: GroupAggregateKind = aggregate.operation;

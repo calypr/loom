@@ -162,6 +162,110 @@ describe('ConstructionReshapeEditor', () => {
     });
   });
 
+  it('adds a group after an intermediate step and retains generated identities while editing labels', () => {
+    const priorStep: ConstructionReshapeStep = {
+      id: 'filter-specimens',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'site-id', operator: 'EXISTS' } },
+      outputs: sourceColumns.map(({ id, name, label, type }) => ({ id, name, label, ...(type ? { type } : {}) })),
+    };
+    const construction = { version: 1, steps: [priorStep] } satisfies ConstructionReshapeEditorProps['construction'];
+    const filteredStage = {
+      ...sourceStage,
+      id: priorStep.id,
+      inputStageId: sourceStage.id,
+      operation: 'FILTER',
+    } satisfies ConstructionReshapeEditorProps['capabilities']['stages'][number];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      construction,
+      capabilities: capabilitiesFor([sourceStage, filteredStage], filteredStage),
+      selectedColumns: ['site-id'],
+      onCandidateChange,
+    });
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Specimen rows' } });
+    const firstIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(firstIntent).toBeDefined();
+    if (!firstIntent) throw new Error('Expected a group proposal candidate');
+    const firstGroup = firstIntent.candidateConstruction.steps.at(-1);
+    expect(firstGroup?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: priorStep.id }]);
+
+    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Updated specimen rows' } });
+    const editedIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(editedIntent).toBeDefined();
+    if (!editedIntent) throw new Error('Expected an updated group proposal candidate');
+    const editedGroup = editedIntent.candidateConstruction.steps.at(-1);
+    expect(editedGroup?.id).toBe(firstGroup?.id);
+    expect(editedGroup?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: {
+        keys: [{ inputColumnId: 'site-id', outputColumnId: expect.any(String) }],
+        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }],
+      },
+    });
+    expect(editedGroup?.outputs.map((column) => column.id)).toEqual(firstGroup?.outputs.map((column) => column.id));
+    expect(editedGroup?.outputs.at(-1)?.label).toBe('Updated specimen rows');
+  });
+
+  it('requires a summary before proposing a group with no calculated outputs', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({ onCandidateChange });
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove summary 1' }));
+
+    expect(screen.getByRole('status')).toHaveTextContent('Add at least one summary before proposing this group.');
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('reopens and edits a saved group without replacing its step or output identities', () => {
+    const groupStep: ConstructionReshapeStep = {
+      id: 'saved-group',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'saved-group',
+          keys: [{ inputColumnId: 'site-id', outputColumnId: 'site-group-id' }],
+          aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'age-count-id' }],
+        },
+      },
+      outputs: [
+        { id: 'site-group-id', name: 'site', label: 'Site' },
+        { id: 'age-count-id', name: 'age_count', label: 'Age count', type: 'integer' },
+      ],
+    };
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      construction: { version: 1, steps: [groupStep] },
+      capabilities: capabilitiesFor(),
+      editingStep: groupStep,
+      onCandidateChange,
+    });
+
+    expect(controlChecked('Group by Site')).toBe(true);
+    expect(controlValue('Summary 1')).toBe('COUNT_NON_NULL');
+    expect(controlValue('Summary field 1')).toBe('age-id');
+    fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Populated ages' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected an edited group proposal candidate');
+    expect(intent.changedStepId).toBe(groupStep.id);
+    const editedGroup = intent.candidateConstruction.steps[0];
+    expect(editedGroup?.id).toBe(groupStep.id);
+    expect(editedGroup?.operation).toMatchObject({
+      kind: 'GROUP',
+      group: {
+        constructionId: groupStep.id,
+        keys: [{ inputColumnId: 'site-id', outputColumnId: 'site-group-id' }],
+        aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'age-count-id' }],
+      },
+    });
+    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'age-count-id', label: 'Populated ages' }));
+  });
+
   it('requires an explicit empty-list policy and offers a zero-based position column', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ onCandidateChange });
@@ -189,6 +293,65 @@ describe('ConstructionReshapeEditor', () => {
       },
     });
     expect(parsed.steps.at(-1)?.outputs).toContainEqual(expect.objectContaining({ name: 'tag_item' }));
+  });
+
+  it('expands only list-cardinality columns at an intermediate stage and preserves output IDs', () => {
+    const priorStep: ConstructionReshapeStep = {
+      id: 'filter-specimens',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'FILTER', filter: { columnId: 'site-id', operator: 'EXISTS' } },
+      outputs: sourceColumns.map(({ id, name, label, type }) => ({ id, name, label, ...(type ? { type } : {}) })),
+    };
+    const construction = { version: 1, steps: [priorStep] } satisfies ConstructionReshapeEditorProps['construction'];
+    const filteredStage = {
+      ...sourceStage,
+      id: priorStep.id,
+      inputStageId: sourceStage.id,
+      operation: 'FILTER',
+    } satisfies ConstructionReshapeEditorProps['capabilities']['stages'][number];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
+      construction,
+      capabilities: capabilitiesFor([sourceStage, filteredStage], filteredStage),
+      onCandidateChange,
+    });
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-expand'));
+    const repeatedField = screen.getByLabelText('Repeated field');
+    expect(repeatedField.querySelectorAll('option')).toHaveLength(1);
+    expect(controlValue('Repeated field')).toBe('tags-id');
+    fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
+    const firstIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(firstIntent).toBeDefined();
+    if (!firstIntent) throw new Error('Expected an expand proposal candidate');
+    const firstExpand = firstIntent.candidateConstruction.steps.at(-1);
+    expect(firstExpand?.inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: priorStep.id }]);
+    const firstExpandOutputId = firstExpand?.operation.kind === 'EXPAND'
+      ? firstExpand.operation.expand.outputColumnId
+      : undefined;
+    const outputIds = firstExpand?.outputs.map((column) => column.id);
+
+    fireEvent.change(screen.getByLabelText('Expanded item label'), { target: { value: 'Observed tag' } });
+    const editedIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(editedIntent).toBeDefined();
+    if (!editedIntent) throw new Error('Expected an updated expand proposal candidate');
+    const editedExpand = editedIntent.candidateConstruction.steps.at(-1);
+    expect(editedExpand?.id).toBe(firstExpand?.id);
+    expect(editedExpand?.outputs.map((column) => column.id)).toEqual(outputIds);
+    expect(editedExpand?.outputs).toContainEqual(expect.objectContaining({ id: firstExpandOutputId, label: 'Observed tag' }));
+  });
+
+  it('does not offer expansion when the stage has no many-cardinality columns', () => {
+    const scalarOnlyStage = {
+      ...sourceStage,
+      columns: sourceColumns.filter((column) => column.cardinality !== 'many'),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: capabilitiesFor([scalarOnlyStage], scalarOnlyStage),
+    });
+
+    expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
+    expect(screen.getByText('No field with multiple values is available at this stage.')).toBeInTheDocument();
   });
 
   it('reopens an existing expand with its stable IDs, names, policy, and history edit action', () => {
