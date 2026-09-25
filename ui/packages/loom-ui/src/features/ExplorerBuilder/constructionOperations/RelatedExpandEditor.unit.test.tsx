@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '../../../types';
 import { RelatedExpandEditor } from './RelatedExpandEditor';
@@ -29,6 +29,7 @@ const catalog: ExplorerBuilderCatalog = {
   nodes: [
     { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 2 },
     { nodeId: 'encounter-node', resourceType: 'Encounter', rowRootEligible: false, populated: true, documentCount: 3 },
+    { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: false, populated: true, documentCount: 5 },
   ],
   edges: [{ edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node', label: 'subject_Patient' }],
 };
@@ -197,5 +198,36 @@ describe('RelatedExpandEditor', () => {
     const steps = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps;
     expect(steps).toHaveLength(2);
     expect(steps[1].inputs).toEqual([{ kind: 'STEP_OUTPUT', stepId: 'keep-patients' }]);
+  });
+
+  it('ignores a superseded route response after the target type changes', async () => {
+    let resolveEncounter: ((value: unknown) => void) | undefined;
+    searchRelatedExpandChoices.mockReset().mockImplementation((args: { targetResourceType: string }) =>
+      args.targetResourceType === 'Encounter'
+        ? new Promise((resolve) => { resolveEncounter = resolve; })
+        : Promise.resolve({
+          snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+          complete: true, truncated: false,
+          choices: [{
+            choiceId: 'observation-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation',
+            route: [{ ...route[0], toNodeId: 'observation-node', toResourceType: 'Observation', relationship: 'subject_Observation' }],
+          }],
+        }),
+    );
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(resolveEncounter).toBeDefined());
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Observation' } });
+    expect(await screen.findByRole('radio', { name: 'Observation via subject_Observation' })).toBeInTheDocument();
+    await act(async () => resolveEncounter?.({
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      complete: true, truncated: false,
+      choices: [{ choiceId: 'late-encounter', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    }));
+    expect(screen.queryByRole('radio', { name: 'Encounter via subject_Patient' })).not.toBeInTheDocument();
   });
 });

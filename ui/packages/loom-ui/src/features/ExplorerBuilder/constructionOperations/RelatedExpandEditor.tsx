@@ -136,6 +136,7 @@ export const RelatedExpandEditor = ({
   const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const moreController = useRef<AbortController | undefined>(undefined);
+  const requestVersion = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy | undefined>(saved?.emptyPolicy);
@@ -149,6 +150,7 @@ export const RelatedExpandEditor = ({
   useEffect(() => {
     if (!targetResourceType) return;
     const controller = new AbortController();
+    const version = ++requestVersion.current;
     setLoading(true);
     setError('');
     void client.searchRelatedExpandChoices({
@@ -157,16 +159,18 @@ export const RelatedExpandEditor = ({
       expectedDraftDigest: capabilities.draftDigest,
       stageId: stage.id, targetResourceType, limit: 10,
     }, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || version !== requestVersion.current) return;
       if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices(result.choices);
       setCursor(result.nextCursor);
     }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load related paths.');
+      if (!controller.signal.aborted && version === requestVersion.current) {
+        setError(cause instanceof Error ? cause.message : 'Could not load related paths.');
+      }
     }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     });
     return () => controller.abort();
   }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, targetResourceType]);
@@ -186,6 +190,7 @@ export const RelatedExpandEditor = ({
     moreController.current?.abort();
     const controller = new AbortController();
     moreController.current = controller;
+    const version = requestVersion.current;
     setLoading(true);
     setError('');
     try {
@@ -195,16 +200,18 @@ export const RelatedExpandEditor = ({
         expectedDraftDigest: capabilities.draftDigest,
         stageId: stage.id, targetResourceType, limit: 10, cursor,
       }, controller.signal);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || version !== requestVersion.current) return;
       if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices((current) => [...current, ...result.choices]);
       setCursor(result.nextCursor);
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
+      if (!controller.signal.aborted && version === requestVersion.current) {
+        setError(cause instanceof Error ? cause.message : 'Could not load more paths.');
+      }
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     }
   };
 
@@ -218,6 +225,8 @@ export const RelatedExpandEditor = ({
         Related record type
         <select value={targetResourceType} disabled={disabled} onChange={(event) => {
           const target = event.target.value;
+          requestVersion.current += 1;
+          moreController.current?.abort();
           setTargetResourceType(target);
           setChoice(undefined);
           setChoices([]);
