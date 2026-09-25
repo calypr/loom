@@ -22,6 +22,16 @@ const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomU
 const routeLabel = (choice: RouteChoice): string =>
   choice.route.map((hop) => `${hop.toResourceType} via ${hop.relationship}`).join(' → ');
 
+const choicesMatchRequest = (
+  result: RelatedExpandChoiceSearchResponse,
+  snapshotToken: string,
+  outputId: string,
+  stageId: string,
+  targetResourceType: string,
+): boolean => result.snapshotToken === snapshotToken && result.outputId === outputId
+  && result.stageId === stageId
+  && result.choices.every((item) => item.targetResourceType === targetResourceType);
+
 const candidateFor = (
   construction: Construction,
   stage: ConstructionCapabilitiesResponse['selectedStage'],
@@ -131,9 +141,7 @@ export const RelatedExpandEditor = ({
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
-  const targetTypes = [...new Set(catalog.nodes
-    .filter((node) => node.populated)
-    .map((node) => node.resourceType))].sort();
+  const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
 
   useEffect(() => {
     if (!targetResourceType) return;
@@ -142,10 +150,12 @@ export const RelatedExpandEditor = ({
     setError('');
     void client.searchRelatedExpandChoices({
       project, explorerId, authResourcePath, snapshotToken, outputId,
+      expectedDraftVersion: capabilities.draftVersion,
+      expectedDraftDigest: capabilities.draftDigest,
       stageId: stage.id, targetResourceType, limit: 10,
     }, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      if (result.snapshotToken !== snapshotToken || result.outputId !== outputId || result.stageId !== stage.id) {
+      if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices(result.choices);
@@ -156,7 +166,7 @@ export const RelatedExpandEditor = ({
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, stage.id, targetResourceType]);
+  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, targetResourceType]);
 
   const emit = (
     nextChoice = choice,
@@ -175,9 +185,11 @@ export const RelatedExpandEditor = ({
     try {
       const result = await client.searchRelatedExpandChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId,
+        expectedDraftVersion: capabilities.draftVersion,
+        expectedDraftDigest: capabilities.draftDigest,
         stageId: stage.id, targetResourceType, limit: 10, cursor,
       });
-      if (result.snapshotToken !== snapshotToken || result.outputId !== outputId || result.stageId !== stage.id) {
+      if (!choicesMatchRequest(result, snapshotToken, outputId, stage.id, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices((current) => [...current, ...result.choices]);

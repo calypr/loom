@@ -536,6 +536,7 @@ describe('Loom project paths', () => {
     const client = createLoomClient({ fetch });
     await expect(client.searchRelatedExpandChoices({
       project: 'NCPI_ACCEPTANCE', explorerId: 'default', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
       outputId: 'patients', stageId: 'source_projection', targetResourceType: 'Encounter', limit: 10,
     })).resolves.toEqual(response);
     expect(fetch).toHaveBeenCalledWith(
@@ -543,7 +544,8 @@ describe('Loom project paths', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
+          outputId: 'patients', stageId: 'source_projection',
           targetResourceType: 'Encounter', limit: 10,
         }),
       }),

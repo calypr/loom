@@ -314,6 +314,8 @@ export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArg
 
 export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
   readonly outputId: string;
   readonly stageId: string;
   readonly targetResourceType: string;
@@ -1152,6 +1154,8 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
   const searchRelatedExpandChoices = (args: SearchRelatedExpandChoicesArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/related-expand-choices'), withJson({
       snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
       outputId: args.outputId,
       stageId: args.stageId,
       targetResourceType: args.targetResourceType,

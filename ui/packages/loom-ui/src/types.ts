@@ -1789,7 +1789,14 @@ export const relatedExpandChoiceSearchResponseSchema = z.object({
     targetResourceType: opaqueIdSchema,
     route: z.array(constructionRouteStepSchema).min(1),
   }).strict()).max(50),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related path search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete path search cannot have a continuation cursor.' });
+  }
+});
 export type RelatedExpandChoiceSearchResponse = z.infer<typeof relatedExpandChoiceSearchResponseSchema>;
 
 export const populationRouteChoiceSchema = z
