@@ -14,6 +14,25 @@ func (p PhysicalPlan) Validate() error {
 			return fmt.Errorf("unsafe bind key %q", key)
 		}
 	}
+	switch p.Engine {
+	case "", PhysicalEngineAQL:
+		if p.ClickHouseCombine != nil {
+			return fmt.Errorf("AQL physical plan cannot carry a ClickHouse combine payload")
+		}
+	case PhysicalEngineClickHouse:
+		if p.ClickHouseCombine == nil {
+			return fmt.Errorf("ClickHouse physical plan requires a typed combine payload")
+		}
+		if len(p.Operations) != 0 || p.StageSequence != nil || len(p.DeferredExpressionLets) != 0 {
+			return fmt.Errorf("terminal ClickHouse combine cannot carry AQL operations or construction stages")
+		}
+		if err := p.ClickHouseCombine.Validate(); err != nil {
+			return fmt.Errorf("ClickHouse combine: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported physical engine %q", p.Engine)
+	}
 	defined := map[string]bool{}
 	rootScans := 0
 	returns := 0

@@ -364,7 +364,7 @@ func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
 
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 	valid := compiler.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
-	if err := validatePreviewPlan(valid, 2); err != nil {
+	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {
 		t.Fatal(err)
 	}
 	for _, invalid := range []compiler.CompiledQuery{
@@ -373,11 +373,18 @@ func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2},
 		{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 3, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}},
 	} {
-		if err := validatePreviewPlan(invalid, 2); err == nil {
+		if err := validatePreviewPlan(invalid, 2, ir.PhysicalEngineAQL); err == nil {
 			t.Fatalf("invalid plan %#v was admitted", invalid)
 		} else if userErr, ok := dataframeerrors.AsUserError(err); !ok || userErr.Code() != string(dataframeerrors.CodePlanTooExpensive) {
 			t.Fatalf("invalid plan error = %v, want PLAN_TOO_EXPENSIVE", err)
 		}
+	}
+	clickHouse := compiler.CompiledQuery{PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "combine-fingerprint"}}
+	if err := validatePreviewPlan(clickHouse, 2, ir.PhysicalEngineClickHouse); err != nil {
+		t.Fatalf("valid pinned ClickHouse preview plan: %v", err)
+	}
+	if err := validatePreviewPlan(clickHouse, 2, ir.PhysicalEngineAQL); err == nil {
+		t.Fatal("ClickHouse preview plan was admitted as AQL")
 	}
 }
 

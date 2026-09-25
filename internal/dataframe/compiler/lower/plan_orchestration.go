@@ -28,6 +28,7 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	}
 	physical := ir.PhysicalPlan{
 		Version: 1,
+		Engine:  ir.PhysicalEngineAQL,
 		Source: ir.PhysicalSource{
 			SemanticNode: output.Root.Alias,
 			ResourceType: output.Root.ResourceType,

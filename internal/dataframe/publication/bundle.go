@@ -149,6 +149,7 @@ func (o BundleOutputRecord) Queryable() bool {
 }
 
 type PhysicalColumn struct {
+	ID           string           `json:"id,omitempty"`
 	Name         string           `json:"name"`
 	SemanticPath string           `json:"semanticPath,omitempty"`
 	ClickHouse   string           `json:"clickhouseType"`

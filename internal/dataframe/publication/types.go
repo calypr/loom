@@ -23,6 +23,10 @@ const (
 // boolean, or object. Object values are rejected by the generic MVP runner
 // unless a target explicitly opts into a serialization policy.
 type LogicalColumn struct {
+	// ID is the stable compiler identity used by constructed-table inputs. It
+	// is persisted with the exact published revision, never inferred from a
+	// mutable display name.
+	ID   string
 	Name string
 	// SemanticPath is the stable FHIR/provenance identity. It is persisted
 	// alongside the physical schema but never used to name ClickHouse columns.
@@ -96,6 +100,7 @@ type Transaction interface {
 // staged. Physical names and discovery provenance are deliberately excluded.
 func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) string {
 	type contract struct {
+		ID           string `json:"id,omitempty"`
 		Name         string `json:"name"`
 		Kind         string `json:"kind"`
 		SemanticPath string `json:"semanticPath,omitempty"`
@@ -112,7 +117,7 @@ func FinalSchemaDigest(identity PublicationIdentity, schemas []OutputSchema) str
 	for _, schema := range schemas {
 		item := output{Name: schema.Name, Columns: make([]contract, 0, len(schema.Columns))}
 		for _, column := range schema.Columns {
-			item.Columns = append(item.Columns, contract{Name: column.Name, Kind: column.Kind, SemanticPath: column.SemanticPath, Repeated: column.Repeated, Nullable: column.Nullable, Identity: column.IsIdentity})
+			item.Columns = append(item.Columns, contract{ID: column.ID, Name: column.Name, Kind: column.Kind, SemanticPath: column.SemanticPath, Repeated: column.Repeated, Nullable: column.Nullable, Identity: column.IsIdentity})
 		}
 		item.SourceRow = schema.SourceRow
 		ordered = append(ordered, item)

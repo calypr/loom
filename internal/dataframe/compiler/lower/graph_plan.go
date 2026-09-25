@@ -37,6 +37,7 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 
 	physical := ir.PhysicalPlan{
 		Version: 1,
+		Engine:  ir.PhysicalEngineAQL,
 		Source:  ir.PhysicalSource{SemanticNode: output.Root.Alias, ResourceType: output.Root.ResourceType},
 		BindVars: map[string]any{
 			"root_collection":                  output.Root.ResourceType,

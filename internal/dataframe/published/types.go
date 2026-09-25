@@ -15,6 +15,7 @@ const projectIDColumn = "project_id"
 const StateReady State = "READY"
 
 type Column struct {
+	ID           string `json:"id,omitempty"`
 	Name         string `json:"name"`
 	SemanticPath string `json:"semanticPath,omitempty"`
 	ClickHouse   string `json:"clickhouseType"`
@@ -33,6 +34,8 @@ type Materialization struct {
 	SourceRevision    string                         `json:"sourceRevision,omitempty"`
 	ReceiptID         string                         `json:"receiptId,omitempty"`
 	SchemaDigest      string                         `json:"schemaDigest,omitempty"`
+	ScopeDigest       string                         `json:"scopeDigest,omitempty"`
+	AuthScopeMode     string                         `json:"authScopeMode,omitempty"`
 	Project           string                         `json:"project"`
 	DatasetGeneration string                         `json:"datasetGeneration"`
 	State             State                          `json:"state"`
@@ -59,6 +62,8 @@ func publishedMaterialization(execution publication.BundleExecution, output publ
 		Revision:          execution.ID,
 		ReceiptID:         execution.ReceiptID,
 		SchemaDigest:      execution.SchemaDigest,
+		ScopeDigest:       execution.ScopeDigest,
+		AuthScopeMode:     execution.AuthScopeMode,
 		Project:           execution.Project,
 		DatasetGeneration: execution.DatasetGeneration,
 		State:             StateReady,
@@ -85,7 +90,7 @@ func cloneSourceRow(value *publication.SourceRowMetadata) *publication.SourceRow
 func publishedColumns(columns []publication.PhysicalColumn) []Column {
 	result := make([]Column, len(columns))
 	for index, column := range columns {
-		result[index] = Column{Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated, LoomOwned: column.LoomOwned}
+		result[index] = Column{ID: column.ID, Name: column.Name, SemanticPath: column.SemanticPath, ClickHouse: column.ClickHouse, LogicalType: column.LogicalType, Nullable: column.Nullable, Repeated: column.Repeated, LoomOwned: column.LoomOwned}
 	}
 	return result
 }

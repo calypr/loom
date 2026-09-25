@@ -23,6 +23,9 @@ type RenderedPhysicalPlan struct {
 // RenderPhysicalPlan renders a validated physical plan to deterministic AQL.
 // It keeps data and metadata values out of the generated AQL source.
 func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+	if plan.Engine == ir.PhysicalEngineClickHouse {
+		return RenderedPhysicalPlan{}, fmt.Errorf("ClickHouse physical plan cannot be rendered as AQL")
+	}
 	if err := plan.Validate(); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}

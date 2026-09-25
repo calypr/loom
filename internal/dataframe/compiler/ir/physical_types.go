@@ -1,13 +1,18 @@
 package ir
 
-// PhysicalPlan is the renderer-independent AQL operation graph produced after
-// semantic planning. Operations are ordered because AQL variables have lexical
-// scope: an operation may reference only variables introduced before it.
+// PhysicalPlan is the renderer-independent backend plan produced after
+// semantic planning. AQL operation graphs retain lexical variable scope;
+// ClickHouse construction plans use their own closed typed payload.
 type PhysicalPlan struct {
 	Version    int
+	Engine     PhysicalEngine
 	Source     PhysicalSource
 	BindVars   map[string]any
 	Operations []PhysicalOperation
+	// ClickHouseCombine is present only for a terminal exact-revision combine
+	// plan. It is immutable after lowering and executed by the ClickHouse
+	// renderer/stream path, never by the AQL renderer.
+	ClickHouseCombine *PhysicalClickHouseCombine
 	// StageSequence composes typed operators over materialized intermediate
 	// rows. The ordinary operations form the source projection; stage execution
 	// remains part of this physical plan and shares its bind scope and renderer.

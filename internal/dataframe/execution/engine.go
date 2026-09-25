@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
+	clickhousecombine "github.com/calypr/loom/internal/dataframe/compiler/render/clickhouse"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -27,6 +28,15 @@ import (
 )
 
 type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+
+// ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
+// result column contract and positional values. SQL fragments never come from
+// recipe or request data.
+type ClickHouseQueryRows func(context.Context, string, []string, func(map[string]any) error, ...any) error
+
+type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error)
+
+type WithExecutionReadPins func(context.Context, []string, func(context.Context) error) error
 
 const (
 	// DefaultPreviewLimit is used when a preview request omits its limit.
@@ -65,25 +75,31 @@ type PreviewSummary struct {
 }
 
 type Config struct {
-	Registry      exec.Reader
-	Revisions     recipe.RevisionStore
-	ResolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	QueryRows     QueryRows
-	ScopeDigest   func(recipe.RuntimeBindings) string
-	BatchSize     int
+	Registry                exec.Reader
+	Revisions               recipe.RevisionStore
+	ResolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	QueryRows               QueryRows
+	ClickHouseQueryRows     ClickHouseQueryRows
+	ResolveClickHouseInputs ResolveClickHouseInputs
+	WithExecutionReadPins   WithExecutionReadPins
+	ScopeDigest             func(recipe.RuntimeBindings) string
+	BatchSize               int
 	// RootPageRows bounds the number of root documents evaluated by one wide
 	// output query. Zero keeps the legacy single-query execution path.
 	RootPageRows int
 }
 
 type Engine struct {
-	registry      exec.Reader
-	revisions     recipe.RevisionStore
-	resolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	queryRows     QueryRows
-	scopeDigest   func(recipe.RuntimeBindings) string
-	batchSize     int
-	rootPageRows  int
+	registry                exec.Reader
+	revisions               recipe.RevisionStore
+	resolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	queryRows               QueryRows
+	clickHouseQueryRows     ClickHouseQueryRows
+	resolveClickHouseInputs ResolveClickHouseInputs
+	withExecutionReadPins   WithExecutionReadPins
+	scopeDigest             func(recipe.RuntimeBindings) string
+	batchSize               int
+	rootPageRows            int
 }
 
 // Resolved contains the immutable recipe after schema discovery, semantic
@@ -119,16 +135,24 @@ func (e *ResolutionError) Unwrap() error {
 }
 
 type OutputStream struct {
-	Name          string
-	Columns       []string
-	RowIdentity   *spec.RowIdentity
-	DynamicChecks map[string]map[string]DynamicColumnCheck
-	query         string
-	bindVars      map[string]any
-	stream        QueryRows
-	batchSize     int
-	rootPageRows  int
-	page          *compiler.CompiledOutputPage
+	Name                    string
+	Columns                 []string
+	RowIdentity             *spec.RowIdentity
+	DynamicChecks           map[string]map[string]DynamicColumnCheck
+	query                   string
+	bindVars                map[string]any
+	stream                  QueryRows
+	batchSize               int
+	rootPageRows            int
+	page                    *compiler.CompiledOutputPage
+	physicalEngine          ir.PhysicalEngine
+	clickHouseCombine       *ir.PhysicalClickHouseCombine
+	project                 string
+	bindings                recipe.RuntimeBindings
+	clickHouseQueryRows     ClickHouseQueryRows
+	resolveClickHouseInputs ResolveClickHouseInputs
+	withExecutionReadPins   WithExecutionReadPins
+	queryLimit              int
 }
 
 type DynamicColumnCheck struct {
@@ -157,7 +181,12 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.RootPageRows < 0 {
 		return nil, fmt.Errorf("recipe root page rows cannot be negative")
 	}
-	return &Engine{registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle, queryRows: cfg.QueryRows, scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows}, nil
+	return &Engine{
+		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
+		queryRows: cfg.QueryRows, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
+		scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
+	}, nil
 }
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
@@ -439,6 +468,13 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 		if output.Name != name {
 			continue
 		}
+		switch output.Plan.Engine {
+		case ir.PhysicalEngineClickHouse:
+			return e.clickHouseStreamForOutput(resolved, output, limit)
+		case "", ir.PhysicalEngineAQL:
+		default:
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
+		}
 		query, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
@@ -463,6 +499,53 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 		return stream, query, nil
 	}
 	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
+}
+
+func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
+	if err := output.Plan.Validate(); err != nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse plan: %w", output.Name, err)
+	}
+	if output.Plan.ClickHouseCombine == nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has no typed ClickHouse combine", output.Name)
+	}
+	if len(output.DynamicColumns) != 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q ClickHouse combine does not support dynamic columns", output.Name)
+	}
+	combine := clonePhysicalClickHouseCombine(*output.Plan.ClickHouseCombine)
+	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
+	query := compiler.CompiledQuery{
+		Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration,
+		TranslationVersion: output.TranslationVersion, AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),
+		PlanMode: "clickhouse", PlanProfile: "pinned_table_combine", RowIdentity: output.RowIdentity.Clone(),
+		Columns: append([]string(nil), output.Columns...), PublicColumns: append([]string(nil), output.Columns...),
+		OutputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), Limit: limit,
+		PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: clickHouseCombineFingerprint(combine)},
+	}
+	stream := OutputStream{
+		Name: output.Name, Columns: append([]string(nil), output.Columns...), RowIdentity: output.RowIdentity.Clone(),
+		DynamicChecks: map[string]map[string]DynamicColumnCheck{}, physicalEngine: ir.PhysicalEngineClickHouse,
+		clickHouseCombine: &combine, project: bindings.Project, bindings: bindings, queryLimit: limit,
+		clickHouseQueryRows: e.clickHouseQueryRows, resolveClickHouseInputs: e.resolveClickHouseInputs,
+		withExecutionReadPins: e.withExecutionReadPins,
+	}
+	return stream, query, nil
+}
+
+func clickHouseCombineFingerprint(plan ir.PhysicalClickHouseCombine) string {
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+func clonePhysicalClickHouseCombine(plan ir.PhysicalClickHouseCombine) ir.PhysicalClickHouseCombine {
+	plan.Inputs = append([]ir.PhysicalCombineInputRef(nil), plan.Inputs...)
+	plan.Keys = append([]ir.PhysicalCombineKey(nil), plan.Keys...)
+	plan.Projections = append([]ir.PhysicalCombineProjection(nil), plan.Projections...)
+	plan.Outputs = append([]ir.PhysicalCombineOutputColumn(nil), plan.Outputs...)
+	return plan
 }
 
 func selectedOutputNames(names []string, outputs []lower.CompiledRecipeOutput) map[string]bool {
@@ -550,7 +633,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
 	}
-	if err := validatePreviewPlan(query, limit); err != nil {
+	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
 	}
 	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
@@ -613,7 +696,13 @@ func normalizePreviewLimit(limit int) (int, error) {
 	return limit, nil
 }
 
-func validatePreviewPlan(query compiler.CompiledQuery, limit int) error {
+func validatePreviewPlan(query compiler.CompiledQuery, limit int, engine ir.PhysicalEngine) error {
+	if engine == ir.PhysicalEngineClickHouse {
+		if query.PlanMode != "clickhouse" || query.PlanProfile != "pinned_table_combine" || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
+			return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled ClickHouse combine plan is not in the approved preview plan class", nil)
+		}
+		return nil
+	}
 	if query.PlanMode != previewPlanMode || query.PlanProfile != previewPlanProfile || strings.TrimSpace(query.PlanDiagnostics.Fingerprint) == "" || query.Limit != limit {
 		return previewAdmissionError(dataframeerrors.CodePlanTooExpensive, "compiled preview plan is not in the approved preview plan class", nil)
 	}
@@ -696,6 +785,26 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 }
 
 func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+	if s.physicalEngine == ir.PhysicalEngineClickHouse {
+		if s.clickHouseCombine == nil || s.resolveClickHouseInputs == nil || s.withExecutionReadPins == nil || s.clickHouseQueryRows == nil {
+			return fmt.Errorf("pinned ClickHouse combine execution dependencies are required")
+		}
+		revisions := make([]string, 0, len(s.clickHouseCombine.Inputs))
+		for _, input := range s.clickHouseCombine.Inputs {
+			revisions = append(revisions, input.RevisionID)
+		}
+		return s.withExecutionReadPins(ctx, revisions, func(pinnedCtx context.Context) error {
+			inputs, err := s.resolveClickHouseInputs(pinnedCtx, *s.clickHouseCombine, s.bindings.Clone())
+			if err != nil {
+				return err
+			}
+			rendered, err := clickhousecombine.RenderCombineWithLimit(*s.clickHouseCombine, inputs, s.project, s.queryLimit)
+			if err != nil {
+				return err
+			}
+			return s.clickHouseQueryRows(pinnedCtx, rendered.Query, rendered.Columns, visit, rendered.Args...)
+		})
+	}
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
 	}

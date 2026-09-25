@@ -545,6 +545,7 @@ func (t *clickHouseBundleTx) SetOutputMetadata(ctx context.Context, name string,
 	for index := range record.Columns {
 		column := &record.Columns[index]
 		if logical, ok := physical[column.Name]; ok {
+			column.ID = logical.ID
 			column.SemanticPath = logical.SemanticPath
 			column.LogicalType = logical.Kind
 			column.Nullable = logical.Nullable

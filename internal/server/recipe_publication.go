@@ -46,7 +46,7 @@ func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName str
 				if output.RowGrain == spec.RowGrainGroups && kind == "object" {
 					kind = "string"
 				}
-				columns = append(columns, publication.LogicalColumn{Name: column.Name, SemanticPath: "loom:row_id", Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
+				columns = append(columns, publication.LogicalColumn{ID: column.ID, Name: column.Name, SemanticPath: "loom:row_id", Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, IsIdentity: true, LoomOwned: true, Provenance: publication.ColumnExplicit})
 				identityAdded = true
 				break
 			}
@@ -77,7 +77,7 @@ func recipeOutputLogicalColumns(plan dataframeexecution.Resolved, outputName str
 			if output.RootColumnNaming != recipe.RootColumnNamingExact {
 				name = publication.FlatColumnName(output.RootResourceType, name)
 			}
-			columns = append(columns, publication.LogicalColumn{Name: name, SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
+			columns = append(columns, publication.LogicalColumn{ID: column.ID, Name: name, SemanticPath: semanticPath, Kind: kind, Repeated: column.Cardinality == "many", Nullable: column.Nullable, Provenance: provenance})
 		}
 		return columns
 	}

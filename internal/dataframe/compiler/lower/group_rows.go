@@ -56,6 +56,7 @@ func buildGroupRowsPhysicalPlan(output semantic.OutputPlan, context semantic.Exe
 	}
 	plan := ir.PhysicalPlan{
 		Version:    1,
+		Engine:     ir.PhysicalEngineAQL,
 		Source:     ir.PhysicalSource{SemanticNode: "group_rows", SemanticField: "group_revision", ResourceType: output.RootResourceType},
 		BindVars:   binds,
 		Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalGroupRowsOp, Source: ir.PhysicalSource{SemanticNode: "group_rows", ResourceType: output.RootResourceType}, GroupRows: rows}},

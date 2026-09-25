@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/google/uuid"
 )
 
 const (
@@ -119,64 +117,13 @@ func SourceResourceRef(materialization Materialization, row map[string]any) (str
 // exact output. Pin loss cancels the ClickHouse query and is surfaced as a
 // failure; callers must never return a partial membership as complete.
 func (r *Reader) StreamExactExecution(ctx context.Context, executionID, outputID string, req StreamRequest, visit func(map[string]any) error) error {
-	materialization, err := r.ExactExecutionMaterialization(ctx, executionID, outputID)
-	if err != nil {
-		return err
-	}
-	pins, ok := r.Catalog.(publication.ExecutionReadPinCatalog)
-	if !ok {
-		return fmt.Errorf("bundle catalog does not support execution read pins")
-	}
-	owner := "reader-" + uuid.NewString()
-	expires := time.Now().UTC().Add(defaultReadPinTTL)
-	acquired, err := pins.AcquireExecutionReadPin(ctx, executionID, owner, expires)
-	if err != nil {
-		return err
-	}
-	if !acquired {
-		return publication.ErrExecutionReadPinLost
-	}
-	defer func() {
-		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer releaseCancel()
-		_ = pins.ReleaseExecutionReadPin(releaseCtx, executionID, owner)
-	}()
-
-	scanCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var lost atomic.Bool
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(defaultReadPinInterval)
-		defer ticker.Stop()
-		defer close(done)
-		for {
-			select {
-			case <-stop:
-				return
-			case <-scanCtx.Done():
-				return
-			case <-ticker.C:
-				next := time.Now().UTC().Add(defaultReadPinTTL)
-				renewCtx, renewCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				owned, renewErr := pins.RenewExecutionReadPin(renewCtx, executionID, owner, next)
-				renewCancel()
-				if renewErr != nil || !owned {
-					lost.Store(true)
-					cancel()
-					return
-				}
-			}
+	return r.WithExecutionReadPins(ctx, []string{executionID}, func(scanCtx context.Context) error {
+		materialization, err := r.ExactExecutionMaterialization(scanCtx, executionID, outputID)
+		if err != nil {
+			return err
 		}
-	}()
-	err = r.Stream(scanCtx, materialization, req, visit)
-	close(stop)
-	<-done
-	if lost.Load() {
-		return publication.ErrExecutionReadPinLost
-	}
-	return err
+		return r.Stream(scanCtx, materialization, req, visit)
+	})
 }
 
 // ValidateTypedFilters is the boundary check used by selection creation. It
