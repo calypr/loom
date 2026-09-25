@@ -408,15 +408,13 @@
         "rowIdentitySelector": "h4",
         "applySelector": "[data-testid='ui04-confirm-table-shape']",
         "networkIdentity": "proposalId",
-        "identityContext": {
-          "selector": "[data-testid='construction-preview']",
-          "fields": {
-            "outputId": "data-preview-output-id",
-            "baseReceiptId": "data-preview-receipt-id",
-            "draftVersion": "data-current-draft-version",
-            "draftDigest": "data-current-draft-digest"
-          }
-        },
+        "builderStateIdentityFields": [
+          "outputId",
+          "baseReceiptId",
+          "draftVersion",
+          "draftDigest",
+          "snapshotToken"
+        ],
         "checkedChoiceSelector": "input[data-testid^='ui04-unpivot-input-columns-choice-']",
         "metricSelectors": {
           "baseRowCount": "[data-testid='ui04-comparison-base-rows'] dd",

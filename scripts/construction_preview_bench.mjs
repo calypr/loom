@@ -132,7 +132,7 @@ function isApiRequestUrl(value, pageOrigin, apiOrigin) {
 
 function shouldCaptureSafeResponse(value) {
   const endpoint = new URL(value).pathname.toLowerCase().split('/').filter(Boolean).at(-1) ?? '';
-  return /(?:proposal|proposals|resolution|resolutions|preview|query)$/.test(endpoint);
+  return /(?:proposal|proposals|resolution|resolutions|preview|query|capabilities)$/.test(endpoint);
 }
 
 function safeRoute(url) {
@@ -293,6 +293,14 @@ function validateWorkload(workload) {
       requireString(attribute, `${workload.id}.completion.identityContext.fields.${field}`);
     }
   }
+  if (completion.builderStateIdentityFields !== undefined) {
+    const allowed = new Set(['draftVersion', 'draftDigest', 'snapshotToken', 'outputId', 'baseReceiptId']);
+    if (!Array.isArray(completion.builderStateIdentityFields)
+      || completion.builderStateIdentityFields.length === 0
+      || completion.builderStateIdentityFields.some((field) => typeof field !== 'string' || !allowed.has(field))) {
+      throw new UsageError(`${workload.id}.completion.builderStateIdentityFields must list supported BuilderState identity fields`);
+    }
+  }
   if (!completion.tableSelector && !completion.tablesSelector) {
     throw new UsageError(`${workload.id}.completion needs tableSelector or tablesSelector`);
   }
@@ -344,6 +352,34 @@ async function requestBuilder(apiUrl, authorization) {
     lifecycleState: body?.lifecycleState ?? null,
     draftVersion: Number.isInteger(body?.draftVersion) ? body.draftVersion : null,
     catalogComplete: typeof body?.catalog?.complete === 'boolean' ? body.catalog.complete : null,
+  };
+}
+
+async function requestBuilderIdentity(apiUrl, authorization) {
+  const headers = { accept: 'application/json' };
+  if (authorization) headers.authorization = authorization;
+  const response = await fetch(apiUrl, {
+    headers,
+    redirect: 'manual',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    throw new Error(`pre-action BuilderState read failed with HTTP ${response.status}`);
+  }
+  const body = await response.json();
+  if (body?.kind !== 'ExplorerBuilderState' || !body?.workspace) {
+    throw new Error('pre-action BuilderState response did not contain an ExplorerBuilderState workspace');
+  }
+  const outputIds = [...new Set((body.workspace.documents ?? [])
+    .map((document) => document?.output?.id)
+    .filter((value) => typeof value === 'string' && value.length > 0))];
+  const receiptId = body.receipt?.receiptId ?? body.receiptId ?? body.workspace.receipt?.receiptId ?? null;
+  return {
+    draftVersion: Number.isInteger(body.draftVersion) ? body.draftVersion : null,
+    draftDigest: typeof body.draftDigest === 'string' ? body.draftDigest : null,
+    snapshotToken: typeof body.catalog?.snapshotToken === 'string' ? body.catalog.snapshotToken : null,
+    outputIds,
+    receiptId: typeof receiptId === 'string' ? receiptId : null,
   };
 }
 
@@ -809,7 +845,7 @@ async function waitForCompletion(session, config, expected, previousIdentity, ti
   throw new Error(`preview did not reach a rendered, applicable comparison before timeout; checks=${JSON.stringify(failure)}${evidence ? `; assertionDom=${typeof evidence === 'string' ? evidence : 'captured'}` : ''}`);
 }
 
-async function measureOne(session, workload, sample, lane, sampleIndex) {
+async function measureOne(session, workload, sample, lane, sampleIndex, builderApiUrl, authorization) {
   if (sampleIndex > 0) await session.reload();
   await session.actions(workload.prepare);
   const completion = workload.completion;
@@ -818,6 +854,9 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
   const previousIdentity = completion.identityAttribute
     ? await session.evaluate(`document.querySelector(${JSON.stringify(completion.rootSelector)})?.getAttribute(${JSON.stringify(completion.identityAttribute)}) || ''`)
     : '';
+  const builderState = completion.builderStateIdentityFields?.length
+    ? await requestBuilderIdentity(builderApiUrl, authorization)
+    : null;
   const requestOffset = session.requests.length;
   const startAt = await session.evaluate('performance.now()');
   await session.actions(sample.setup);
@@ -850,7 +889,7 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     let url; try { url = new URL(entry.name); } catch { return null; }
     const path = url.pathname.toLowerCase();
     const apiPath = path.startsWith('/api/') || path.startsWith('/graphql/') || path === '/readyz' || path === '/healthz';
-    const category = /capabilit|construction-choice|catalog|discovery|choices|semantic-inventory/.test(path) ? 'capability-refinement' : /resolv|resolution|context|builder|explorers/.test(path) ? 'context-resolution' : /reconcile|compile/.test(path) ? 'compilation' : /propos|preview|query/.test(path) ? 'backend-preview-query' : 'other-api';
+    const category = routeCategory(entry.name);
     return { origin: url.origin, apiPath, route: path.split('/').filter(Boolean).at(-1) || 'root', category, initiatorType: entry.initiatorType, startMs: entry.startTime, durationMs: entry.duration, responseEndMs: entry.responseEnd, transferBytes: entry.transferSize, encodedBytes: entry.encodedBodySize, decodedBytes: entry.decodedBodySize };
   }).filter((entry) => entry && ['fetch', 'xmlhttprequest'].includes(entry.initiatorType.toLowerCase()) && (entry.origin === ${JSON.stringify(session.apiOrigin)} || (entry.origin === ${JSON.stringify(session.pageOrigin)} && entry.apiPath)))`);
   const requests = session.requests.slice(requestOffset).filter((request) => request.apiRequest).map((request) => ({
@@ -884,12 +923,49 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     ? apiRequests.filter((request) => request.identities?.[completion.networkIdentity]).at(-1)
     : undefined;
   const backendIdentity = proposalRequest?.identities?.[completion.networkIdentity];
-  if (!rendered.identity && completion.networkIdentity && !backendIdentity) {
+  if (completion.networkIdentity && !backendIdentity) {
     const identityEvidence = requests.map((request) => ({ route: request.route, status: request.status, identityKinds: request.backendIdentityKinds }));
     const unclassifiedFetchCategories = [...new Set(session.requests.slice(requestOffset)
       .filter((request) => !request.apiRequest && ['Fetch', 'XHR'].includes(request.type))
       .map((request) => request.category))].slice(0, 12);
     throw new Error(`preview response omitted the configured ${completion.networkIdentity} identity; apiIdentityEvidence=${JSON.stringify(identityEvidence)}; unclassifiedFetchCategories=${JSON.stringify(unclassifiedFetchCategories)}`);
+  }
+  let builderStateIdentityMatched = null;
+  let baseReceiptIdentitySource = null;
+  let builderStateIdentitySha256 = null;
+  if (completion.builderStateIdentityFields?.length) {
+    const proposal = proposalRequest?.identities ?? {};
+    const currentReceiptId = builderState?.receiptId || proposal.baseReceiptId || '';
+    baseReceiptIdentitySource = builderState?.receiptId ? 'builder-state' : proposal.baseReceiptId ? 'proposal-response-bound-to-builder-state' : null;
+    const mismatches = [];
+    if (!builderState || !Number.isInteger(builderState.draftVersion)) mismatches.push({ field: 'BuilderState.draftVersion', valuePresent: false });
+    if (!builderState?.draftDigest) mismatches.push({ field: 'BuilderState.draftDigest', valuePresent: false });
+    if (!builderState?.snapshotToken) mismatches.push({ field: 'BuilderState.snapshotToken', valuePresent: false });
+    if (!builderState?.outputIds.length) mismatches.push({ field: 'BuilderState.outputId', outputCount: 0 });
+    for (const field of ['draftVersion', 'draftDigest', 'snapshotToken']) {
+      if (String(proposal[field] ?? '') !== String(builderState?.[field] ?? '')) {
+        mismatches.push({ field, proposalSha256: proposal[field] === undefined ? null : hash(String(proposal[field])), builderStateSha256: builderState?.[field] ? hash(String(builderState[field])) : null });
+      }
+    }
+    if (!builderState?.outputIds.includes(proposal.outputId)) {
+      mismatches.push({ field: 'outputId', proposalSha256: proposal.outputId === undefined ? null : hash(String(proposal.outputId)), builderStateOutputSha256: hash(builderState?.outputIds ?? []) });
+    }
+    if (!currentReceiptId) {
+      mismatches.push({ field: 'baseReceiptId', valuePresent: false, source: 'BuilderState or proposal response' });
+    } else if (String(proposal.baseReceiptId ?? '') !== String(currentReceiptId)) {
+      mismatches.push({ field: 'baseReceiptId', proposalSha256: proposal.baseReceiptId === undefined ? null : hash(String(proposal.baseReceiptId)), currentReceiptSha256: hash(String(currentReceiptId)), source: baseReceiptIdentitySource });
+    }
+    if (mismatches.length) {
+      throw new Error(`proposal identity does not match the pre-action BuilderState; mismatches=${JSON.stringify(mismatches)}; proposalIdentityKinds=${JSON.stringify(Object.keys(proposal))}; baseReceiptIdentitySource=${baseReceiptIdentitySource ?? 'unavailable'}`);
+    }
+    builderStateIdentityMatched = true;
+    builderStateIdentitySha256 = hash({
+      draftVersion: builderState.draftVersion,
+      draftDigest: builderState.draftDigest,
+      snapshotToken: builderState.snapshotToken,
+      outputIds: builderState.outputIds,
+      baseReceiptId: currentReceiptId,
+    });
   }
   let identityContextMatched = null;
   if (completion.identityContext) {
@@ -927,6 +1003,9 @@ async function measureOne(session, workload, sample, lane, sampleIndex) {
     previewIdentitySha256: previewIdentity ? hash(previewIdentity) : null,
     identityObservedInDOM: Boolean(rendered.identity),
     backendIdentityObserved: Boolean(backendIdentity),
+    builderStateIdentityMatched,
+    baseReceiptIdentitySource,
+    builderStateIdentitySha256,
     identityContextMatched,
     identityContextSha256: rendered.identityContext ? hash(rendered.identityContext) : null,
     correctRows: true,
@@ -1041,7 +1120,7 @@ async function run(options, authorization, scenario) {
         for (let sampleIndex = 0; sampleIndex < options.samples; sampleIndex += 1) {
           const sample = workload.samples[sampleIndex % workload.samples.length];
           const lane = sampleIndex === 0 ? 'cold-client' : 'warm-client';
-          const batch = await Promise.all(sessions.map((session) => measureOne(session, workload, sample, lane, sampleIndex)));
+          const batch = await Promise.all(sessions.map((session) => measureOne(session, workload, sample, lane, sampleIndex, scenario.apiUrl, authorization)));
           results.push(...batch.map((item) => ({ ...item, concurrency })));
         }
         if (workload.supersession) {
