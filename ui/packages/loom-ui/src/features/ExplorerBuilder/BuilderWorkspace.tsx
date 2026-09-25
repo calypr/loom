@@ -90,6 +90,7 @@ import {
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
+import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -166,12 +167,15 @@ const constructionAppendStageFor = (construction: Construction | undefined): str
 
 const editableConstructionFamily = (
   operation: ConstructionOperation,
-): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE'> | undefined => {
+): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE' | 'RESHAPE'> | undefined => {
   switch (operation.kind) {
     case 'FILTER': return 'KEEP_ROWS';
     case 'DERIVE': return 'CALCULATE';
     case 'PIVOT':
-    case 'UNPIVOT': return undefined;
+    case 'UNPIVOT':
+    case 'GROUP':
+    case 'EXPAND': return 'RESHAPE';
+    case 'COMBINE': return undefined;
     default: {
       const exhaustive: never = operation;
       return exhaustive;
@@ -1592,6 +1596,11 @@ const BuilderWorkspaceContent = ({
   const sourceAvailability = constructionLifecycle.capabilities.status === 'error'
     ? { available: false, reason: constructionLifecycle.capabilities.message }
     : sourceProjectionAvailability(sourceStageDescriptors);
+  const sourceSelectionDisabledReason = pendingCommands > 0
+    ? 'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.'
+    : state.reconciliation === 'pending'
+      ? 'Loom is refreshing the current table draft. Field selection will return when the refresh completes.'
+      : undefined;
   const sourceColumns = sourceStageDescriptors?.find(
     (stage) => stage.id === constructionSourceStageId,
   )?.columns ?? [];
@@ -1665,6 +1674,7 @@ const BuilderWorkspaceContent = ({
             layout="panel"
             catalog={state.catalog}
             sourceProjectionAvailability={sourceAvailability}
+            disabledReason={sourceSelectionDisabledReason}
             disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
             onAddSelected={addSelectedFeatures}
           />
@@ -1709,11 +1719,26 @@ const BuilderWorkspaceContent = ({
                 proposalId,
               }])}
             />
+          ) : constructionLifecycle.capabilities.status === 'loading' ? (
+            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              Loading the current table columns and reshape support…
+            </p>
+          ) : constructionLifecycle.capabilities.status === 'error' ? (
+            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              {constructionLifecycle.capabilities.message}
+            </p>
+          ) : constructionLifecycle.capabilities.status === 'ready' ? (
+            <ConstructionReshapeEditor
+              construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+              capabilities={constructionLifecycle.capabilities.response}
+              editingStep={editingConstructionStep}
+              selectedColumns={selectedColumnIds}
+              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+              onCandidateChange={constructionLifecycle.onCandidateChange}
+              onEditStep={editConstructionStep}
+            />
           ) : (
-            <div role="status" data-testid="construction-operation-unavailable" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              <h3 className="font-semibold">Guided reshape editing is not available yet</h3>
-              <p className="mt-1">This table has typed construction steps. Pivot and unpivot steps can be inspected and removed from history, but this workspace does not yet provide a guided editor to create or replace them.</p>
-            </div>
+            null
           )
         ) : null}
         {activeOperation.family === 'COMBINE' ? (
@@ -2097,6 +2122,7 @@ const BuilderWorkspaceContent = ({
                   rowRoot={table.document.rootResourceType}
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
+                  disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                   onAddSelected={addSelectedFeatures}
                   />
@@ -2359,6 +2385,7 @@ const BuilderWorkspaceContent = ({
                       layout="panel"
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
+                      disabledReason={sourceSelectionDisabledReason}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
                     />

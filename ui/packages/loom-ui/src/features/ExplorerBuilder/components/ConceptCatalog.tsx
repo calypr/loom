@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useLoomClient } from '../../../react';
 import type {
   ConstructionChoiceOption,
@@ -210,6 +210,7 @@ const CatalogItemRow = ({
   checked,
   disabled,
   selectionDisabled,
+  disabledReasonId,
   onToggle,
   choiceDetails,
   onInspectChoices,
@@ -221,6 +222,7 @@ const CatalogItemRow = ({
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly selectionDisabled: boolean;
+  readonly disabledReasonId?: string;
   readonly onToggle: () => void;
   readonly choiceDetails?:
     | { readonly status: 'loading' }
@@ -251,6 +253,7 @@ const CatalogItemRow = ({
         <input
           type="checkbox"
           aria-label={selectionLabel}
+          aria-describedby={disabled && disabledReasonId ? disabledReasonId : undefined}
           checked={checked}
           disabled={disabled || selectionDisabled || !availability.selectable}
           onChange={onToggle}
@@ -424,6 +427,7 @@ export const ConceptCatalog = ({
   layout = 'workspace',
   catalog,
   disabled = false,
+  disabledReason,
   sourceProjectionAvailability,
   onAddSelected,
 }: {
@@ -438,6 +442,7 @@ export const ConceptCatalog = ({
   readonly layout?: 'workspace' | 'panel';
   readonly catalog: ExplorerBuilderCatalog;
   readonly disabled?: boolean;
+  readonly disabledReason?: string;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
@@ -458,6 +463,10 @@ export const ConceptCatalog = ({
   const [adding, setAdding] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>();
   const [pendingSelection, setPendingSelection] = useState<ReadonlyArray<CatalogChoiceGroup>>();
+  const disabledReasonId = useId();
+  const visibleDisabledReasonId = disabled && disabledReason?.trim()
+    ? disabledReasonId
+    : undefined;
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const selectionContext = useRef<string | undefined>(undefined);
   const contextKey = JSON.stringify([
@@ -773,6 +782,11 @@ export const ConceptCatalog = ({
           This stage retains source row identity. Selections here become source-projection columns and flow through the saved row-preserving steps.
         </p>
       ) : null}
+      {disabled && disabledReason?.trim() ? (
+        <p id={disabledReasonId} className="mx-4 mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:mx-5" role="status">
+          {disabledReason.trim()}
+        </p>
+      ) : null}
       {loadState.status === 'error' ? (
         <div className="mx-4 mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 sm:mx-5" role="alert">
           {loadState.message}
@@ -805,6 +819,7 @@ export const ConceptCatalog = ({
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                   selectionDisabled={!canAddFromSourceProjection}
+                  disabledReasonId={visibleDisabledReasonId}
                   onToggle={() => toggleSelection(item)}
                   choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
                   onInspectChoices={() => inspectChoices(item)}
@@ -839,6 +854,7 @@ export const ConceptCatalog = ({
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || !canBrowseConcepts || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
                   selectionDisabled={!canAddFromSourceProjection}
+                  disabledReasonId={visibleDisabledReasonId}
                   onToggle={() => toggleSelection(item)}
                   choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
                   onInspectChoices={() => inspectChoices(item)}

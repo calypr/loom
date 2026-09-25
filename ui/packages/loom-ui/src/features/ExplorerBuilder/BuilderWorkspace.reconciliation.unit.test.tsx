@@ -121,6 +121,8 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
 vi.mock('./components/ConceptCatalog', () => ({
   ConceptCatalog: ({
     onAddSelected,
+    disabled,
+    disabledReason,
   }: {
     readonly onAddSelected?: (
       selections: ReadonlyArray<{
@@ -128,22 +130,28 @@ vi.mock('./components/ConceptCatalog', () => ({
         title?: string;
       }>,
     ) => Promise<void>;
+    readonly disabled?: boolean;
+    readonly disabledReason?: string;
   }) => (
-    <button
-      type="button"
-      onClick={() => void onAddSelected?.([
-        {
-          constructionChoice: { choiceId: 'field-choice-a', form: 'VALUE' },
-          title: 'Field A',
-        },
-        {
-          constructionChoice: { choiceId: 'semantic-choice-a', form: 'ALL' },
-        title: 'Feature A',
-        },
-      ])}
-    >
-      Add catalog fixture
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => void onAddSelected?.([
+          {
+            constructionChoice: { choiceId: 'field-choice-a', form: 'VALUE' },
+            title: 'Field A',
+          },
+          {
+            constructionChoice: { choiceId: 'semantic-choice-a', form: 'ALL' },
+            title: 'Feature A',
+          },
+        ])}
+      >
+        Add catalog fixture
+      </button>
+      {disabled && disabledReason ? <p role="status">{disabledReason}</p> : null}
+    </>
   ),
 }));
 
@@ -178,6 +186,20 @@ vi.mock('./components/ColumnSelector', () => ({
 
 vi.mock('./components/PreviewTable', () => ({
   PreviewTable: () => <div>Preview table</div>,
+}));
+
+vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
+  ConstructionReshapeEditor: ({
+    editingStep,
+  }: {
+    readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
+  }) => (
+    <div
+      data-testid="construction-reshape-editor"
+      data-editing-step-id={editingStep?.id ?? ''}
+      data-editing-operation={editingStep?.operation.kind ?? ''}
+    />
+  ),
 }));
 
 const apiVersion = 'loom.calypr.org/explorer-authoring/v2' as const;
@@ -591,6 +613,96 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         },
       ],
     }));
+  });
+
+  it('explains that source choices are unavailable while the previous draft update is pending', async () => {
+    const pending = deferredRequest<{
+      readonly commandId: string;
+      readonly workspace: typeof workspace;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+      readonly results: ReadonlyArray<never>;
+      readonly diagnostics: ReadonlyArray<never>;
+    }>();
+    applyCommands.mockReturnValue(pending.request);
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add catalog fixture' }));
+
+    expect(await screen.findByText(
+      'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.',
+    )).toHaveAttribute('role', 'status');
+
+    pending.resolve({
+      commandId: 'pending-command',
+      workspace,
+      draftVersion: 2,
+      draftDigest: 'sha256:draft-2',
+      results: [],
+      diagnostics: [],
+    });
+    await waitFor(() => expect(screen.queryByText(
+      'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.',
+    )).not.toBeInTheDocument());
+  });
+
+  it('routes saved Group history edits to the typed Reshape editor', async () => {
+    const groupStep = {
+      id: 'group_specimens',
+      inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
+      operation: {
+        kind: 'GROUP' as const,
+        group: {
+          constructionId: 'group_specimens',
+          keys: [{ inputColumnId: 'specimen_identifier_id', outputColumnId: 'specimen_identifier_group' }],
+          aggregates: [{ operation: 'COUNT_ROWS' as const, outputColumnId: 'specimen_count' }],
+        },
+      },
+      outputs: [
+        { id: 'specimen_identifier_group', name: 'specimen_identifier_group', label: 'Specimen identifier' },
+        { id: 'specimen_count', name: 'specimen_count', label: 'Specimen count', type: 'integer' },
+      ],
+    };
+    const groupWorkspace = {
+      ...workspace,
+      documents: [{
+        ...workspace.documents[0],
+        construction: { version: 1, steps: [groupStep] },
+      }],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: groupWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId('construction-action-reshape'));
+    expect(await screen.findByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', '');
+    fireEvent.click(screen.getByTestId('construction-history-step-group_specimens'));
+    fireEvent.click(screen.getByTestId('construction-edit-step-group_specimens'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-step-id', 'group_specimens');
+      expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-editing-operation', 'GROUP');
+    });
+    expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
+      expect.any(AbortSignal),
+    );
   });
 
   it('does not reconcile a hydrated draft until Preview requests a receipt', async () => {

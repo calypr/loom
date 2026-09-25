@@ -163,6 +163,89 @@ describe('ConstructionWorkspace', () => {
     ]);
   });
 
+  it('summarizes and exposes saved Group and Expand steps while describing Combine inputs', () => {
+    const construction: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group_cohorts',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'GROUP',
+            group: {
+              constructionId: 'group_cohorts',
+              keys: [{ inputColumnId: 'cohort_id', outputColumnId: 'cohort' }],
+              aggregates: [{ operation: 'SUM', inputColumnId: 'score', outputColumnId: 'total_score' }],
+            },
+          },
+          outputs: [
+            { id: 'cohort', name: 'cohort', label: 'Cohort' },
+            { id: 'total_score', name: 'total_score', label: 'Total score', type: 'decimal' },
+            { id: 'items', name: 'items', label: 'Items', type: 'string' },
+          ],
+        },
+        {
+          id: 'expand_items',
+          inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group_cohorts' }],
+          operation: {
+            kind: 'EXPAND',
+            expand: {
+              constructionId: 'expand_items',
+              inputColumnId: 'items',
+              outputColumnId: 'item',
+              ordinalColumnId: 'position',
+              emptyPolicy: 'EXCLUDE',
+            },
+          },
+          outputs: [
+            { id: 'cohort', name: 'cohort', label: 'Cohort' },
+            { id: 'total_score', name: 'total_score', label: 'Total score', type: 'decimal' },
+            { id: 'item', name: 'item', label: 'Item', type: 'string' },
+            { id: 'position', name: 'position', label: 'Position', type: 'integer' },
+          ],
+        },
+        {
+          id: 'append_visits',
+          inputs: [
+            { kind: 'STEP_OUTPUT', stepId: 'expand_items' },
+            { kind: 'TABLE_REVISION', tableId: 'visits', revisionId: 'revision-7', outputId: 'visits-output' },
+          ],
+          operation: {
+            kind: 'COMBINE',
+            combine: {
+              kind: 'APPEND',
+              projections: [{ outputColumnId: 'combined_item', inputIndex: 0, inputColumnId: 'item' }],
+            },
+          },
+          outputs: [{ id: 'combined_item', name: 'combined_item', label: 'Combined item' }],
+        },
+      ],
+    };
+
+    expect(constructionHistorySteps(construction, [
+      { id: 'cohort_id', name: 'cohort_id', label: 'Cohort ID', type: 'string' },
+      { id: 'score', name: 'score', label: 'Score', type: 'decimal' },
+    ])).toEqual([
+      {
+        id: 'group_cohorts',
+        title: 'Group',
+        summary: 'Group rows by Cohort ID; Total score sums Score.',
+        editable: true,
+      },
+      {
+        id: 'expand_items',
+        title: 'Expand',
+        summary: 'Expand Items into rows with Item and Position columns. Empty lists: exclude.',
+        editable: true,
+      },
+      {
+        id: 'append_visits',
+        title: 'Combine',
+        summary: 'Append rows from visits (revision revision-7).',
+      },
+    ]);
+  });
+
   it('only enables source additions when compiler stages retain the source row identity', () => {
     const stages = [
       {

@@ -464,6 +464,44 @@ describe('ConceptCatalog', () => {
     expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
   });
 
+  it('explains pending source selection and re-enables fields when the draft settles', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const renderPending = (disabled: boolean) => (
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          catalog={catalog}
+          sourceProjectionAvailability={{
+            available: true,
+            reason: 'The compiler confirms this stage retains the source row identity.',
+          }}
+          disabled={disabled}
+          disabledReason="Loom is finishing the previous table update. Field selection will return when the draft refresh completes."
+        />
+      </LoomProvider>
+    );
+    const view = render(renderPending(true));
+    const field = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    expect(field).toBeDisabled();
+    expect(screen.getByText(
+      'Loom is finishing the previous table update. Field selection will return when the draft refresh completes.',
+    )).toHaveAttribute('role', 'status');
+    expect(field).toHaveAttribute('aria-describedby');
+
+    view.rerender(renderPending(false));
+
+    expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
+  });
+
   it('searches ordinary fields from the active row-root candidates', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
       new Response(JSON.stringify(page([])), {

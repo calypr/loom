@@ -46,6 +46,7 @@ const formatStep = (
         id: step.id,
         title: 'Pivot',
         summary: `Group by ${groupKeys}; use ${columnLabel(pivot.categoryColumnId)} to create ${outputs.join(', ') || 'columns'} from ${columnLabel(pivot.valueColumnId)}.`,
+        editable: true,
       };
     }
     case 'DERIVE': {
@@ -108,6 +109,64 @@ const formatStep = (
         id: step.id,
         title: 'Unpivot',
         summary: `Turn ${inputs.join(', ')} into ${keyOutput} and ${valueOutput}.`,
+        editable: true,
+      };
+    }
+    case 'GROUP': {
+      const group = step.operation.group;
+      const keys = (group.keys ?? []).map((key) => columnLabel(key.inputColumnId));
+      const aggregates = (group.aggregates ?? []).map((aggregate) => {
+        const output = step.outputs.find((column) => column.id === aggregate.outputColumnId)?.label ?? 'a value';
+        switch (aggregate.operation) {
+          case 'COUNT_ROWS': return `${output} counts rows`;
+          case 'COUNT_NON_NULL': return `${output} counts non-missing ${columnLabel(aggregate.inputColumnId)}`;
+          case 'COUNT_DISTINCT': return `${output} counts distinct ${columnLabel(aggregate.inputColumnId)}`;
+          case 'SUM': return `${output} sums ${columnLabel(aggregate.inputColumnId)}`;
+          case 'MEAN': return `${output} averages ${columnLabel(aggregate.inputColumnId)}`;
+          default: {
+            const exhaustive: never = aggregate;
+            return exhaustive;
+          }
+        }
+      });
+      const grouping = keys.length > 0 ? ` by ${keys.join(', ')}` : '';
+      const measures = aggregates.length > 0 ? `; ${aggregates.join('; ')}` : '';
+      return {
+        id: step.id,
+        title: 'Group',
+        summary: `Group rows${grouping}${measures}.`,
+        editable: true,
+      };
+    }
+    case 'EXPAND': {
+      const expand = step.operation.expand;
+      const input = columnLabel(expand.inputColumnId);
+      const output = step.outputs.find((column) => column.id === expand.outputColumnId)?.label ?? 'expanded values';
+      const ordinal = expand.ordinalColumnId
+        ? ` and ${step.outputs.find((column) => column.id === expand.ordinalColumnId)?.label ?? 'an ordinal column'}`
+        : '';
+      const policy = expand.emptyPolicy ? ` Empty lists: ${expand.emptyPolicy.toLowerCase().replaceAll('_', ' ')}.` : '';
+      return {
+        id: step.id,
+        title: 'Expand',
+        summary: `Expand ${input} into rows with ${output}${ordinal} columns.${policy}`,
+        editable: true,
+      };
+    }
+    case 'COMBINE': {
+      const tableRefs = step.inputs.filter((input) => input.kind === 'TABLE_REVISION');
+      const tables = tableRefs.map((input) => `${input.tableId} (revision ${input.revisionId})`);
+      const combine = step.operation.combine;
+      const description = combine.kind === 'KEY_JOIN'
+        ? `Join ${combine.joinType?.toLowerCase() ?? 'matching'} rows`
+        : combine.kind === 'APPEND'
+          ? 'Append rows'
+          : `${combine.membershipMode?.toLowerCase() ?? 'include'} rows by membership`;
+      const source = tables.length > 0 ? ` from ${tables.join(', ')}` : ' from another table';
+      return {
+        id: step.id,
+        title: 'Combine',
+        summary: `${description}${source}.`,
       };
     }
     default: {
