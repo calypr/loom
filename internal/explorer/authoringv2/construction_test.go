@@ -116,6 +116,31 @@ func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
 	}
 }
 
+func TestEmptyConstructionSerializesStepsAsArray(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Rows = RecordsRowDefinition()
+	document.Columns = []Column{}
+	document.Construction = &Construction{Version: ConstructionVersion}
+	workspace := constructionWorkspace(document)
+
+	encoded, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("canonical JSON: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"steps":[]`) {
+		t.Fatalf("empty construction steps were not persisted as an array: %s", encoded)
+	}
+
+	reloaded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("decode canonical workspace: %v", err)
+	}
+	steps := reloaded.Documents[0].Construction.Steps
+	if steps == nil || len(steps) != 0 {
+		t.Fatalf("empty construction steps reloaded as %#v, want non-nil empty slice", steps)
+	}
+}
+
 func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *testing.T) {
 	fresh := workspaceDocument("patients")
 	upgraded, err := UpgradeDocumentToConstruction(fresh)

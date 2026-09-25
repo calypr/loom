@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -167,6 +168,65 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	if updated.DraftVersion != 2 || accepted.Documents[0].Construction == nil || len(accepted.Documents[0].Construction.Steps) != 0 {
 		t.Fatalf("remove-only proposal was not atomically applied: draft=%#v workspace=%#v", updated, accepted)
+	}
+}
+
+func TestBuilderHTTPSerializesEmptyConstructionStepsAsArray(t *testing.T) {
+	snapshot := testAuthoringV2CapabilitySnapshot()
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := workspace.Documents[0]
+	document.Columns = []authoringv2.Column{}
+	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion}
+	workspace.Documents[0] = document
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(draft, []byte(`"steps":[]`)) {
+		t.Fatalf("test draft did not contain canonical empty steps: %s", draft)
+	}
+	// Simulate a legacy persisted draft that decoded its empty slice as null.
+	draft = bytes.Replace(draft, []byte(`"steps":[]`), []byte(`"steps":null`), 1)
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "custom", Title: "Patients",
+		DraftConfig: draft, DraftVersion: 1, DraftDigest: digest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
+		Current: func(context.Context, string, string, string) (capability.Snapshot, error) {
+			return snapshot, nil
+		},
+		Catalog: authoringV2Catalog,
+	}}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
+	response := requestJSON(t, app, http.MethodGet, "/api/v1/projects/project-a/explorers/custom/authoring/v2/builder", "")
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("builder status=%d body=%s", response.StatusCode, response.Body)
+	}
+	var state loomapi.BuilderState
+	if err := json.Unmarshal([]byte(response.Body), &state); err != nil {
+		t.Fatalf("decode BuilderState: %v; body=%s", err, response.Body)
+	}
+	if state.Workspace == nil || len(state.Workspace.Documents) != 1 || state.Workspace.Documents[0].Construction == nil {
+		t.Fatalf("builder omitted blank table construction: %#v", state.Workspace)
+	}
+	steps := state.Workspace.Documents[0].Construction.Steps
+	if steps == nil || len(steps) != 0 {
+		t.Fatalf("builder returned construction steps %#v, want non-nil empty slice; body=%s", steps, response.Body)
 	}
 }
 

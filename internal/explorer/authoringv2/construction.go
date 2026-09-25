@@ -1,6 +1,7 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -35,6 +36,17 @@ const (
 type Construction struct {
 	Version int                `json:"version"`
 	Steps   []ConstructionStep `json:"steps"`
+}
+
+// MarshalJSON keeps an empty construction as an explicit empty sequence at
+// persistence and API boundaries. A nil slice can arrive from older drafts
+// that encoded "steps": null, but clients consume this field as an array.
+func (c Construction) MarshalJSON() ([]byte, error) {
+	type wire Construction
+	if c.Steps == nil {
+		c.Steps = []ConstructionStep{}
+	}
+	return json.Marshal(wire(c))
 }
 
 // ConstructionStep is one saved analytical operation. Its Inputs identify
