@@ -64,7 +64,7 @@ import {
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
-import type { CatalogChoiceIntent } from './catalogItems';
+import { catalogSourceOptions, type CatalogChoiceIntent } from './catalogItems';
 import {
   ConstructionWorkspace,
   constructionOperationFamilies,
@@ -350,6 +350,10 @@ const BuilderWorkspaceContent = ({
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
+  const [addColumnsSource, setAddColumnsSource] = useState<{
+    readonly context: string;
+    readonly key: string;
+  }>();
   const [constructionHistorySelection, setConstructionHistorySelection] =
     useState<ConstructionHistorySelection>({ kind: 'source' });
   const [editingConstructionStepId, setEditingConstructionStepId] =
@@ -765,6 +769,28 @@ const BuilderWorkspaceContent = ({
       nodeId: occurrence.nodeId,
     };
   }, [occurrence]);
+  const addSourceOptions = useMemo(
+    () => catalogSourceOptions(
+      state.catalog,
+      table?.document.rootResourceType ?? '',
+      selectedRouteContext?.nodeId,
+    ),
+    [state.catalog, table?.document.rootResourceType, selectedRouteContext?.nodeId],
+  );
+  const addSourceContext = JSON.stringify([
+    state.explorerId,
+    state.catalog.snapshotToken,
+    table?.outputId ?? '',
+    selectedRouteContext?.occurrenceId ?? '',
+  ]);
+  const selectedAddSource = addSourceOptions.find(
+    (source) => source.key === (addColumnsSource?.context === addSourceContext
+      ? addColumnsSource.key
+      : addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
+  ) ?? addSourceOptions[0];
+  const addSourceRouteContext = selectedAddSource?.sourceNodeId === selectedRouteContext?.nodeId
+    ? selectedRouteContext
+    : undefined;
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => {
@@ -1661,23 +1687,46 @@ const BuilderWorkspaceContent = ({
 
       <div className="p-4">
         {activeOperation.family === 'ADD_COLUMNS' ? (
-          <ConceptCatalog
-            key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:construction-add-columns`}
-            project={projectId}
-            explorerId={state.explorerId}
-            authResourcePath={authResourcePath}
-            snapshotToken={state.catalog.snapshotToken}
-            outputId={table.outputId}
-            rowRoot={table.document.rootResourceType}
-            resourceType={occurrence?.resourceType}
-            routeContext={selectedRouteContext}
-            layout="panel"
-            catalog={state.catalog}
-            sourceProjectionAvailability={sourceAvailability}
-            disabledReason={sourceSelectionDisabledReason}
-            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-            onAddSelected={addSelectedFeatures}
-          />
+          <div className="grid gap-4">
+            <label className="grid gap-1 text-sm font-medium text-slate-800">
+              Source
+              <select
+                aria-label="Add columns source"
+                data-testid="construction-add-columns-source"
+                value={selectedAddSource?.key ?? ''}
+                onChange={(event) => setAddColumnsSource({
+                  context: addSourceContext,
+                  key: event.currentTarget.value,
+                })}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+              >
+                {addSourceOptions.map((source) => (
+                  <option key={source.key} value={source.key}>{source.label}</option>
+                ))}
+              </select>
+              <span className="font-normal text-slate-600">
+                Choose a source, then Loom checks its route and output forms before adding a column.
+              </span>
+            </label>
+            <ConceptCatalog
+              key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
+              project={projectId}
+              explorerId={state.explorerId}
+              authResourcePath={authResourcePath}
+              snapshotToken={state.catalog.snapshotToken}
+              outputId={table.outputId}
+              rowRoot={table.document.rootResourceType}
+              resourceType={selectedAddSource?.resourceType}
+              sourceNodeId={selectedAddSource?.sourceNodeId}
+              routeContext={addSourceRouteContext}
+              layout="panel"
+              catalog={state.catalog}
+              sourceProjectionAvailability={sourceAvailability}
+              disabledReason={sourceSelectionDisabledReason}
+              disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+              onAddSelected={addSelectedFeatures}
+            />
+          </div>
         ) : null}
         {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
           constructionLifecycle.capabilities.status === 'loading' ? (
