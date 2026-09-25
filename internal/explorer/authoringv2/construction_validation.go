@@ -370,8 +370,10 @@ func validateConstructionRelatedSource(step ConstructionStep, input map[string]S
 	if source.Cardinality != "optional_one" && source.Cardinality != "required_one" {
 		return fmt.Errorf("relatedSource.source cardinality must be scalar for ALL_MATCHES")
 	}
-	if related.Form != capability.ConstructionChoiceAll {
-		return fmt.Errorf("relatedSource.form must be ALL")
+	switch related.Form {
+	case capability.ConstructionChoiceAll, capability.ConstructionChoiceCount, capability.ConstructionChoicePresence:
+	default:
+		return fmt.Errorf("relatedSource.form must be ALL, COUNT, or PRESENCE")
 	}
 	if related.ContributorRule.Policy != ConstructionRelatedAllMatches || related.ContributorRule.Predicate != nil {
 		return fmt.Errorf("relatedSource.contributorRule must be ALL_MATCHES without a predicate")

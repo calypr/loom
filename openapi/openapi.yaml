@@ -2494,7 +2494,7 @@ components:
       required: [choiceId, form]
       properties:
         choiceId: {type: string, minLength: 1}
-        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
     SemanticSelectionIntent:
       type: object
       additionalProperties: false
@@ -2826,7 +2826,7 @@ components:
       additionalProperties: false
       required: [form, shape, decision, preservation, rowEffect, support, reason]
       properties:
-        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
         shape: {type: string, enum: [SCALAR, LIST]}
         decision: {type: string, enum: [DEFAULT, REQUIRES_DECISION]}
         preservation: {type: string, enum: [PRESERVING, REDUCING]}

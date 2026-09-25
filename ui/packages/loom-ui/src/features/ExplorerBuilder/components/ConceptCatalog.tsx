@@ -116,17 +116,9 @@ const choiceGroupsForRelatedSource = (
     return {
       ...group,
       choices: group.choices.flatMap((choice) => {
-        const supportedIntent = catalogChoiceIntent({
-          item: group.item,
-          choice,
-          form: 'ALL',
-          rowRoot,
-        });
-        if (!supportedIntent.relatedSource) return [];
         const options = choice.options.filter((option) =>
-          option.form === 'ALL' &&
-          option.shape === 'LIST' &&
-          option.support === 'SUPPORTED'
+          (option.form === 'ALL' || option.form === 'COUNT' || option.form === 'PRESENCE') &&
+          catalogChoiceIntent({ item: group.item, choice, form: option.form, rowRoot }).relatedSource !== undefined
         );
         return options.length > 0 ? [{ ...choice, options }] : [];
       }),
@@ -168,6 +160,10 @@ const constructionFormLabel = (
       return 'Distinct values';
     case 'OWNER_RECORDS':
       return 'Matching records';
+    case 'COUNT':
+      return 'Matching record count';
+    case 'PRESENCE':
+      return 'Has matching record';
     default: {
       const exhaustive: never = option.form;
       return exhaustive;
@@ -793,7 +789,7 @@ export const ConceptCatalog = ({
         const intent = intents[index];
         if (!intent || !canAddCatalogItem(group.item)) return false;
         return isRelatedFieldCatalogItem(group.item, rowRoot) && relatedSourceAvailability?.supported
-          ? intent.relatedSource !== undefined && intent.constructionChoice.form === 'ALL'
+          ? intent.relatedSource !== undefined
           : canAddFromSourceProjection;
       })
     ) return;
@@ -858,7 +854,7 @@ export const ConceptCatalog = ({
           const intent = direct[index];
           if (!intent || !canAddCatalogItem(group.item)) return false;
           return isRelatedFieldCatalogItem(group.item, rowRoot) && relatedSourceAvailability?.supported
-            ? intent.relatedSource !== undefined && intent.constructionChoice.form === 'ALL'
+            ? intent.relatedSource !== undefined
             : canAddFromSourceProjection;
         })) {
           setPendingSelection(groups);

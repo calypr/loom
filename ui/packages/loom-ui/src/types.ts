@@ -1199,7 +1199,7 @@ const relatedSourceSchema = z.object({
   }).strict(),
   route: z.array(constructionRouteStepSchema),
   contributorRule: z.object({ policy: z.literal('ALL_MATCHES') }).strict(),
-  form: z.literal('ALL'),
+  form: z.enum(['ALL', 'COUNT', 'PRESENCE']),
   outputColumnId: opaqueIdSchema,
 }).strict();
 
@@ -1595,6 +1595,8 @@ export const constructionChoiceFormSchema = z.enum([
   'ALL',
   'DISTINCT',
   'OWNER_RECORDS',
+  'COUNT',
+  'PRESENCE',
 ]);
 export type ConstructionChoiceForm = z.infer<typeof constructionChoiceFormSchema>;
 

@@ -20,6 +20,8 @@ const (
 	ConstructionChoiceValue        ConstructionChoiceForm = "VALUE"
 	ConstructionChoiceFirst        ConstructionChoiceForm = "FIRST"
 	ConstructionChoiceAll          ConstructionChoiceForm = "ALL"
+	ConstructionChoiceCount        ConstructionChoiceForm = "COUNT"
+	ConstructionChoicePresence     ConstructionChoiceForm = "PRESENCE"
 	ConstructionChoiceDistinct     ConstructionChoiceForm = "DISTINCT"
 	ConstructionChoiceOwnerRecords ConstructionChoiceForm = "OWNER_RECORDS"
 )
@@ -534,17 +536,32 @@ func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteS
 	if len(route) == 0 || IsRepeatedCardinality(candidate.Cardinality) || !containsProjection(candidate.ProjectionModes, ProjectionScalar) {
 		return options
 	}
+	hasAll := false
 	for _, option := range options {
-		if option.Form == ConstructionChoiceAll {
-			return options
-		}
+		hasAll = hasAll || option.Form == ConstructionChoiceAll
 	}
-	return append(options, ConstructionChoiceOption{
-		Form: ConstructionChoiceAll, Shape: ConstructionChoiceList,
-		Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoicePreserving,
-		RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
-		Reason: "Collect the scalar field from every matching resource on this exact route.",
-	})
+	if !hasAll {
+		options = append(options, ConstructionChoiceOption{
+			Form: ConstructionChoiceAll, Shape: ConstructionChoiceList,
+			Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoicePreserving,
+			RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
+			Reason: "Collect the scalar field from every matching resource on this exact route.",
+		})
+	}
+	return append(options,
+		ConstructionChoiceOption{
+			Form: ConstructionChoiceCount, Shape: ConstructionChoiceScalar,
+			Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoiceReducing,
+			RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
+			Reason: "Count distinct matching source records; a row with no match has zero.",
+		},
+		ConstructionChoiceOption{
+			Form: ConstructionChoicePresence, Shape: ConstructionChoiceScalar,
+			Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoiceReducing,
+			RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
+			Reason: "Show whether at least one matching source record exists.",
+		},
+	)
 }
 
 func constructionForm(mode ProjectionMode) (ConstructionChoiceForm, bool) {

@@ -246,6 +246,22 @@ const relatedSourceChoice: ConstructionChoice = {
     rowEffect: 'PRESERVES_ROW_GRAIN',
     support: 'SUPPORTED',
     reason: 'Loom proves this list form preserves the selected stage row grain.',
+  }, {
+    form: 'COUNT',
+    shape: 'SCALAR',
+    decision: 'REQUIRES_DECISION',
+    preservation: 'REDUCING',
+    rowEffect: 'PRESERVES_ROW_GRAIN',
+    support: 'SUPPORTED',
+    reason: 'Count distinct matching source records.',
+  }, {
+    form: 'PRESENCE',
+    shape: 'SCALAR',
+    decision: 'REQUIRES_DECISION',
+    preservation: 'REDUCING',
+    rowEffect: 'PRESERVES_ROW_GRAIN',
+    support: 'SUPPORTED',
+    reason: 'Show whether a matching source record exists.',
   }],
 };
 
@@ -393,7 +409,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(applyExplorerCommands).not.toHaveBeenCalled();
   });
 
-  it('proposes a supported related source at the selected stage and applies only the proposal', async () => {
+  it('proposes a distinct related-record count at the selected stage and applies only the proposal', async () => {
     const construction = {
       version: 1,
       steps: [{
@@ -506,7 +522,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
 
     const selectionDialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
     fireEvent.click(within(selectionDialog).getByRole('radio', {
-      name: 'Observation status: LIST · PRESERVING · ALL',
+      name: 'Observation status: Count distinct matching records',
     }));
     fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 1 selected feature' }));
 
@@ -527,7 +543,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
                 choiceId: relatedSourceChoice.choiceId,
                 sourceOccurrenceId: 'observation-node',
                 contributorRule: { policy: 'ALL_MATCHES' },
-                form: 'ALL',
+                form: 'COUNT',
                 source: expect.objectContaining({
                   candidateId: 'observation-status',
                   nodeId: 'observation-node',
@@ -543,6 +559,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
         ],
       },
     }));
+    expect(proposalArgs.candidateConstruction.steps[1].outputs.at(-1)).toEqual(expect.objectContaining({ type: 'integer' }));
     expect(await screen.findByText('Proposal preview')).toBeInTheDocument();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
 

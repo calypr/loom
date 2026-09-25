@@ -512,8 +512,36 @@ func lowerConstructionRelatedSource(
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
 		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: related.Source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(related.Source.ResourceType, selector)},
 	}
-	subplan.Return = fieldExpression
-	allMatches := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
+	outputKind := related.Source.LogicalType
+	outputCardinality := expression.Many
+	outputNullable := true
+	if related.Form == "ALL" {
+		subplan.Return = fieldExpression
+	} else {
+		identity := ir.PhysicalValue{Variable: currentVariable, Path: []string{"_id"}}
+		subplan.Return = ir.PhysicalExpression{Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Value: &identity}
+		subplan.Sort = &identity
+		subplan.Unique = true
+	}
+	matchingValues := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
+	outputExpression := matchingValues
+	if related.Form == "COUNT" || related.Form == "PRESENCE" {
+		outputExpression = ir.PhysicalExpression{
+			Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Call: &ir.PhysicalCall{Name: "length", Args: []ir.PhysicalExpression{matchingValues}},
+		}
+		outputKind, outputCardinality, outputNullable = "integer", expression.RequiredOne, false
+		if related.Form == "PRESENCE" {
+			zeroKey := fmt.Sprintf("related_%d_zero", index)
+			plan.BindVars[zeroKey] = 0
+			zero := ir.PhysicalExpression{Kind: ir.PhysicalLiteralExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull, Literal: &ir.PhysicalLiteral{BindKey: zeroKey}}
+			outputExpression = ir.PhysicalExpression{
+				Kind: ir.PhysicalCallExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+				Call: &ir.PhysicalCall{Name: "gt", Args: []ir.PhysicalExpression{outputExpression, zero}},
+			}
+			outputKind = "boolean"
+		}
+	}
 
 	outputSchema := make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
 	projections := make([]ir.PhysicalProjection, 0, len(step.Outputs)+1)
@@ -534,9 +562,9 @@ func lowerConstructionRelatedSource(
 		outputSchema = append(outputSchema, CompiledOutputColumn{
 			ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
 			SemanticPath: "related_source:" + related.Source.NodeID + "." + selectorPath,
-			Kind:         related.Source.LogicalType, Cardinality: string(expression.Many), Nullable: true,
+			Kind:         outputKind, Cardinality: string(outputCardinality), Nullable: outputNullable,
 		})
-		projections = append(projections, ir.PhysicalProjection{Name: declaration.Name, Expression: &allMatches})
+		projections = append(projections, ir.PhysicalProjection{Name: declaration.Name, Expression: &outputExpression})
 	}
 	return projections, outputSchema, nil
 }

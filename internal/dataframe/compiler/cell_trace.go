@@ -284,16 +284,25 @@ func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputCo
 		return nil, false
 	}
 	projection, found := stageProjectionByName(stage.OutputProjections, outputColumn)
-	if !found || projection.Expression == nil || projection.Expression.Kind != ir.PhysicalSubplanExpression ||
-		projection.Expression.Subplan == nil || projection.Expression.Cardinality != ir.PhysicalArrayCardinality ||
-		projection.Expression.NullBehavior != ir.PhysicalEmptyOnNull {
+	if !found || projection.Expression == nil {
+		return nil, false
+	}
+	subplanSource := projection.Expression
+	if stage.RelatedSource.Form == "PRESENCE" && subplanSource.Call != nil && len(subplanSource.Call.Args) == 2 {
+		subplanSource = &subplanSource.Call.Args[0]
+	}
+	if stage.RelatedSource.Form != "ALL" && subplanSource.Call != nil && len(subplanSource.Call.Args) == 1 {
+		subplanSource = &subplanSource.Call.Args[0]
+	}
+	if subplanSource.Kind != ir.PhysicalSubplanExpression || subplanSource.Subplan == nil ||
+		subplanSource.Cardinality != ir.PhysicalArrayCardinality || subplanSource.NullBehavior != ir.PhysicalEmptyOnNull {
 		return nil, false
 	}
 	anchor, found := stageColumnByID(stage.InputColumns, stage.RelatedSource.AnchorColumnID)
 	if !found || !anchor.Internal || !anchor.Identity || anchor.Name != "_key" {
 		return nil, false
 	}
-	subplan := ir.ClonePhysicalSubplan(*projection.Expression.Subplan)
+	subplan := ir.ClonePhysicalSubplan(*subplanSource.Subplan)
 	if len(subplan.Captures) != 1 || subplan.Captures[0] != stage.InputRowVariable {
 		return nil, false
 	}

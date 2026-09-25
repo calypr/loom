@@ -827,9 +827,9 @@ const BuilderWorkspaceContent = ({
       }
       const { choice, candidate } = relatedSource;
       const source = choice.source;
+      const form = relatedSelections[0]!.constructionChoice.form;
       const supportedForm = choice.options.find((option) =>
-        option.form === 'ALL' &&
-        option.shape === 'LIST' &&
+        option.form === form &&
         option.support === 'SUPPORTED',
       );
       if (
@@ -840,6 +840,7 @@ const BuilderWorkspaceContent = ({
         source.cardinality !== candidate.cardinality ||
         (source.resourceType === table.document.rootResourceType && choice.route.length === 0) ||
         !supportedForm ||
+        (form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') ||
         (source.cardinality !== 'optional_one' && source.cardinality !== 'required_one')
       ) {
         throw new Error('Loom did not provide a supported scalar related field choice for this stage.');
@@ -878,7 +879,7 @@ const BuilderWorkspaceContent = ({
             },
             route: choice.route,
             contributorRule: { policy: 'ALL_MATCHES' },
-            form: 'ALL',
+            form,
             outputColumnId,
           },
         },
@@ -893,7 +894,7 @@ const BuilderWorkspaceContent = ({
             id: outputColumnId,
             name: outputName,
             label: candidate.label.trim() || candidate.fieldPath,
-            type: candidate.logicalType,
+            type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
           },
         ],
       } satisfies ConstructionStep;

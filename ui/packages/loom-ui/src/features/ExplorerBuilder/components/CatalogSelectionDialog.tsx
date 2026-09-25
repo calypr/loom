@@ -13,6 +13,8 @@ import {
 
 const optionLabel = (option: ConstructionChoice['options'][number]): string => {
   if (option.form === 'OWNER_RECORDS') return 'Keep each matching record';
+  if (option.form === 'COUNT') return 'Count distinct matching records';
+  if (option.form === 'PRESENCE') return 'Has a matching record';
   return `${option.shape} · ${option.preservation} · ${option.form}`;
 };
 

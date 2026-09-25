@@ -569,8 +569,8 @@ func validateConstructionRelatedSource(related ConstructionRelatedSource, input,
 		(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
 		return fmt.Errorf("%s.relatedSource.source must identify one scalar field candidate", path)
 	}
-	if related.Form != "ALL" || related.ContributorPolicy != "ALL_MATCHES" {
-		return fmt.Errorf("%s.relatedSource only supports ALL form with ALL_MATCHES contributor policy", path)
+	if (related.Form != "ALL" && related.Form != "COUNT" && related.Form != "PRESENCE") || related.ContributorPolicy != "ALL_MATCHES" {
+		return fmt.Errorf("%s.relatedSource supports ALL, COUNT, or PRESENCE with ALL_MATCHES contributor policy", path)
 	}
 	if len(related.Route) == 0 {
 		return fmt.Errorf("%s.relatedSource.route must contain at least one hop", path)

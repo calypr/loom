@@ -185,7 +185,7 @@ export const catalogChoiceIntent = ({
 }): CatalogChoiceIntent => {
   const relatedSource = item.kind === 'FIELD' &&
     rowRoot !== undefined &&
-    form === 'ALL' &&
+    (form === 'ALL' || form === 'COUNT' || form === 'PRESENCE') &&
     isRelatedFieldCatalogItem(item, rowRoot) &&
     choice.source.kind === 'FIELD' &&
     choice.source.candidateId === item.candidate.candidateId &&
@@ -194,11 +194,7 @@ export const catalogChoiceIntent = ({
     choice.source.path === item.candidate.fieldPath &&
     choice.source.cardinality === item.candidate.cardinality &&
     (choice.source.cardinality === 'required_one' || choice.source.cardinality === 'optional_one') &&
-    choice.options.some((option) =>
-      option.form === 'ALL' &&
-      option.shape === 'LIST' &&
-      option.support === 'SUPPORTED'
-    )
+    choice.options.some((option) => option.form === form && option.support === 'SUPPORTED')
       ? { choice, candidate: item.candidate }
       : undefined;
 

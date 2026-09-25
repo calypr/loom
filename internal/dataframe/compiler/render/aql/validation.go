@@ -164,6 +164,13 @@ func collectPredicateCollections(predicate ir.PhysicalPredicateExpression, colle
 }
 
 func collectExpressionCollections(expression ir.PhysicalExpression, collectOperations func([]ir.PhysicalOperation, string) error, owner string) error {
+	if expression.Call != nil {
+		for _, argument := range expression.Call.Args {
+			if err := collectExpressionCollections(argument, collectOperations, owner+" CALL"); err != nil {
+				return err
+			}
+		}
+	}
 	if expression.Subplan != nil {
 		if err := collectOperations(expression.Subplan.Operations, owner+" SUBPLAN"); err != nil {
 			return err

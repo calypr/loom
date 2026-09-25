@@ -397,6 +397,87 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(pagedSparse) != 0 {
 		t.Fatalf("paged sparse p2 statuses = %#v, want empty list", pagedByPatient["p2"]["observation_status"])
 	}
+
+	duplicateEdge, err := json.Marshal(map[string]any{
+		"_key": project + "_duplicate_edge", "_from": "Observation/" + patientKey("o1"), "_to": "Patient/" + patientKey("p1"),
+		"project": project, "project_id": project, "dataset_generation": generation,
+		"label": "subject_Patient", "from_type": "Observation", "to_type": "Patient",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.InsertBatchRaw(ctx, "fhir_edge", []json.RawMessage{duplicateEdge}, false, "document"); err != nil {
+		t.Fatal(err)
+	}
+	for _, form := range []struct {
+		name    string
+		column  string
+		present any
+		absent  any
+		kind    string
+	}{
+		{name: "COUNT", column: "observation_count", present: float64(2), absent: float64(0), kind: "integer"},
+		{name: "PRESENCE", column: "has_observation", present: true, absent: false, kind: "boolean"},
+	} {
+		t.Run(form.name, func(t *testing.T) {
+			output.Name = "related_source_" + form.name
+			step := &output.Construction.Steps[1]
+			step.Operation.RelatedSource.Form = form.name
+			step.Outputs[len(step.Outputs)-1].Name = form.column
+			bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+			plan, err := semantic.BuildRecipePlan(bundle, bindings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			columns := compiled.Outputs[0].OutputSchema
+			found := false
+			for _, column := range columns {
+				if column.Name == form.column {
+					found = column.Kind == form.kind && column.Cardinality == "required_one" && !column.Nullable
+				}
+			}
+			if !found {
+				t.Fatalf("%s output schema = %#v", form.name, columns)
+			}
+			query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows := executeReshapeOracleQuery(t, ctx, client, query)
+			values := map[string]any{}
+			for _, row := range rows {
+				values[fmt.Sprint(row["patient_id"])] = row[form.column]
+			}
+			if values["p1"] != form.present || values["p2"] != form.absent {
+				t.Fatalf("%s values = %#v, want p1=%v p2=%v", form.name, values, form.present, form.absent)
+			}
+			trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+			for _, row := range traceRows {
+				parts, ok := row[trace.IdentityPartsColumn].([]any)
+				if !ok || len(parts) != 1 || fmt.Sprint(parts[0]) != patientKey("p1") {
+					continue
+				}
+				contributors, ok := row[trace.ContributionsColumn].([]any)
+				if !ok || len(contributors) != 2 || row[trace.OmissionColumn] != "" {
+					t.Fatalf("%s p1 trace = %#v, want two distinct contributors", form.name, row)
+				}
+				return
+			}
+			t.Fatalf("%s trace omitted p1", form.name)
+		})
+	}
 }
 
 func constructionOracleOutput() recipe.Output {

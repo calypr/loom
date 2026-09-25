@@ -3,6 +3,7 @@ import type {
   Construction,
   ConstructionCapabilitiesResponse,
   ConstructionChoice,
+  ConstructionChoiceForm,
   ConstructionChoiceSource,
   ConstructionOperation,
   ConstructionProposalRequest,
@@ -13,6 +14,7 @@ import { ConceptCatalog } from '../components/ConceptCatalog';
 import type { CatalogChoiceIntent } from '../catalogItems';
 
 type RelatedSourceOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_SOURCE' }>;
+type RelatedSourceForm = RelatedSourceOperation['relatedSource']['form'];
 type RelatedSourceIntent = NonNullable<CatalogChoiceIntent['relatedSource']>;
 type SupportedRelatedSourceIntent = Omit<RelatedSourceIntent, 'choice'> & {
   readonly choice: Omit<ConstructionChoice, 'source'> & {
@@ -82,6 +84,7 @@ const outputColumnFor = (
 const relatedChoiceIsSupported = (
   selection: RelatedSourceIntent,
   rowRoot: string,
+  form: ConstructionChoiceForm,
 ): selection is SupportedRelatedSourceIntent => {
   const { choice, candidate } = selection;
   const source = choice.source;
@@ -92,9 +95,9 @@ const relatedChoiceIsSupported = (
     source.cardinality === candidate.cardinality &&
     (source.cardinality === 'optional_one' || source.cardinality === 'required_one') &&
     (source.resourceType !== rowRoot || choice.route.length > 0) &&
+    (form === 'ALL' || form === 'COUNT' || form === 'PRESENCE') &&
     choice.options.some((option) =>
-      option.form === 'ALL' &&
-      option.shape === 'LIST' &&
+      option.form === form &&
       option.support === 'SUPPORTED',
     );
 };
@@ -158,12 +161,14 @@ export const RelatedSourceStepEditor = ({
   const [nameEdited, setNameEdited] = useState(false);
   const [labelEdited, setLabelEdited] = useState(false);
   const [selectedSource, setSelectedSource] = useState<RelatedSourceIntent>();
+  const [selectedForm, setSelectedForm] = useState<RelatedSourceForm>(relatedSource.form);
   const support = relatedSourceSupport(capabilities);
 
   const candidateFor = (
     nextName: string,
     nextLabel: string,
     sourceSelection = selectedSource,
+    form = selectedForm,
   ): CandidateIntent | undefined => {
     const normalizedName = nextName.trim();
     const normalizedLabel = nextLabel.trim();
@@ -175,10 +180,11 @@ export const RelatedSourceStepEditor = ({
       stage.columns.some((column) =>
         column.id !== outputId && column.name.toLowerCase() === normalizedName.toLowerCase(),
       ) ||
-      (sourceSelection && (!support.supported || !relatedChoiceIsSupported(sourceSelection, rowRoot)))
+      (sourceSelection && (!support.supported || !relatedChoiceIsSupported(sourceSelection, rowRoot, form)))
     ) return undefined;
 
     const sourceChanged = sourceSelection !== undefined && (
+      form !== relatedSource.form ||
       sourceSelection.choice.choiceId !== relatedSource.choiceId ||
       sourceSelection.choice.source.kind !== 'FIELD' ||
       sourceSelection.choice.source.candidateId !== relatedSource.source.candidateId ||
@@ -195,7 +201,7 @@ export const RelatedSourceStepEditor = ({
       name: normalizedName,
       label: normalizedLabel,
       ...((sourceChanged && sourceSelection)
-        ? { type: sourceSelection.candidate.logicalType }
+        ? { type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : sourceSelection.candidate.logicalType }
         : savedOutput?.type === undefined ? {} : { type: savedOutput.type }),
     };
     const selectedField = sourceSelection?.choice.source;
@@ -217,7 +223,7 @@ export const RelatedSourceStepEditor = ({
             },
             route: sourceSelection.choice.route,
             contributorRule: { policy: 'ALL_MATCHES' },
-            form: 'ALL',
+            form,
             outputColumnId: outputId,
           },
         }
@@ -265,7 +271,8 @@ export const RelatedSourceStepEditor = ({
       throw new Error('Choose one Loom-supported related field and route.');
     }
     const selected = selections[0].relatedSource;
-    if (!relatedChoiceIsSupported(selected, rowRoot)) {
+    const form = selections[0].constructionChoice.form;
+    if ((form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') || !relatedChoiceIsSupported(selected, rowRoot, form)) {
       throw new Error('Loom did not return a supported scalar related field choice for this stage.');
     }
     const nextName = nameEdited
@@ -280,9 +287,10 @@ export const RelatedSourceStepEditor = ({
       ? outputLabel
       : selected.candidate.label.trim() || selected.candidate.fieldPath;
     setSelectedSource(selected);
+    setSelectedForm(form);
     setOutputName(nextName);
     setOutputLabel(nextLabel);
-    onCandidateChange(candidateFor(nextName, nextLabel, selected));
+    onCandidateChange(candidateFor(nextName, nextLabel, selected, form));
   };
 
   const nameIsValid = isPhysicalColumnName(outputName.trim()) &&

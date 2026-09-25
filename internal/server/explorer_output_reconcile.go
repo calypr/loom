@@ -495,12 +495,16 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 				return fmt.Errorf("related-source step %q has no operation payload", step.ID)
 			}
 			related := step.Operation.RelatedSource
-			if related.Form != capability.ConstructionChoiceAll || related.ContributorRule.Policy != authoringv2.ConstructionRelatedAllMatches {
+			if (related.Form != capability.ConstructionChoiceAll && related.Form != capability.ConstructionChoiceCount && related.Form != capability.ConstructionChoicePresence) || related.ContributorRule.Policy != authoringv2.ConstructionRelatedAllMatches {
 				return fmt.Errorf("related-source step %q has unsupported output form or contributor policy", step.ID)
 			}
 			quality := constructedOutputQuality{
 				Lossless: false, Shape: "array", StructuralSuitability: "requires-review",
 				LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
+			}
+			if related.Form != capability.ConstructionChoiceAll {
+				quality.Shape = "scalar"
+				quality.LossReasons = []string{"RELATED_SOURCE_DISTINCT_RECORD_REDUCTION"}
 			}
 			if err := addOutput(related.OutputColumnID, step.ID, nil, quality); err != nil {
 				return err
