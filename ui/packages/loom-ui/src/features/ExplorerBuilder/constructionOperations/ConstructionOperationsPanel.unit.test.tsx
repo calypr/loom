@@ -13,9 +13,11 @@ import { CONSTRUCTION_OPERATION_FAMILIES, familyPresentation, type ConstructionO
 vi.mock('../components/ConceptCatalog', () => ({
   ConceptCatalog: (props: {
     readonly rowRoot: string;
-  readonly layout: string;
-  readonly sourceProjectionAvailability?: { readonly available: boolean; readonly reason: string };
-  readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
+    readonly layout: string;
+    readonly resourceType?: string;
+    readonly sourceNodeId?: string;
+    readonly sourceProjectionAvailability?: { readonly available: boolean; readonly reason: string };
+    readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
     readonly onAddSelected?: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
   }) => React.createElement(
     'div',
@@ -23,6 +25,8 @@ vi.mock('../components/ConceptCatalog', () => ({
       'data-testid': 'mock-concept-catalog',
       'data-row-root': props.rowRoot,
       'data-layout': props.layout,
+      'data-resource-type': props.resourceType,
+      'data-source-node-id': props.sourceNodeId,
       'data-source-available': props.sourceProjectionAvailability?.available,
       'data-source-reason': props.sourceProjectionAvailability?.reason,
       'data-occurrence-id': props.routeContext?.occurrenceId,
@@ -60,6 +64,15 @@ const catalog: ExplorerBuilderCatalog = {
   routePolicy: {},
   nodes: [],
   edges: [],
+};
+
+const relatedCatalog: ExplorerBuilderCatalog = {
+  ...catalog,
+  nodes: [
+    { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 10 },
+    { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: false, populated: true, documentCount: 20 },
+  ],
+  edges: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'observations' }],
 };
 
 const capabilities = (): TableShapeCapabilities => ({
@@ -105,6 +118,7 @@ const capabilities = (): TableShapeCapabilities => ({
 const renderPanel = (args: {
   readonly family?: ConstructionOperationFamily;
   readonly selectedColumns?: ReadonlyArray<string>;
+  readonly catalog?: ExplorerBuilderCatalog;
   readonly routeContext?: { readonly occurrenceId: string; readonly nodeId: string };
   readonly sourceProjectionAvailability?: { readonly available: boolean; readonly reason: string };
   readonly onAddSelected?: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
@@ -119,7 +133,7 @@ const renderPanel = (args: {
       draftVersion={1}
       draftDigest="draft-digest-1"
       table={table}
-      catalog={catalog}
+      catalog={args.catalog ?? catalog}
       rowRoot="Patient"
       selectedColumns={args.selectedColumns ?? []}
       routeContext={args.routeContext}
@@ -175,6 +189,7 @@ describe('construction operation families', () => {
     const catalogPanel = screen.getByTestId('mock-concept-catalog');
     expect(catalogPanel).toHaveAttribute('data-row-root', 'Patient');
     expect(catalogPanel).toHaveAttribute('data-layout', 'panel');
+    expect(catalogPanel).toHaveAttribute('data-source-node-id', 'node-observation');
     expect(catalogPanel).toHaveAttribute('data-occurrence-id', 'observation-1');
     expect(catalogPanel).toHaveAttribute('data-node-id', 'node-observation');
 
@@ -183,6 +198,22 @@ describe('construction operation families', () => {
       constructionChoice: { choiceId: 'choice-1', form: 'VALUE' },
       title: 'Blood pressure',
     }]);
+  });
+
+  it('lets researchers choose a related source node and filters discovery to that node', () => {
+    renderPanel({ family: 'ADD_COLUMNS', catalog: relatedCatalog });
+
+    fireEvent.click(screen.getByTestId('construction-operation-intention-add_columns-find_information'));
+    const source = screen.getByRole('combobox', { name: /Source/ });
+    expect(within(source).getByRole('option', { name: 'Patient — table rows' })).toBeInTheDocument();
+    expect(within(source).getByRole('option', { name: 'Observation (related through observations)' })).toBeInTheDocument();
+
+    fireEvent.change(source, { target: { value: 'node:observation-node' } });
+
+    const catalogPanel = screen.getByTestId('mock-concept-catalog');
+    expect(catalogPanel).toHaveAttribute('data-resource-type', 'Observation');
+    expect(catalogPanel).toHaveAttribute('data-source-node-id', 'observation-node');
+    expect(catalogPanel).not.toHaveAttribute('data-node-id');
   });
 
   it('forwards source projection availability to information discovery', () => {

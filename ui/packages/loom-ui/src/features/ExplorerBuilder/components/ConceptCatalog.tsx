@@ -423,6 +423,7 @@ export const ConceptCatalog = ({
   outputId,
   rowRoot,
   resourceType,
+  sourceNodeId,
   routeContext,
   layout = 'workspace',
   catalog,
@@ -438,6 +439,7 @@ export const ConceptCatalog = ({
   readonly outputId: string;
   readonly rowRoot: string;
   readonly resourceType?: string;
+  readonly sourceNodeId?: string;
   readonly routeContext?: CatalogRouteContext;
   readonly layout?: 'workspace' | 'panel';
   readonly catalog: ExplorerBuilderCatalog;
@@ -468,6 +470,7 @@ export const ConceptCatalog = ({
     ? disabledReasonId
     : undefined;
   const activeRequest = useRef<AbortController | undefined>(undefined);
+  const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
   const selectionContext = useRef<string | undefined>(undefined);
   const contextKey = JSON.stringify([
     project,
@@ -476,6 +479,7 @@ export const ConceptCatalog = ({
     outputId,
     rowRoot,
     resourceType ?? '*',
+    sourceNodeId ?? '',
     routeContext?.occurrenceId ?? '',
     routeContext?.nodeId ?? '',
     sourceProjectionAvailability?.available ?? true,
@@ -541,9 +545,13 @@ export const ConceptCatalog = ({
     setChoiceDetails(new Map());
     setPendingSelection(undefined);
     setActionMessage(undefined);
+    setAdding(false);
     selectionContext.current = undefined;
     if (snapshotToken && rowRoot) loadPage('', undefined, true);
-    return () => activeRequest.current?.abort();
+    return () => {
+      activeRequest.current?.abort();
+      activeChoiceRequest.current?.abort();
+    };
   }, [contextKey, loadPage, rowRoot, snapshotToken]);
 
   const page = pages[pageIndex];
@@ -551,17 +559,20 @@ export const ConceptCatalog = ({
   const warning = response ? availabilityMessage(response) : undefined;
   const canBrowseConcepts = response?.state === 'complete';
   const fieldItems = useMemo(
-    () => fieldCatalogItems(catalog, rowRoot, resourceType, query).filter(
+    () => fieldCatalogItems(catalog, rowRoot, resourceType, query, sourceNodeId).filter(
       (item) =>
         item.kind === 'FIELD' &&
         (!routeContext || item.candidate.nodeId === routeContext.nodeId),
     ),
-    [catalog, query, resourceType, routeContext, rowRoot],
+    [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId],
   );
   const semanticItems = useMemo(
-    () => semanticCatalogItems(response?.entries ?? [], resourceType),
-    [resourceType, response?.entries],
+    () => semanticCatalogItems(response?.entries ?? [], resourceType, sourceNodeId),
+    [resourceType, response?.entries, sourceNodeId],
   );
+  const hasUnscopedConcepts = Boolean(sourceNodeId && response?.entries.some(
+    (item) => item.constructionChoice === undefined,
+  ));
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
     if (!catalogItemAvailability(item).selectable) return;
@@ -578,12 +589,13 @@ export const ConceptCatalog = ({
   const choiceDetailsKey = (item: CatalogItem): string =>
     JSON.stringify([contextKey, response?.contextToken ?? '', catalogItemKey(item)]);
 
-  const resolveChoiceGroup = async (item: CatalogItem): Promise<CatalogChoiceGroup> => {
+  const resolveChoiceGroup = async (
+    item: CatalogItem,
+    signal?: AbortSignal,
+  ): Promise<CatalogChoiceGroup> => {
     const existingChoice = catalogItemConstructionChoice(item);
-    if (!existingChoice) {
-      return { item, choices: [], complete: true, truncated: false };
-    }
     if (
+      existingChoice &&
       !routeContext &&
       existingChoice.source.resourceType === rowRoot &&
       existingChoice.route.length === 0
@@ -618,7 +630,7 @@ export const ConceptCatalog = ({
       source,
       limit: PAGE_SIZE,
       requestId: `construction-choices-${window.crypto.randomUUID()}`,
-    });
+    }, signal);
     if (
       resolved.snapshotToken !== snapshotToken ||
       resolved.outputId !== outputId
@@ -672,10 +684,16 @@ export const ConceptCatalog = ({
 
   const openSelection = async () => {
     if (!canAddFromSourceProjection || !selectedItems.length || !onAddSelected) return;
+    const controller = new AbortController();
+    activeChoiceRequest.current?.abort();
+    activeChoiceRequest.current = controller;
     setAdding(true);
     setActionMessage(undefined);
     try {
-      const groups = await Promise.all(selectedItems.map(resolveChoiceGroup));
+      const groups = await Promise.all(selectedItems.map(
+        (item) => resolveChoiceGroup(item, controller.signal),
+      ));
+      if (controller.signal.aborted) return;
       setChoiceDetails((previous) => {
         const next = new Map(previous);
         for (const group of groups) {
@@ -704,13 +722,17 @@ export const ConceptCatalog = ({
         setPendingSelection(groups);
       }
     } catch (error) {
+      if (controller.signal.aborted) return;
       setActionMessage(
         error instanceof Error
           ? error.message
           : 'Loom could not resolve the selected feature routes.',
       );
     } finally {
-      setAdding(false);
+      if (activeChoiceRequest.current === controller) {
+        activeChoiceRequest.current = undefined;
+      }
+      if (!controller.signal.aborted) setAdding(false);
     }
   };
 
@@ -835,6 +857,11 @@ export const ConceptCatalog = ({
               </h3>
               <span className="text-xs text-slate-500">{semanticItems.length} on this page</span>
             </div>
+            {hasUnscopedConcepts ? (
+              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-950" role="status" data-testid="construction-operation-unscoped-concepts">
+                Some concepts are hidden because Loom did not identify their source node.
+              </p>
+            ) : null}
           <div className="mt-3 divide-y divide-slate-200">
             {loadState.status === 'loading' && !response ? (
                 <p className="py-8 text-center text-sm text-slate-500">Loading concepts…</p>

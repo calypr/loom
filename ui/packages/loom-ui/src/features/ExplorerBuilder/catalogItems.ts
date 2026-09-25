@@ -38,6 +38,101 @@ export type CatalogItemAvailability =
   | { readonly selectable: true }
   | { readonly selectable: false; readonly reason: string };
 
+export type CatalogSourceOption =
+  | {
+      readonly kind: 'ROOT';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType: string;
+      readonly sourceNodeId?: string;
+    }
+  | {
+      readonly kind: 'RELATED';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType: string;
+      readonly sourceNodeId: string;
+    }
+  | {
+      readonly kind: 'SAVED_OCCURRENCE';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType?: string;
+      readonly sourceNodeId: string;
+    };
+
+export const catalogSourceOptions = (
+  catalog: ExplorerBuilderCatalog,
+  rowRoot: string,
+  savedOccurrenceNodeId?: string,
+): ReadonlyArray<CatalogSourceOption> => {
+  const rootNodes = catalog.nodes.filter((node) => node.resourceType === rowRoot);
+  const rootSeeds = rootNodes.filter((node) => node.rowRootEligible);
+  const seeds = rootSeeds.length > 0 ? rootSeeds : rootNodes;
+  const paths = new Map<string, ReadonlyArray<string>>(
+    seeds.map((node) => [node.nodeId, []]),
+  );
+  const queue = seeds.map((node) => node.nodeId);
+
+  for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
+    const currentNodeId = queue[queueIndex];
+    if (!currentNodeId) continue;
+    const currentPath = paths.get(currentNodeId) ?? [];
+    for (const edge of catalog.edges) {
+      const nextNodeId = edge.fromNodeId === currentNodeId
+        ? edge.toNodeId
+        : edge.toNodeId === currentNodeId
+          ? edge.fromNodeId
+          : undefined;
+      if (!nextNodeId || paths.has(nextNodeId)) continue;
+      paths.set(nextNodeId, [...currentPath, edge.label.trim() || 'related']);
+      queue.push(nextNodeId);
+    }
+  }
+
+  const savedRootNode = rootNodes.find(
+    (node) => node.nodeId === savedOccurrenceNodeId,
+  );
+  const options: CatalogSourceOption[] = [{
+    kind: 'ROOT',
+    key: `root:${rowRoot}`,
+    label: `${rowRoot} — table rows${savedRootNode ? ' · selected occurrence' : ''}`,
+    resourceType: rowRoot,
+    ...(savedRootNode ? { sourceNodeId: savedRootNode.nodeId } : {}),
+  }];
+
+  for (const node of catalog.nodes) {
+    const path = paths.get(node.nodeId);
+    if (!path || node.resourceType === rowRoot) continue;
+    options.push({
+      kind: 'RELATED',
+      key: `node:${node.nodeId}`,
+      label: `${node.resourceType} (related through ${path.join(' › ')})${node.nodeId === savedOccurrenceNodeId ? ' · selected occurrence' : ''}`,
+      resourceType: node.resourceType,
+      sourceNodeId: node.nodeId,
+    });
+  }
+
+  if (savedOccurrenceNodeId && !options.some(
+    (option) => option.sourceNodeId === savedOccurrenceNodeId,
+  )) {
+    const savedNode = catalog.nodes.find(
+      (node) => node.nodeId === savedOccurrenceNodeId,
+    );
+    options.push({
+      kind: 'SAVED_OCCURRENCE',
+      key: `occurrence:${savedOccurrenceNodeId}`,
+      label: savedNode
+        ? `${savedNode.resourceType} — selected occurrence`
+        : 'Selected occurrence',
+      ...(savedNode ? { resourceType: savedNode.resourceType } : {}),
+      sourceNodeId: savedOccurrenceNodeId,
+    });
+  }
+
+  return options;
+};
+
 export const catalogItemKey = (item: CatalogItem): string => {
   switch (item.kind) {
     case 'FIELD':
@@ -166,6 +261,7 @@ export const fieldCatalogItems = (
   rowRoot: string,
   resourceType: string | undefined,
   query: string,
+  sourceNodeId?: string,
 ): ReadonlyArray<CatalogItem> => {
   const search = query.trim().toLowerCase();
   const rootPriority = (item: CatalogItem): number =>
@@ -184,6 +280,7 @@ export const fieldCatalogItems = (
       (resourceType
         ? node.resourceType !== resourceType
         : !search && node.resourceType !== rowRoot) ||
+      (sourceNodeId && node.nodeId !== sourceNodeId) ||
       source.kind !== 'FIELD' ||
       source.candidateId !== candidate.candidateId ||
       source.nodeId !== node.nodeId ||
@@ -219,8 +316,12 @@ export const rootFieldCatalogItems = (
 export const semanticCatalogItems = (
   items: ReadonlyArray<SemanticInventoryItem>,
   resourceType?: string,
+  sourceNodeId?: string,
 ): ReadonlyArray<CatalogItem> => items
-  .filter((item) => !resourceType || item.resourceType === resourceType)
+  .filter((item) =>
+    (!resourceType || item.resourceType === resourceType) &&
+    (!sourceNodeId || item.constructionChoice?.source.nodeId === sourceNodeId),
+  )
   .map((item) => ({
     kind: 'SEMANTIC',
     item,

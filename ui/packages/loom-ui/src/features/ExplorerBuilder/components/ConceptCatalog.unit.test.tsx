@@ -205,6 +205,11 @@ const renderCatalog = (
   fetch: typeof globalThis.fetch,
   onAddSelected = vi.fn().mockResolvedValue(undefined),
   sourceProjectionAvailability?: CatalogSourceProjectionAvailability,
+  source: {
+    readonly resourceType?: string;
+    readonly nodeId?: string;
+    readonly routeContext?: CatalogRouteContext;
+  } = {},
 ) => {
     render(
       <LoomProvider client={createLoomClient({ fetch })}>
@@ -214,6 +219,9 @@ const renderCatalog = (
           snapshotToken="snapshot-a"
           outputId="patients"
           rowRoot="Patient"
+          resourceType={source.resourceType}
+          sourceNodeId={source.nodeId}
+          routeContext={source.routeContext}
           catalog={catalog}
           sourceProjectionAvailability={sourceProjectionAvailability}
           onAddSelected={onAddSelected}
@@ -761,5 +769,92 @@ describe('ConceptCatalog', () => {
       },
     });
     expect(JSON.stringify(constructionRequest)).not.toContain('edgeId');
+  });
+
+  it('filters field and concept discovery to the selected catalog node', async () => {
+    const patientConcept = item('patient-code', 'Patient concept', 8);
+    const observationConcept = item('observation-code', 'Observation concept', 12, 'Observation');
+    const unscopedConcept = {
+      ...item('unscoped-code', 'Unscoped observation concept', 4, 'Observation'),
+      constructionChoice: undefined,
+    };
+    const otherObservationSource = item('other-code', 'Other observation source', 3, 'Observation');
+    const otherObservationChoice = semanticChoice(
+      'other-observation-choice',
+      otherObservationSource,
+    );
+    const otherObservationNodeConcept = {
+      ...otherObservationSource,
+      constructionChoice: {
+        ...otherObservationChoice,
+        source: {
+          ...otherObservationChoice.source,
+          nodeId: 'other-observation-node',
+        },
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([patientConcept, observationConcept, otherObservationNodeConcept, unscopedConcept])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    renderCatalog(fetch, vi.fn().mockResolvedValue(undefined), undefined, {
+      resourceType: 'Observation',
+      nodeId: 'observation-node',
+    });
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Patient.id' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Select Observation concept' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Other observation source' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Select Unscoped observation concept' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-operation-unscoped-concepts')).toHaveTextContent(
+      'Some concepts are hidden because Loom did not identify their source node.',
+    );
+
+    const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(inventoryRequest).toMatchObject({ rowRoot: 'Patient', resourceType: 'Observation' });
+  });
+
+  it('keeps a related field out of Add when Loom returns no valid route', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([])
+        : url.endsWith('/construction-choices')
+          ? {
+              snapshotToken: 'snapshot-a',
+              outputId: 'patients',
+              complete: true,
+              truncated: false,
+              choices: [],
+            }
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(fetch, onAddSelected, undefined, {
+      resourceType: 'Observation',
+      nodeId: 'observation-node',
+    });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
+    expect(within(dialog).getByText('No compiler-proved route and output form were provided.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
+    expect(onAddSelected).not.toHaveBeenCalled();
+    const choiceRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
+    expect(choiceRequest).toMatchObject({
+      outputId: 'patients',
+      source: { kind: 'FIELD', candidateId: 'candidate-observation-id' },
+    });
+    expect(choiceRequest).not.toHaveProperty('route');
   });
 });

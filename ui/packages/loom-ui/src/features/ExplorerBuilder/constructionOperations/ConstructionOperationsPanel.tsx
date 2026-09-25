@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLoomClient } from '../../../react';
 import type {
   ExplorerBuilderCatalog,
   TableShapeCapabilities,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
-import type { CatalogChoiceIntent } from '../catalogItems';
+import {
+  catalogSourceOptions,
+  type CatalogChoiceIntent,
+} from '../catalogItems';
 import {
   ConceptCatalog,
   type CatalogRouteContext,
@@ -41,6 +44,7 @@ export interface ConstructionOperationsPanelProps {
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly disabled: boolean;
+  readonly disabledReason?: string;
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<void>;
   readonly onApplyProposal: (proposalId: string) => Promise<boolean>;
 }
@@ -265,7 +269,25 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
   const client = useLoomClient();
   const [shapeState, setShapeState] = useState<ShapeCapabilitiesState>({ kind: 'not-needed' });
   const [selectedIntention, setSelectedIntention] = useState<ConstructionOperationIntent | null>(null);
+  const sourceOptions = useMemo(
+    () => catalogSourceOptions(props.catalog, props.rowRoot, props.routeContext?.nodeId),
+    [props.catalog, props.rowRoot, props.routeContext?.nodeId],
+  );
+  const defaultSourceKey = sourceOptions.find(
+    (source) => source.sourceNodeId === props.routeContext?.nodeId,
+  )?.key ?? sourceOptions[0]?.key ?? '';
+  const [selectedSourceKey, setSelectedSourceKey] = useState(defaultSourceKey);
+  const selectedSource = sourceOptions.find(
+    (source) => source.key === selectedSourceKey,
+  ) ?? sourceOptions[0];
+  const sourceRouteContext = selectedSource?.sourceNodeId === props.routeContext?.nodeId
+    ? props.routeContext
+    : undefined;
   const constructionPresent = 'construction' in props.table.document && props.table.document.construction !== undefined;
+  useEffect(() => {
+    setSelectedSourceKey(defaultSourceKey);
+  }, [defaultSourceKey, props.snapshotToken, props.table.outputId]);
+
   useEffect(() => {
     setSelectedIntention(null);
     if (props.family !== 'CALCULATE' && props.family !== 'RESHAPE') {
@@ -404,19 +426,39 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
             <h3 className="font-semibold text-slate-900">Find information</h3>
             <p className="mt-1 text-sm text-slate-600">Inspect a field or concept, then choose an available construction supplied by Loom.</p>
           </div>
+          <label className="grid gap-1 text-sm font-medium text-slate-800" htmlFor="construction-operation-source">
+            Source
+            <select
+              id="construction-operation-source"
+              data-testid="construction-operation-source"
+              value={selectedSource?.key ?? ''}
+              onChange={(event) => setSelectedSourceKey(event.currentTarget.value)}
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
+            >
+              {sourceOptions.map((source) => (
+                <option key={source.key} value={source.key}>{source.label}</option>
+              ))}
+            </select>
+            <span className="font-normal text-slate-600">
+              Search one catalog node at a time. Loom checks the route and output forms before the feature is added.
+            </span>
+          </label>
           <ConceptCatalog
-            key={`${props.project}:${props.explorerId}:${props.snapshotToken}:${props.table.outputId}:${props.routeContext?.occurrenceId ?? 'root'}`}
+            key={`${props.project}:${props.explorerId}:${props.snapshotToken}:${props.table.outputId}:${selectedSource?.key ?? 'root'}:${sourceRouteContext?.occurrenceId ?? 'unscoped'}`}
             project={props.project}
             explorerId={props.explorerId}
             authResourcePath={props.authResourcePath}
             snapshotToken={props.snapshotToken}
             outputId={props.table.outputId}
             rowRoot={props.rowRoot}
-            routeContext={props.routeContext}
+            resourceType={selectedSource?.resourceType}
+            sourceNodeId={selectedSource?.sourceNodeId}
+            routeContext={sourceRouteContext}
             layout="panel"
             catalog={props.catalog}
             sourceProjectionAvailability={props.sourceProjectionAvailability}
             disabled={props.disabled}
+            disabledReason={props.disabledReason}
             onAddSelected={props.onAddSelected}
           />
         </div>
