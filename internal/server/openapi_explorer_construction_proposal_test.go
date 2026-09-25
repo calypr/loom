@@ -198,6 +198,30 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootFields := []struct {
+		path, name, label, logicalType, cardinality string
+		projection                                  capability.ProjectionMode
+	}{
+		{path: "active", name: "patient_active", label: "Active", logicalType: "boolean", cardinality: "optional_one", projection: capability.ProjectionScalar},
+		{path: "gender", name: "patient_gender", label: "Gender", logicalType: "string", cardinality: "optional_one", projection: capability.ProjectionScalar},
+		{path: "birthDate", name: "patient_birth_date", label: "Birth date", logicalType: "date", cardinality: "optional_one", projection: capability.ProjectionScalar},
+		{path: "deceasedBoolean", name: "patient_deceased", label: "Deceased", logicalType: "boolean", cardinality: "optional_one", projection: capability.ProjectionScalar},
+		{path: "multipleBirthBoolean", name: "patient_multiple_birth", label: "Multiple birth", logicalType: "boolean", cardinality: "optional_one", projection: capability.ProjectionScalar},
+		{path: "name[].family", name: "patient_family", label: "Family name", logicalType: "string", cardinality: "many", projection: capability.ProjectionFirst},
+		{path: "telecom[].value", name: "patient_telecom", label: "Telecom", logicalType: "string", cardinality: "many", projection: capability.ProjectionFirst},
+	}
+	for index, field := range rootFields {
+		columnID := fmt.Sprintf("source-column-%d", index)
+		workspace.Documents[0].Columns = append(workspace.Documents[0].Columns, authoringv2.Column{
+			Column: field.name, Label: field.label, LogicalType: field.logicalType, OccurrenceID: "base",
+			Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: field.path, ProjectionMode: map[capability.ProjectionMode]string{capability.ProjectionScalar: "VALUE", capability.ProjectionFirst: "FIRST"}[field.projection]}},
+		})
+		snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+			ID: columnID, NodeID: "n_patient", ResourceType: "Patient", FieldPath: field.path, Label: field.label,
+			LogicalType: field.logicalType, Cardinality: field.cardinality,
+			ProjectionModes: []capability.ProjectionMode{field.projection},
+		})
+	}
 	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
 	if err != nil {
 		t.Fatal(err)
@@ -256,14 +280,16 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry:    compilerTestRegistry{},
+		ScopeDigest: recipeScopeDigest,
+		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
 	config := lifecycle.Config{
+		SelectionMembersCollection: "loom_explorer_selection_members",
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
 				return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}, nil
@@ -276,9 +302,23 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
 		},
-		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("expected a construction proposal receipt")
+			}
+			if len(receipt.EmittedColumns) != 9 {
+				t.Fatalf("related-source preview emitted %d columns, want the 9-column candidate", len(receipt.EmittedColumns))
+			}
+			rawReceipt, err := json.Marshal(receipt)
+			if err != nil {
+				t.Fatalf("marshal related-source receipt as the Arango store does: %v", err)
+			}
+			var storedReceipt explorer.CompilationReceipt
+			if err := json.Unmarshal(rawReceipt, &storedReceipt); err != nil {
+				t.Fatalf("decode related-source receipt as the Arango store does: %v", err)
+			}
+			if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, &storedReceipt, bindings); err != nil {
+				t.Fatalf("validate the JSON round-tripped related-source receipt before preview: %v", err)
 			}
 			var relatedEmission *explorer.EmittedColumn
 			for index := range receipt.EmittedColumns {
@@ -311,10 +351,18 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 				relatedContract.Cardinality != "many" || relatedContract.Shape != "array" || relatedContract.Lossless || relatedContract.MLReady || len(relatedContract.AuthoredColumns) != 0 || len(relatedContract.InputColumns) != 0 {
 				return dataframeexecution.PreviewSummary{}, fmt.Errorf("public contract lost related-source identity or list shape: %#v", relatedContract)
 			}
-			if err := visit(map[string]any{"c_patient": "patient-1", "observation_statuses": []any{"final", "amended"}}); err != nil {
+			row := make(map[string]any, len(receipt.EmittedColumns))
+			previewColumns := make([]string, 0, len(receipt.EmittedColumns))
+			for _, emitted := range receipt.EmittedColumns {
+				row[emitted.PublicColumn] = nil
+				previewColumns = append(previewColumns, emitted.PublicColumn)
+			}
+			row["c_patient"] = "patient-1"
+			row["observation_statuses"] = []any{"final", "amended"}
+			if err := visit(row); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient", "observation_statuses"}, RowCount: 1, Complete: true}, nil
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: previewColumns, RowCount: 1, Complete: true}, nil
 		},
 	}
 	app := fiber.New()
