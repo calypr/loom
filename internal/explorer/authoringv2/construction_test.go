@@ -116,6 +116,46 @@ func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
 	}
 }
 
+func TestFreshDocumentUpgradesToSourceOnlyConstructionAndAcceptsFirstStep(t *testing.T) {
+	fresh := workspaceDocument("patients")
+	upgraded, err := UpgradeDocumentToConstruction(fresh)
+	if err != nil {
+		t.Fatalf("upgrade fresh document: %v", err)
+	}
+	if upgraded.Construction == nil || upgraded.Construction.Version != ConstructionVersion || len(upgraded.Construction.Steps) != 0 {
+		t.Fatalf("fresh construction = %#v", upgraded.Construction)
+	}
+	if upgraded.Columns[0].ColumnID == "" {
+		t.Fatal("fresh source projection has no persisted stable column ID")
+	}
+	if err := upgraded.Validate(); err != nil {
+		t.Fatalf("source-only construction is invalid: %v", err)
+	}
+
+	sourceColumn := upgraded.Columns[0]
+	sourceStage := StageColumn{ID: sourceColumn.ColumnID, Name: sourceColumn.Column, Label: sourceColumn.Label, Type: sourceColumn.LogicalType}
+	candidate := Construction{Version: ConstructionVersion, Steps: []ConstructionStep{{
+		ID: "first_filter", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+		Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+			ColumnID: sourceColumn.ColumnID, Operator: ConstructionFilterExists,
+		}},
+		Outputs: []StageColumn{sourceStage},
+	}}}
+	firstStep, impact, err := upgraded.AnalyzeConstructionCandidate(candidate, "first_filter", nil)
+	if err != nil {
+		t.Fatalf("append first step to source-only construction: %v", err)
+	}
+	if !reflect.DeepEqual(impact.AffectedStepIDs, []string{"first_filter"}) {
+		t.Fatalf("first-step impact = %#v", impact)
+	}
+	if err := firstStep.Validate(); err != nil {
+		t.Fatalf("first-step candidate is invalid: %v", err)
+	}
+	if len(upgraded.Construction.Steps) != 0 {
+		t.Fatal("adding the first step mutated the source-only accepted document")
+	}
+}
+
 func TestConstructionRejectsMixedLegacyAndStagedSemantics(t *testing.T) {
 	document := stagedConstructionDocument()
 	document.TableShape = &TableShape{Derived: []DerivedConstruction{{

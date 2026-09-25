@@ -17,6 +17,9 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if err != nil {
 		return err
 	}
+	if len(c.Steps) == 0 {
+		return nil
+	}
 	stepIDs := make(map[string]bool, len(c.Steps))
 	for i, step := range c.Steps {
 		if !requiredID(step.ID) {

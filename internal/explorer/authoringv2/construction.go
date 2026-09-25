@@ -25,7 +25,8 @@ const (
 )
 
 // Construction stores the ordered, durable operations applied after the
-// document's source projection. Version identifies this operation contract,
+// document's source projection. A zero-step construction is the identity plan
+// over that source projection. Version identifies this operation contract,
 // independently of the workspace's older V2 semantics version.
 type Construction struct {
 	Version int                `json:"version"`
