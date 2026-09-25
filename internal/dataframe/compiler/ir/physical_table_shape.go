@@ -89,6 +89,7 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	}
 	groupColumns := make(map[string]bool, len(pivot.GroupKeys))
 	groupVariables := make(map[string]bool, len(pivot.GroupKeys))
+	groupOutputs := make(map[string]bool, len(pivot.GroupKeys))
 	for _, key := range pivot.GroupKeys {
 		if strings.TrimSpace(key.Column) == "" || !projectionNames[key.Column] || groupColumns[key.Column] {
 			return fmt.Errorf("group key column %q is missing or duplicated", key.Column)
@@ -99,8 +100,16 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 		if !validTableScalarKind(key.Kind) {
 			return fmt.Errorf("group key %q has unsupported scalar type %q", key.Column, key.Kind)
 		}
+		output := key.Output
+		if output == "" {
+			output = key.Column
+		}
+		if !physicalPathPartPattern.MatchString(output) || groupOutputs[output] {
+			return fmt.Errorf("group key output %q is unsafe or duplicated", output)
+		}
 		groupColumns[key.Column] = true
 		groupVariables[key.Variable] = true
+		groupOutputs[output] = true
 	}
 	if groupColumns[pivot.CategoryColumn] || groupColumns[pivot.ValueColumn] {
 		return fmt.Errorf("group keys must differ from category and value columns")
@@ -152,9 +161,9 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 		identities[identity] = true
 		outputs[category.Output] = true
 	}
-	for column := range groupColumns {
+	for column := range groupOutputs {
 		if outputs[column] {
-			return fmt.Errorf("category output %q collides with a group key", column)
+			return fmt.Errorf("category output %q collides with a group key output", column)
 		}
 	}
 	if pivot.UnlistedEvidenceColumn != "" {
@@ -231,6 +240,27 @@ func validatePhysicalUnpivot(unpivot PhysicalUnpivot, defined map[string]bool, b
 	}
 	if projectionNames[unpivot.KeyOutput] || projectionNames[unpivot.ValueOutput] {
 		return fmt.Errorf("unpivot outputs collide with preserved input columns")
+	}
+	if len(unpivot.PreservedOutputs) > 0 {
+		preservedInputs := map[string]bool{}
+		for _, projection := range unpivot.InputProjections {
+			if !selectedColumns[projection.Name] && projection.Name != "__loom_row_id" {
+				preservedInputs[projection.Name] = true
+			}
+		}
+		mappedInputs, mappedOutputs := map[string]bool{}, map[string]bool{}
+		for _, output := range unpivot.PreservedOutputs {
+			if !preservedInputs[output.InputColumn] || mappedInputs[output.InputColumn] || !physicalPathPartPattern.MatchString(output.OutputColumn) {
+				return fmt.Errorf("unpivot preserved output %q has an invalid or duplicate input mapping", output.OutputColumn)
+			}
+			if output.OutputColumn == unpivot.KeyOutput || output.OutputColumn == unpivot.ValueOutput || mappedOutputs[output.OutputColumn] {
+				return fmt.Errorf("unpivot preserved output %q collides with another output", output.OutputColumn)
+			}
+			mappedInputs[output.InputColumn], mappedOutputs[output.OutputColumn] = true, true
+		}
+		if len(mappedInputs) != len(preservedInputs) {
+			return fmt.Errorf("unpivot preserved output mapping does not cover every retained input")
+		}
 	}
 	identityNames := make(map[string]bool, len(unpivot.IdentityParts))
 	for _, part := range unpivot.IdentityParts {

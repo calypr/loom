@@ -21,6 +21,10 @@ type derivedOperandValue struct {
 }
 
 func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedColumn, baseSchema []CompiledOutputColumn) (map[string]derivedColumnMetadata, error) {
+	return appendRecipeDerivedColumnsWithVariables(plan, columns, baseSchema, physicalPlanVariables(plan.Operations))
+}
+
+func appendRecipeDerivedColumnsWithVariables(plan *ir.PhysicalPlan, columns []recipe.DerivedColumn, baseSchema []CompiledOutputColumn, usedVariables map[string]bool) (map[string]derivedColumnMetadata, error) {
 	if len(columns) == 0 {
 		return nil, nil
 	}
@@ -54,7 +58,6 @@ func appendRecipeDerivedColumns(plan *ir.PhysicalPlan, columns []recipe.DerivedC
 		derivedByName[column.Name] = column
 	}
 
-	usedVariables := physicalPlanVariables(plan.Operations)
 	variableIndex := 0
 	allocateVariable := func() string {
 		for {

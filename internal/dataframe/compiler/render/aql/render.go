@@ -26,6 +26,12 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
+	if plan.StageSequence != nil {
+		if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("verify construction source scope: %w", err)
+		}
+		return renderPhysicalStageSequence(plan)
+	}
 	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp {
 		return renderPhysicalGroupRows(plan, *plan.Operations[0].GroupRows)
 	}
@@ -264,6 +270,7 @@ type physicalPlanRenderer struct {
 	collectionKeys      map[string]struct{}
 	setVariables        map[string]string
 	reservedVars        map[string]struct{}
+	internalPrefix      string
 	preparedItem        string
 	rootVariable        string
 	cellTrace           *ir.PhysicalCellTraceReturn

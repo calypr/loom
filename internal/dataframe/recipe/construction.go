@@ -13,8 +13,12 @@ const ConstructionSourceProjectionID = "source_projection"
 const maxConstructionSteps = 128
 
 type Construction struct {
-	Version int                `json:"version"`
-	Steps   []ConstructionStep `json:"steps"`
+	Version int `json:"version"`
+	// SourceColumns is populated by the resolved compiler frontend. It binds
+	// persisted projection-slot IDs to the exact public names emitted by the
+	// source compiler; authoring documents keep their own single source of truth.
+	SourceColumns []StageColumn      `json:"sourceColumns,omitempty"`
+	Steps         []ConstructionStep `json:"steps"`
 }
 
 // ConstructionStep applies one typed operation to the preceding stage and
@@ -131,18 +135,27 @@ func (construction Construction) Validate(sourceFields []Field) error {
 	if construction.Version != 1 {
 		return fmt.Errorf("construction version must be 1")
 	}
-	if len(construction.Steps) == 0 || len(construction.Steps) > maxConstructionSteps {
-		return fmt.Errorf("construction steps must contain between 1 and %d entries", maxConstructionSteps)
+	if len(construction.Steps) > maxConstructionSteps {
+		return fmt.Errorf("construction steps must contain at most %d entries", maxConstructionSteps)
 	}
-	sourceColumns := make([]StageColumn, 0, len(sourceFields))
-	for _, field := range sourceFields {
-		if strings.TrimSpace(field.ColumnID) == "" {
-			return fmt.Errorf("source field %q requires a stable columnId", field.Name)
+	sourceColumns := append([]StageColumn(nil), construction.SourceColumns...)
+	if len(sourceColumns) == 0 {
+		// Recipe-only callers can validate simple field projections without a
+		// resolved source schema. Explorer compilation supplies SourceColumns so
+		// aggregate, lookup, and other projection variants retain slot identity.
+		sourceColumns = make([]StageColumn, 0, len(sourceFields))
+		for _, field := range sourceFields {
+			if strings.TrimSpace(field.ColumnID) == "" {
+				return fmt.Errorf("source field %q requires a stable columnId", field.Name)
+			}
+			sourceColumns = append(sourceColumns, StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label})
 		}
-		sourceColumns = append(sourceColumns, StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label})
 	}
 	if err := validateStageColumns(sourceColumns, "source projection"); err != nil {
 		return err
+	}
+	if len(construction.Steps) == 0 {
+		return nil
 	}
 	priorStepID := ""
 	priorColumns := sourceColumns

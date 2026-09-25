@@ -8,6 +8,10 @@ type PhysicalPlan struct {
 	Source     PhysicalSource
 	BindVars   map[string]any
 	Operations []PhysicalOperation
+	// StageSequence composes typed operators over materialized intermediate
+	// rows. The ordinary operations form the source projection; stage execution
+	// remains part of this physical plan and shares its bind scope and renderer.
+	StageSequence *PhysicalStageSequence
 	// DeferredExpressionLets are construction-time shared family bindings.
 	// Lowering appends them after all source sets exist and before RETURN;
 	// completed plans must have this list empty.

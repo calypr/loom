@@ -1,0 +1,733 @@
+package lower
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
+	"github.com/calypr/loom/internal/dataframe/spec"
+)
+
+const constructionRowID = "__loom_row_id"
+
+// CompiledStageDescriptor is the compiler-owned schema and capability view
+// for one exact stage reference. Columns describe the stage output.
+type CompiledStageDescriptor struct {
+	ID                string
+	InputStageID      string
+	Operation         string
+	Columns           []CompiledOutputColumn
+	RowIdentityColumn string
+	Capabilities      []StageOperationCapability
+}
+
+type StageOperationCapability struct {
+	Operation  recipe.ConstructionOperationKind
+	Supported  bool
+	ReasonCode string
+	Reason     string
+}
+
+type constructionStageResult struct {
+	physical   ir.PhysicalConstructionStage
+	schema     []CompiledOutputColumn
+	identity   string
+	descriptor CompiledStageDescriptor
+}
+
+func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName string, construction recipe.Construction, sourceSchema []CompiledOutputColumn) ([]CompiledOutputColumn, []CompiledStageDescriptor, string, error) {
+	if plan == nil {
+		return nil, nil, "", fmt.Errorf("physical plan is required")
+	}
+	if len(construction.SourceColumns) == 0 {
+		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
+	}
+	resolvedSource, err := resolveConstructionSourceSchema(plan, construction.SourceColumns, sourceSchema, outputName)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	sourceIdentity := constructionSourceIdentity(resolvedSource)
+	if sourceIdentity == "" {
+		return nil, nil, "", fmt.Errorf("construction source has no supported row identity projection")
+	}
+	sourcePhysicalColumns := toPhysicalStageColumns(resolvedSource)
+	sequence := &ir.PhysicalStageSequence{
+		SourceStageID:     recipe.ConstructionSourceProjectionID,
+		SourceRowIdentity: sourceIdentity,
+		SourceColumns:     sourcePhysicalColumns,
+	}
+	descriptors := []CompiledStageDescriptor{{
+		ID: recipe.ConstructionSourceProjectionID, Operation: "SOURCE_PROJECTION",
+		Columns: cloneCompiledSchema(resolvedSource), RowIdentityColumn: sourceIdentity,
+	}}
+	descriptors[0].Capabilities = stageCapabilities(resolvedSource)
+	if len(construction.Steps) == 0 {
+		return resolvedSource, descriptors, sourceIdentity, nil
+	}
+	usedVariables := physicalPlanVariables(plan.Operations)
+	priorSchema, priorIdentity := resolvedSource, sourceIdentity
+	priorStageID := recipe.ConstructionSourceProjectionID
+	for index, step := range construction.Steps {
+		result, stageErr := lowerConstructionStep(plan, step, priorStageID, priorSchema, priorIdentity, usedVariables, index)
+		if stageErr != nil {
+			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
+		}
+		sequence.Stages = append(sequence.Stages, result.physical)
+		descriptors = append(descriptors, result.descriptor)
+		priorStageID, priorSchema, priorIdentity = step.ID, result.schema, result.identity
+	}
+	sequence.FinalStageID = priorStageID
+	sequence.FinalRowIdentity = priorIdentity
+	sequence.FinalColumns = toPhysicalStageColumns(priorSchema)
+	plan.StageSequence = sequence
+	if err := plan.Validate(); err != nil {
+		return nil, nil, "", fmt.Errorf("validate typed construction sequence: %w", err)
+	}
+	return priorSchema, descriptors, priorIdentity, nil
+}
+
+func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recipe.StageColumn, schema []CompiledOutputColumn, outputName string) ([]CompiledOutputColumn, error) {
+	projections := map[string]ir.PhysicalProjection{}
+	for _, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Hidden {
+				continue
+			}
+			projections[projection.Name] = projection
+		}
+	}
+	schemaByName := make(map[string]CompiledOutputColumn, len(schema))
+	publicCount := 0
+	for _, column := range schema {
+		if column.Internal {
+			continue
+		}
+		publicCount++
+		schemaByName[column.Name] = column
+	}
+	if len(declarations) != publicCount {
+		return nil, fmt.Errorf("construction source schema declares %d columns but resolved source emits %d public columns", len(declarations), publicCount)
+	}
+	resolved := make([]CompiledOutputColumn, 0, len(declarations)+1)
+	seenIDs, seenNames := map[string]bool{}, map[string]bool{}
+	for index, declaration := range declarations {
+		if strings.TrimSpace(declaration.ID) == "" || declaration.ID != strings.TrimSpace(declaration.ID) || seenIDs[declaration.ID] {
+			return nil, fmt.Errorf("construction source column %d has an empty, untrimmed, or duplicate ID %q", index, declaration.ID)
+		}
+		if strings.TrimSpace(declaration.Name) == "" || seenNames[declaration.Name] {
+			return nil, fmt.Errorf("construction source column %d has an empty or duplicate resolved public name %q", index, declaration.Name)
+		}
+		compiled, exists := schemaByName[declaration.Name]
+		if !exists {
+			return nil, fmt.Errorf("construction source column %q does not match an exact public source output", declaration.Name)
+		}
+		if _, exists := projections[declaration.Name]; !exists {
+			return nil, fmt.Errorf("construction source column %q has no public physical projection", declaration.Name)
+		}
+		compiled.ID, compiled.Name = declaration.ID, declaration.Name
+		compiled.Label = constructionFirstNonEmpty(declaration.Label, compiled.Label, declaration.Name)
+		resolved = append(resolved, compiled)
+		seenIDs[declaration.ID], seenNames[declaration.Name] = true, true
+	}
+	if len(seenNames) != len(schemaByName) {
+		return nil, fmt.Errorf("construction source schema for output %q omits a resolved public source column", outputName)
+	}
+	for name, column := range schemaByName {
+		if !seenNames[name] {
+			return nil, fmt.Errorf("construction source schema does not map public source column %q (logical type %s)", name, column.Kind)
+		}
+	}
+	identity := constructionSourceIdentity(schema)
+	if identity == "" {
+		return nil, fmt.Errorf("construction source has no supported row identity projection")
+	}
+	identityColumn, ok := schemaColumn(schema, identity)
+	if !ok {
+		return nil, fmt.Errorf("construction source row identity %q is missing from its compiled schema", identity)
+	}
+	identityColumn.ID = identityColumn.Name
+	identityColumn.Internal, identityColumn.Identity = true, true
+	resolved = append(resolved, identityColumn)
+	return resolved, nil
+}
+
+func constructionSourceIdentity(schema []CompiledOutputColumn) string {
+	for _, preferred := range []string{constructionRowID, "__loom_expansion_identity", "_key"} {
+		if column, ok := schemaColumn(schema, preferred); ok && column.Internal && column.Identity {
+			return preferred
+		}
+	}
+	return ""
+}
+
+func schemaColumn(schema []CompiledOutputColumn, name string) (CompiledOutputColumn, bool) {
+	for _, column := range schema {
+		if column.Name == name {
+			return column, true
+		}
+	}
+	return CompiledOutputColumn{}, false
+}
+
+func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, inputStageID string, inputSchema []CompiledOutputColumn, inputIdentity string, usedVariables map[string]bool, index int) (constructionStageResult, error) {
+	inputByID := compiledSchemaByID(inputSchema)
+	outputByID := make(map[string]recipe.StageColumn, len(step.Outputs))
+	for _, column := range step.Outputs {
+		outputByID[column.ID] = column
+	}
+	inputRow := allocateConstructionVariable(usedVariables, "input", index)
+	outputRow := allocateConstructionVariable(usedVariables, "output", index)
+	inputColumns := toPhysicalStageColumns(inputSchema)
+	inputProjections := stageInputProjections(inputSchema, inputRow)
+	base := ir.PhysicalConstructionStage{
+		ID: step.ID, InputStageID: inputStageID, InputRowVariable: inputRow,
+		OutputRowVariable: outputRow, InputColumns: inputColumns,
+		InputProjections: inputProjections,
+	}
+	publicInput := publicCompiledSchema(inputSchema)
+	var outputSchema []CompiledOutputColumn
+	var outputIdentity string
+	switch step.Operation.Kind {
+	case recipe.ConstructionDeriveOp:
+		derive := step.Operation.Derive
+		column, ok := outputByID[derive.OutputColumnID]
+		if !ok {
+			return constructionStageResult{}, fmt.Errorf("derived output ID %q is missing from step schema", derive.OutputColumnID)
+		}
+		recipeColumn, err := constructionDerivedColumn(*derive, column, inputByID)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		temporary := ir.PhysicalPlan{BindVars: plan.BindVars, Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: inputProjections}}}}
+		derivedTypes, err := appendRecipeDerivedColumnsWithVariables(&temporary, []recipe.DerivedColumn{recipeColumn}, inputSchema, usedVariables)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		derivedProjection, found := findProjection(temporary.Operations, column.Name)
+		if !found {
+			return constructionStageResult{}, fmt.Errorf("derived output %q has no physical projection", column.Name)
+		}
+		base.Kind = ir.PhysicalStageDeriveOp
+		for _, operation := range temporary.Operations {
+			if operation.Kind != ir.PhysicalReturnOp {
+				base.DerivedLets = append(base.DerivedLets, operation)
+			}
+		}
+		outputSchema = make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
+		for _, declaration := range step.Outputs {
+			if prior, exists := inputByID[declaration.ID]; exists {
+				prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+				outputSchema = append(outputSchema, prior)
+				continue
+			}
+			if declaration.ID != derive.OutputColumnID {
+				return constructionStageResult{}, fmt.Errorf("derive output schema contains unexpected new column ID %q", declaration.ID)
+			}
+			metadata := derivedTypes[recipeColumn.Name]
+			outputSchema = append(outputSchema, CompiledOutputColumn{
+				ID: declaration.ID, Name: declaration.Name, Label: constructionFirstNonEmpty(declaration.Label, declaration.Name),
+				SemanticPath: "derived:" + derive.ConstructionID, Kind: string(metadata.Type.Kind),
+				Cardinality: string(metadata.Type.Cardinality), Nullable: metadata.Type.Cardinality.Optional(),
+				NormalizedUnit: cloneUnitIdentity(metadata.NormalizedUnit),
+			})
+		}
+		base.OutputProjections = stagePassThroughAndDerivedProjections(step.Outputs, inputByID, inputRow, column.ID, column.Name, derivedProjection)
+		outputIdentity = inputIdentity
+	case recipe.ConstructionFilterOp:
+		filter := step.Operation.Filter
+		inputColumn, ok := inputByID[filter.ColumnID]
+		if !ok || inputColumn.Internal {
+			return constructionStageResult{}, fmt.Errorf("filter column ID %q is not a public input", filter.ColumnID)
+		}
+		physicalFilter, err := constructionPhysicalFilter(plan, *filter, inputRow, inputColumn)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.Filter = ir.PhysicalStageFilterOp, &physicalFilter
+		outputSchema = make([]CompiledOutputColumn, 0, len(step.Outputs)+1)
+		for _, declaration := range step.Outputs {
+			prior, exists := inputByID[declaration.ID]
+			if !exists || prior.Internal {
+				return constructionStageResult{}, fmt.Errorf("filter output ID %q is not a public input column", declaration.ID)
+			}
+			prior.Name, prior.Label = declaration.Name, constructionFirstNonEmpty(declaration.Label, prior.Label, declaration.Name)
+			outputSchema = append(outputSchema, prior)
+		}
+		base.OutputProjections = stagePassThroughProjections(step.Outputs, inputByID, inputRow)
+		outputIdentity = inputIdentity
+	case recipe.ConstructionPivotOp:
+		pivot := step.Operation.Pivot
+		if pivot.UnlistedCategoryPolicy == recipe.PivotUnlistedCategoryExcludeWithEvidence {
+			return constructionStageResult{}, fmt.Errorf("EXCLUDE_WITH_EVIDENCE pivot policy is not available inside a construction sequence")
+		}
+		semanticPivot, outputNames, err := constructionSemanticPivot(*pivot, inputByID, outputByID)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		nameSchema, nameProjections := compiledSchemaByName(publicInput), stageProjectionMap(inputProjections)
+		physicalPivot, projections, compiled, err := lowerRecipeGroupedPivot(plan, semanticPivot, inputProjections, nameSchema, nameProjections, usedVariables)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		for index := range physicalPivot.GroupKeys {
+			outputName := outputNames[physicalPivot.GroupKeys[index].Column]
+			physicalPivot.GroupKeys[index].Output = outputName
+		}
+		for index := range physicalPivot.Categories {
+			physicalPivot.Categories[index].Output = outputNames[physicalPivot.Categories[index].Output]
+		}
+		base.Kind, base.GroupedPivot = ir.PhysicalStagePivotOp, &physicalPivot
+		base.OutputRowVariable = physicalPivot.OutputRowVariable
+		base.OutputProjections = projections
+		outputSchema, err = reconcileConstructionShapeSchema(step.Outputs, outputNames, compiled, inputByID)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		outputIdentity = constructionRowID
+	case recipe.ConstructionUnpivotOp:
+		unpivot := step.Operation.Unpivot
+		semanticUnpivot, err := constructionSemanticUnpivot(*unpivot, inputByID, outputByID)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		nameSchema, nameProjections := compiledSchemaByName(publicInput), stageProjectionMap(inputProjections)
+		identity := spec.RowIdentity{Grain: spec.RowGrainPatient, Fields: []string{inputIdentity}}
+		physicalUnpivot, projections, compiled, err := lowerRecipeUnpivot(plan, semanticUnpivot, &identity, inputProjections, nameSchema, nameProjections, usedVariables)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		physicalUnpivot.PreservedOutputs = constructionUnpivotPreservedOutputs(*unpivot, step.Outputs, inputByID)
+		base.Kind, base.Unpivot = ir.PhysicalStageUnpivotOp, &physicalUnpivot
+		base.OutputRowVariable = physicalUnpivot.OutputRowVariable
+		base.OutputProjections = projections
+		outputSchema, err = reconcileConstructionUnpivotSchema(step.Outputs, compiled, inputByID, *unpivot)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		outputIdentity = constructionRowID
+	default:
+		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
+	}
+	if outputIdentity == "" {
+		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")
+	}
+	outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp {
+		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
+			Name: outputIdentity, Hidden: true,
+			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
+		})
+	}
+	base.InputRowVariable = inputRow
+	base.RowIdentityColumn = outputIdentity
+	base.InputColumns = inputColumns
+	base.OutputColumns = toPhysicalStageColumns(outputSchema)
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp {
+		base.InputProjections = inputProjections
+	}
+	descriptor := CompiledStageDescriptor{
+		ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
+		Columns: cloneCompiledSchema(outputSchema), RowIdentityColumn: outputIdentity,
+	}
+	descriptor.Capabilities = stageCapabilities(publicCompiledSchema(outputSchema))
+	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, descriptor: descriptor}, nil
+}
+
+func constructionSemanticPivot(pivot recipe.ConstructionPivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semanticPivot semantic.SemanticGroupedPivot, outputNames map[string]string, err error) {
+	name := func(id string) (string, error) {
+		column, ok := input[id]
+		if !ok || column.Internal {
+			return "", fmt.Errorf("pivot input column ID %q is not public", id)
+		}
+		return column.Name, nil
+	}
+	semanticPivot = semantic.SemanticGroupedPivot{
+		ConstructionID: pivot.ConstructionID, DuplicatePolicy: pivot.DuplicatePolicy,
+		MissingCellPolicy: pivot.MissingCellPolicy, UnlistedCategoryPolicy: pivot.UnlistedCategoryPolicy,
+	}
+	outputNames = map[string]string{}
+	for _, id := range pivot.GroupKeyIDs {
+		inputColumn := input[id]
+		outputColumn := output[id]
+		semanticPivot.GroupKeys = append(semanticPivot.GroupKeys, inputColumn.Name)
+		outputNames[inputColumn.Name] = outputColumn.Name
+	}
+	var nameErr error
+	semanticPivot.CategoryColumn, nameErr = name(pivot.CategoryColumnID)
+	if nameErr != nil {
+		return semanticPivot, nil, fmt.Errorf("category column: %w", nameErr)
+	}
+	semanticPivot.ValueColumn, nameErr = name(pivot.ValueColumnID)
+	if nameErr != nil {
+		return semanticPivot, nil, fmt.Errorf("value column: %w", nameErr)
+	}
+	for _, category := range pivot.Categories {
+		column, ok := output[category.OutputColumnID]
+		if !ok {
+			return semanticPivot, nil, fmt.Errorf("pivot output column ID %q is missing", category.OutputColumnID)
+		}
+		semanticPivot.Categories = append(semanticPivot.Categories, semantic.SemanticGroupedPivotCategory{Key: category.Key, Output: column.Name, Label: column.Label})
+		outputNames[column.Name] = column.Name
+	}
+	return semanticPivot, outputNames, nil
+}
+
+func constructionSemanticUnpivot(unpivot recipe.ConstructionUnpivot, input map[string]CompiledOutputColumn, output map[string]recipe.StageColumn) (semantic.SemanticUnpivot, error) {
+	semanticUnpivot := semantic.SemanticUnpivot{
+		ConstructionID: unpivot.ConstructionID, NullRowPolicy: unpivot.NullRowPolicy,
+	}
+	for _, item := range unpivot.Inputs {
+		column, ok := input[item.ColumnID]
+		if !ok || column.Internal {
+			return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot input column ID %q is not public", item.ColumnID)
+		}
+		semanticUnpivot.Inputs = append(semanticUnpivot.Inputs, semantic.SemanticUnpivotInput{Column: column.Name, Key: item.Key})
+	}
+	keyOutput, ok := output[unpivot.KeyOutputColumnID]
+	if !ok {
+		return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot key output ID %q is missing", unpivot.KeyOutputColumnID)
+	}
+	valueOutput, ok := output[unpivot.ValueOutputColumnID]
+	if !ok {
+		return semantic.SemanticUnpivot{}, fmt.Errorf("unpivot value output ID %q is missing", unpivot.ValueOutputColumnID)
+	}
+	semanticUnpivot.KeyOutput, semanticUnpivot.KeyLabel = keyOutput.Name, keyOutput.Label
+	semanticUnpivot.ValueOutput, semanticUnpivot.ValueLabel = valueOutput.Name, valueOutput.Label
+	return semanticUnpivot, nil
+}
+
+func reconcileConstructionShapeSchema(declarations []recipe.StageColumn, outputNames map[string]string, computed []CompiledOutputColumn, input map[string]CompiledOutputColumn) ([]CompiledOutputColumn, error) {
+	computedByName := make(map[string]CompiledOutputColumn, len(computed))
+	for _, column := range computed {
+		computedByName[column.Name] = column
+	}
+	result := make([]CompiledOutputColumn, 0, len(declarations))
+	for _, declaration := range declarations {
+		computedName := ""
+		for inputName, outputName := range outputNames {
+			if outputName == declaration.Name {
+				computedName = inputName
+				break
+			}
+		}
+		if computedName == "" {
+			if prior, ok := input[declaration.ID]; ok {
+				computedName = prior.Name
+			}
+		}
+		column, ok := computedByName[computedName]
+		if !ok {
+			return nil, fmt.Errorf("stage output ID %q name %q has no physical shape output", declaration.ID, declaration.Name)
+		}
+		column.ID, column.Name = declaration.ID, declaration.Name
+		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Internal, column.Identity = false, false
+		result = append(result, column)
+	}
+	return result, nil
+}
+
+func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, computed []CompiledOutputColumn, input map[string]CompiledOutputColumn, operation recipe.ConstructionUnpivot) ([]CompiledOutputColumn, error) {
+	computedByName := make(map[string]CompiledOutputColumn, len(computed))
+	for _, column := range computed {
+		computedByName[column.Name] = column
+	}
+	selected := map[string]bool{}
+	for _, item := range operation.Inputs {
+		selected[item.ColumnID] = true
+	}
+	result := make([]CompiledOutputColumn, 0, len(declarations))
+	for _, declaration := range declarations {
+		var column CompiledOutputColumn
+		if declaration.ID == operation.KeyOutputColumnID || declaration.ID == operation.ValueOutputColumnID {
+			column, _ = computedByName[declaration.Name]
+		} else {
+			prior, ok := input[declaration.ID]
+			if !ok || selected[declaration.ID] || prior.Internal {
+				return nil, fmt.Errorf("unpivot output ID %q is neither a retained input nor a key/value output", declaration.ID)
+			}
+			column, _ = computedByName[prior.Name]
+		}
+		if column.Name == "" {
+			return nil, fmt.Errorf("unpivot output ID %q name %q has no physical output", declaration.ID, declaration.Name)
+		}
+		column.ID, column.Name = declaration.ID, declaration.Name
+		column.Label = constructionFirstNonEmpty(declaration.Label, column.Label, declaration.Name)
+		column.Internal, column.Identity = false, false
+		result = append(result, column)
+	}
+	return result, nil
+}
+
+func constructionUnpivotPreservedOutputs(operation recipe.ConstructionUnpivot, outputs []recipe.StageColumn, input map[string]CompiledOutputColumn) []ir.PhysicalUnpivotOutput {
+	selected := map[string]bool{}
+	for _, item := range operation.Inputs {
+		selected[item.ColumnID] = true
+	}
+	var result []ir.PhysicalUnpivotOutput
+	for _, output := range outputs {
+		prior, exists := input[output.ID]
+		if exists && !prior.Internal && !selected[output.ID] {
+			result = append(result, ir.PhysicalUnpivotOutput{InputColumn: prior.Name, OutputColumn: output.Name})
+		}
+	}
+	return result
+}
+
+func constructionDerivedColumn(derive recipe.ConstructionDerive, output recipe.StageColumn, input map[string]CompiledOutputColumn) (recipe.DerivedColumn, error) {
+	convertOperand := func(operand recipe.ConstructionOperand) (recipe.DerivedOperand, error) {
+		if operand.Kind == recipe.DerivedColumnOperand {
+			column, ok := input[operand.ColumnID]
+			if !ok || column.Internal {
+				return recipe.DerivedOperand{}, fmt.Errorf("derived input column ID %q is not public", operand.ColumnID)
+			}
+			return recipe.DerivedOperand{Kind: recipe.DerivedColumnOperand, Column: column.Name}, nil
+		}
+		return recipe.DerivedOperand{Kind: recipe.DerivedLiteralOperand, Literal: operand.Literal}, nil
+	}
+	left, err := convertOperand(derive.Left)
+	if err != nil {
+		return recipe.DerivedColumn{}, fmt.Errorf("left operand: %w", err)
+	}
+	right, err := convertOperand(derive.Right)
+	if err != nil {
+		return recipe.DerivedColumn{}, fmt.Errorf("right operand: %w", err)
+	}
+	return recipe.DerivedColumn{
+		ConstructionID: derive.ConstructionID, Name: output.Name, Label: output.Label,
+		Operation: derive.Operation, Left: left, Right: right,
+		MissingInputPolicy: derive.MissingInputPolicy, DivisionByZeroPolicy: derive.DivisionByZeroPolicy,
+	}, nil
+}
+
+func constructionPhysicalFilter(plan *ir.PhysicalPlan, filter recipe.ConstructionFilter, row string, column CompiledOutputColumn) (ir.PhysicalFilter, error) {
+	predicate := ir.PhysicalPredicate{
+		Operator: string(filter.Operator), Left: ir.PhysicalValue{Variable: row, Path: []string{column.Name}},
+	}
+	if filter.Operator != recipe.FilterExists && filter.Operator != recipe.FilterMissing {
+		values := make([]any, 0, len(filter.Values))
+		for _, value := range filter.Values {
+			literal, err := constructionFilterLiteral(value)
+			if err != nil {
+				return ir.PhysicalFilter{}, err
+			}
+			values = append(values, literal)
+		}
+		bindKey := nextTableReshapeBindKey(plan.BindVars, "construction_filter_value")
+		if filter.Operator == recipe.FilterIn {
+			plan.BindVars[bindKey] = values
+		} else {
+			plan.BindVars[bindKey] = values[0]
+		}
+		predicate.Right = &ir.PhysicalValue{BindKey: bindKey}
+	}
+	return ir.PhysicalFilter{Predicate: predicate}, nil
+}
+
+func constructionFilterLiteral(value recipe.FilterValue) (any, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	switch value.Kind {
+	case recipe.FilterString:
+		return *value.String, nil
+	case recipe.FilterCode:
+		return value.Code.Code, nil
+	case recipe.FilterBoolean:
+		return *value.Boolean, nil
+	case recipe.FilterInteger:
+		return *value.Integer, nil
+	case recipe.FilterDecimal:
+		return *value.Decimal, nil
+	case recipe.FilterDate:
+		return *value.Date, nil
+	case recipe.FilterDateTime:
+		return *value.DateTime, nil
+	default:
+		return nil, fmt.Errorf("unsupported construction filter value kind %q", value.Kind)
+	}
+}
+
+func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapability {
+	public := publicCompiledSchema(columns)
+	numeric, scalar, unpivotPairs := 0, 0, false
+	for index, column := range public {
+		if column.Cardinality == string(expression.Many) {
+			continue
+		}
+		if _, ok := tableReshapeScalarKind(column.Kind); ok {
+			scalar++
+			for _, other := range public[index+1:] {
+				if other.Cardinality != string(expression.Many) {
+					left, lok := tableReshapeScalarKind(column.Kind)
+					right, rok := tableReshapeScalarKind(other.Kind)
+					if lok && rok && constructionScalarKindsCompatible(left, right) {
+						unpivotPairs = true
+					}
+				}
+			}
+		}
+		if column.Kind == string(expression.KindInteger) || column.Kind == string(expression.KindDecimal) {
+			numeric++
+		}
+	}
+	capability := func(operation recipe.ConstructionOperationKind, supported bool, code, reason string) StageOperationCapability {
+		return StageOperationCapability{Operation: operation, Supported: supported, ReasonCode: code, Reason: reason}
+	}
+	return []StageOperationCapability{
+		capability(recipe.ConstructionDeriveOp, numeric > 0, "NO_NUMERIC_COLUMN", "derive requires at least one public scalar numeric column or a numeric literal operand"),
+		capability(recipe.ConstructionFilterOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "filter requires a public output column"),
+		capability(recipe.ConstructionPivotOp, scalar >= 3, "INSUFFICIENT_SCALAR_COLUMNS", "pivot requires public scalar group, category, and value columns"),
+		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
+	}
+}
+
+func stageInputProjections(schema []CompiledOutputColumn, row string) []ir.PhysicalProjection {
+	projections := make([]ir.PhysicalProjection, 0, len(schema))
+	for _, column := range schema {
+		projections = append(projections, ir.PhysicalProjection{
+			Name: column.Name, Hidden: column.Internal,
+			Value: ir.PhysicalValue{Variable: row, Path: []string{column.Name}},
+		})
+	}
+	return projections
+}
+
+func stagePassThroughProjections(outputs []recipe.StageColumn, input map[string]CompiledOutputColumn, row string) []ir.PhysicalProjection {
+	projections := make([]ir.PhysicalProjection, 0, len(outputs))
+	for _, output := range outputs {
+		prior := input[output.ID]
+		projections = append(projections, ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}}})
+	}
+	return projections
+}
+
+func stagePassThroughAndDerivedProjections(outputs []recipe.StageColumn, input map[string]CompiledOutputColumn, row, derivedID, derivedName string, derived ir.PhysicalProjection) []ir.PhysicalProjection {
+	projections := make([]ir.PhysicalProjection, 0, len(outputs))
+	for _, output := range outputs {
+		if output.ID == derivedID {
+			derived.Name = derivedName
+			projections = append(projections, derived)
+			continue
+		}
+		prior := input[output.ID]
+		projections = append(projections, ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}}})
+	}
+	return projections
+}
+
+func stageProjectionMap(projections []ir.PhysicalProjection) map[string]ir.PhysicalProjection {
+	result := make(map[string]ir.PhysicalProjection, len(projections))
+	for _, projection := range projections {
+		result[projection.Name] = projection
+	}
+	return result
+}
+
+func compiledSchemaByID(schema []CompiledOutputColumn) map[string]CompiledOutputColumn {
+	result := make(map[string]CompiledOutputColumn, len(schema))
+	for _, column := range schema {
+		result[column.ID] = column
+	}
+	return result
+}
+
+func compiledSchemaByName(schema []CompiledOutputColumn) map[string]CompiledOutputColumn {
+	result := make(map[string]CompiledOutputColumn, len(schema))
+	for _, column := range schema {
+		result[column.Name] = column
+	}
+	return result
+}
+
+func publicCompiledSchema(schema []CompiledOutputColumn) []CompiledOutputColumn {
+	result := make([]CompiledOutputColumn, 0, len(schema))
+	for _, column := range schema {
+		if !column.Internal {
+			result = append(result, column)
+		}
+	}
+	return result
+}
+
+func toPhysicalStageColumns(schema []CompiledOutputColumn) []ir.PhysicalStageColumn {
+	result := make([]ir.PhysicalStageColumn, 0, len(schema))
+	for _, column := range schema {
+		result = append(result, ir.PhysicalStageColumn{
+			ID: column.ID, Name: column.Name, Label: column.Label,
+			Kind: column.Kind, Cardinality: column.Cardinality, Nullable: column.Nullable,
+			Internal: column.Internal, Identity: column.Identity,
+			NormalizedUnit: cloneUnitIdentity(column.NormalizedUnit),
+		})
+	}
+	return result
+}
+
+func constructionIdentitySchema(identity string, output, input []CompiledOutputColumn) CompiledOutputColumn {
+	if column, ok := schemaColumn(input, identity); ok {
+		column.ID, column.Name = identity, identity
+		column.Internal, column.Identity = true, true
+		return column
+	}
+	for _, column := range output {
+		if column.Name == identity {
+			column.ID, column.Internal, column.Identity = identity, true, true
+			return column
+		}
+	}
+	return CompiledOutputColumn{
+		ID: identity, Name: identity, Label: identity, SemanticPath: "construction:row_identity",
+		Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true,
+	}
+}
+
+func findProjection(operations []ir.PhysicalOperation, name string) (ir.PhysicalProjection, bool) {
+	for _, operation := range operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == name {
+				return projection, true
+			}
+		}
+	}
+	return ir.PhysicalProjection{}, false
+}
+
+func allocateConstructionVariable(used map[string]bool, kind string, index int) string {
+	base := fmt.Sprintf("__loom_construction_%s_%d", kind, index+1)
+	for suffix := 0; ; suffix++ {
+		candidate := base
+		if suffix > 0 {
+			candidate = fmt.Sprintf("%s_%d", base, suffix)
+		}
+		if !used[candidate] {
+			used[candidate] = true
+			return candidate
+		}
+	}
+}
+
+func cloneCompiledSchema(schema []CompiledOutputColumn) []CompiledOutputColumn {
+	return CloneCompiledOutputSchema(schema)
+}
+
+func constructionFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func constructionScalarKindsCompatible(output, input string) bool {
+	return output == input || output == "DECIMAL" && input == "INTEGER"
+}

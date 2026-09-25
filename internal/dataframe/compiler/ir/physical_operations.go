@@ -487,7 +487,10 @@ type PhysicalGroupedPivot struct {
 }
 
 type PhysicalGroupedPivotKey struct {
-	Column   string
+	Column string
+	// Output permits a construction stage to rename a pass-through group key
+	// while still resolving the key against the preceding stage's schema.
+	Output   string
 	Variable string
 	Kind     string
 	Hidden   bool
@@ -518,6 +521,7 @@ type PhysicalUnpivot struct {
 	OutputRowVariable     string
 	InputProjections      []PhysicalProjection
 	Inputs                []PhysicalUnpivotInput
+	PreservedOutputs      []PhysicalUnpivotOutput
 	KeyOutput             string
 	KeyType               string
 	ValueOutput           string
@@ -525,6 +529,13 @@ type PhysicalUnpivot struct {
 	IdentityParts         []PhysicalUnpivotIdentityPart
 	ConstructionIDBindKey string
 	NullRowPolicy         string
+}
+
+// PhysicalUnpivotOutput preserves one input value under its stage output
+// name. Empty PreservedOutputs retains the input name for legacy reshapes.
+type PhysicalUnpivotOutput struct {
+	InputColumn  string
+	OutputColumn string
 }
 
 type PhysicalUnpivotInput struct {

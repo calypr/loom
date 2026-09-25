@@ -495,7 +495,7 @@ func physicalPlanVariableNames(plan ir.PhysicalPlan) map[string]struct{} {
 }
 
 func (r *physicalPlanRenderer) newInternalVariable(suffix string) string {
-	base := "__loom_physical_" + suffix
+	base := "__loom_physical_" + r.internalPrefix + suffix
 	variable := base
 	for counter := 1; ; counter++ {
 		if _, exists := r.reservedVars[variable]; !exists {

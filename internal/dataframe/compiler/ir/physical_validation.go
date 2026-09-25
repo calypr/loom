@@ -274,6 +274,11 @@ func (p PhysicalPlan) Validate() error {
 	if returns+graphReturns != 1 {
 		return fmt.Errorf("physical plan requires exactly one RETURN, GRAPH_RETURN, POPULATION_MAPPING_RETURN, CELL_TRACE_RETURN, or TABLE_SHAPE_EXCLUSION_RETURN")
 	}
+	if p.StageSequence != nil {
+		if err := validatePhysicalStageSequence(*p.StageSequence, p.Operations, p.BindVars); err != nil {
+			return fmt.Errorf("construction stage sequence: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1013,7 +1018,7 @@ func validatePhysicalFilter(filter PhysicalFilter, defined map[string]bool, bind
 	if legacy {
 		if filter.Predicate.LeftExpression == nil {
 			switch strings.ToUpper(strings.TrimSpace(filter.Predicate.Operator)) {
-			case "EQUALS", "IN", "GT":
+			case "EQUALS", "NOT_EQUALS", "IN", "EXISTS", "MISSING", "CONTAINS_TEXT", "GT", "GTE", "LT", "LTE":
 			default:
 				return fmt.Errorf("unsupported physical filter operator %q in legacy predicate", filter.Predicate.Operator)
 			}

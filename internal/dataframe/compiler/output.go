@@ -68,6 +68,23 @@ func physicalTraversalCount(plan ir.PhysicalPlan) int {
 // and optional preview bound before any traversal LET subquery, ensuring an
 // expensive optional navigation is evaluated only for selected root rows.
 func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.PhysicalPlan, error) {
+	if plan.StageSequence != nil {
+		out := clonePhysicalPlan(plan)
+		if limit > 0 {
+			if _, exists := out.BindVars[genericPhysicalExecutionLimitBind]; exists {
+				return ir.PhysicalPlan{}, fmt.Errorf("generic physical execution limit bind %q is already defined", genericPhysicalExecutionLimitBind)
+			}
+			out.BindVars[genericPhysicalExecutionLimitBind] = limit
+			out.StageSequence.PreviewLimitBindKey = genericPhysicalExecutionLimitBind
+		}
+		if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
+			return ir.PhysicalPlan{}, fmt.Errorf("validate construction physical execution scope: %w", err)
+		}
+		if err := out.Validate(); err != nil {
+			return ir.PhysicalPlan{}, fmt.Errorf("validate construction physical execution window: %w", err)
+		}
+		return out, nil
+	}
 	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && plan.Operations[0].GroupRows != nil {
 		out := clonePhysicalPlan(plan)
 		if limit > 0 {

@@ -53,7 +53,10 @@ type CompiledRecipeOutput struct {
 	// contains the bounded projections; observed-key/type checks remain above
 	// the backend execution boundary.
 	DynamicColumns []DynamicColumnMetadata
-	Plan           ir.PhysicalPlan
+	// Stages exposes the exact typed schemas and operation capabilities used
+	// to compile an ordered construction sequence.
+	Stages []CompiledStageDescriptor
+	Plan   ir.PhysicalPlan
 	// OptimizedPlan is populated by the request orchestrator after all outputs
 	// have been lowered. Keeping it separate from Plan lets preview windows be
 	// rendered repeatedly without re-running the optimizer or lowering stage.
@@ -219,16 +222,27 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	reshapeSchema, err := appendRecipeTableReshape(&physical, output, baseOutputSchema, &identity)
-	if err != nil {
-		return CompiledRecipeOutput{}, err
-	}
-	if output.TableReshape != nil && output.TableReshape.Kind == recipe.TableReshapeUnpivot && len(output.DerivedColumns) > 0 {
-		return CompiledRecipeOutput{}, fmt.Errorf("derived columns cannot be combined with unpivot")
-	}
-	derivedTypes, err := appendRecipeDerivedColumns(&physical, output.DerivedColumns, reshapeSchema)
-	if err != nil {
-		return CompiledRecipeOutput{}, err
+	var reshapeSchema []CompiledOutputColumn
+	var stageDescriptors []CompiledStageDescriptor
+	finalStageIdentity := ""
+	var derivedTypes map[string]derivedColumnMetadata
+	if output.Construction != nil {
+		reshapeSchema, stageDescriptors, finalStageIdentity, err = appendRecipeConstructionStages(&physical, output.Name, *output.Construction, baseOutputSchema)
+		if err != nil {
+			return CompiledRecipeOutput{}, err
+		}
+	} else {
+		reshapeSchema, err = appendRecipeTableReshape(&physical, output, baseOutputSchema, &identity)
+		if err != nil {
+			return CompiledRecipeOutput{}, err
+		}
+		if output.TableReshape != nil && output.TableReshape.Kind == recipe.TableReshapeUnpivot && len(output.DerivedColumns) > 0 {
+			return CompiledRecipeOutput{}, fmt.Errorf("derived columns cannot be combined with unpivot")
+		}
+		derivedTypes, err = appendRecipeDerivedColumns(&physical, output.DerivedColumns, reshapeSchema)
+		if err != nil {
+			return CompiledRecipeOutput{}, err
+		}
 	}
 	if err := validatePublicProjectionNames(physical, output.Name); err != nil {
 		return CompiledRecipeOutput{}, err
@@ -240,13 +254,18 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
-	if output.TableReshape != nil {
+	if output.Construction != nil {
+		outputSchema = CloneCompiledOutputSchema(reshapeSchema)
+		if len(output.Construction.Steps) > 0 {
+			identity.Fields = []string{finalStageIdentity}
+		}
+	} else if output.TableReshape != nil {
 		outputSchema = reconcileRecipeTableReshapeSchema(outputSchema, reshapeSchema)
 	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
 		RowGrain: output.RowGrain, RootColumnNaming: output.RootColumnNaming, Columns: physicalOutputColumns(outputSchema), OutputSchema: outputSchema,
-		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Plan: physical,
+		RowIdentity: (&identity).Clone(), DynamicColumns: dynamicMetadata, Stages: stageDescriptors, Plan: physical,
 	}, nil
 }
 

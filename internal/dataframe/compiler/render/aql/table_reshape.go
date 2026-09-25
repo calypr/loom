@@ -79,7 +79,11 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	r.bindVars[valueTypeBind] = valueType
 	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+len(pivot.Categories)+2)
 	for _, key := range pivot.GroupKeys {
-		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: key.Column, Hidden: key.Hidden, Value: ir.PhysicalValue{Variable: key.Variable}})
+		name := key.Output
+		if name == "" {
+			name = key.Column
+		}
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: name, Hidden: key.Hidden, Value: ir.PhysicalValue{Variable: key.Variable}})
 	}
 	for index, category := range pivot.Categories {
 		cellVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_%d", index))
@@ -296,16 +300,24 @@ func (r *physicalPlanRenderer) renderTableUnpivot(unpivot ir.PhysicalUnpivot) ([
 	for _, input := range unpivot.Inputs {
 		selected[input.Column] = true
 	}
+	preservedNames := make(map[string]string, len(unpivot.PreservedOutputs))
+	for _, output := range unpivot.PreservedOutputs {
+		preservedNames[output.InputColumn] = output.OutputColumn
+	}
 	outputProjections := make([]ir.PhysicalProjection, 0, len(unpivot.InputProjections)+3)
 	for _, projection := range unpivot.InputProjections {
 		if selected[projection.Name] || projection.Name == "__loom_row_id" {
 			continue
 		}
+		outputName := projection.Name
+		if renamed, ok := preservedNames[projection.Name]; ok {
+			outputName = renamed
+		}
 		columnBind := r.newInternalBindKey("reshape_unpivot_preserved_column")
 		r.bindVars[columnBind] = projection.Name
 		lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
 			ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: unpivot.InputRowVariable, KeyBindKey: columnBind}}
-		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: projection.Name, Hidden: projection.Hidden, Expression: &lookup})
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: outputName, Hidden: projection.Hidden, Expression: &lookup})
 	}
 	outputProjections = append(outputProjections,
 		ir.PhysicalProjection{Name: unpivot.KeyOutput, Value: ir.PhysicalValue{Variable: unpivot.SlotVariable, Path: []string{"key"}}},

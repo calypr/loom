@@ -37,11 +37,60 @@ func clonePhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	copy := plan
 	copy.BindVars = clonePhysicalBindVars(plan.BindVars)
 	copy.OptimizationPolicy = clonePhysicalOptimizationReport(plan.OptimizationPolicy)
+	copy.StageSequence = clonePhysicalStageSequence(plan.StageSequence)
 	copy.Operations = make([]PhysicalOperation, len(plan.Operations))
 	for index, operation := range plan.Operations {
 		copy.Operations[index] = clonePhysicalOperation(operation)
 	}
 	return copy
+}
+
+func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageSequence {
+	if sequence == nil {
+		return nil
+	}
+	copy := *sequence
+	copy.SourceColumns = clonePhysicalStageColumns(sequence.SourceColumns)
+	copy.FinalColumns = clonePhysicalStageColumns(sequence.FinalColumns)
+	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
+	for index, stage := range sequence.Stages {
+		cloned := stage
+		cloned.InputColumns = clonePhysicalStageColumns(stage.InputColumns)
+		cloned.OutputColumns = clonePhysicalStageColumns(stage.OutputColumns)
+		cloned.InputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.InputProjections}}).Return.Projections
+		cloned.OutputProjections = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalReturnOp, Return: &PhysicalReturn{Projections: stage.OutputProjections}}).Return.Projections
+		cloned.DerivedLets = clonePhysicalOperations(stage.DerivedLets)
+		if stage.Filter != nil {
+			cloned.Filter = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalFilterOp, Filter: stage.Filter}).Filter
+		}
+		if stage.GroupedPivot != nil {
+			cloned.GroupedPivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalGroupedPivotOp, GroupedPivot: stage.GroupedPivot}).GroupedPivot
+		}
+		if stage.Unpivot != nil {
+			cloned.Unpivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalUnpivotOp, Unpivot: stage.Unpivot}).Unpivot
+		}
+		copy.Stages[index] = cloned
+	}
+	return &copy
+}
+
+func clonePhysicalStageColumns(columns []PhysicalStageColumn) []PhysicalStageColumn {
+	if columns == nil {
+		return nil
+	}
+	cloned := append([]PhysicalStageColumn(nil), columns...)
+	for index := range cloned {
+		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+	}
+	return cloned
+}
+
+func cloneUnitIdentity(identity *unit.UnitIdentity) *unit.UnitIdentity {
+	if identity == nil {
+		return nil
+	}
+	cloned := *identity
+	return &cloned
 }
 
 func ClonePhysicalPlan(plan PhysicalPlan) PhysicalPlan { return clonePhysicalPlan(plan) }
@@ -73,6 +122,7 @@ func CanonicalExecutionPhysicalPlan(plan PhysicalPlan) PhysicalPlan {
 	out.OptimizationPolicy = PhysicalOptimizationReport{}
 	out.RequiredMatchReuseCount = 0
 	canonicalizePhysicalOperations(out.Operations)
+	canonicalizePhysicalStageSequence(out.StageSequence)
 	return out
 }
 
@@ -139,6 +189,35 @@ func canonicalizePhysicalOperations(operations []PhysicalOperation) {
 		}
 		if operation.PathExtend != nil {
 			canonicalizePhysicalOperations(operation.PathExtend.Scope)
+		}
+	}
+}
+
+func canonicalizePhysicalStageSequence(sequence *PhysicalStageSequence) {
+	if sequence == nil {
+		return
+	}
+	for index := range sequence.Stages {
+		stage := &sequence.Stages[index]
+		canonicalizePhysicalOperations(stage.DerivedLets)
+		if stage.Filter != nil && stage.Filter.Expression != nil {
+			canonicalizePhysicalPredicateExpression(stage.Filter.Expression)
+		}
+		for projection := range stage.InputProjections {
+			canonicalizePhysicalExpression(stage.InputProjections[projection].Expression)
+		}
+		for projection := range stage.OutputProjections {
+			canonicalizePhysicalExpression(stage.OutputProjections[projection].Expression)
+		}
+		if stage.GroupedPivot != nil {
+			for projection := range stage.GroupedPivot.InputProjections {
+				canonicalizePhysicalExpression(stage.GroupedPivot.InputProjections[projection].Expression)
+			}
+		}
+		if stage.Unpivot != nil {
+			for projection := range stage.Unpivot.InputProjections {
+				canonicalizePhysicalExpression(stage.Unpivot.InputProjections[projection].Expression)
+			}
 		}
 	}
 }
@@ -426,6 +505,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		unpivotCopy := *operation.Unpivot
 		unpivotCopy.InputProjections = clonePhysicalProjections(operation.Unpivot.InputProjections)
 		unpivotCopy.Inputs = append([]PhysicalUnpivotInput(nil), operation.Unpivot.Inputs...)
+		unpivotCopy.PreservedOutputs = append([]PhysicalUnpivotOutput(nil), operation.Unpivot.PreservedOutputs...)
 		unpivotCopy.IdentityParts = append([]PhysicalUnpivotIdentityPart(nil), operation.Unpivot.IdentityParts...)
 		for index := range unpivotCopy.IdentityParts {
 			unpivotCopy.IdentityParts[index].Value = clonePhysicalValue(operation.Unpivot.IdentityParts[index].Value)

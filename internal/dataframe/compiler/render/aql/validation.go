@@ -8,7 +8,7 @@ import (
 )
 
 func (r *physicalPlanRenderer) newInternalBindKey(suffix string) string {
-	base := "__loom_physical_" + suffix
+	base := "__loom_physical_" + r.internalPrefix + suffix
 	key := base
 	for counter := 1; ; counter++ {
 		if _, exists := r.bindVars[key]; !exists {

@@ -15,24 +15,42 @@ func (r *physicalPlanRenderer) renderPredicate(predicate ir.PhysicalPredicate) (
 	if predicate.LeftExpression != nil {
 		return r.renderSelectorPredicate(predicate)
 	}
-	if predicate.Right == nil {
-		return "", fmt.Errorf("physical filter operator %q requires a right value", predicate.Operator)
-	}
 	left, err := r.renderValue(predicate.Left)
 	if err != nil {
 		return "", err
+	}
+	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
+	if predicate.Right == nil {
+		switch operator {
+		case "EXISTS":
+			return left + " != null", nil
+		case "MISSING":
+			return left + " == null", nil
+		default:
+			return "", fmt.Errorf("physical filter operator %q requires a right value", predicate.Operator)
+		}
 	}
 	right, err := r.renderValue(*predicate.Right)
 	if err != nil {
 		return "", err
 	}
-	switch strings.ToUpper(strings.TrimSpace(predicate.Operator)) {
+	switch operator {
 	case "EQUALS":
 		return left + " == " + right, nil
+	case "NOT_EQUALS":
+		return left + " != " + right, nil
 	case "IN":
 		return left + " IN " + right, nil
 	case "GT":
 		return left + " > " + right, nil
+	case "GTE":
+		return left + " >= " + right, nil
+	case "LT":
+		return left + " < " + right, nil
+	case "LTE":
+		return left + " <= " + right, nil
+	case "CONTAINS_TEXT":
+		return "CONTAINS(TO_STRING(" + left + "), " + right + ")", nil
 	default:
 		return "", fmt.Errorf("unsupported direct physical filter operator %q", predicate.Operator)
 	}

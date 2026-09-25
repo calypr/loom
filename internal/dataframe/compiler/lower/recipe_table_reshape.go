@@ -66,7 +66,7 @@ func appendRecipeTableReshape(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 		if pivot == nil {
 			return nil, fmt.Errorf("grouped pivot payload is required")
 		}
-		physical, nextProjections, nextSchema, err := lowerRecipeGroupedPivot(plan, *pivot, inputProjections, schemaByName, projectionByName)
+		physical, nextProjections, nextSchema, err := lowerRecipeGroupedPivot(plan, *pivot, inputProjections, schemaByName, projectionByName, physicalPlanVariables(plan.Operations))
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +77,7 @@ func appendRecipeTableReshape(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 		if unpivot == nil {
 			return nil, fmt.Errorf("unpivot payload is required")
 		}
-		physical, nextProjections, nextSchema, err := lowerRecipeUnpivot(plan, *unpivot, identity, inputProjections, schemaByName, projectionByName)
+		physical, nextProjections, nextSchema, err := lowerRecipeUnpivot(plan, *unpivot, identity, inputProjections, schemaByName, projectionByName, physicalPlanVariables(plan.Operations))
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +96,7 @@ func appendRecipeTableReshape(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 	return schema, nil
 }
 
-func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroupedPivot, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroupedPivot, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	categoryColumn, err := requireTableScalarColumn(pivot.CategoryColumn, schema, projections)
 	if err != nil {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category column: %w", err)
@@ -118,7 +118,6 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	}
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = pivot.ConstructionID
-	usedVariables := physicalPlanVariables(plan.Operations)
 	categoryProjection := projections[pivot.CategoryColumn]
 	physical := ir.PhysicalGroupedPivot{
 		ConstructionID: pivot.ConstructionID, InputRowVariable: allocateRecipeReshapeVariable(usedVariables, "pivot_input"),
@@ -212,13 +211,12 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	return physical, outputProjections, outputSchema, nil
 }
 
-func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot, identity *spec.RowIdentity, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection) (ir.PhysicalUnpivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
+func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot, identity *spec.RowIdentity, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalUnpivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	keyType := ""
 	valueType := ""
 	selected := make(map[string]bool, len(unpivot.Inputs))
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = unpivot.ConstructionID
-	usedVariables := physicalPlanVariables(plan.Operations)
 	physical := ir.PhysicalUnpivot{
 		ConstructionID: unpivot.ConstructionID, InputRowVariable: allocateRecipeReshapeVariable(usedVariables, "unpivot_input"),
 		SlotVariable: allocateRecipeReshapeVariable(usedVariables, "unpivot_slot"), OutputRowVariable: allocateRecipeReshapeVariable(usedVariables, "unpivot_output"),
