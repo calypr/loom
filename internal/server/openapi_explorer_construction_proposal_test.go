@@ -362,6 +362,12 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 		t.Fatalf("empty source descriptor is not compiler-resolved: %#v", capabilities.SelectedStage)
 	}
 	for _, operation := range capabilities.SelectedStage.Capabilities {
+		if string(operation.Kind) == "RELATED_SOURCE" {
+			if !operation.Supported {
+				t.Fatalf("hidden root identity should support related-source addition: %#v", operation)
+			}
+			continue
+		}
 		if operation.Supported {
 			t.Fatalf("zero-column source unexpectedly supports %s: %#v", operation.Kind, operation)
 		}

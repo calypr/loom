@@ -319,7 +319,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND":
+				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}

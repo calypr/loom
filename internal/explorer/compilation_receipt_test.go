@@ -280,7 +280,7 @@ func TestCompilationReceiptIdentityIncludesConstructionStageDescriptors(t *testi
 			ID:      recipe.ConstructionSourceProjectionID,
 			Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string", Cardinality: "optional_one"}},
 			Capabilities: []ReceiptConstructionOperationChoice{
-				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true},
+				{Kind: "FILTER", Supported: true}, {Kind: "GROUP", Supported: true}, {Kind: "EXPAND", Supported: true}, {Kind: "RELATED_SOURCE", Supported: true},
 			},
 		},
 		{
@@ -332,7 +332,7 @@ func TestCompilationReceiptRejectsUnknownConstructionStageColumnCardinality(t *t
 func TestCompilationReceiptAcceptsLegacyConstructionStagesWithoutCardinality(t *testing.T) {
 	receipt := testReceipt()
 	receipt.ConstructionStages = map[string][]ReceiptConstructionStage{"out": {{
-		ID: recipe.ConstructionSourceProjectionID,
+		ID:      recipe.ConstructionSourceProjectionID,
 		Columns: []ReceiptConstructionStageColumn{{ID: "field_id", Name: "field", Label: "Field", Type: "string"}},
 	}}}
 	columnJSON, err := json.Marshal(receipt.ConstructionStages["out"][0].Columns[0])
