@@ -162,7 +162,7 @@ describe('ConstructionOperationEditor', () => {
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: '2.5' } });
 
     expect(screen.getByTestId('construction-calculate-new-output')).toBeInTheDocument();
-    expect(screen.getByTestId('construction-calculate-formula-view')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Formula editor' })).toBeInTheDocument();
     const candidate = onCandidateChange.mock.lastCall?.[0];
     expect(candidate).toBeDefined();
     if (!candidate) throw new Error('Expected a derived candidate.');
@@ -181,7 +181,7 @@ describe('ConstructionOperationEditor', () => {
     expect(step?.outputs.at(-1)).toMatchObject({ name: 'calculated_value', label: 'Calculated value' });
   });
 
-  it('reopens a saved calculation with stable step and output identities', () => {
+  it('roundtrips a saved calculation between guided controls and formula text with stable IDs', () => {
     const construction: Construction = { version: 1, steps: [deriveStep] };
     const deriveStage: ConstructionStageDescriptor = {
       ...sourceStage,
@@ -200,15 +200,50 @@ describe('ConstructionOperationEditor', () => {
     });
 
     expect(screen.getByTestId('construction-calculate-replacement')).toHaveTextContent('keeping its column identity');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Operation' }), { target: { value: 'MULTIPLY' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Formula editor' }));
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Formula' }).value).toBe('age + 2');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Formula' }), { target: { value: 'weight * 3.5' } });
     const candidate = onCandidateChange.mock.lastCall?.[0];
     expect(candidate).toBeDefined();
     if (!candidate) throw new Error('Expected an edited calculation candidate.');
     expect(candidate.changedStepId).toBe('derive-saved');
     expect(candidate.candidateConstruction.steps[0]).toMatchObject({
       id: 'derive-saved',
-      operation: { kind: 'DERIVE', derive: { constructionId: 'derive-saved', outputColumnId: 'calculated-id', operation: 'MULTIPLY' } },
+      operation: {
+        kind: 'DERIVE',
+        derive: {
+          constructionId: 'derive-saved',
+          outputColumnId: 'calculated-id',
+          operation: 'MULTIPLY',
+          left: { kind: 'COLUMN', columnId: 'weight-id' },
+          right: { kind: 'LITERAL', literal: { kind: 'DECIMAL', decimal: 3.5 } },
+        },
+      },
       outputs: [...columns, { id: 'calculated-id', name: 'age_plus_two', label: 'Age plus two' }],
     });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guided controls' }));
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Operation' }).value).toBe('MULTIPLY');
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'First value kind' }).value).toBe('column');
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'First value column' }).value).toBe('weight-id');
+    expect(screen.getByRole<HTMLInputElement>('spinbutton', { name: 'Second value number' }).value).toBe('3.5');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Formula editor' }));
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Formula' }).value).toBe('weight * 3.5');
+  });
+
+  it('shows syntax errors for unsupported expressions and clears the preview candidate', () => {
+    const onCandidateChange = vi.fn();
+    renderEditor({ family: 'CALCULATE', onCandidateChange });
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'literal' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: '2' } });
+    expect(onCandidateChange.mock.lastCall?.[0]).toBeDefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Formula editor' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Formula' }), { target: { value: 'age + sqrt(2)' } });
+    expect(screen.getByTestId('construction-calculate-formula-error')).toHaveTextContent(/functions/i);
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Formula' }).value).toBe('age + sqrt(2)');
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
   });
 });

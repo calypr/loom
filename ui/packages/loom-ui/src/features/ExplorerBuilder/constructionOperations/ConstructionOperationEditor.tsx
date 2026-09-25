@@ -24,6 +24,20 @@ type DerivedOperand = DerivePayload['left'];
 type DerivedLiteral = Extract<DerivedOperand, { readonly kind: 'LITERAL' }>['literal'];
 type DerivedLiteralKind = DerivedLiteral['kind'];
 type DerivedOutput = ConstructionStep['outputs'][number];
+type DerivedOperation = DerivePayload['operation'];
+
+interface ArithmeticExpressionDraft {
+  readonly operation: DerivedOperation;
+  readonly left: OperandDraft;
+  readonly right: OperandDraft;
+}
+
+type ArithmeticExpression = Pick<DerivePayload, 'operation' | 'left' | 'right'>;
+
+type ExpressionState =
+  | { readonly kind: 'guided'; readonly draft: ArithmeticExpressionDraft }
+  | { readonly kind: 'formula-valid'; readonly expression: ArithmeticExpression; readonly source: string }
+  | { readonly kind: 'formula-invalid'; readonly lastDraft: ArithmeticExpressionDraft; readonly source: string; readonly error: string };
 
 type FilterForm =
   | { readonly kind: 'missing'; readonly columnId: string }
@@ -46,9 +60,7 @@ type OperandDraft =
     };
 
 interface CalculationForm {
-  readonly operation: DerivePayload['operation'];
-  readonly left: OperandDraft;
-  readonly right: OperandDraft;
+  readonly expression: ExpressionState;
   readonly missingInputPolicy: DerivePayload['missingInputPolicy'];
   readonly divisionByZeroPolicy: NonNullable<DerivePayload['divisionByZeroPolicy']>;
   readonly outputName: string;
@@ -353,9 +365,14 @@ const calculationFormFromStep = (
     const derive = step.operation.derive;
     const output = step.outputs.find((column) => column.id === derive.outputColumnId);
     return {
-      operation: derive.operation,
-      left: operandDraftFromWire(derive.left),
-      right: operandDraftFromWire(derive.right),
+      expression: {
+        kind: 'guided',
+        draft: {
+          operation: derive.operation,
+          left: operandDraftFromWire(derive.left),
+          right: operandDraftFromWire(derive.right),
+        },
+      },
       missingInputPolicy: derive.missingInputPolicy,
       divisionByZeroPolicy: derive.divisionByZeroPolicy ?? 'NULL',
       outputName: output?.name ?? calculationOutputName(stage.columns),
@@ -365,9 +382,14 @@ const calculationFormFromStep = (
   const numericColumns = stage.columns.filter(isNumericColumn);
   const selectedNumeric = numericColumns[0];
   return {
-    operation: 'ADD',
-    left: selectedNumeric ? { kind: 'column', columnId: selectedNumeric.id } : { kind: 'unset' },
-    right: { kind: 'unset' },
+    expression: {
+      kind: 'guided',
+      draft: {
+        operation: 'ADD',
+        left: selectedNumeric ? { kind: 'column', columnId: selectedNumeric.id } : { kind: 'unset' },
+        right: { kind: 'unset' },
+      },
+    },
     missingInputPolicy: 'PROPAGATE_NULL',
     divisionByZeroPolicy: 'NULL',
     outputName: calculationOutputName(stage.columns),
@@ -389,6 +411,121 @@ const operandForWire = (operand: OperandDraft): DerivedOperand | undefined => {
   return { kind: 'LITERAL', literal: { kind: 'DECIMAL', decimal: value } };
 };
 
+const expressionDraftFor = (state: ExpressionState): ArithmeticExpressionDraft => {
+  switch (state.kind) {
+    case 'guided':
+      return state.draft;
+    case 'formula-invalid':
+      return state.lastDraft;
+    case 'formula-valid':
+      return {
+        operation: state.expression.operation,
+        left: operandDraftFromWire(state.expression.left),
+        right: operandDraftFromWire(state.expression.right),
+      };
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+};
+
+const completeExpressionFor = (state: ExpressionState): ArithmeticExpression | undefined => {
+  switch (state.kind) {
+    case 'guided': {
+      const left = operandForWire(state.draft.left);
+      const right = operandForWire(state.draft.right);
+      return left && right ? { operation: state.draft.operation, left, right } : undefined;
+    }
+    case 'formula-valid':
+      return state.expression;
+    case 'formula-invalid':
+      return undefined;
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+};
+
+const formulaSymbolFor = (operation: DerivedOperation): string => {
+  switch (operation) {
+    case 'ADD': return '+';
+    case 'SUBTRACT': return '-';
+    case 'MULTIPLY': return '*';
+    case 'DIVIDE': return '/';
+    default: {
+      const exhaustive: never = operation;
+      return exhaustive;
+    }
+  }
+};
+
+const formulaOperandText = (
+  operand: OperandDraft,
+  columns: ConstructionStageDescriptor['columns'],
+): string => {
+  if (operand.kind === 'unset') return '';
+  if (operand.kind === 'column') return columns.find((column) => column.id === operand.columnId)?.name ?? '';
+  return operand.edited ? operand.text : '';
+};
+
+const formulaTextFor = (
+  expression: ArithmeticExpressionDraft,
+  columns: ConstructionStageDescriptor['columns'],
+): string => `${formulaOperandText(expression.left, columns)} ${formulaSymbolFor(expression.operation)} ${formulaOperandText(expression.right, columns)}`;
+
+type FormulaParseResult =
+  | { readonly kind: 'valid'; readonly expression: ArithmeticExpression }
+  | { readonly kind: 'invalid'; readonly message: string };
+
+const parseFormulaOperand = (
+  text: string,
+  columns: ConstructionStageDescriptor['columns'],
+): DerivedOperand | undefined => {
+  const numericLiteral = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+  if (numericLiteral.test(text)) {
+    const value = Number(text);
+    if (!Number.isFinite(value)) return undefined;
+    if (/^[+-]?\d+$/.test(text)) {
+      return Number.isSafeInteger(value)
+        ? { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: value } }
+        : undefined;
+    }
+    return { kind: 'LITERAL', literal: { kind: 'DECIMAL', decimal: value } };
+  }
+
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(text)) return undefined;
+  const column = columns.find((candidate) => candidate.name === text && isNumericColumn(candidate));
+  return column ? { kind: 'COLUMN', columnId: column.id } : undefined;
+};
+
+const parseFormula = (
+  source: string,
+  columns: ConstructionStageDescriptor['columns'],
+): FormulaParseResult => {
+  const operand = '(?:[A-Za-z_][A-Za-z0-9_]*|[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)';
+  const match = new RegExp(`^\\s*(${operand})\\s*([+*/-])\\s*(${operand})\\s*$`).exec(source);
+  if (!match) {
+    return {
+      kind: 'invalid',
+      message: 'Enter two numeric operands with one +, -, *, or / operator. Parentheses, functions, and conditional expressions are not supported.',
+    };
+  }
+
+  const left = parseFormulaOperand(match[1], columns);
+  const right = parseFormulaOperand(match[3], columns);
+  if (!left || !right) {
+    return {
+      kind: 'invalid',
+      message: 'Use numeric literals or numeric column names returned by Loom for this stage.',
+    };
+  }
+  const operation = derivedOperationFromInput({ '+': 'ADD', '-': 'SUBTRACT', '*': 'MULTIPLY', '/': 'DIVIDE' }[match[2]] ?? '');
+  if (!operation) return { kind: 'invalid', message: 'Choose one supported arithmetic operator: +, -, *, or /.' };
+  return { kind: 'valid', expression: { operation, left, right } };
+};
+
 const buildDeriveCandidate = (args: {
   readonly construction: Construction;
   readonly stage: ConstructionStageDescriptor;
@@ -396,8 +533,9 @@ const buildDeriveCandidate = (args: {
   readonly stepId: string;
   readonly outputColumnId: string;
   readonly form: CalculationForm;
+  readonly expression: ArithmeticExpression;
 }): CandidateIntent | undefined => {
-  const { construction, stage, editingStep, stepId, outputColumnId, form } = args;
+  const { construction, stage, editingStep, stepId, outputColumnId, form, expression } = args;
   if (editingStep && editingStep.operation.kind !== 'DERIVE') return undefined;
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(form.outputName) || !form.outputLabel.trim()) return undefined;
   const replacedOutputID = editingStep?.operation.kind === 'DERIVE'
@@ -409,18 +547,16 @@ const buildDeriveCandidate = (args: {
   if (nameConflict) return undefined;
 
   const numericColumnIDs = new Set(stage.columns.filter(isNumericColumn).map((column) => column.id));
-  const left = operandForWire(form.left);
-  const right = operandForWire(form.right);
-  if (!left || !right) return undefined;
+  const { left, right } = expression;
   if (left.kind === 'COLUMN' && !numericColumnIDs.has(left.columnId)) return undefined;
   if (right.kind === 'COLUMN' && !numericColumnIDs.has(right.columnId)) return undefined;
 
   const outputID = replacedOutputID ?? outputColumnId;
-  const derive: DerivePayload = form.operation === 'DIVIDE'
+  const derive: DerivePayload = expression.operation === 'DIVIDE'
     ? {
         constructionId: editingStep?.id ?? stepId,
         outputColumnId: outputID,
-        operation: form.operation,
+        operation: expression.operation,
         left,
         right,
         missingInputPolicy: form.missingInputPolicy,
@@ -429,7 +565,7 @@ const buildDeriveCandidate = (args: {
     : {
         constructionId: editingStep?.id ?? stepId,
         outputColumnId: outputID,
-        operation: form.operation,
+        operation: expression.operation,
         left,
         right,
         missingInputPolicy: form.missingInputPolicy,
@@ -770,15 +906,6 @@ const FormulaOperand = (props: {
   );
 };
 
-const operandSummary = (
-  operand: OperandDraft,
-  columns: ConstructionStageDescriptor['columns'],
-): string => {
-  if (operand.kind === 'unset') return 'Choose a value';
-  if (operand.kind === 'literal') return operand.edited && operand.text ? operand.text : 'Choose a number';
-  return columns.find((column) => column.id === operand.columnId)?.label ?? 'Unknown column';
-};
-
 const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const { construction, capabilities, editingStep, selectedColumns = [], disabled } = props;
   const stage = capabilities.selectedStage;
@@ -790,7 +917,13 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     const numericSelected = stage.columns.find((column) => selectedColumns.includes(column.id) && isNumericColumn(column));
     const initial = calculationFormFromStep(editingStep, stage);
     setForm(numericSelected && !editingStep
-      ? { ...initial, left: { kind: 'column', columnId: numericSelected.id } }
+      ? {
+          ...initial,
+          expression: {
+            kind: 'guided',
+            draft: { ...expressionDraftFor(initial.expression), left: { kind: 'column', columnId: numericSelected.id } },
+          },
+        }
       : initial);
     setStepId(createOpaqueId('derive'));
     setOutputColumnId(createOpaqueId('column'));
@@ -805,9 +938,42 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
 
   const updateForm = (next: CalculationForm) => {
     setForm(next);
-    props.onCandidateChange(support.supported
-      ? buildDeriveCandidate({ construction, stage, editingStep, stepId, outputColumnId, form: next })
+    const expression = completeExpressionFor(next.expression);
+    props.onCandidateChange(support.supported && expression
+      ? buildDeriveCandidate({ construction, stage, editingStep, stepId, outputColumnId, form: next, expression })
       : undefined);
+  };
+
+  const expressionDraft = expressionDraftFor(form.expression);
+  const formulaText = form.expression.kind === 'formula-invalid' || form.expression.kind === 'formula-valid'
+    ? form.expression.source
+    : formulaTextFor(expressionDraft, stage.columns);
+
+  const switchExpressionView = (view: 'guided' | 'formula') => {
+    if (view === 'guided') {
+      updateForm({ ...form, expression: { kind: 'guided', draft: expressionDraft } });
+      return;
+    }
+    const source = formulaTextFor(expressionDraft, stage.columns);
+    const parsed = parseFormula(source, stage.columns);
+    updateForm(parsed.kind === 'valid'
+      ? { ...form, expression: { kind: 'formula-valid', expression: parsed.expression, source } }
+      : { ...form, expression: { kind: 'formula-invalid', lastDraft: expressionDraft, source, error: parsed.message } });
+  };
+
+  const changeFormula = (source: string) => {
+    const parsed = parseFormula(source, stage.columns);
+    updateForm(parsed.kind === 'valid'
+      ? { ...form, expression: { kind: 'formula-valid', expression: parsed.expression, source } }
+      : {
+          ...form,
+          expression: {
+            kind: 'formula-invalid',
+            lastDraft: expressionDraft,
+            source,
+            error: parsed.message,
+          },
+        });
   };
 
   if (!support.supported) {
@@ -820,13 +986,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     return <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom did not return the saved calculation’s output column in its step schema, so this calculation cannot be edited safely.</p>;
   }
 
-  const formulaOperators: Record<DerivePayload['operation'], string> = {
-    ADD: '+',
-    SUBTRACT: '−',
-    MULTIPLY: '×',
-    DIVIDE: '÷',
-  };
-  const formula = `${operandSummary(form.left, stage.columns)} ${formulaOperators[form.operation]} ${operandSummary(form.right, stage.columns)}`;
+  const isFormulaView = form.expression.kind !== 'guided';
 
   return (
     <section aria-label="Calculate a value" data-testid="construction-calculate-editor" className="grid gap-4">
@@ -845,34 +1005,94 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
         </p>
       )}
 
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
-        Operation
-        <select
-          aria-label="Operation"
-          value={form.operation}
+      <div role="group" aria-label="Expression editor" className="flex gap-2">
+        <button
+          type="button"
+          aria-pressed={!isFormulaView}
           disabled={disabled}
-          onChange={(event) => {
-            const operation = derivedOperationFromInput(event.currentTarget.value);
-            if (operation) updateForm({ ...form, operation });
-          }}
-          className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          onClick={() => switchExpressionView('guided')}
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium aria-pressed:bg-blue-50 aria-pressed:text-blue-900"
         >
-          <option value="ADD">Add</option>
-          <option value="SUBTRACT">Subtract</option>
-          <option value="MULTIPLY">Multiply</option>
-          <option value="DIVIDE">Divide</option>
-        </select>
-      </label>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <FormulaOperand label="First value" value={form.left} columns={stage.columns} disabled={disabled} onChange={(left) => updateForm({ ...form, left })} />
-        <FormulaOperand label="Second value" value={form.right} columns={stage.columns} disabled={disabled} onChange={(right) => updateForm({ ...form, right })} />
+          Guided controls
+        </button>
+        <button
+          type="button"
+          aria-pressed={isFormulaView}
+          disabled={disabled}
+          onClick={() => switchExpressionView('formula')}
+          className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium aria-pressed:bg-blue-50 aria-pressed:text-blue-900"
+        >
+          Formula editor
+        </button>
       </div>
 
-      <details data-testid="construction-calculate-formula-view" className="rounded-lg border border-slate-200 px-3 py-2">
-        <summary className="cursor-pointer text-sm font-medium text-slate-800">Show formula</summary>
-        <output aria-label="Formula" className="mt-2 block font-mono text-sm text-slate-900">{formula}</output>
-      </details>
+      {isFormulaView ? (
+        <div data-testid="construction-calculate-formula-view" className="grid gap-2 rounded-lg border border-slate-200 p-3">
+          <p className="text-sm text-slate-600">Use one binary operation with numeric column names or numeric literals. Functions, nested expressions, parentheses, and conditional expressions are not supported.</p>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Formula
+            <textarea
+              aria-label="Formula"
+              value={formulaText}
+              disabled={disabled}
+              rows={2}
+              onChange={(event) => changeFormula(event.currentTarget.value)}
+              className="rounded border border-slate-300 px-2 py-1.5 font-mono"
+              placeholder="weight * 2"
+            />
+          </label>
+          {form.expression.kind === 'formula-invalid' ? (
+            <p role="alert" data-testid="construction-calculate-formula-error" className="text-sm text-red-800">{form.expression.error}</p>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Operation
+            <select
+              aria-label="Operation"
+              value={expressionDraft.operation}
+              disabled={disabled}
+              onChange={(event) => {
+                const operation = derivedOperationFromInput(event.currentTarget.value);
+                if (operation) updateForm({
+                  ...form,
+                  expression: { kind: 'guided', draft: { ...expressionDraft, operation } },
+                });
+              }}
+              className="rounded border border-slate-300 bg-white px-2 py-1.5"
+            >
+              <option value="ADD">Add</option>
+              <option value="SUBTRACT">Subtract</option>
+              <option value="MULTIPLY">Multiply</option>
+              <option value="DIVIDE">Divide</option>
+            </select>
+          </label>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <FormulaOperand
+              label="First value"
+              value={expressionDraft.left}
+              columns={stage.columns}
+              disabled={disabled}
+              onChange={(left) => updateForm({
+                ...form,
+                expression: { kind: 'guided', draft: { ...expressionDraft, left } },
+              })}
+            />
+            <FormulaOperand
+              label="Second value"
+              value={expressionDraft.right}
+              columns={stage.columns}
+              disabled={disabled}
+              onChange={(right) => updateForm({
+                ...form,
+                expression: { kind: 'guided', draft: { ...expressionDraft, right } },
+              })}
+            />
+          </div>
+        </>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-medium text-slate-700">
@@ -891,7 +1111,7 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
             <option value="ERROR">Treat missing input as an error</option>
           </select>
         </label>
-        {form.operation === 'DIVIDE' ? (
+        {expressionDraft.operation === 'DIVIDE' ? (
           <label className="grid gap-1 text-sm font-medium text-slate-700">
             Divide by zero
             <select
