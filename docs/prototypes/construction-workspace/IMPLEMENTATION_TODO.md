@@ -23,11 +23,16 @@ The saved related-source step now opens an editor in the live builder. Focused
 tests cover route replacement, stable step and output IDs, downstream input
 references, proposal preview, and Apply. The integrated browser checks found
 the saved step, opened Edit, and confirmed the three intended creation actions.
-Before Apply, the UI must distinguish sampled preview evidence from full-output
-coverage; full-output counts currently exist only after publication. The current
-route menu places a direct path first, but the 50-choice request took about
-1.1 seconds on the local fixture; P08 still needs representative latency
-measurement and improvement.
+Preview now labels whether its row limit sampled the output. The same
+compiler-proved related route can produce an all-values list, a distinct
+source-record count, or a presence flag. A live Arango test checked zero
+matches, duplicate graph paths, the output types, and contributor traces for
+the new forms. Focused builder tests checked count authoring, and the local
+browser journey passed after integration. Guided group and expand editors now
+cover their saved policies. Output-row coverage before Apply, contributor
+conditions, time windows, and the remaining held-out constructions are open.
+The 50-choice route request took about 1.1 seconds on the local fixture; P08
+still needs representative latency measurement and improvement.
 
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
 - [x] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
