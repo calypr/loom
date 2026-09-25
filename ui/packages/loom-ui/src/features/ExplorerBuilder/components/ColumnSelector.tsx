@@ -80,6 +80,33 @@ const candidateColumnName = (
 const sourceSummary = (column: ExplorerBuilderColumn): string =>
   [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
 
+const candidateForRowRoot = (
+  candidate: ExplorerBuilderCandidate | undefined,
+  rootResourceType: string | undefined,
+): ExplorerBuilderCandidate | undefined => {
+  if (!candidate) return undefined;
+  const temporalReduction = candidate.transformations.temporalReduction;
+  const anchorFields = temporalReduction.anchorFields.filter(
+    (field) => field.resourceType === rootResourceType,
+  );
+  const noRootAnchor = temporalReduction.available && anchorFields.length === 0;
+  return {
+    ...candidate,
+    transformations: {
+      ...candidate.transformations,
+      temporalReduction: {
+        ...temporalReduction,
+        available: temporalReduction.available && anchorFields.length > 0,
+        reasonCode: noRootAnchor ? 'NO_ROOT_ANCHOR_FIELDS' : temporalReduction.reasonCode,
+        reason: noRootAnchor
+          ? `No date-time field is available for ${rootResourceType || 'this table'} rows.`
+          : temporalReduction.reason,
+        anchorFields,
+      },
+    },
+  };
+};
+
 const ConfiguredColumnRow = ({
   column,
   order,
@@ -91,6 +118,7 @@ const ConfiguredColumnRow = ({
   candidates,
   related,
   rowContext,
+  rootResourceType,
   resourceLabel,
   onChange,
   onSourceChange,
@@ -111,6 +139,7 @@ const ConfiguredColumnRow = ({
   readonly candidates: ReadonlyArray<ExplorerBuilderCandidate>;
   readonly related: boolean;
   readonly rowContext: AggregateOperationCapability['rowContext'] | undefined;
+  readonly rootResourceType: string | undefined;
   readonly resourceLabel: string;
   readonly onChange: (value: ExplorerBuilderColumn) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
@@ -260,7 +289,7 @@ const ConfiguredColumnRow = ({
       </button>
       <FeaturePolicyEditor
         column={column}
-        candidate={candidate}
+        candidate={candidateForRowRoot(candidate, rootResourceType)}
         candidates={candidates}
         related={related}
         rowContext={rowContext}
@@ -794,6 +823,7 @@ export const ColumnSelector = ({
                           resolution={configuredResolutions.get(row.column.column)}
                           related={row.column.occurrenceId !== 'base'}
                           rowContext={table?.document.rows.kind}
+                          rootResourceType={table?.document.rootResourceType}
                           candidates={(catalog.candidates ?? []).filter(
                             (candidateOption) =>
                               candidateOption.nodeId ===

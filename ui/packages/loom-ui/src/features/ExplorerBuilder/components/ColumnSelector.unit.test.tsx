@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type {
   AggregateTransformationCapability,
   ColumnValueTransformationCapabilities,
@@ -836,6 +836,12 @@ describe('configured V2 columns', () => {
                 label: 'Observed at',
               }],
               anchorFields: [{
+                candidateId: 'c_timestamp',
+                nodeId: 'observation',
+                resourceType: 'Observation',
+                fieldPath: 'effectiveDateTime',
+                label: 'Observed at',
+              }, {
                 candidateId: 'c_anchor',
                 nodeId: 'research-subject',
                 resourceType: 'ResearchSubject',
@@ -937,6 +943,8 @@ describe('configured V2 columns', () => {
     expect(onSourceChange).not.toHaveBeenCalled();
     expect(screen.getByRole('combobox', { name: 'Record date' })).toHaveProperty('value', 'effectiveDateTime');
     expect(screen.getByRole('combobox', { name: 'Compare with row date' })).toHaveProperty('value', 'meta.lastUpdated');
+    expect(within(screen.getByRole('combobox', { name: 'Compare with row date' }))
+      .queryByRole('option', { name: 'Observed at · Observation · effectiveDateTime' })).toBeNull();
     expect(screen.queryByRole('option', { name: 'Unadvertised observation date · Observation · issued' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Unadvertised row date · ResearchSubject · birthDate' })).not.toBeInTheDocument();
 
