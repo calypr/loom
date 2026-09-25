@@ -27,10 +27,15 @@ Preview now labels whether its row limit sampled the output. The same
 compiler-proved related route can produce an all-values list, a distinct
 source-record count, or a presence flag. A live Arango test checked zero
 matches, duplicate graph paths, the output types, and contributor traces for
-the new forms. Focused builder tests checked count authoring, and the local
-browser journey passed after integration. Guided group and expand editors now
-cover their saved policies. Output-row coverage before Apply, contributor
-conditions, time windows, and the remaining held-out constructions are open.
+the new forms. The route choice now advertises supported contributor
+conditions. A selected scalar field can filter its own related records by
+presence or an exact string or code value before list, count, or presence
+output; the live Arango oracle checks filtered values and traces. Focused
+builder tests checked count and exact-value authoring, and the local browser
+journey passed after integration. Guided group and expand editors now cover
+their saved policies. Output-row coverage before Apply, conditions on other
+fields or repeated elements, time windows, and the remaining held-out
+constructions are open.
 The 50-choice route request took about 1.1 seconds on the local fixture; P08
 still needs representative latency measurement and improvement.
 

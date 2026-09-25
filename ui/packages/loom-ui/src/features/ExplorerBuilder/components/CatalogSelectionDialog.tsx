@@ -94,7 +94,9 @@ export const CatalogSelectionDialog = ({
               ? { contributorPredicate: {
                   candidateId: choice.source.candidateId,
                   operator: 'EQUALS' as const,
-                  value: { kind: 'STRING' as const, string: condition.value },
+                  value: group.item.kind === 'FIELD' && group.item.candidate.logicalType.toLowerCase() === 'code'
+                    ? { kind: 'CODE' as const, code: { code: condition.value } }
+                    : { kind: 'STRING' as const, string: condition.value },
                 } }
               : {}),
         },

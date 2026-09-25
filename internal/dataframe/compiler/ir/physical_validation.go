@@ -1042,7 +1042,7 @@ func validatePhysicalPredicate(predicate PhysicalPredicate, defined map[string]b
 		if predicate.LeftExpression.Cardinality != PhysicalArrayCardinality {
 			return fmt.Errorf("physical filter predicate left expression must be array-valued")
 		}
-		if !predicate.ValueKind.Valid() {
+		if operator != "EXISTS" && operator != "MISSING" && !predicate.ValueKind.Valid() {
 			return fmt.Errorf("physical filter predicate value kind %q is invalid", predicate.ValueKind)
 		}
 		if predicate.Quantifier != "" && !predicate.Quantifier.Valid() {

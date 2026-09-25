@@ -666,9 +666,11 @@ func clonePhysicalPredicateExpression(predicate PhysicalPredicateExpression) Phy
 		subplan := clonePhysicalSubplan(*predicate.Exists)
 		copy.Exists = &subplan
 	}
-	copy.Children = make([]PhysicalPredicateExpression, len(predicate.Children))
-	for index, child := range predicate.Children {
-		copy.Children[index] = clonePhysicalPredicateExpression(child)
+	if predicate.Children != nil {
+		copy.Children = make([]PhysicalPredicateExpression, len(predicate.Children))
+		for index, child := range predicate.Children {
+			copy.Children[index] = clonePhysicalPredicateExpression(child)
+		}
 	}
 	return copy
 }
