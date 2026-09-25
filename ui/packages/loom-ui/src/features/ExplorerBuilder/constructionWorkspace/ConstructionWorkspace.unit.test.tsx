@@ -208,7 +208,7 @@ describe('ConstructionWorkspace', () => {
       previewDurationMs: 20,
     };
     const preview: ExplorerBuilderPreviewResult = {
-      apiVersion: 'v2',
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
       kind: 'ExplorerBuilderPreview',
       receiptId: 'proposal-123',
       outputId: 'patients',
@@ -230,9 +230,9 @@ describe('ConstructionWorkspace', () => {
       ...identity,
       outputId: 'visits',
     })).toBe(false);
-    expect(constructionProposalIsApplicable(state, {
+    expect(constructionProposalIsApplicable({
       ...state,
       preview: { ...preview, receiptId: 'base-receipt' },
-    })).toBe(false);
+    }, identity)).toBe(false);
   });
 });
