@@ -97,6 +97,30 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 	if err := collectOperations(plan.Operations, "render"); err != nil {
 		return nil, err
 	}
+	if sequence := plan.StageSequence; sequence != nil {
+		for index, stage := range sequence.Stages {
+			owner := fmt.Sprintf("render construction stage %q", stage.ID)
+			if err := collectOperations(stage.DerivedLets, owner); err != nil {
+				return nil, err
+			}
+			projections := append([]ir.PhysicalProjection(nil), stage.InputProjections...)
+			projections = append(projections, stage.OutputProjections...)
+			if stage.GroupedPivot != nil {
+				projections = append(projections, stage.GroupedPivot.InputProjections...)
+			}
+			if stage.Unpivot != nil {
+				projections = append(projections, stage.Unpivot.InputProjections...)
+			}
+			if err := collectProjectionCollections(projections, collectOperations, owner); err != nil {
+				return nil, err
+			}
+			if stage.Filter != nil && stage.Filter.Expression != nil {
+				if err := collectPredicateCollections(*stage.Filter.Expression, collectOperations, owner); err != nil {
+					return nil, fmt.Errorf("stage %d filter: %w", index, err)
+				}
+			}
+		}
+	}
 	for key := range keys {
 		value, ok := plan.BindVars[key]
 		if !ok {

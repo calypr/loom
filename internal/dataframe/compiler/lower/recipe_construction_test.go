@@ -165,6 +165,9 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	if rendered.BindVars["related_1_hop_1_label"] != "subject_Patient" || rendered.BindVars["related_1_hop_1_target_type"] != "Observation" {
 		t.Fatalf("rendered traversal binds do not match selected route: %#v", rendered.BindVars)
 	}
+	if rendered.BindVars["@related_1_hop_1_edge_collection"] != "fhir_edge" {
+		t.Fatalf("rendered route collection bind is missing or unprefixed: %#v", rendered.BindVars)
+	}
 }
 
 func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
