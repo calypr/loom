@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -189,9 +190,51 @@ type ConstructionUnpivotInput struct {
 // ConstructionGroup reduces the preceding row set by zero or more typed
 // columns. An empty GroupKeys slice summarizes the whole table.
 type ConstructionGroup struct {
-	ConstructionID string                       `json:"constructionId"`
-	Keys           []ConstructionGroupKey       `json:"keys,omitempty"`
-	Aggregates     []ConstructionGroupAggregate `json:"aggregates,omitempty"`
+	ConstructionID   string                            `json:"constructionId"`
+	MissingKeyPolicy ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+	Keys             []ConstructionGroupKey            `json:"keys,omitempty"`
+	Aggregates       []ConstructionGroupAggregate      `json:"aggregates,omitempty"`
+}
+
+type ConstructionGroupMissingKeyPolicy string
+
+const (
+	ConstructionGroupMissingKeyGroup   ConstructionGroupMissingKeyPolicy = "GROUP"
+	ConstructionGroupMissingKeyExclude ConstructionGroupMissingKeyPolicy = "EXCLUDE"
+	ConstructionGroupMissingKeyError   ConstructionGroupMissingKeyPolicy = "ERROR"
+)
+
+func (policy ConstructionGroupMissingKeyPolicy) Normalized() ConstructionGroupMissingKeyPolicy {
+	if policy == "" {
+		return ConstructionGroupMissingKeyGroup
+	}
+	return policy
+}
+
+func (policy ConstructionGroupMissingKeyPolicy) Valid() bool {
+	switch policy.Normalized() {
+	case ConstructionGroupMissingKeyGroup, ConstructionGroupMissingKeyExclude, ConstructionGroupMissingKeyError:
+		return true
+	default:
+		return false
+	}
+}
+
+func (group ConstructionGroup) MarshalJSON() ([]byte, error) {
+	type wire ConstructionGroup
+	group.MissingKeyPolicy = group.MissingKeyPolicy.Normalized()
+	return json.Marshal(wire(group))
+}
+
+func (group *ConstructionGroup) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionGroup
+	var value wire
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	*group = ConstructionGroup(value)
+	group.MissingKeyPolicy = group.MissingKeyPolicy.Normalized()
+	return nil
 }
 
 type ConstructionGroupKey struct {

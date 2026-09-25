@@ -38,6 +38,15 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		typeBind := r.newInternalBindKey(fmt.Sprintf("construction_group_key_type_%d", index))
 		r.bindVars[typeBind] = typeName
 		value := fmt.Sprintf("%s[@%s]", stage.InputRowVariable, columnBind)
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyGroup:
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			lines = append(lines, fmt.Sprintf("  FILTER %s != null", value))
+		case ir.PhysicalStageGroupMissingKeyError:
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s != null, \"CONSTRUCTION_GROUP_MISSING_KEY\")", value))
+		default:
+			return nil, fmt.Errorf("unsupported missing-key policy %q", group.MissingKeyPolicy)
+		}
 		lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s == null OR TYPENAME(%s) == @%s, \"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH\")", value, value, typeBind))
 		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s", key.Variable, value))
 		sortKeys = append(sortKeys, key.Variable+" ASC")

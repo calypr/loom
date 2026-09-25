@@ -384,9 +384,10 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 		}
 		group := authored.Group
 		mapped := &recipe.ConstructionGroup{
-			ConstructionID: group.ConstructionID,
-			Keys:           make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
-			Aggregates:     make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
+			ConstructionID:   group.ConstructionID,
+			MissingKeyPolicy: recipe.ConstructionGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
+			Keys:             make([]recipe.ConstructionGroupKey, 0, len(group.Keys)),
+			Aggregates:       make([]recipe.ConstructionGroupAggregate, 0, len(group.Aggregates)),
 		}
 		for _, key := range group.Keys {
 			mapped.Keys = append(mapped.Keys, recipe.ConstructionGroupKey{

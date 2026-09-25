@@ -1,7 +1,9 @@
 package authoringv2
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -31,8 +33,9 @@ func groupExpandDocument() Document {
 		{
 			ID: "group_tags", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "expand_tags"}},
 			Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
-				ConstructionID: "group_tags",
-				Keys:           []ConstructionGroupKey{{InputColumnID: "tag_value_id", OutputColumnID: "grouped_tag_id"}},
+				ConstructionID:   "group_tags",
+				MissingKeyPolicy: ConstructionGroupMissingKeyGroup,
+				Keys:             []ConstructionGroupKey{{InputColumnID: "tag_value_id", OutputColumnID: "grouped_tag_id"}},
 				Aggregates: []ConstructionGroupAggregate{
 					{Operation: ConstructionGroupCountRows, OutputColumnID: "row_count_id"},
 					{Operation: ConstructionGroupCountNonNull, InputColumnID: "status_id", OutputColumnID: "status_count_id"},
@@ -52,6 +55,53 @@ func groupExpandDocument() Document {
 		},
 	}}
 	return document
+}
+
+func TestConstructionGroupMissingKeyPolicyDefaultsAndRoundTrips(t *testing.T) {
+	var legacy ConstructionGroup
+	if err := json.Unmarshal([]byte(`{"constructionId":"group","keys":[],"aggregates":[]}`), &legacy); err != nil {
+		t.Fatalf("decode legacy group without missingKeyPolicy: %v", err)
+	}
+	if legacy.MissingKeyPolicy != ConstructionGroupMissingKeyGroup {
+		t.Fatalf("legacy missingKeyPolicy = %q, want GROUP", legacy.MissingKeyPolicy)
+	}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal normalized legacy group: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"missingKeyPolicy":"GROUP"`) {
+		t.Fatalf("normalized group did not save explicit GROUP policy: %s", encoded)
+	}
+
+	for _, policy := range []ConstructionGroupMissingKeyPolicy{
+		ConstructionGroupMissingKeyGroup,
+		ConstructionGroupMissingKeyExclude,
+		ConstructionGroupMissingKeyError,
+	} {
+		document := groupExpandDocument()
+		document.Construction.Steps[1].Operation.Group.MissingKeyPolicy = policy
+		if err := document.Validate(); err != nil {
+			t.Fatalf("validate %s group policy: %v", policy, err)
+		}
+		encoded, err := constructionWorkspace(document).CanonicalJSON()
+		if err != nil {
+			t.Fatalf("canonicalize %s group policy: %v", policy, err)
+		}
+		decoded, err := DecodeWorkspace(encoded)
+		if err != nil {
+			t.Fatalf("reload %s group policy: %v", policy, err)
+		}
+		got := decoded.Documents[0].Construction.Steps[1].Operation.Group.MissingKeyPolicy
+		if got != policy {
+			t.Fatalf("reloaded missingKeyPolicy = %q, want %q", got, policy)
+		}
+	}
+
+	document := groupExpandDocument()
+	document.Construction.Steps[1].Operation.Group.MissingKeyPolicy = "SILENT_DEFAULT"
+	if err := document.Validate(); err == nil || !strings.Contains(err.Error(), "missingKeyPolicy") {
+		t.Fatalf("unsupported missingKeyPolicy error = %v", err)
+	}
 }
 
 func TestConstructionValidatesAndRoundTripsGroupAndExpand(t *testing.T) {

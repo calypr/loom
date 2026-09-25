@@ -121,6 +121,9 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	if stage.Kind != ir.PhysicalStageGroupOp || len(stage.Group.Keys) != 0 {
 		t.Fatalf("group stage = %#v, want zero-key table summary", stage)
 	}
+	if stage.Group.MissingKeyPolicy != ir.PhysicalStageGroupMissingKeyGroup {
+		t.Fatalf("zero-key summary missing-key policy = %q, want GROUP", stage.Group.MissingKeyPolicy)
+	}
 	if got, want := compiledSchemaNames(compiled.OutputSchema), []string{"rows", "status_count", "status_distinct", "amount_sum", "amount_mean", "__loom_row_id"}; !equalStringSlices(got, want) {
 		t.Fatalf("summary schema = %#v, want %#v", got, want)
 	}
@@ -142,5 +145,63 @@ func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) 
 	}
 	if !strings.Contains(rendered.Query, "COUNT") && !strings.Contains(rendered.Query, "LENGTH(") {
 		t.Fatalf("summary AQL has no explicit row count:\n%s", rendered.Query)
+	}
+}
+
+func TestConstructionGroupMissingKeyPoliciesLowerToTypedIRAndAQL(t *testing.T) {
+	tests := []struct {
+		name       string
+		policy     recipe.ConstructionGroupMissingKeyPolicy
+		wantPolicy ir.PhysicalStageGroupMissingKeyPolicy
+		wantFilter bool
+		wantError  bool
+	}{
+		{name: "legacy default", wantPolicy: ir.PhysicalStageGroupMissingKeyGroup},
+		{name: "group", policy: recipe.ConstructionGroupMissingKeyGroup, wantPolicy: ir.PhysicalStageGroupMissingKeyGroup},
+		{name: "exclude", policy: recipe.ConstructionGroupMissingKeyExclude, wantPolicy: ir.PhysicalStageGroupMissingKeyExclude, wantFilter: true},
+		{name: "error", policy: recipe.ConstructionGroupMissingKeyError, wantPolicy: ir.PhysicalStageGroupMissingKeyError, wantFilter: true, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := recipe.Output{
+				Name: "group_missing_key_policy", RootResourceType: "Observation", RowGrain: "observation",
+				Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}},
+				Construction: &recipe.Construction{
+					Version:       1,
+					SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status", Type: "string"}},
+					Steps: []recipe.ConstructionStep{{
+						ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+						Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+							ConstructionID: "group_status", MissingKeyPolicy: test.policy,
+							Keys:       []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "group_status_id"}},
+							Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row_count_id"}},
+						}},
+						Outputs: []recipe.StageColumn{{ID: "group_status_id", Name: "status", Type: "string"}, {ID: "row_count_id", Name: "rows", Type: "integer"}},
+					}},
+				},
+			}
+			compiled := compileDerivedTestOutput(t, output)
+			stage := compiled.Plan.StageSequence.Stages[0]
+			if stage.Group.MissingKeyPolicy != test.wantPolicy {
+				t.Fatalf("lowered missing-key policy = %q, want %q", stage.Group.MissingKeyPolicy, test.wantPolicy)
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatalf("render physical plan: %v", err)
+			}
+			if got := strings.Contains(rendered.Query, "CONSTRUCTION_GROUP_MISSING_KEY"); got != test.wantError {
+				t.Fatalf("query has missing-key error assertion = %t, want %t:\n%s", got, test.wantError, rendered.Query)
+			}
+			hasMissingFilter := false
+			for _, line := range strings.Split(rendered.Query, "\n") {
+				if strings.Contains(line, "FILTER ") && strings.Contains(line, " != null") {
+					hasMissingFilter = true
+					break
+				}
+			}
+			if hasMissingFilter != test.wantFilter {
+				t.Fatalf("query has missing-key filter = %t, want %t:\n%s", hasMissingFilter, test.wantFilter, rendered.Query)
+			}
+		})
 	}
 }

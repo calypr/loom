@@ -766,6 +766,9 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 	if !sameOperationID(step.ID, group.ConstructionID) {
 		return fmt.Errorf("group constructionId must equal step id")
 	}
+	if !group.MissingKeyPolicy.Valid() {
+		return fmt.Errorf("group missingKeyPolicy is unsupported")
+	}
 	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
 		return fmt.Errorf("group requires at least one key or summary")
 	}

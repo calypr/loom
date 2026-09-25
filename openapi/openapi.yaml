@@ -3345,6 +3345,7 @@ components:
       required: [constructionId]
       properties:
         constructionId: {type: string, minLength: 1}
+        missingKeyPolicy: {type: string, enum: [GROUP, EXCLUDE, ERROR], default: GROUP, description: Missing or null group keys are grouped together by default.}
         keys:
           type: array
           items: {$ref: '#/components/schemas/ConstructionGroupKey'}

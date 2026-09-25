@@ -6,6 +6,9 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 	if err := validateConstructionID(group.ConstructionID, path+".group.constructionId", constructionIDs); err != nil {
 		return err
 	}
+	if !group.MissingKeyPolicy.Valid() {
+		return validationError("invalid_group_missing_key_policy", path+".group.missingKeyPolicy", "missing-key policy is unsupported")
+	}
 	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
 		return fmt.Errorf("%s group requires at least one key or aggregate", path)
 	}

@@ -66,9 +66,18 @@ type PhysicalStageGroup struct {
 	GroupRowsVariable     string
 	IdentityVariable      string
 	ConstructionIDBindKey string
+	MissingKeyPolicy      PhysicalStageGroupMissingKeyPolicy
 	Keys                  []PhysicalStageGroupKey
 	Aggregates            []PhysicalStageGroupAggregate
 }
+
+type PhysicalStageGroupMissingKeyPolicy string
+
+const (
+	PhysicalStageGroupMissingKeyGroup   PhysicalStageGroupMissingKeyPolicy = "GROUP"
+	PhysicalStageGroupMissingKeyExclude PhysicalStageGroupMissingKeyPolicy = "EXCLUDE"
+	PhysicalStageGroupMissingKeyError   PhysicalStageGroupMissingKeyPolicy = "ERROR"
+)
 
 type PhysicalStageGroupKey struct {
 	InputColumn  string

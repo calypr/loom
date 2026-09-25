@@ -23,6 +23,7 @@ func lowerConstructionGroup(
 		GroupRowsVariable:     allocateConstructionVariable(usedVariables, "group_rows", stepIndex),
 		IdentityVariable:      allocateConstructionVariable(usedVariables, "group_identity", stepIndex),
 		ConstructionIDBindKey: constructionBind,
+		MissingKeyPolicy:      ir.PhysicalStageGroupMissingKeyPolicy(group.MissingKeyPolicy.Normalized()),
 	}
 	metadataByOutputID := make(map[string]CompiledOutputColumn, len(declarations))
 	projectionByOutputID := make(map[string]ir.PhysicalProjection, len(declarations))

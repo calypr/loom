@@ -142,6 +142,96 @@ func TestConstructionExpandPreserveAndGroupNullKeyRowsAgainstArango(t *testing.T
 	}
 }
 
+func TestConstructionGroupMissingKeyPoliciesAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project, generation := "loom_construction_group_missing_policy_"+uuid.NewString(), "generation-group-missing-policy"
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Observation FILTER document.project == @project REMOVE document IN Observation",
+			map[string]any{"project": project},
+		); err != nil {
+			t.Errorf("remove group policy fixtures: %v", err)
+		}
+	})
+	insertConstructionReshapeRows(t, ctx, client, project, generation, []map[string]any{
+		{"id": "missing-a"},
+		{"id": "null-a", "status": nil},
+		{"id": "active", "status": "active"},
+		{"id": "inactive", "status": "inactive"},
+	})
+
+	grouped := executeConstructionOutput(t, ctx, client, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), project, generation)
+	groupCounts := make(map[string]float64, len(grouped))
+	for _, row := range grouped {
+		key := "<missing>"
+		if row["status"] != nil {
+			key = row["status"].(string)
+		}
+		groupCounts[key] = numericValue(row["rows"])
+	}
+	if len(groupCounts) != 3 || groupCounts["<missing>"] != 2 || groupCounts["active"] != 1 || groupCounts["inactive"] != 1 {
+		t.Fatalf("GROUP results = %#v, want missing=2, active=1, inactive=1", groupCounts)
+	}
+
+	excluded := executeConstructionOutput(t, ctx, client, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyExclude), project, generation)
+	excludedCounts := make(map[string]float64, len(excluded))
+	for _, row := range excluded {
+		status, ok := row["status"].(string)
+		if !ok {
+			t.Fatalf("EXCLUDE retained a missing status group: %#v", row)
+		}
+		excludedCounts[status] = numericValue(row["rows"])
+	}
+	if len(excludedCounts) != 2 || excludedCounts["active"] != 1 || excludedCounts["inactive"] != 1 {
+		t.Fatalf("EXCLUDE results = %#v, want only present status groups", excludedCounts)
+	}
+
+	errorOutput := constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyError)
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: errorOutput.Name, TranslationVersion: "test", Outputs: []recipe.Output{errorOutput}}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatalf("build ERROR recipe plan: %v", err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatalf("resolve ERROR recipe plan: %v", err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile ERROR recipe: %v", err)
+	}
+	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile ERROR query: %v", err)
+	}
+	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil }); err == nil {
+		t.Fatal("ERROR policy accepted absent or null group keys")
+	}
+}
+
+func constructionMissingKeyPolicyOutput(policy recipe.ConstructionGroupMissingKeyPolicy) recipe.Output {
+	return recipe.Output{
+		Name: "construction_group_missing_key_policy", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status", Type: "string"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "group_status", MissingKeyPolicy: policy,
+					Keys:       []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "group_status_id"}},
+					Aggregates: []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "row_count_id"}},
+				}},
+				Outputs: []recipe.StageColumn{{ID: "group_status_id", Name: "status", Type: "string"}, {ID: "row_count_id", Name: "rows", Type: "integer"}},
+			}},
+		},
+	}
+}
+
 func constructionSummaryOutput() recipe.Output {
 	return recipe.Output{
 		Name: "construction_summary_oracle", RootResourceType: "Observation", RowGrain: "observation",

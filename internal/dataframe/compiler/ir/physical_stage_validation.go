@@ -271,6 +271,11 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	if len(group.Keys) == 0 && len(group.Aggregates) == 0 {
 		return fmt.Errorf("requires at least one key or aggregate")
 	}
+	switch group.MissingKeyPolicy {
+	case PhysicalStageGroupMissingKeyGroup, PhysicalStageGroupMissingKeyExclude, PhysicalStageGroupMissingKeyError:
+	default:
+		return fmt.Errorf("missing-key policy %q is unsupported", group.MissingKeyPolicy)
+	}
 	if err := requireNonEmptyStringBind(bindVars, group.ConstructionIDBindKey); err != nil {
 		return fmt.Errorf("construction ID: %w", err)
 	}
