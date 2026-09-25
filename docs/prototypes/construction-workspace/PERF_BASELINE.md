@@ -38,6 +38,20 @@ Comparison time includes the nested preview, diff, and evidence phases. The two 
 
 The initial pre-instrumentation distribution completed at 2026-09-25 01:27 UTC and is recorded at `/private/tmp/construction-preview-artifacts/2026-09-25T01-26-57-199Z/report.json`. It had warm-client median/p95 1,434.7/1,777.7 ms and proposal API median/p95 688.9/787.0 ms. Its resource-timing classifier mislabeled proposal paths as context-resolution because `/explorers/` matched first; the current harness classifier is corrected.
 
+## First-open catalog lookup A/B
+
+The first-open catalog lookup did not improve the measured workload and was not retained. The control ran against `88271a248`. The variant ran against `c4f1c0d3c`. Both runs used the same fixture-v1 project, workload, ten samples, and concurrency 1. The control report is `/private/tmp/p08-first-open-control/2026-09-25T03-19-18-295Z/report.json`. The variant report is `/private/tmp/p08-first-open-variant-c4f1c0d3c/2026-09-25T03-20-57-492Z/report.json`.
+
+| Measure | Control p50 | Control p95 | Lookup p50 | Lookup p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Warm action to visible rows | 1,073.5 ms | 1,169 ms | 1,141 ms | 1,279.3 ms |
+| `table-shape-capabilities` request | 306.1 ms | 374 ms | 328.3 ms | 348.6 ms |
+| Table shape proposal request | 485.24 ms | 525.43 ms | 494.79 ms | 626.72 ms |
+
+Both runs passed all ten samples. Each showed 2 base rows, 3 candidate rows, and 35 comparison entries. The visible row hash was `5ecf7f10ee2f67611f82948031263d91aebefee84d446cb02090f8d69ca258f0` in both runs. The schema hash was `94e5fd07308f7d6f7a41b69fc5d0f608cc424fec65f7249658bc2b2b6f1d1e26` in both runs. Builder state and proposal identity checks passed for all samples. No request failed or was canceled.
+
+The lookup variant raised the warm action median by 67.5 ms and the p95 by 110.3 ms. Its `table-shape-capabilities` request median was 22.2 ms higher. That request's p95 was 25.4 ms lower while the full action was slower. These results do not support keeping the first-open lookup. The separately measured persisted-receipt reuse remains in place.
+
 ## Fixture and workload
 
 The checked local stack used UI `http://127.0.0.1:30006`, API `http://127.0.0.1:8186`, project `loom_dev_c89a69d7e137`, Explorer `loom-dev-bootstrap`, and generation `fixture-v1`. The read-only Builder doctor passed with HTTP 200 and a ready V2 Builder state. Its report is `.artifacts/loom-dev/c89a69d7e137/report.json` in the integration worktree.
