@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/lineage"
 )
 
 // ConstructionSourceProjectionID names the implicit source projection stage
@@ -59,6 +61,10 @@ type StageColumn struct {
 	Label    string `json:"label,omitempty"`
 	Type     string `json:"type,omitempty"`
 	Nullable bool   `json:"nullable,omitempty"`
+	// SourceChild keeps the stable structural provenance for a compiler-
+	// generated child of an INDEXED source slot. It is populated only on the
+	// resolved compiler contract, never persisted as a second authored schema.
+	SourceChild *lineage.SourceChild `json:"sourceChild,omitempty"`
 }
 
 type ConstructionOperationKind string
@@ -205,6 +211,9 @@ func (construction Construction) Validate(sourceFields []Field) error {
 	if err := validateStageColumns(sourceColumns, "source projection"); err != nil {
 		return err
 	}
+	if err := validateSourceChildLineage(sourceColumns); err != nil {
+		return err
+	}
 	if len(construction.Steps) == 0 {
 		return nil
 	}
@@ -253,6 +262,32 @@ func (construction Construction) Validate(sourceFields []Field) error {
 		}
 		priorStepID = step.ID
 		priorColumns = step.Outputs
+	}
+	return nil
+}
+
+func validateSourceChildLineage(columns []StageColumn) error {
+	for index, column := range columns {
+		parsed, generated := lineage.ParseSourceChildID(column.ID)
+		if lineage.IsSourceChildID(column.ID) && !generated {
+			return fmt.Errorf("source projection[%d].id is a malformed generated child ID", index)
+		}
+		if generated && column.SourceChild == nil {
+			return fmt.Errorf("source projection[%d] generated child ID has no typed source lineage", index)
+		}
+		if !generated && column.SourceChild != nil {
+			return fmt.Errorf("source projection[%d] has lineage for a non-generated child ID", index)
+		}
+		if column.SourceChild == nil {
+			continue
+		}
+		stableID, _, err := lineage.StableSourceChildID(*column.SourceChild)
+		if err != nil {
+			return fmt.Errorf("source projection[%d] has invalid source lineage: %w", index, err)
+		}
+		if stableID != column.ID || parsed.Kind != column.SourceChild.Kind {
+			return fmt.Errorf("source projection[%d] source lineage does not match its stable column ID", index)
+		}
 	}
 	return nil
 }

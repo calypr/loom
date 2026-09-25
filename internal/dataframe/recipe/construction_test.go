@@ -1,6 +1,35 @@
 package recipe
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/calypr/loom/internal/dataframe/lineage"
+)
+
+func TestConstructionValidatesTypedSourceChildIdentity(t *testing.T) {
+	child := lineage.SourceChild{
+		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"source"}, OccurrenceID: "base",
+		SourcePath: "name[]", Coordinates: []lineage.Coordinate{{BoundaryPath: "name[]", Index: 1}},
+	}
+	id, child, err := lineage.StableSourceChildID(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	construction := Construction{Version: 1, SourceColumns: []StageColumn{{ID: id, Name: "name_1", Type: "string", SourceChild: &child}}}
+	if err := construction.Validate(nil); err != nil {
+		t.Fatalf("valid child lineage: %v", err)
+	}
+
+	construction.SourceColumns[0].SourceChild = nil
+	if err := construction.Validate(nil); err == nil {
+		t.Fatal("generated child ID without typed lineage was accepted")
+	}
+	construction.SourceColumns[0].SourceChild = &child
+	construction.SourceColumns[0].SourceChild.Coordinates[0].Index++
+	if err := construction.Validate(nil); err == nil {
+		t.Fatal("child ID mismatched with typed lineage was accepted")
+	}
+}
 
 func TestConstructionValidatesTypedIntermediateSequence(t *testing.T) {
 	stringScalar := func(value string) TableScalar {

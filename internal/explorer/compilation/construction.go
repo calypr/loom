@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 // recipeConstruction maps durable construction intent into the recipe's
@@ -45,42 +47,227 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 }
 
 func recipeConstructionSourceColumns(columns []authoringv2.Column, emitted []explorer.EmittedColumn) ([]recipe.StageColumn, error) {
-	emissionsByAuthoredName := make(map[string][]explorer.EmittedColumn, len(columns))
-	for _, emission := range emitted {
-		for _, authoredName := range emission.AuthoredColumns {
-			emissionsByAuthoredName[authoredName] = append(emissionsByAuthoredName[authoredName], emission)
-		}
-	}
-
-	result := make([]recipe.StageColumn, 0, len(columns))
-	usedEmissions := make(map[string]string, len(columns))
+	columnsByName := make(map[string]authoringv2.Column, len(columns))
+	seenIDs := make(map[string]bool, len(columns))
 	for index, column := range columns {
 		if !requiredConstructionID(column.ColumnID) {
 			return nil, fmt.Errorf("columns[%d] requires a stable columnId", index)
 		}
-		if strings.EqualFold(strings.TrimSpace(column.Source.ProjectionMode()), "INDEXED") {
-			return nil, fmt.Errorf("columns[%d] INDEXED projection has multiple public emissions without stable child column IDs", index)
+		if seenIDs[column.ColumnID] {
+			return nil, fmt.Errorf("columns[%d] duplicates stable columnId %q", index, column.ColumnID)
 		}
-		matches := emissionsByAuthoredName[column.Column]
-		if len(matches) != 1 {
-			return nil, fmt.Errorf("columns[%d] authored slot %q resolves to %d public emissions; staged construction requires exactly one", index, column.Column, len(matches))
+		seenIDs[column.ColumnID] = true
+		if _, exists := columnsByName[column.Column]; exists || strings.TrimSpace(column.Column) == "" {
+			return nil, fmt.Errorf("columns[%d] has an empty or duplicate authored public name %q", index, column.Column)
 		}
-		emission := matches[0]
-		if strings.TrimSpace(emission.EmissionID) == "" || strings.TrimSpace(emission.PublicColumn) == "" {
-			return nil, fmt.Errorf("columns[%d] authored slot %q has an incomplete resolved public emission", index, column.Column)
-		}
-		if prior, exists := usedEmissions[emission.EmissionID]; exists {
-			return nil, fmt.Errorf("columns[%d] and %q resolve to the same public emission %q", index, prior, emission.EmissionID)
-		}
-		usedEmissions[emission.EmissionID] = column.Column
-		result = append(result, recipe.StageColumn{
-			ID: column.ColumnID, Name: emission.PublicColumn, Label: column.Label, Type: column.LogicalType,
-		})
+		columnsByName[column.Column] = column
 	}
-	if len(usedEmissions) != len(emitted) {
-		return nil, fmt.Errorf("resolved source schema has %d public emissions for %d authored slots", len(emitted), len(columns))
+
+	result := make([]recipe.StageColumn, 0, len(emitted))
+	emissionIDs, publicNames := map[string]bool{}, map[string]bool{}
+	emissionCounts := make(map[string]int, len(columns))
+	childIDs := make(map[string]bool, len(emitted))
+	for emissionIndex, emission := range emitted {
+		if strings.TrimSpace(emission.EmissionID) == "" || strings.TrimSpace(emission.PublicColumn) == "" {
+			return nil, fmt.Errorf("resolved public emission %d has an empty emissionId or publicColumn", emissionIndex)
+		}
+		if emissionIDs[emission.EmissionID] {
+			return nil, fmt.Errorf("resolved source schema duplicates emissionId %q", emission.EmissionID)
+		}
+		if publicNames[emission.PublicColumn] {
+			return nil, fmt.Errorf("resolved source schema duplicates public column %q", emission.PublicColumn)
+		}
+		emissionIDs[emission.EmissionID], publicNames[emission.PublicColumn] = true, true
+		if len(emission.AuthoredColumns) == 0 {
+			return nil, fmt.Errorf("resolved public emission %q has no authored source slot", emission.EmissionID)
+		}
+		owners := make([]authoringv2.Column, 0, len(emission.AuthoredColumns))
+		ownerNames := make(map[string]bool, len(emission.AuthoredColumns))
+		for _, authoredName := range emission.AuthoredColumns {
+			column, exists := columnsByName[authoredName]
+			if !exists || ownerNames[authoredName] {
+				return nil, fmt.Errorf("resolved emission %q has an unknown or duplicate authored source slot %q", emission.EmissionID, authoredName)
+			}
+			if column.OccurrenceID != emission.OccurrenceID {
+				return nil, fmt.Errorf("resolved emission %q does not match authored source occurrence %q", emission.EmissionID, column.OccurrenceID)
+			}
+			ownerNames[authoredName] = true
+			owners = append(owners, column)
+			emissionCounts[authoredName]++
+		}
+
+		var stageColumn recipe.StageColumn
+		switch emission.Shape {
+		case "indexed_scalar":
+			if len(owners) != 1 || !isIndexedSource(owners[0]) {
+				return nil, fmt.Errorf("resolved indexed emission %q must have exactly one INDEXED source slot", emission.EmissionID)
+			}
+			owner := owners[0]
+			coordinates, err := checkedSourceCoordinates(owner, emission.Coordinates, len(emission.Coordinates))
+			if err != nil {
+				return nil, fmt.Errorf("resolved indexed emission %q: %w", emission.EmissionID, err)
+			}
+			child := lineage.SourceChild{
+				Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{owner.ColumnID},
+				OccurrenceID: owner.OccurrenceID, SourcePath: owner.Source.Field.Path, Coordinates: coordinates,
+			}
+			childID, child, err := lineage.StableSourceChildID(child)
+			if err != nil {
+				return nil, fmt.Errorf("resolved indexed emission %q: %w", emission.EmissionID, err)
+			}
+			if childIDs[childID] {
+				return nil, fmt.Errorf("resolved source schema duplicates generated child column ID %q", childID)
+			}
+			childIDs[childID] = true
+			stageColumn = recipe.StageColumn{ID: childID, SourceChild: &child}
+		case "repeated_count":
+			child, err := repeatedCountSourceChild(owners, emission)
+			if err != nil {
+				return nil, fmt.Errorf("resolved repeated-count emission %q: %w", emission.EmissionID, err)
+			}
+			childID, child, err := lineage.StableSourceChildID(child)
+			if err != nil {
+				return nil, fmt.Errorf("resolved repeated-count emission %q: %w", emission.EmissionID, err)
+			}
+			if childIDs[childID] {
+				return nil, fmt.Errorf("resolved source schema duplicates generated child column ID %q", childID)
+			}
+			childIDs[childID] = true
+			stageColumn = recipe.StageColumn{ID: childID, SourceChild: &child}
+		default:
+			if len(owners) != 1 || isIndexedSource(owners[0]) {
+				return nil, fmt.Errorf("resolved source slot %q has unsupported multi-emission shape %q", owners[0].Column, emission.Shape)
+			}
+			owner := owners[0]
+			stageColumn.ID = owner.ColumnID
+		}
+
+		if stageColumn.SourceChild == nil {
+			owner := owners[0]
+			stageColumn.Label, stageColumn.Type = owner.Label, owner.LogicalType
+		} else {
+			stageColumn.Type = emission.LogicalType
+			stageColumn.Nullable = emission.Nullable
+			stageColumn.Label = firstNonEmpty(emission.Label, emission.PublicColumn)
+		}
+		stageColumn.Name = emission.PublicColumn
+		if strings.TrimSpace(stageColumn.Label) == "" {
+			stageColumn.Label = emission.PublicColumn
+		}
+		result = append(result, stageColumn)
+	}
+	for index, column := range columns {
+		count := emissionCounts[column.Column]
+		if count == 0 || (!isIndexedSource(column) && count != 1) {
+			return nil, fmt.Errorf("columns[%d] authored slot %q resolves to %d public emissions; expected exactly one unless INDEXED", index, column.Column, count)
+		}
 	}
 	return result, nil
+}
+
+func isIndexedSource(column authoringv2.Column) bool {
+	return column.Source.Kind == authoringv2.SourceField && column.Source.Field != nil && strings.EqualFold(strings.TrimSpace(column.Source.ProjectionMode()), "INDEXED")
+}
+
+func checkedSourceCoordinates(owner authoringv2.Column, source []capability.RepeatedCoordinate, expectedCount int) ([]lineage.Coordinate, error) {
+	if owner.Source.Field == nil {
+		return nil, fmt.Errorf("INDEXED source slot has no field payload")
+	}
+	boundaries := repeatedSourceBoundaries(owner.Source.Field.Path)
+	if len(source) != expectedCount || len(boundaries) != expectedCount || expectedCount == 0 {
+		return nil, fmt.Errorf("coordinates do not match the source path repeated boundaries")
+	}
+	coordinates := make([]lineage.Coordinate, len(source))
+	for index, coordinate := range source {
+		if coordinate.Index < 0 || coordinate.Index >= coordinate.Width || coordinate.BoundaryPath != boundaries[index] {
+			return nil, fmt.Errorf("coordinate %d does not match source boundary %q", index, boundaries[index])
+		}
+		coordinates[index] = lineage.Coordinate{BoundaryPath: coordinate.BoundaryPath, Index: coordinate.Index}
+	}
+	return coordinates, nil
+}
+
+func repeatedCountSourceChild(owners []authoringv2.Column, emission explorer.EmittedColumn) (lineage.SourceChild, error) {
+	if len(owners) == 0 {
+		return lineage.SourceChild{}, fmt.Errorf("requires at least one INDEXED source owner")
+	}
+	ownerIDs := make([]string, 0, len(owners))
+	for _, owner := range owners {
+		if !isIndexedSource(owner) || owner.OccurrenceID != emission.OccurrenceID {
+			return lineage.SourceChild{}, fmt.Errorf("shared count owners must be INDEXED source slots from one occurrence")
+		}
+		ownerIDs = append(ownerIDs, owner.ColumnID)
+	}
+	owner := owners[0]
+	for _, candidate := range owners[1:] {
+		if candidate.ColumnID < owner.ColumnID {
+			owner = candidate
+		}
+	}
+	var coordinates []lineage.Coordinate
+	var targetBoundary string
+	for index, candidate := range owners {
+		current, err := checkedSourcePrefixCoordinates(candidate, emission.Coordinates)
+		if err != nil {
+			return lineage.SourceChild{}, fmt.Errorf("owner %q: %w", candidate.ColumnID, err)
+		}
+		boundaries := repeatedSourceBoundaries(candidate.Source.Field.Path)
+		if len(current) >= len(boundaries) {
+			return lineage.SourceChild{}, fmt.Errorf("count coordinate has no remaining repeated source boundary")
+		}
+		if index == 0 {
+			coordinates, targetBoundary = current, boundaries[len(current)]
+		} else if targetBoundary != boundaries[len(current)] || !sameLineageCoordinates(coordinates, current) {
+			return lineage.SourceChild{}, fmt.Errorf("shared count owners resolve to different structural boundaries")
+		}
+	}
+	return lineage.SourceChild{
+		Kind: lineage.RepeatedCountChild, ParentColumnIDs: ownerIDs, OccurrenceID: owner.OccurrenceID,
+		SourcePath: owner.Source.Field.Path, BoundaryPath: targetBoundary, Coordinates: coordinates,
+	}, nil
+}
+
+func checkedSourcePrefixCoordinates(owner authoringv2.Column, source []capability.RepeatedCoordinate) ([]lineage.Coordinate, error) {
+	if owner.Source.Field == nil {
+		return nil, fmt.Errorf("INDEXED source slot has no field payload")
+	}
+	boundaries := repeatedSourceBoundaries(owner.Source.Field.Path)
+	if len(source) > len(boundaries) {
+		return nil, fmt.Errorf("count coordinates exceed source repeated boundaries")
+	}
+	coordinates := make([]lineage.Coordinate, len(source))
+	for index, coordinate := range source {
+		if coordinate.Index < 0 || coordinate.Index >= coordinate.Width || coordinate.BoundaryPath != boundaries[index] {
+			return nil, fmt.Errorf("coordinate %d does not match source boundary %q", index, boundaries[index])
+		}
+		coordinates[index] = lineage.Coordinate{BoundaryPath: coordinate.BoundaryPath, Index: coordinate.Index}
+	}
+	return coordinates, nil
+}
+
+func repeatedSourceBoundaries(path string) []string {
+	path = strings.TrimPrefix(strings.TrimSpace(path), "root.")
+	parts := strings.Split(path, ".")
+	boundaries := make([]string, 0)
+	for index, part := range parts {
+		if !strings.HasSuffix(part, "[]") {
+			continue
+		}
+		boundaries = append(boundaries, strings.Join(parts[:index+1], "."))
+	}
+	return boundaries
+}
+
+func sameLineageCoordinates(left, right []lineage.Coordinate) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func requiredConstructionID(value string) bool {

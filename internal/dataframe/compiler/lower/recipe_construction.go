@@ -6,6 +6,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -170,6 +171,7 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 		}
 		compiled.ID, compiled.Name = declaration.ID, declaration.Name
 		compiled.Label = constructionFirstNonEmpty(declaration.Label, compiled.Label, declaration.Name)
+		compiled.SourceChild = lineage.CloneSourceChild(declaration.SourceChild)
 		resolved = append(resolved, compiled)
 		seenIDs[declaration.ID], seenNames[declaration.Name] = true, true
 	}

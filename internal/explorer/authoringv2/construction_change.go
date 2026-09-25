@@ -291,6 +291,13 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 	if err != nil {
 		return err
 	}
+	if start == 0 && len(candidate.Construction.Steps) > 0 {
+		first := candidate.Construction.Steps[0]
+		source, err = constructionSourceColumnsWithChildren(candidate.Columns, first.Operation.inputColumnIDs(), first.Outputs)
+		if err != nil {
+			return fmt.Errorf("source projection: %w", err)
+		}
+	}
 	for index := start; index < len(candidate.Construction.Steps); index++ {
 		step := &candidate.Construction.Steps[index]
 		if step.Operation.Kind == ConstructionOperationCombine || step.Operation.Combine != nil {
@@ -565,6 +572,13 @@ func normalizeConstructionOutputOrder(document *Document) {
 	source, err := sourceStageColumns(document.Columns)
 	if err != nil {
 		return
+	}
+	if len(construction.Steps) > 0 {
+		first := construction.Steps[0]
+		source, err = constructionSourceColumnsWithChildren(document.Columns, first.Operation.inputColumnIDs(), first.Outputs)
+		if err != nil {
+			return
+		}
 	}
 	for index := range construction.Steps {
 		input := source

@@ -29,6 +29,10 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if len(c.Steps) == 0 {
 		return nil
 	}
+	source, err = constructionSourceColumnsWithChildren(sourceColumns, c.Steps[0].Operation.inputColumnIDs(), c.Steps[0].Outputs)
+	if err != nil {
+		return fmt.Errorf("source projection: %w", err)
+	}
 	stepIDs := make(map[string]bool, len(c.Steps))
 	for i, step := range c.Steps {
 		if !requiredID(step.ID) {

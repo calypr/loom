@@ -3,15 +3,16 @@ package compilation
 import (
 	"context"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func TestRecipeConstructionMapsTypedSequenceAndResolvedSourceSchema(t *testing.T) {
@@ -174,18 +175,155 @@ func TestCompileSourceOnlyConstructionCarriesColumnIDsIntoStageDescriptors(t *te
 	}
 }
 
-func TestRecipeConstructionRejectsIndexedSourceFanout(t *testing.T) {
+func TestRecipeConstructionMapsIndexedSourceFanoutToStableChildren(t *testing.T) {
 	columns := []authoringv2.Column{{
-		ColumnID: "indexed_id", Column: "indexed", Label: "Indexed",
-		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{ProjectionMode: "INDEXED"}},
+		ColumnID: "indexed_id", Column: "indexed", Label: "Indexed", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "items[]", ProjectionMode: "INDEXED"}},
 	}}
 	emitted := []explorer.EmittedColumn{
-		{EmissionID: "indexed-a", AuthoredColumns: []string{"indexed"}, PublicColumn: "indexed_x"},
-		{EmissionID: "indexed-b", AuthoredColumns: []string{"indexed"}, PublicColumn: "indexed_y"},
+		{EmissionID: "indexed-a", OccurrenceID: authoringv2.RootOccurrenceID, AuthoredColumns: []string{"indexed"}, PublicColumn: "indexed_0", Label: "Indexed [0]", LogicalType: "string", Nullable: true, Shape: "indexed_scalar", Coordinates: []capability.RepeatedCoordinate{{BoundaryPath: "items[]", Index: 0, Width: 2}}},
+		{EmissionID: "indexed-count", OccurrenceID: authoringv2.RootOccurrenceID, AuthoredColumns: []string{"indexed"}, PublicColumn: "items__count", Label: "Item count", LogicalType: "integer", Shape: "repeated_count"},
 	}
-	_, err := recipeConstructionSourceColumns(columns, emitted)
-	if err == nil || !strings.Contains(err.Error(), "INDEXED projection") {
-		t.Fatalf("indexed source error = %v, want explicit fanout limitation", err)
+	got, err := recipeConstructionSourceColumns(columns, emitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "indexed_0" || got[1].Name != "items__count" {
+		t.Fatalf("mapped indexed source schema = %#v", got)
+	}
+	valueID, canonical, err := lineage.StableSourceChildID(lineage.SourceChild{
+		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"indexed_id"}, OccurrenceID: authoringv2.RootOccurrenceID,
+		SourcePath: "items[]", Coordinates: []lineage.Coordinate{{BoundaryPath: "items[]", Index: 0}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].ID != valueID || got[0].SourceChild == nil || got[0].SourceChild.Kind != canonical.Kind {
+		t.Fatalf("indexed value identity = %#v, want %q", got[0], valueID)
+	}
+	if got[1].SourceChild == nil || got[1].SourceChild.Kind != lineage.RepeatedCountChild || got[1].SourceChild.BoundaryPath != "items[]" {
+		t.Fatalf("repeated count lineage = %#v", got[1].SourceChild)
+	}
+}
+
+func TestCompileIndexedSourceChildrenReachCompilerStageCapabilities(t *testing.T) {
+	document := authoringv2.Document{
+		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
+		Output: authoringv2.Output{ID: "patients", Title: "Patients"}, RootResourceType: "Patient",
+		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
+		Columns: []authoringv2.Column{
+			{ColumnID: "given_slot", Column: "given", Label: "Given", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}},
+			{ColumnID: "family_slot", Column: "family", Label: "Family", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "INDEXED"}}},
+		},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion},
+	}
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(result Result) lower.CompiledRecipeOutput {
+		t.Helper()
+		plan, err := semantic.BuildRecipePlan(result.Bundle, recipe.RuntimeBindings{Project: "project-a"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		physical, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return physical.Outputs[0]
+	}
+
+	output := resolve(compiled)
+	if len(output.Stages) == 0 || output.Stages[0].ID != recipe.ConstructionSourceProjectionID {
+		t.Fatalf("compiled source stages = %#v", output.Stages)
+	}
+	stageColumns := make(map[string]lower.CompiledOutputColumn)
+	for _, column := range output.Stages[0].Columns {
+		if !column.Internal {
+			stageColumns[column.Name] = column
+		}
+	}
+	if len(stageColumns) != len(compiled.EmittedColumns) {
+		t.Fatalf("source stage has %d public columns, compiler emitted %d: %#v", len(stageColumns), len(compiled.EmittedColumns), stageColumns)
+	}
+	var filterColumn lower.CompiledOutputColumn
+	var sharedCountID string
+	for _, emission := range compiled.EmittedColumns {
+		column, ok := stageColumns[emission.PublicColumn]
+		if !ok {
+			t.Fatalf("compiler stage omits exact public emission %q", emission.PublicColumn)
+		}
+		if emission.Shape == "indexed_scalar" || emission.Shape == "repeated_count" {
+			if column.ID == "" || column.SourceChild == nil {
+				t.Fatalf("indexed emission %q lacks stable source child identity: %#v", emission.PublicColumn, column)
+			}
+			if emission.Shape == "indexed_scalar" && filterColumn.ID == "" {
+				filterColumn = column
+			}
+			if emission.Shape == "repeated_count" && len(emission.AuthoredColumns) > 1 {
+				if len(column.SourceChild.ParentColumnIDs) != 2 || column.SourceChild.ParentColumnIDs[0] != "family_slot" || column.SourceChild.ParentColumnIDs[1] != "given_slot" {
+					t.Fatalf("shared count source owners = %#v", column.SourceChild.ParentColumnIDs)
+				}
+				sharedCountID = column.ID
+			}
+		}
+	}
+	if filterColumn.ID == "" || sharedCountID == "" {
+		t.Fatalf("indexed source children are incomplete: filter=%q shared_count=%q", filterColumn.ID, sharedCountID)
+	}
+
+	renamed := document
+	renamed.Columns = append([]authoringv2.Column(nil), document.Columns...)
+	renamed.Columns[0].Column, renamed.Columns[0].Label = "given_renamed", "Given renamed"
+	renamed.Columns[1].Column, renamed.Columns[1].Label = "family_renamed", "Family renamed"
+	renamedResult, err := Compile(context.Background(), "project-a", "explorer-a", renamed, fixtureSnapshot())
+	if err != nil {
+		t.Fatalf("compile renamed INDEXED source slots: %v", err)
+	}
+	renamedOutput := resolve(renamedResult)
+	renamedByID := make(map[string]string)
+	for _, column := range renamedOutput.Stages[0].Columns {
+		if column.SourceChild != nil {
+			renamedByID[column.ID] = column.Name
+		}
+	}
+	if renamedByID[filterColumn.ID] == "" || renamedByID[filterColumn.ID] == filterColumn.Name || renamedByID[sharedCountID] == "" {
+		t.Fatalf("child IDs did not survive public name/label edits: old=%#v new=%#v", filterColumn, renamedByID)
+	}
+
+	outputs := make([]authoringv2.StageColumn, 0, len(compiled.Bundle.Outputs[0].Construction.SourceColumns))
+	for _, column := range compiled.Bundle.Outputs[0].Construction.SourceColumns {
+		outputs = append(outputs, authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Nullable: column.Nullable})
+	}
+	document.Construction.Steps = []authoringv2.ConstructionStep{{
+		ID: "keep_given_item", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: filterColumn.ID, Operator: authoringv2.ConstructionFilterExists}},
+		Outputs:   outputs,
+	}}
+	filtered, err := Compile(context.Background(), "project-a", "explorer-a", document, fixtureSnapshot())
+	if err != nil {
+		t.Fatalf("compile construction using generated indexed child: %v", err)
+	}
+	filteredOutput := resolve(filtered)
+	if len(filteredOutput.Stages) != 2 || filteredOutput.Stages[1].Operation != string(recipe.ConstructionFilterOp) {
+		t.Fatalf("compiled filter stage descriptors = %#v", filteredOutput.Stages)
+	}
+	if filteredOutput.Stages[0].Columns[0].ID == "" {
+		t.Fatalf("source capability descriptor did not retain column IDs: %#v", filteredOutput.Stages[0])
+	}
+	filteredChildFound := false
+	for _, column := range filteredOutput.Stages[0].Columns {
+		if column.ID == filterColumn.ID && column.Name == filterColumn.Name && column.SourceChild != nil {
+			filteredChildFound = true
+		}
+	}
+	if !filteredChildFound {
+		t.Fatalf("filter input child %q was not retained in source capabilities", filterColumn.ID)
 	}
 }
 

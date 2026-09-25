@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -83,6 +84,7 @@ type CompiledOutputColumn struct {
 	Internal       bool
 	Identity       bool
 	Discovered     bool
+	SourceChild    *lineage.SourceChild
 }
 
 // CloneCompiledOutputSchema copies output metadata, including optional unit identities.
@@ -90,6 +92,7 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 	cloned := append([]CompiledOutputColumn(nil), columns...)
 	for index := range cloned {
 		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
+		cloned[index].SourceChild = lineage.CloneSourceChild(cloned[index].SourceChild)
 	}
 	return cloned
 }
