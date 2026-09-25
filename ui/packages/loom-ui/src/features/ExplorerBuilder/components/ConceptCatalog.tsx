@@ -8,12 +8,14 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import {
+  catalogChoiceIntent,
   catalogItemAvailability,
   catalogItemKey,
   catalogItemLabel,
   catalogItemConstructionChoice,
   catalogItemDefaultForm,
   fieldCatalogItems,
+  isRelatedFieldCatalogItem,
   semanticCatalogItems,
   type CatalogChoiceGroup,
   type CatalogChoiceIntent,
@@ -32,6 +34,11 @@ export interface CatalogRouteContext {
 export interface CatalogSourceProjectionAvailability {
   readonly available: boolean;
   readonly reason: string;
+}
+
+export interface CatalogRelatedSourceAvailability {
+  readonly supported: boolean;
+  readonly reason?: string;
 }
 
 type CatalogPage = {
@@ -93,6 +100,43 @@ const availabilityMessage = (
 
 const selectedAsArray = (selected: ReadonlyMap<string, CatalogItem>) =>
   [...selected.values()];
+
+const choiceGroupsForRelatedSource = (
+  groups: ReadonlyArray<CatalogChoiceGroup>,
+  rowRoot: string,
+  availability: CatalogRelatedSourceAvailability | undefined,
+): ReadonlyArray<CatalogChoiceGroup> => {
+  if (!availability) return groups;
+  return groups.map((group) => {
+    if (group.item.kind !== 'FIELD' || !isRelatedFieldCatalogItem(group.item, rowRoot)) {
+      return group;
+    }
+    if (!availability.supported) return { ...group, choices: [] };
+    return {
+      ...group,
+      choices: group.choices.flatMap((choice) => {
+        const supportedIntent = catalogChoiceIntent({
+          item: group.item,
+          choice,
+          form: 'ALL',
+          rowRoot,
+        });
+        if (!supportedIntent.relatedSource) return [];
+        const options = choice.options.filter((option) =>
+          option.form === 'ALL' &&
+          option.shape === 'LIST' &&
+          option.support === 'SUPPORTED'
+        );
+        return options.length > 0 ? [{ ...choice, options }] : [];
+      }),
+    };
+  });
+};
+
+const addActionMessage = (intents: ReadonlyArray<CatalogChoiceIntent>): string =>
+  intents.some((intent) => intent.relatedSource)
+    ? 'Related-source proposal submitted. Review the preview before applying.'
+    : `${intents.length} ${intents.length === 1 ? 'feature was' : 'features were'} added to your table.`;
 
 const sourceDetails = (item: CatalogItem): ReadonlyArray<readonly [string, string]> => {
   const choice = catalogItemConstructionChoice(item);
@@ -211,6 +255,7 @@ const CatalogItemRow = ({
   disabled,
   selectionDisabled,
   disabledReasonId,
+  selectionDisabledReasonId,
   onToggle,
   choiceDetails,
   onInspectChoices,
@@ -223,6 +268,7 @@ const CatalogItemRow = ({
   readonly disabled: boolean;
   readonly selectionDisabled: boolean;
   readonly disabledReasonId?: string;
+  readonly selectionDisabledReasonId?: string;
   readonly onToggle: () => void;
   readonly choiceDetails?:
     | { readonly status: 'loading' }
@@ -237,6 +283,10 @@ const CatalogItemRow = ({
   const availability = catalogItemAvailability(item);
   const details = sourceDetails(item);
   const choice = catalogItemConstructionChoice(item);
+  const describedBy = [
+    disabled && disabledReasonId,
+    selectionDisabled && selectionDisabledReasonId,
+  ].filter(Boolean).join(' ') || undefined;
   const choicesNeedTableContext = Boolean(
     choice && (
       hasRouteContext ||
@@ -253,7 +303,7 @@ const CatalogItemRow = ({
         <input
           type="checkbox"
           aria-label={selectionLabel}
-          aria-describedby={disabled && disabledReasonId ? disabledReasonId : undefined}
+          aria-describedby={describedBy}
           checked={checked}
           disabled={disabled || selectionDisabled || !availability.selectable}
           onChange={onToggle}
@@ -430,6 +480,7 @@ export const ConceptCatalog = ({
   disabled = false,
   disabledReason,
   sourceProjectionAvailability,
+  relatedSourceAvailability,
   onAddSelected,
 }: {
   readonly project: string;
@@ -446,6 +497,7 @@ export const ConceptCatalog = ({
   readonly disabled?: boolean;
   readonly disabledReason?: string;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
+  readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<void>;
@@ -484,9 +536,18 @@ export const ConceptCatalog = ({
     routeContext?.nodeId ?? '',
     sourceProjectionAvailability?.available ?? true,
     sourceProjectionAvailability?.reason ?? '',
+    relatedSourceAvailability?.supported ?? true,
+    relatedSourceAvailability?.reason ?? '',
   ]);
   const canAddFromSourceProjection = sourceProjectionAvailability?.available ?? true;
   const sourceProjectionReason = sourceProjectionAvailability?.reason.trim();
+  const relatedSourceAvailabilityId = useId();
+  const canAddCatalogItem = (item: CatalogItem): boolean => {
+    if (relatedSourceAvailability && isRelatedFieldCatalogItem(item, rowRoot)) {
+      return relatedSourceAvailability.supported;
+    }
+    return canAddFromSourceProjection;
+  };
 
   const loadPage = useCallback(
     (searchQuery: string, cursor?: string, replace = false) => {
@@ -575,7 +636,7 @@ export const ConceptCatalog = ({
   ));
   const selectedItems = useMemo(() => selectedAsArray(selected), [selected]);
   const toggleSelection = (item: CatalogItem) => {
-    if (!catalogItemAvailability(item).selectable) return;
+    if (!canAddCatalogItem(item) || !catalogItemAvailability(item).selectable) return;
     const key = catalogItemKey(item);
     setSelected((current) => {
       const next = new Map(current);
@@ -665,16 +726,41 @@ export const ConceptCatalog = ({
   };
 
   const commitSelections = async (selections: ReadonlyArray<CatalogChoiceIntent>) => {
-    if (!canAddFromSourceProjection || !onAddSelected || !selections.length) return;
+    if (!onAddSelected || !selections.length) return;
+    const intents = pendingSelection?.length === selections.length
+      ? selections.map((selection, index) => {
+          const group = pendingSelection[index];
+          const choice = group?.choices.find(
+            (candidate) => candidate.choiceId === selection.constructionChoice.choiceId,
+          );
+          return group && choice
+            ? catalogChoiceIntent({
+                item: group.item,
+                choice,
+                form: selection.constructionChoice.form,
+                ...(relatedSourceAvailability?.supported ? { rowRoot } : {}),
+              })
+            : selection;
+        })
+      : selections;
+    if (
+      !pendingSelection ||
+      pendingSelection.length !== intents.length ||
+      !pendingSelection.every((group, index) => {
+        const intent = intents[index];
+        if (!intent || !canAddCatalogItem(group.item)) return false;
+        return isRelatedFieldCatalogItem(group.item, rowRoot) && relatedSourceAvailability?.supported
+          ? intent.relatedSource !== undefined && intent.constructionChoice.form === 'ALL'
+          : canAddFromSourceProjection;
+      })
+    ) return;
     setAdding(true);
     setActionMessage(undefined);
     try {
-      await onAddSelected(selections);
+      await onAddSelected(intents);
       setSelected(new Map());
       setPendingSelection(undefined);
-      setActionMessage(
-        `${selections.length} ${selections.length === 1 ? 'feature was' : 'features were'} added to your table.`,
-      );
+      setActionMessage(addActionMessage(intents));
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'Loom could not add the selected features.');
     } finally {
@@ -683,7 +769,7 @@ export const ConceptCatalog = ({
   };
 
   const openSelection = async () => {
-    if (!canAddFromSourceProjection || !selectedItems.length || !onAddSelected) return;
+    if (!selectedItems.length || !onAddSelected || !selectedItems.every(canAddCatalogItem)) return;
     const controller = new AbortController();
     activeChoiceRequest.current?.abort();
     activeChoiceRequest.current = controller;
@@ -694,6 +780,11 @@ export const ConceptCatalog = ({
         (item) => resolveChoiceGroup(item, controller.signal),
       ));
       if (controller.signal.aborted) return;
+      const dialogGroups = choiceGroupsForRelatedSource(
+        groups,
+        rowRoot,
+        relatedSourceAvailability,
+      );
       setChoiceDetails((previous) => {
         const next = new Map(previous);
         for (const group of groups) {
@@ -701,23 +792,37 @@ export const ConceptCatalog = ({
         }
         return next;
       });
-      const direct = groups.flatMap((group) => {
-        if (!group.complete || group.truncated || group.choices.length !== 1) return [];
-        const choice = group.choices[0]!;
-        const form = catalogItemDefaultForm(choice);
-        return form && choice.options.length === 1
-          ? [{
-              constructionChoice: { choiceId: choice.choiceId, form },
-              title: catalogItemLabel(group.item),
-            }]
+      const direct = groups.flatMap((group, index) => {
+        const dialogGroup = dialogGroups[index];
+        if (!group.complete || group.truncated || dialogGroup?.choices.length !== 1) return [];
+        const dialogChoice = dialogGroup.choices[0]!;
+        const choice = group.choices.find(
+          (candidate) => candidate.choiceId === dialogChoice.choiceId,
+        );
+        const form = catalogItemDefaultForm(dialogChoice);
+        return choice && form && dialogChoice.options.length === 1
+          ? [catalogChoiceIntent({
+              item: group.item,
+              choice,
+              form,
+              ...(relatedSourceAvailability?.supported ? { rowRoot } : {}),
+            })]
           : [];
       });
       if (direct.length === groups.length) {
+        if (!groups.every((group, index) => {
+          const intent = direct[index];
+          if (!intent || !canAddCatalogItem(group.item)) return false;
+          return isRelatedFieldCatalogItem(group.item, rowRoot) && relatedSourceAvailability?.supported
+            ? intent.relatedSource !== undefined && intent.constructionChoice.form === 'ALL'
+            : canAddFromSourceProjection;
+        })) {
+          setPendingSelection(groups);
+          return;
+        }
         await onAddSelected(direct);
         setSelected(new Map());
-        setActionMessage(
-          `${direct.length} ${direct.length === 1 ? 'feature was' : 'features were'} added to your table.`,
-        );
+        setActionMessage(addActionMessage(direct));
       } else {
         setPendingSelection(groups);
       }
@@ -747,7 +852,11 @@ export const ConceptCatalog = ({
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm">
       {pendingSelection ? (
         <CatalogSelectionDialog
-          groups={pendingSelection}
+          groups={choiceGroupsForRelatedSource(
+            pendingSelection,
+            rowRoot,
+            relatedSourceAvailability,
+          )}
           busy={adding}
           onCancel={() => setPendingSelection(undefined)}
           onConfirm={(selections) => void commitSelections(selections)}
@@ -795,6 +904,11 @@ export const ConceptCatalog = ({
           Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.
         </p>
       ) : null}
+      {relatedSourceAvailability?.supported === false ? (
+        <p id={relatedSourceAvailabilityId} className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
+          Adding fields from related resources is unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
+        </p>
+      ) : null}
       {sourceProjectionAvailability && !sourceProjectionAvailability.available ? (
         <p className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
           Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
@@ -840,8 +954,14 @@ export const ConceptCatalog = ({
                   hasRouteContext={routeContext !== undefined}
                   checked={selected.has(catalogItemKey(item))}
                   disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  selectionDisabled={!canAddFromSourceProjection}
+                  selectionDisabled={!canAddCatalogItem(item)}
                   disabledReasonId={visibleDisabledReasonId}
+                  selectionDisabledReasonId={
+                    relatedSourceAvailability?.supported === false &&
+                    isRelatedFieldCatalogItem(item, rowRoot)
+                      ? relatedSourceAvailabilityId
+                      : undefined
+                  }
                   onToggle={() => toggleSelection(item)}
                   choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
                   onInspectChoices={() => inspectChoices(item)}
@@ -944,7 +1064,7 @@ export const ConceptCatalog = ({
           {!pendingSelection ? (
           <button
             type="button"
-              disabled={disabled || adding || selected.size === 0 || !onAddSelected || !canAddFromSourceProjection}
+              disabled={disabled || adding || selected.size === 0 || !onAddSelected || !selectedItems.every(canAddCatalogItem)}
               onClick={() => void openSelection()}
             className="mt-4 w-full rounded-md bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >

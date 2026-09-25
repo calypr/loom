@@ -15,6 +15,7 @@ import type {
 } from '../../../types';
 import {
   ConceptCatalog,
+  type CatalogRelatedSourceAvailability,
   type CatalogRouteContext,
   type CatalogSourceProjectionAvailability,
 } from './ConceptCatalog';
@@ -210,6 +211,8 @@ const renderCatalog = (
     readonly nodeId?: string;
     readonly routeContext?: CatalogRouteContext;
   } = {},
+  catalogOverride: ExplorerBuilderCatalog = catalog,
+  relatedSourceAvailability?: CatalogRelatedSourceAvailability,
 ) => {
     render(
       <LoomProvider client={createLoomClient({ fetch })}>
@@ -222,8 +225,9 @@ const renderCatalog = (
           resourceType={source.resourceType}
           sourceNodeId={source.nodeId}
           routeContext={source.routeContext}
-          catalog={catalog}
+          catalog={catalogOverride}
           sourceProjectionAvailability={sourceProjectionAvailability}
+          relatedSourceAvailability={relatedSourceAvailability}
           onAddSelected={onAddSelected}
         />
       </LoomProvider>,
@@ -470,6 +474,226 @@ describe('ConceptCatalog', () => {
       title: 'id',
     }]));
     expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
+  });
+
+  it('sends the exact related field choice and candidate while keeping root projection simple', async () => {
+    const relatedChoice: ConstructionChoice = {
+      ...fieldChoice(
+        'diagnostic-report-amount-choice',
+        'diagnostic-report-amount-candidate',
+        'diagnostic-report-node',
+        'DiagnosticReport',
+        'amount',
+      ),
+      route: [{
+        edgeId: 'patient-diagnostic-report',
+        fromNodeId: 'patient-node',
+        toNodeId: 'diagnostic-report-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'DiagnosticReport',
+        relationship: 'reports',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      options: [
+        choiceOption('VALUE', 'DEFAULT'),
+        choiceOption('ALL', 'REQUIRES_DECISION'),
+      ],
+    };
+    const relatedCandidate: ExplorerBuilderCandidate = {
+      ...rootId,
+      candidateId: 'diagnostic-report-amount-candidate',
+      nodeId: 'diagnostic-report-node',
+      fieldPath: 'amount',
+      label: 'amount',
+      projectionModes: ['VALUE', 'ALL'],
+      defaultProjectionMode: 'VALUE',
+      constructionChoice: relatedChoice,
+    };
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'diagnostic-report-node',
+          resourceType: 'DiagnosticReport',
+          rowRootEligible: false,
+          populated: true,
+          documentCount: 1,
+        },
+      ],
+      edges: [
+        ...catalog.edges,
+        {
+          edgeId: 'patient-diagnostic-report',
+          fromNodeId: 'patient-node',
+          toNodeId: 'diagnostic-report-node',
+          label: 'reports',
+        },
+      ],
+      candidates: [...(catalog.candidates ?? []), relatedCandidate],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/construction-choices')
+        ? {
+            snapshotToken: 'snapshot-a',
+            outputId: 'patients',
+            complete: true,
+            truncated: false,
+            choices: [relatedChoice],
+          }
+        : page([]);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="patients"
+          rowRoot="Patient"
+          catalog={relatedCatalog}
+          relatedSourceAvailability={{ supported: true }}
+          onAddSelected={onAddSelected}
+        />
+      </LoomProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Patient.id' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+      target: { value: 'amount' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select DiagnosticReport.amount' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', {
+      name: 'amount: LIST · PRESERVING · ALL',
+    }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
+      {
+        constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
+        title: 'id',
+      },
+      {
+        constructionChoice: { choiceId: 'diagnostic-report-amount-choice', form: 'ALL' },
+        title: 'amount',
+        relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
+      },
+    ]));
+  });
+
+  it('shows the RELATED_SOURCE reason and disables only related fields when unsupported', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    const reason = 'Loom does not advertise RELATED_SOURCE for this stage.';
+    renderCatalog(fetch, onAddSelected, {
+      available: true,
+      reason: 'The selected stage retains the source row identity.',
+    }, {}, catalog, { supported: false, reason });
+
+    const rootField = await screen.findByRole('checkbox', { name: 'Select Patient.id' });
+    expect(rootField).toBeEnabled();
+    expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+      target: { value: 'identifier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const relatedField = await screen.findByRole('checkbox', { name: 'Select Observation.identifier' });
+    expect(relatedField).toBeDisabled();
+    expect(relatedField).toHaveAttribute('aria-describedby');
+    expect(onAddSelected).not.toHaveBeenCalled();
+  });
+
+  it('allows supported related fields when source projection is unavailable and reports preview submission', async () => {
+    const relatedChoice: ConstructionChoice = {
+      ...fieldChoice(
+        'observation-identifier-related-choice',
+        'candidate-observation-id',
+        'observation-node',
+        'Observation',
+        'identifier',
+      ),
+      route: [{
+        edgeId: 'patient-observation',
+        fromNodeId: 'patient-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'Observation',
+        relationship: 'observations',
+        storageDirection: 'OUTBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+      options: [choiceOption('ALL', 'DEFAULT')],
+    };
+    const sourceCandidate = catalog.candidates?.find(
+      (candidate) => candidate.candidateId === 'candidate-observation-id',
+    );
+    if (!sourceCandidate) throw new Error('The related field candidate is missing.');
+    const relatedCandidate: ExplorerBuilderCandidate = {
+      ...sourceCandidate,
+      constructionChoice: relatedChoice,
+    };
+    const relatedCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      candidates: (catalog.candidates ?? []).map((candidate) =>
+        candidate.candidateId === relatedCandidate.candidateId
+          ? relatedCandidate
+          : candidate,
+      ),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const response = String(input).endsWith('/construction-choices')
+        ? {
+            snapshotToken: 'snapshot-a',
+            outputId: 'patients',
+            complete: true,
+            truncated: false,
+            choices: [relatedChoice],
+          }
+        : page([]);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    renderCatalog(fetch, onAddSelected, {
+      available: false,
+      reason: 'The selected stage does not retain source projection identity.',
+    }, {}, relatedCatalog, { supported: true });
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeDisabled();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
+      target: { value: 'identifier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const relatedField = await screen.findByRole('checkbox', { name: 'Select Observation.identifier' });
+    expect(relatedField).toBeEnabled();
+    fireEvent.click(relatedField);
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: 'observation-identifier-related-choice', form: 'ALL' },
+      title: 'Observation id',
+      relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
+    }]));
+    expect(screen.getByText('Related-source proposal submitted. Review the preview before applying.')).toBeInTheDocument();
   });
 
   it('explains pending source selection and re-enables fields when the draft settles', async () => {

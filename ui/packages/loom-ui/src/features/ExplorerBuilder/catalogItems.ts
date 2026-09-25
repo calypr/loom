@@ -25,6 +25,10 @@ export type CatalogItem =
 export type CatalogChoiceIntent = {
   readonly constructionChoice: ConstructionChoiceSelection;
   readonly title?: string;
+  readonly relatedSource?: {
+    readonly choice: ConstructionChoice;
+    readonly candidate: ExplorerBuilderCandidate;
+  };
 };
 
 export type CatalogChoiceGroup = {
@@ -159,6 +163,51 @@ export const catalogItemLabel = (item: CatalogItem): string => {
   }
 };
 
+export const isRelatedFieldCatalogItem = (
+  item: CatalogItem,
+  rowRoot: string,
+): boolean => item.kind === 'FIELD' && (
+  item.constructionChoice.source.resourceType !== rowRoot ||
+  item.constructionChoice.route.length > 0
+);
+
+export const catalogChoiceIntent = ({
+  item,
+  choice,
+  form,
+  rowRoot,
+}: {
+  readonly item: CatalogItem;
+  readonly choice: ConstructionChoice;
+  readonly form: ConstructionChoiceForm;
+  readonly rowRoot?: string;
+}): CatalogChoiceIntent => {
+  const relatedSource = item.kind === 'FIELD' &&
+    rowRoot !== undefined &&
+    form === 'ALL' &&
+    isRelatedFieldCatalogItem(item, rowRoot) &&
+    choice.source.kind === 'FIELD' &&
+    choice.source.candidateId === item.candidate.candidateId &&
+    choice.source.nodeId === item.candidate.nodeId &&
+    choice.source.resourceType === item.constructionChoice.source.resourceType &&
+    choice.source.path === item.candidate.fieldPath &&
+    choice.source.cardinality === item.candidate.cardinality &&
+    (choice.source.cardinality === 'required_one' || choice.source.cardinality === 'optional_one') &&
+    choice.options.some((option) =>
+      option.form === 'ALL' &&
+      option.shape === 'LIST' &&
+      option.support === 'SUPPORTED'
+    )
+      ? { choice, candidate: item.candidate }
+      : undefined;
+
+  return {
+    constructionChoice: { choiceId: choice.choiceId, form },
+    title: catalogItemLabel(item),
+    ...(relatedSource ? { relatedSource } : {}),
+  };
+};
+
 export const catalogItemConstructionChoice = (
   item: CatalogItem,
 ): ConstructionChoice | undefined => {
@@ -230,6 +279,7 @@ export const catalogItemDefaultForm = (
 
 export const directCatalogChoiceIntents = (
   items: ReadonlyArray<CatalogItem>,
+  rowRoot: string,
 ): ReadonlyArray<CatalogChoiceIntent> | undefined => {
   if (items.length === 0) return undefined;
   const selections: CatalogChoiceIntent[] = [];
@@ -244,10 +294,14 @@ export const directCatalogChoiceIntents = (
     }
     const [option] = choice.options;
     if (!option || option.decision !== 'DEFAULT') return undefined;
-    selections.push({
-      constructionChoice: { choiceId: choice.choiceId, form: option.form },
-      title: catalogItemLabel(item),
+    const intent = catalogChoiceIntent({
+      item,
+      choice,
+      form: option.form,
+      rowRoot,
     });
+    if (isRelatedFieldCatalogItem(item, rowRoot) && !intent.relatedSource) return undefined;
+    selections.push(intent);
   }
   return selections;
 };
