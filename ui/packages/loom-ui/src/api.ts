@@ -10,6 +10,7 @@ import {
   explorerBuilderSuggestionsResultSchema,
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
+  relatedExpandChoiceSearchResponseSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
@@ -40,6 +41,7 @@ import {
   type ExplorerColumnSourceDescriptor,
   type ConstructionChoiceSearchResponse,
   type ConstructionChoiceSearchSource,
+  type RelatedExpandChoiceSearchResponse,
   type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalRequest,
@@ -310,6 +312,16 @@ export interface SearchConstructionChoicesArgs extends ExplorerAuthoringStateArg
   readonly requestId?: string;
 }
 
+export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
+  readonly stageId: string;
+  readonly targetResourceType: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly requestId?: string;
+}
+
 export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
@@ -551,6 +563,10 @@ export interface LoomClient {
     args: SearchConstructionChoicesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionChoiceSearchResponse>;
+  readonly searchRelatedExpandChoices: (
+    args: SearchRelatedExpandChoicesArgs,
+    signal?: AbortSignal,
+  ) => Promise<RelatedExpandChoiceSearchResponse>;
   readonly searchPopulationRoutes: (
     args: SearchPopulationRoutesArgs,
     signal?: AbortSignal,
@@ -1133,6 +1149,15 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => constructionChoiceSearchResponseSchema.parse(value));
+  const searchRelatedExpandChoices = (args: SearchRelatedExpandChoicesArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/related-expand-choices'), withJson({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      targetResourceType: args.targetResourceType,
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+    }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
   const searchPopulationRoutes = (args: SearchPopulationRoutesArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/population-routes'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1440,6 +1465,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     browseSemanticInventory,
     inspectColumnSource,
     searchConstructionChoices,
+    searchRelatedExpandChoices,
     searchPopulationRoutes,
     listRowDefinitionChoices,
     proposeRowDefinition,

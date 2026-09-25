@@ -6,15 +6,17 @@ import type {
   ConstructionStageDescriptor,
   ConstructionTableScalar,
   ConstructionStep,
+  ExplorerBuilderCatalog,
 } from '../../../types';
 import { constructionSchema } from '../../../types';
+import { RelatedExpandEditor } from './RelatedExpandEditor';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
   'candidateConstruction' | 'changedStepId' | 'removeStepIds'
 >;
 
-type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'EXPAND';
+type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'EXPAND' | 'RELATED_EXPAND';
 type GroupAggregateKind = 'COUNT_ROWS' | 'COUNT_NON_NULL' | 'COUNT_DISTINCT' | 'SUM' | 'MEAN';
 type EmptyListPolicy = 'ERROR' | 'EXCLUDE' | 'PRESERVE_PARENT';
 
@@ -138,6 +140,7 @@ type ExpandForm = {
 
 type ReshapeForm =
   | { readonly kind: 'choose' }
+  | { readonly kind: 'related-expand' }
   | GroupForm
   | ExpandForm
   | PivotForm
@@ -154,9 +157,17 @@ export interface ConstructionReshapeEditorProps {
   readonly disabled: boolean;
   readonly onCandidateChange: (intent: CandidateIntent | undefined) => void;
   readonly onEditStep: (stepId: string) => void;
+  readonly relatedExpandContext?: {
+    readonly project: string;
+    readonly explorerId: string;
+    readonly authResourcePath?: string;
+    readonly snapshotToken: string;
+    readonly outputId: string;
+    readonly catalog: ExplorerBuilderCatalog;
+  };
 }
 
-export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'UNPIVOT', 'GROUP', 'EXPAND'] as const;
+export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
 const createOpaqueId = (prefix: string): string => {
   const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -180,7 +191,7 @@ const capabilityFor = (
 };
 
 const isReshapeOperationKind = (kind: string): kind is ReshapeOperationKind =>
-  kind === 'PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'EXPAND';
+  kind === 'PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'EXPAND' || kind === 'RELATED_EXPAND';
 
 const capabilityForStep = (stage: ReshapeStage, kind: string) =>
   isReshapeOperationKind(kind)
@@ -193,6 +204,7 @@ const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
     case 'UNPIVOT': return 'unpivot';
     case 'GROUP': return 'group summary';
     case 'EXPAND': return 'list expansion';
+    case 'RELATED_EXPAND': return 'related record expansion';
     default: {
       const exhaustive: never = kind;
       return exhaustive;
@@ -859,6 +871,11 @@ const stepDescription = (step: ConstructionReshapeStep, capabilities: ReshapeCap
       const policy = expand.emptyPolicy ?? 'EXCLUDE';
       return `Make one row per item in ${input?.label ?? input?.name ?? 'the selected list'}. Empty lists: ${emptyPolicyLabel(policy).toLowerCase()}.`;
     }
+    case 'RELATED_EXPAND': {
+      const expansion = step.operation.relatedExpand;
+      const path = expansion.route.map((edge) => edge.relationship).join(' → ');
+      return `Make one row per distinct ${expansion.targetResourceType} via ${path}. Empty matches: ${emptyPolicyLabel(expansion.emptyPolicy).toLowerCase()}.`;
+    }
     case 'PIVOT': {
       const pivot = step.operation.pivot;
       const category = stage?.columns.find((column) => column.id === pivot.categoryColumnId);
@@ -909,6 +926,7 @@ const formForStep = (
   if (!editingStep) return { kind: 'choose' };
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
+  if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
   if (editingStep.operation.kind === 'PIVOT') return initialPivotForm(stage, [], editingStep);
   if (editingStep.operation.kind === 'UNPIVOT') return initialUnpivotForm(stage, [], editingStep);
   return { kind: 'unsupported', message: 'This saved reshape is not supported by this editor.' };
@@ -1015,6 +1033,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const [contractUnavailable, setContractUnavailable] = useState(false);
   const groupSupport = capabilityFor(stage, 'GROUP');
   const expandSupport = capabilityFor(stage, 'EXPAND');
+  const relatedExpandSupport = capabilityFor(stage, 'RELATED_EXPAND');
   const pivotSupport = capabilityFor(stage, 'PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
   const expandColumns = listColumnsFor(stage);
@@ -1038,6 +1057,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     switch (next.kind) {
       case 'group': return groupSupport;
       case 'expand': return expandSupport;
+      case 'related-expand': return relatedExpandSupport;
       case 'pivot': return pivotSupport;
       case 'unpivot': return unpivotSupport;
       default: return undefined;
@@ -1136,6 +1156,16 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             onChoose={() => updateForm(initialExpandForm(stage))}
           />
           <ReshapeChoice
+            testId="construction-reshape-choice-related-expand"
+            title="Expand related records"
+            description="Make one row per distinct record on a supported relationship path. Keep its exact source identity for later columns."
+            supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
+            reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
+            selected={form.kind === 'related-expand'}
+            disabled={disabled}
+            onChoose={() => updateForm({ kind: 'related-expand' })}
+          />
+          <ReshapeChoice
             testId="construction-reshape-choice-pivot"
             title="Turn categories into columns"
             description="Choose group fields, a category field, and values to fill one column per category."
@@ -1155,12 +1185,24 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             disabled={disabled}
             onChoose={() => updateForm(initialUnpivotForm(stage, props.selectedColumns ?? []))}
           />
-          {form.kind === 'choose' && !groupSupport.supported && !expandSupport.supported && !pivotSupport.supported && !unpivotSupport.supported ? (
+          {form.kind === 'choose' && !groupSupport.supported && !expandSupport.supported && !relatedExpandSupport.supported && !pivotSupport.supported && !unpivotSupport.supported ? (
             <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
               Loom has not confirmed a reshape this stage can run. The operation choices stay unavailable until it returns support.
             </p>
           ) : null}
         </fieldset>
+      ) : null}
+
+      {form.kind === 'related-expand' && props.relatedExpandContext ? (
+        <RelatedExpandEditor
+          key={`${id}:related-expand:${contextKey}`}
+          {...props.relatedExpandContext}
+          construction={construction}
+          capabilities={capabilities}
+          step={editingStep?.operation.kind === 'RELATED_EXPAND' ? editingStep as Extract<ConstructionStep, { readonly operation: { readonly kind: 'RELATED_EXPAND' } }> : undefined}
+          disabled={disabled || !relatedExpandSupport.supported}
+          onCandidateChange={onCandidateChange}
+        />
       ) : null}
 
       {form.kind === 'group' ? (

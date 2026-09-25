@@ -1309,6 +1309,24 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
     kind: z.literal('RELATED_SOURCE'),
     relatedSource: relatedSourceSchema,
   }).strict(),
+  z.object({
+    kind: z.literal('RELATED_EXPAND'),
+    relatedExpand: z.object({
+      anchorColumnId: opaqueIdSchema,
+      choiceId: z.string().min(1),
+      targetNodeId: opaqueIdSchema,
+      targetResourceType: opaqueIdSchema,
+      route: z.array(constructionRouteStepSchema).min(1),
+      contributorRule: z.object({
+        policy: z.literal('ALL_MATCHES'),
+        predicate: contributorPredicateSchema.optional(),
+      }).strict(),
+      contributorSource: relatedSourceSchema.shape.source.optional(),
+      contributorChoiceId: z.string().min(1).optional(),
+      emptyPolicy: z.enum(['ERROR', 'EXCLUDE', 'PRESERVE_PARENT']),
+      relatedRecordColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
@@ -1327,7 +1345,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1757,6 +1775,22 @@ export const constructionChoiceSearchResponseSchema = z
 export type ConstructionChoiceSearchResponse = z.infer<
   typeof constructionChoiceSearchResponseSchema
 >;
+
+export const relatedExpandChoiceSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    targetNodeId: opaqueIdSchema,
+    targetResourceType: opaqueIdSchema,
+    route: z.array(constructionRouteStepSchema).min(1),
+  }).strict()).max(50),
+}).strict();
+export type RelatedExpandChoiceSearchResponse = z.infer<typeof relatedExpandChoiceSearchResponseSchema>;
 
 export const populationRouteChoiceSchema = z
   .object({

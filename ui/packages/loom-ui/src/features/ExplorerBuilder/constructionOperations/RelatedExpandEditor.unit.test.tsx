@@ -1,0 +1,139 @@
+// @vitest-environment jsdom
+import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '../../../types';
+import { RelatedExpandEditor } from './RelatedExpandEditor';
+
+const searchRelatedExpandChoices = vi.fn();
+vi.mock('../../../react', () => ({
+  useLoomClient: () => ({ searchRelatedExpandChoices }),
+}));
+
+const route = [{
+  edgeId: 'patient-encounter',
+  fromNodeId: 'patient-node',
+  toNodeId: 'encounter-node',
+  fromResourceType: 'Patient',
+  toResourceType: 'Encounter',
+  relationship: 'subject_Patient',
+  storageDirection: 'INBOUND' as const,
+  matchMode: 'OPTIONAL' as const,
+}];
+
+const catalog: ExplorerBuilderCatalog = {
+  snapshotToken: 'snapshot-1',
+  generation: 'fixture-1',
+  routePolicy: {},
+  nodes: [
+    { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 2 },
+    { nodeId: 'encounter-node', resourceType: 'Encounter', rowRootEligible: false, populated: true, documentCount: 3 },
+  ],
+  edges: [{ edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node', label: 'subject_Patient' }],
+};
+
+const capabilities: ConstructionCapabilitiesResponse = {
+  snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients',
+  stageId: 'source_projection',
+  baseConstruction: { version: 1, steps: [] },
+  stages: [],
+  selectedStage: {
+    id: 'source_projection', inputStageId: '',
+    columns: [{ id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' }],
+    capabilities: [{ kind: 'RELATED_EXPAND', supported: true }],
+  },
+};
+
+describe('RelatedExpandEditor', () => {
+  it('uses a server-issued route, waits for an empty-match decision, and retains parent columns', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      complete: true, truncated: false,
+      choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    await waitFor(() => expect(searchRelatedExpandChoices).toHaveBeenCalledWith(
+      expect.objectContaining({ stageId: 'source_projection', targetResourceType: 'Encounter', limit: 10 }),
+      expect.any(AbortSignal),
+    ));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Encounter via subject_Patient' }));
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    fireEvent.change(screen.getByLabelText('When a parent has no matching record'), { target: { value: 'PRESERVE_PARENT' } });
+
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    const step = candidate?.candidateConstruction.steps[0];
+    expect(step?.inputs).toEqual([{ kind: 'SOURCE_PROJECTION' }]);
+    expect(step?.outputs.map((column: { id: string }) => column.id)).toEqual(['patient-id', step.operation.relatedExpand.relatedRecordColumnId]);
+    expect(step?.operation).toMatchObject({
+      kind: 'RELATED_EXPAND',
+      relatedExpand: {
+        anchorColumnId: '_key', choiceId: 'signed-choice', targetNodeId: 'encounter-node',
+        targetResourceType: 'Encounter', route, emptyPolicy: 'PRESERVE_PARENT',
+      },
+    });
+  });
+
+  it('edits the saved step without replacing its identity or contributor condition', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      complete: true, truncated: false,
+      choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    const saved = {
+      id: 'expand-encounters',
+      inputs: [{ kind: 'SOURCE_PROJECTION' as const }],
+      operation: {
+        kind: 'RELATED_EXPAND' as const,
+        relatedExpand: {
+          anchorColumnId: '_key', choiceId: 'signed-choice', targetNodeId: 'encounter-node',
+          targetResourceType: 'Encounter', route,
+          contributorRule: { policy: 'ALL_MATCHES' as const, predicate: {
+            candidateId: 'encounter-status', operator: 'EQUALS' as const,
+            value: { kind: 'STRING' as const, string: 'finished' },
+          } },
+          contributorSource: {
+            kind: 'FIELD' as const, candidateId: 'encounter-status', nodeId: 'encounter-node',
+            resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one' as const,
+            logicalType: 'string',
+          },
+          contributorChoiceId: 'signed-field-choice',
+          emptyPolicy: 'EXCLUDE' as const,
+          relatedRecordColumnId: 'encounter-id',
+        },
+      },
+      outputs: [
+        { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string' },
+        { id: 'encounter-id', name: 'encounter_id', label: 'Encounter ID', type: 'string' },
+      ],
+    };
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={{ version: 1, steps: [saved] }} capabilities={capabilities}
+      step={saved} disabled={false} onCandidateChange={onCandidateChange}
+    />);
+    fireEvent.change(screen.getByLabelText('Column label'), { target: { value: 'Encounter source ID' } });
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate.changedStepId).toBe('expand-encounters');
+    expect(candidate.candidateConstruction.steps).toHaveLength(1);
+    expect(candidate.candidateConstruction.steps[0]).toMatchObject({
+      id: 'expand-encounters',
+      operation: { relatedExpand: {
+        relatedRecordColumnId: 'encounter-id',
+        contributorChoiceId: 'signed-field-choice',
+        contributorRule: { predicate: { candidateId: 'encounter-status', value: { string: 'finished' } } },
+      } },
+      outputs: [
+        { id: 'patient-id', name: 'patient_id' },
+        { id: 'encounter-id', name: 'encounter_id', label: 'Encounter source ID' },
+      ],
+    });
+  });
+});

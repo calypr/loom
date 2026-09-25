@@ -517,6 +517,40 @@ describe('Loom project paths', () => {
     expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
   });
 
+  it('searches related-record expansion paths for the exact stage and accepts only server-issued routes', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+      complete: true, truncated: false,
+      choices: [{
+        choiceId: 'signed-route-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter',
+        route: [{
+          edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node',
+          fromResourceType: 'Patient', toResourceType: 'Encounter', relationship: 'subject_Patient',
+          storageDirection: 'INBOUND', matchMode: 'OPTIONAL',
+        }],
+      }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    const client = createLoomClient({ fetch });
+    await expect(client.searchRelatedExpandChoices({
+      project: 'NCPI_ACCEPTANCE', explorerId: 'default', snapshotToken: 'snapshot-1',
+      outputId: 'patients', stageId: 'source_projection', targetResourceType: 'Encounter', limit: 10,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/related-expand-choices',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', outputId: 'patients', stageId: 'source_projection',
+          targetResourceType: 'Encounter', limit: 10,
+        }),
+      }),
+    );
+    expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
+  });
+
   it('searches server-proved population routes without sending browser-selected edges', async () => {
     const response = {
       snapshotToken: 'snapshot-1',

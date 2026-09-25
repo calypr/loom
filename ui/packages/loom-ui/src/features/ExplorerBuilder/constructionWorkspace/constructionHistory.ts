@@ -183,6 +183,21 @@ const formatStep = (
         editable: true,
       };
     }
+    case 'RELATED_EXPAND': {
+      const expansion = step.operation.relatedExpand;
+      const path = expansion.route.map((edge) => edge.relationship).join(' → ');
+      const empty = expansion.emptyPolicy === 'PRESERVE_PARENT'
+        ? 'keep parents without a match'
+        : expansion.emptyPolicy === 'ERROR'
+          ? 'refuse parents without a match'
+          : 'omit parents without a match';
+      return {
+        id: step.id,
+        title: 'Expand related records',
+        summary: `One row per distinct ${expansion.targetResourceType} via ${path}; ${empty}.`,
+        editable: true,
+      };
+    }
     default: {
       const exhaustive: never = step.operation;
       return exhaustive;

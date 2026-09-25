@@ -179,7 +179,8 @@ const editableConstructionFamily = (
     case 'PIVOT':
     case 'UNPIVOT':
     case 'GROUP':
-    case 'EXPAND': return 'RESHAPE';
+    case 'EXPAND':
+    case 'RELATED_EXPAND': return 'RESHAPE';
     case 'RELATED_SOURCE': return undefined;
     case 'COMBINE': return undefined;
     default: {
@@ -1952,6 +1953,14 @@ const BuilderWorkspaceContent = ({
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
               selectedColumns={selectedColumnIds}
+              relatedExpandContext={{
+                project: projectId,
+                explorerId: state.explorerId,
+                authResourcePath,
+                snapshotToken: state.catalog.snapshotToken,
+                outputId: table.outputId,
+                catalog: state.catalog,
+              }}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
               onCandidateChange={constructionLifecycle.onCandidateChange}
               onEditStep={editConstructionStep}
