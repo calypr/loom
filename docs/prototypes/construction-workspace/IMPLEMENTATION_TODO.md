@@ -33,7 +33,10 @@ presence or an exact string or code value before list, count, or presence
 output; the live Arango oracle checks filtered values and traces. Focused
 builder tests checked count and exact-value authoring, and the local browser
 journey passed after integration. Guided group and expand editors now cover
-their saved policies. Output-row coverage before Apply, conditions on other
+their saved policies. GROUP now saves how absent or null group keys are
+handled: one missing group, row exclusion, or an error. A live Arango oracle
+checked all three outcomes and preserved whole-table summaries. Output-row
+coverage before Apply, conditions on other
 fields or repeated elements, time windows, and the remaining held-out
 constructions are open.
 The 50-choice route request took about 1.1 seconds on the local fixture; P08
