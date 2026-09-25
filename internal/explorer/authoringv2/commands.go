@@ -888,6 +888,7 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		}
 		source := editableSource(command.OccurrenceID, ColumnSource{Kind: SourceField, Field: &FieldSource{Path: strings.TrimPrefix(candidate.FieldPath, "root."), ProjectionMode: mode}})
 		column := Column{Column: columnID, Label: label, LogicalType: candidate.LogicalType, OccurrenceID: command.OccurrenceID, Source: source}
+		column.ColumnID = stagedSourceColumnID(workspace.Documents[document], commandID, index, command.Type, column.Column)
 		applyInitialPresentation(&column, presentation, nextTableOrder(workspace.Documents[document].Columns))
 		workspace.Documents[document].Columns = append(workspace.Documents[document].Columns, column)
 		return CommandResult{Type: CommandResultColumnAdded, OutputID: command.OutputID, Column: columnID}, nil

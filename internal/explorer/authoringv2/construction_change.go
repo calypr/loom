@@ -451,6 +451,16 @@ func findStageColumnByID(columns []StageColumn, id string) (StageColumn, bool) {
 	return StageColumn{}, false
 }
 
+func stagedSourceColumnID(document Document, commandID string, commandIndex int, commandType string, identity ...any) string {
+	if document.Construction == nil {
+		return ""
+	}
+	values := make([]any, 0, len(identity)+5)
+	values = append(values, "staged-source-column/v1", document.Output.ID, commandID, commandIndex, commandType)
+	values = append(values, identity...)
+	return commandGeneratedID("source_", values...)
+}
+
 func cloneConstruction(construction *Construction) (*Construction, error) {
 	if construction == nil {
 		return nil, nil

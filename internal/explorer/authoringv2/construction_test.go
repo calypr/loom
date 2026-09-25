@@ -553,6 +553,72 @@ func int64Pointer(value int64) *int64 { return &value }
 
 func stringPointer(value string) *string { return &value }
 
+func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages(t *testing.T) {
+	accepted := constructionWorkspace(documentWithDependentSteps())
+	oldIDs := make(map[string]string, len(accepted.Documents[0].Columns))
+	for _, column := range accepted.Documents[0].Columns {
+		oldIDs[column.Column] = column.ColumnID
+	}
+	catalog := commandCatalog()
+	updated, _, err := ApplyCommands(accepted, catalog, "add-sources-after-step", []Command{
+		{Type: CommandAddColumn, OutputID: "patients", OccurrenceID: RootOccurrenceID, CandidateID: "patient-id", Title: "Added catalog ID"},
+		{Type: CommandAddColumnSource, OutputID: "patients", OccurrenceID: RootOccurrenceID, Title: "Added source ID", Source: &ColumnSource{Kind: SourceField, Field: &FieldSource{Path: "id", ProjectionMode: "VALUE"}}},
+	})
+	if err != nil {
+		t.Fatalf("add source columns to staged document: %v", err)
+	}
+	if len(updated.Documents[0].Columns) != len(oldIDs)+2 {
+		t.Fatalf("source column count = %d, want %d", len(updated.Documents[0].Columns), len(oldIDs)+2)
+	}
+	added := make([]Column, 0, 2)
+	for _, column := range updated.Documents[0].Columns {
+		if _, existed := oldIDs[column.Column]; existed {
+			if oldIDs[column.Column] != column.ColumnID {
+				t.Fatalf("existing source ID changed for %q", column.Column)
+			}
+			continue
+		}
+		if column.ColumnID == "" {
+			t.Fatalf("new staged source %q has no stable ColumnID", column.Column)
+		}
+		added = append(added, column)
+	}
+	if len(added) != 2 || added[0].ColumnID == added[1].ColumnID {
+		t.Fatalf("new source identities = %#v", added)
+	}
+	for _, step := range updated.Documents[0].Construction.Steps {
+		for _, source := range added {
+			stageColumn, found := findStageColumnByID(step.Outputs, source.ColumnID)
+			if !found || stageColumn.Name != source.Column || stageColumn.Label != source.Label {
+				t.Fatalf("step %q did not carry source %q through its recalculated schema: %#v", step.ID, source.ColumnID, step.Outputs)
+			}
+		}
+	}
+
+	encoded, err := updated.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("reload staged sources: %v", err)
+	}
+	for _, source := range added {
+		found := false
+		for _, column := range reloaded.Documents[0].Columns {
+			if column.Column == source.Column {
+				found = true
+				if column.ColumnID != source.ColumnID {
+					t.Fatalf("source ColumnID changed on reload: %q != %q", column.ColumnID, source.ColumnID)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("source %q disappeared on reload", source.Column)
+		}
+	}
+}
+
 func TestConstructionRejectsNonFiniteTypedNumbers(t *testing.T) {
 	if err := (FilterValue{Kind: ConstructionFilterDecimal, Decimal: float64Pointer(math.NaN())}).Validate(); err == nil {
 		t.Fatal("NaN filter literal was accepted")

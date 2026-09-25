@@ -275,6 +275,7 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 		t.Fatal(err)
 	}
 	outputID := created[0].OutputID
+	workspace.Documents[0].Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{}}
 	selections := []SemanticSelection{
 		{ConceptID: "concept-system-a-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", Title: "First label", ResolvedObservation: semanticSelectionEntry("concept-system-a-shared", "binding-observation", "urn:system:a", "shared", "")},
 		{ConceptID: "concept-system-b-shared", BindingID: "binding-observation", RouteEdgeIDs: []string{"patient-observation"}, ProjectionMode: "VALUE", ResolvedObservation: semanticSelectionEntry("concept-system-b-shared", "binding-observation", "urn:system:b", "shared", "")},
@@ -308,6 +309,13 @@ func TestApplySemanticSelectionsUsesStableIdentityAndServerRoutes(t *testing.T) 
 	}
 	if len(document.Columns) != 4 {
 		t.Fatalf("columns = %d, want four unique semantic identities", len(document.Columns))
+	}
+	stableSourceIDs := map[string]bool{}
+	for _, column := range document.Columns {
+		if column.ColumnID == "" || stableSourceIDs[column.ColumnID] {
+			t.Fatalf("staged semantic source has missing or duplicate ColumnID: %#v", column)
+		}
+		stableSourceIDs[column.ColumnID] = true
 	}
 	keys := map[string]fhirschema.CorrelatedKey{}
 	modes := map[string]string{}
