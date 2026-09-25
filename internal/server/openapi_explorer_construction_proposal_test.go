@@ -313,8 +313,17 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			if err != nil {
 				t.Fatalf("marshal related-source receipt as the Arango store does: %v", err)
 			}
+			var arangoDocument map[string]any
+			if err := json.Unmarshal(rawReceipt, &arangoDocument); err != nil {
+				t.Fatalf("decode receipt into the Arango document shape: %v", err)
+			}
+			arangoDocument["_key"] = receipt.ID
+			storedRaw, err := json.Marshal(arangoDocument)
+			if err != nil {
+				t.Fatalf("remarshal the Arango document: %v", err)
+			}
 			var storedReceipt explorer.CompilationReceipt
-			if err := json.Unmarshal(rawReceipt, &storedReceipt); err != nil {
+			if err := json.Unmarshal(storedRaw, &storedReceipt); err != nil {
 				t.Fatalf("decode related-source receipt as the Arango store does: %v", err)
 			}
 			if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, &storedReceipt, bindings); err != nil {
