@@ -28,6 +28,9 @@ const mockLoomClient = vi.hoisted(() => ({
   discoverTableShapeCategories: vi.fn(),
   resolveTableShape: vi.fn(),
   proposeTableShape: vi.fn(),
+  getConstructionCapabilities: vi.fn(),
+  proposeConstruction: vi.fn(),
+  preview: vi.fn(),
 }));
 
 vi.mock('../../react', () => ({
@@ -373,6 +376,36 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       proposalId: 'shape-proposal', baseReceiptId: 'receipt-1', baseDocumentDigest: 'document-1',
       candidateWorkspaceDigest: 'candidate-1', draftDigest: 'sha256:draft-1', draftVersion: 1,
       mode: 'ADD', outputId: 'specimens', snapshotToken: 'snapshot-1', comparison: tableShapeComparison,
+    });
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'source-row-id',
+        columns: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
+        capabilities: [
+          { kind: 'FILTER' as const, supported: true },
+          { kind: 'DERIVE' as const, supported: true },
+          { kind: 'PIVOT' as const, supported: false, reason: 'Not supported in this fixture.' },
+          { kind: 'UNPIVOT' as const, supported: false, reason: 'Not supported in this fixture.' },
+        ],
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+      };
     });
     applyCommands = vi.fn().mockReturnValue(
       resolvedRequest({
@@ -1108,7 +1141,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-action-reshape')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-combine')).toBeInTheDocument();
 
-    const selectedColumn = screen.getByTestId('construction-column-specimen_identifier');
+    const selectedColumn = screen.getByTestId('construction-column-specimen_identifier_id');
     expect(selectedColumn.tagName).toBe('BUTTON');
     selectedColumn.focus();
     expect(document.activeElement).toBe(selectedColumn);

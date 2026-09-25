@@ -20,11 +20,13 @@ export interface ConstructionHistoryStep {
   readonly id: string;
   readonly title: string;
   readonly summary: string;
+  readonly editable?: boolean;
 }
 
 export interface ConstructionHistoryProps {
   readonly steps: ReadonlyArray<ConstructionHistoryStep>;
   readonly selected: ConstructionHistorySelection;
+  readonly disabled?: boolean;
   readonly onSelect: (selection: ConstructionHistorySelection) => void;
   readonly onEditStep?: (stepId: string) => void;
   readonly onRemoveStep?: (stepId: string) => void;
@@ -215,6 +217,7 @@ export const ConstructionTableNavigation = ({
 export const ConstructionHistory = ({
   steps,
   selected,
+  disabled = false,
   onSelect,
   onEditStep,
   onRemoveStep,
@@ -232,6 +235,7 @@ export const ConstructionHistory = ({
             type="button"
             aria-pressed={selected.kind === 'source'}
             data-testid="construction-history-source"
+            disabled={disabled}
             onClick={() => onSelect({ kind: 'source' })}
             className={`w-full rounded px-2 py-2 text-left text-xs ${
               selected.kind === 'source' ? 'bg-white font-semibold text-emerald-950' : 'text-slate-700 hover:bg-white/70'
@@ -248,6 +252,7 @@ export const ConstructionHistory = ({
                 type="button"
                 aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
                 data-testid={`construction-history-step-${step.id}`}
+                disabled={disabled}
                 onClick={() => onSelect({ kind: 'step', stepId: step.id })}
                 className={`w-full rounded px-1 py-1 text-left text-xs ${
                   selected.kind === 'step' && selected.stepId === step.id
@@ -259,13 +264,13 @@ export const ConstructionHistory = ({
                 <span className="block font-medium">{step.title}</span>
                 <span className="mt-0.5 block text-slate-500">{step.summary}</span>
               </button>
-              {selected.kind === 'step' && selected.stepId === step.id && (onEditStep || onRemoveStep) ? (
+              {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
                 <div className="mt-1 flex gap-1">
-                  {onEditStep ? (
-                    <button type="button" data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50">Edit</button>
+                  {onEditStep && step.editable ? (
+                    <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
                   ) : null}
                   {onRemoveStep ? (
-                    <button type="button" data-testid={`construction-remove-step-${step.id}`} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50">Remove</button>
+                    <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">Remove</button>
                   ) : null}
                 </div>
               ) : null}
@@ -325,7 +330,7 @@ export const ConstructionWorkspace = ({
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
   readonly setup?: React.ReactNode;
-  readonly previewStatus: 'empty' | 'stale' | 'ready';
+  readonly previewStatus: 'empty' | 'stale' | 'previewing' | 'needs-repair' | 'error' | 'ready';
   readonly previewReceiptId?: string;
   readonly previewOutputId?: string;
   readonly proposalId?: string;

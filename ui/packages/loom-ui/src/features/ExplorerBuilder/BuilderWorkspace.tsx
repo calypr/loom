@@ -23,6 +23,8 @@ import type {
   ExplorerBuilderCompileResult,
   ExplorerBuilderState,
   ConstructionRouteStep,
+  Construction,
+  ConstructionOperation,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../types';
@@ -66,12 +68,28 @@ import type { CatalogChoiceIntent } from './catalogItems';
 import {
   ConstructionWorkspace,
   constructionOperationFamilies,
+  type ConstructionHistorySelection,
   type ConstructionOperationFamily,
 } from './constructionWorkspace/ConstructionWorkspace';
 import {
   ConstructionColumnSelection,
   type ConstructionSelectableColumn,
 } from './constructionWorkspace/ConstructionColumnSelection';
+import {
+  ConstructionProposalPanel,
+} from './constructionWorkspace/ConstructionProposalPanel';
+import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
+import {
+  constructionHistorySteps,
+} from './constructionWorkspace/constructionHistory';
+import {
+  sourceProjectionAvailability,
+} from './constructionWorkspace/sourceProjectionAvailability';
+import {
+  useConstructionLifecycle,
+  type ConstructionCandidateIntent,
+} from './constructionWorkspace/useConstructionLifecycle';
+import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -131,6 +149,35 @@ const isDraftDesynchronized = (code: string | undefined) =>
   ['DRAFT_CONFLICT', 'INVALID_EXPLORER_COMMAND_RESULT'].includes(code ?? '');
 const opaqueId = (prefix: 'output' | 'tab' | 'step') =>
   `${prefix}-${window.crypto.randomUUID()}`;
+const constructionSourceStageId = 'source_projection';
+
+const constructionInputStageFor = (
+  construction: Construction | undefined,
+  stepId: string,
+): string => {
+  const index = construction?.steps.findIndex((step) => step.id === stepId) ?? -1;
+  return index <= 0
+    ? constructionSourceStageId
+    : construction?.steps[index - 1]?.id ?? constructionSourceStageId;
+};
+
+const constructionAppendStageFor = (construction: Construction | undefined): string =>
+  construction?.steps.at(-1)?.id ?? constructionSourceStageId;
+
+const editableConstructionFamily = (
+  operation: ConstructionOperation,
+): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE'> | undefined => {
+  switch (operation.kind) {
+    case 'FILTER': return 'KEEP_ROWS';
+    case 'DERIVE': return 'CALCULATE';
+    case 'PIVOT':
+    case 'UNPIVOT': return undefined;
+    default: {
+      const exhaustive: never = operation;
+      return exhaustive;
+    }
+  }
+};
 
 type PreviewRequest = {
   readonly outputId: string;
@@ -292,6 +339,10 @@ const BuilderWorkspaceContent = ({
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
+  const [constructionHistorySelection, setConstructionHistorySelection] =
+    useState<ConstructionHistorySelection>({ kind: 'source' });
+  const [editingConstructionStepId, setEditingConstructionStepId] =
+    useState<string>();
   const [columnSelection, setColumnSelection] =
     useState<ColumnSelectionState>({ kind: 'empty' });
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -498,9 +549,39 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  const construction = table?.document.construction;
+  const editingConstructionStep = construction?.steps.find(
+    (step) => step.id === editingConstructionStepId,
+  );
+  const capabilitiesRequest = table?.document.rootResourceType &&
+    state.catalog.snapshotToken &&
+    state.draftVersion > 0 &&
+    state.draftDigest
+    ? {
+        project: projectId,
+        explorerId: state.explorerId,
+        ...(authResourcePath ? { authResourcePath } : {}),
+        snapshotToken: state.catalog.snapshotToken,
+        expectedDraftVersion: state.draftVersion,
+        expectedDraftDigest: state.draftDigest,
+        outputId: table.outputId,
+        stageId: editingConstructionStep
+          ? constructionInputStageFor(construction, editingConstructionStep.id)
+          : constructionAppendStageFor(construction),
+      }
+    : undefined;
+  const constructionLifecycle = useConstructionLifecycle({
+    client: loomClient,
+    capabilitiesRequest,
+    previewLimit,
+  });
+  const constructionProposalBusy = constructionLifecycle.proposal.status === 'previewing' ||
+    constructionLifecycle.proposal.status === 'applying';
   useEffect(() => {
     setActiveConstructionFamily(undefined);
     setColumnSelection({ kind: 'empty' });
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
   }, [state.explorerId, table?.outputId]);
   const tablePreview =
     state.preview?.outputId === table?.outputId ? state.preview : undefined;
@@ -522,18 +603,21 @@ const BuilderWorkspaceContent = ({
     columnSelection.outputId === table?.outputId
       ? columnSelection.columnIds
       : [];
-  const selectableColumns: ReadonlyArray<ConstructionSelectableColumn> =
-    previewIsCurrent && state.preview
-      ? state.preview.columns.map((column) => ({
-          id: column.column,
-          label: column.label,
-          type: column.logicalType,
-        }))
-      : (table?.document.columns ?? []).map((column) => ({
-          id: column.column,
-          label: column.label,
-          type: column.logicalType,
-        }));
+  const currentColumnNames = new Set(
+    (tablePreview?.columns ?? table?.document.columns ?? []).map((column) => column.column),
+  );
+  const currentStage = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.stages.at(-1)
+    : undefined;
+  const selectableColumns: ReadonlyArray<ConstructionSelectableColumn> = currentStage
+    ? currentStage.columns
+        .filter((column) => currentColumnNames.has(column.name))
+        .map((column) => ({ id: column.id, label: column.label, type: column.type }))
+    : (table?.document.columns ?? []).map((column) => ({
+        id: column.column,
+        label: column.label,
+        type: column.logicalType,
+      }));
   const rowMeaning = !table?.document.rootResourceType
     ? 'Choose what one row represents to start this table.'
     : table.document.output.rowLabel?.trim() ||
@@ -886,6 +970,7 @@ const BuilderWorkspaceContent = ({
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||
     previewStatus.isLoading ||
+    constructionProposalBusy ||
     publishing ||
     createStatus.isLoading ||
     deleteStatus.isLoading;
@@ -900,12 +985,14 @@ const BuilderWorkspaceContent = ({
   const previewDisabled =
     !table?.document.rootResourceType ||
     !hasVisibleSelectedColumn ||
-    blockingDiagnostics;
+    blockingDiagnostics ||
+    constructionLifecycle.proposal.status !== 'idle';
   const publishDisabled =
     (lastPublished?.ownerKey === ownerKey &&
       lastPublished.draftDigest === state.draftDigest) ||
     incomplete ||
     blockingDiagnostics ||
+    constructionLifecycle.proposal.status !== 'idle' ||
     state.tables.some((candidate) => candidate.document.columns.length === 0);
 
   const addTableNamed = (value: string) => {
@@ -1417,9 +1504,77 @@ const BuilderWorkspaceContent = ({
     />
   );
 
+  const selectConstructionFamily = (family: ConstructionOperationFamily) => {
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setActiveConstructionFamily((current) => current === family ? undefined : family);
+  };
+  const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection(selection);
+    setEditingConstructionStepId(undefined);
+    setActiveConstructionFamily(undefined);
+  };
+  const editConstructionStep = (stepId: string) => {
+    const step = construction?.steps.find((candidate) => candidate.id === stepId);
+    if (!step) return;
+    const family = editableConstructionFamily(step.operation);
+    if (!family) return;
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection({ kind: 'step', stepId });
+    setEditingConstructionStepId(stepId);
+    setActiveConstructionFamily(family);
+  };
+  const removeConstructionStep = (stepId: string) => {
+    if (!construction?.steps.some((step) => step.id === stepId)) return;
+    constructionLifecycle.onCandidateChange({
+      candidateConstruction: {
+        ...construction,
+        steps: construction.steps.filter((step) => step.id !== stepId),
+      },
+      removeStepIds: [stepId],
+    });
+    setConstructionHistorySelection({ kind: 'step', stepId });
+    setEditingConstructionStepId(undefined);
+    setActiveConstructionFamily(undefined);
+  };
+  const applyConstructionProposal = async () => {
+    const proposalId = constructionLifecycle.beginApply();
+    if (!proposalId || !table) return;
+    const applied = await applyCommands([{
+      type: 'APPLY_CONSTRUCTION_PROPOSAL',
+      outputId: table.outputId,
+      proposalId,
+    }]);
+    constructionLifecycle.finishApply(applied);
+    if (applied) {
+      setActiveConstructionFamily(undefined);
+      setConstructionHistorySelection({ kind: 'source' });
+      setEditingConstructionStepId(undefined);
+    }
+  };
+
   const activeOperation = constructionOperationFamilies.find(
     (candidate) => candidate.family === activeConstructionFamily,
   );
+  const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
+    ? constructionLifecycle.capabilities.response.stages
+    : undefined;
+  const sourceAvailability = constructionLifecycle.capabilities.status === 'error'
+    ? { available: false, reason: constructionLifecycle.capabilities.message }
+    : sourceProjectionAvailability(sourceStageDescriptors);
+  const sourceColumns = sourceStageDescriptors?.find(
+    (stage) => stage.id === constructionSourceStageId,
+  )?.columns ?? [];
+  const persistedConstructionHistory = constructionHistorySteps(
+    table?.document.construction,
+    sourceColumns,
+  );
+  const canApplyConstructionProposal = constructionLifecycle.canApply &&
+    pendingCommands === 0 &&
+    !publishing &&
+    state.reconciliation !== 'pending';
   const operationEditor = table && activeOperation ? (
     <section
       aria-label={`${activeOperation.label} editor`}
@@ -1429,7 +1584,7 @@ const BuilderWorkspaceContent = ({
     >
       <header className="border-b border-slate-200 px-4 py-4">
         <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-          Proposed change
+          {editingConstructionStep ? 'Edit saved step' : 'Proposed change'}
         </p>
         <div className="mt-1 flex items-start justify-between gap-3">
           <div>
@@ -1444,7 +1599,11 @@ const BuilderWorkspaceContent = ({
             type="button"
             aria-label="Close operation editor"
             data-testid="construction-close-operation-editor"
-            onClick={() => setActiveConstructionFamily(undefined)}
+            onClick={() => {
+              constructionLifecycle.cancel();
+              setActiveConstructionFamily(undefined);
+              setEditingConstructionStepId(undefined);
+            }}
             className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
           >
             Close
@@ -1477,63 +1636,102 @@ const BuilderWorkspaceContent = ({
             routeContext={selectedRouteContext}
             layout="panel"
             catalog={state.catalog}
+            sourceProjectionAvailability={sourceAvailability}
             disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
             onAddSelected={addSelectedFeatures}
           />
         ) : null}
-        {activeOperation.family === 'RESHAPE' ||
-        activeOperation.family === 'CALCULATE' ? (
-          <TableShapeSettingsPanel
-            client={loomClient}
-            project={projectId}
-            explorerId={state.explorerId}
-            authResourcePath={authResourcePath}
-            snapshotToken={state.catalog.snapshotToken}
-            draftVersion={state.draftVersion}
-            draftDigest={state.draftDigest}
-            table={table}
-            disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-            onApply={(proposalId) =>
-              applyCommands([
-                {
-                  type: 'APPLY_TABLE_SHAPE_PROPOSAL',
-                  outputId: table.outputId,
-                  proposalId,
-                },
-              ])
-            }
-          />
-        ) : null}
-        {activeOperation.family === 'KEEP_ROWS' ? (
-          <div
-            role="status"
-            data-testid="construction-operation-unavailable"
-            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
-          >
-            <h3 className="font-semibold">Unavailable for this table</h3>
-            <p className="mt-1">
-              Filtering rows in the current result is not supported by this
-              Builder contract. Source contributor filters only change which
-              records supply a column; they do not remove output rows.
+        {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
+          constructionLifecycle.capabilities.status === 'loading' ? (
+            <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              Loading the current table columns and operation support…
             </p>
-          </div>
+          ) : constructionLifecycle.capabilities.status === 'error' ? (
+            <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              {constructionLifecycle.capabilities.message}
+            </p>
+          ) : constructionLifecycle.capabilities.status === 'ready' ? (
+            <ConstructionOperationEditor
+              family={activeOperation.family}
+              construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+              capabilities={constructionLifecycle.capabilities.response}
+              editingStep={editingConstructionStep}
+              selectedColumns={selectedColumnIds}
+              disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+              onCandidateChange={constructionLifecycle.onCandidateChange}
+              onEditStep={editConstructionStep}
+            />
+          ) : null
+        ) : null}
+        {activeOperation.family === 'RESHAPE' ? (
+          !construction ? (
+            <TableShapeSettingsPanel
+              client={loomClient}
+              project={projectId}
+              explorerId={state.explorerId}
+              authResourcePath={authResourcePath}
+              snapshotToken={state.catalog.snapshotToken}
+              draftVersion={state.draftVersion}
+              draftDigest={state.draftDigest}
+              table={table}
+              disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+              onApply={(proposalId) => applyCommands([{
+                type: 'APPLY_TABLE_SHAPE_PROPOSAL',
+                outputId: table.outputId,
+                proposalId,
+              }])}
+            />
+          ) : (
+            <div role="status" data-testid="construction-operation-unavailable" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <h3 className="font-semibold">Guided reshape editing is not available yet</h3>
+              <p className="mt-1">This table has typed construction steps. Pivot and unpivot steps can be inspected and removed from history, but this workspace does not yet provide a guided editor to create or replace them.</p>
+            </div>
+          )
         ) : null}
         {activeOperation.family === 'COMBINE' ? (
-          <div
-            role="status"
-            data-testid="construction-operation-unavailable"
-            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"
-          >
-            <h3 className="font-semibold">Unavailable for this table</h3>
-            <p className="mt-1">
-              Joining or appending another named table is not supported by this
-              Builder contract. No table change has been proposed.
-            </p>
+          <div role="status" data-testid="construction-operation-unavailable" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <h3 className="font-semibold">Combining tables is not available yet</h3>
+            <p className="mt-1">The authoring API does not yet execute immutable table joins or appends. No change has been proposed.</p>
           </div>
         ) : null}
       </div>
     </section>
   ) : undefined;
+  const proposalPanel = (
+    <ConstructionProposalPanel
+      state={constructionLifecycle.proposal}
+      canApply={canApplyConstructionProposal}
+      onApply={() => void applyConstructionProposal()}
+      onCancel={() => {
+        constructionLifecycle.cancel();
+        setActiveConstructionFamily(undefined);
+        setEditingConstructionStepId(undefined);
+      }}
+      onRetry={constructionLifecycle.retry}
+    />
+  );
+  const workspaceEditor = operationEditor || constructionLifecycle.proposal.status !== 'idle'
+    ? <>{operationEditor}{proposalPanel}</>
+    : undefined;
+  const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
+    constructionLifecycle.proposal.status === 'applying'
+    ? constructionLifecycle.proposal.preview
+    : undefined;
+  const proposalResponse = 'response' in constructionLifecycle.proposal
+    ? constructionLifecycle.proposal.response
+    : undefined;
+  const workspacePreview = candidatePreview ?? tablePreview;
+  const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
+  const workspacePreviewStatus = candidatePreview
+    ? 'ready'
+    : constructionLifecycle.proposal.status === 'previewing'
+      ? 'previewing'
+      : constructionLifecycle.proposal.status === 'needs-repair'
+        ? 'needs-repair'
+        : constructionLifecycle.proposal.status === 'error'
+          ? 'error'
+          : currentPreviewStatus;
+  const workspacePreviewProposalId = candidatePreview?.receiptId ?? proposalResponse?.proposalId;
 
   return (
     <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
@@ -1645,9 +1843,9 @@ const BuilderWorkspaceContent = ({
                   title: candidate.title,
                 }))}
                 selectedOutputId={table.outputId}
-                tableActionsDisabled={pendingCommands > 0 || publishing}
+                tableActionsDisabled={pendingCommands > 0 || publishing || constructionLifecycle.proposal.status === 'applying'}
                 onSelectTable={(outputId) => {
-                  setActiveConstructionFamily(undefined);
+                  selectConstructionHistory({ kind: 'source' });
                   dispatch({ type: 'selectTable', outputId });
                 }}
                 onNewTable={addTable}
@@ -1657,23 +1855,28 @@ const BuilderWorkspaceContent = ({
                 onMoveTable={reorderTable}
                 title={table.title}
                 rowMeaning={rowMeaning}
-                previewRowCount={previewIsCurrent ? state.preview?.rowCount : undefined}
-                previewColumnCount={previewIsCurrent ? state.preview?.columns.length : undefined}
+                previewRowCount={workspacePreviewIsCurrent ? workspacePreview?.rowCount : undefined}
+                previewColumnCount={workspacePreviewIsCurrent ? workspacePreview?.columns.length : undefined}
+                history={persistedConstructionHistory.length > 0 ? {
+                  steps: persistedConstructionHistory,
+                  selected: constructionHistorySelection,
+                  disabled: pendingCommands > 0 || publishing || constructionLifecycle.proposal.status === 'applying',
+                  onSelect: selectConstructionHistory,
+                  onEditStep: editConstructionStep,
+                  onRemoveStep: removeConstructionStep,
+                } : undefined}
                 actionsDisabled={
                   !table.document.rootResourceType ||
                   pendingCommands > 0 ||
                   state.reconciliation === 'pending' ||
-                  Boolean(pendingRowChange)
+                  Boolean(pendingRowChange) ||
+                  constructionLifecycle.proposal.status === 'applying'
                 }
                 activeFamily={activeConstructionFamily}
-                onSelectFamily={(family) =>
-                  setActiveConstructionFamily((current) =>
-                    current === family ? undefined : family,
-                  )
-                }
+                onSelectFamily={selectConstructionFamily}
                 preview={
                   <>
-                    {currentPreviewStatus === 'stale' ? (
+                    {!candidatePreview && currentPreviewStatus === 'stale' ? (
                       <p
                         role="status"
                         data-testid="construction-preview-stale-notice"
@@ -1686,7 +1889,7 @@ const BuilderWorkspaceContent = ({
                     <ConstructionColumnSelection
                       columns={selectableColumns}
                       selectedColumnIds={selectedColumnIds}
-                      disabled={!table.document.rootResourceType || pendingCommands > 0}
+                      disabled={!table.document.rootResourceType || pendingCommands > 0 || !currentStage}
                       onToggleColumn={(columnId) =>
                         setColumnSelection((current) => {
                           const currentIds =
@@ -1707,43 +1910,48 @@ const BuilderWorkspaceContent = ({
                         })
                       }
                       onClear={() => setColumnSelection({ kind: 'empty' })}
-                      onOpenFamily={(family) => setActiveConstructionFamily(family)}
+                      onOpenFamily={selectConstructionFamily}
                     />
-                    <PreviewTable
-                      preview={tablePreview}
-                      table={table}
-                      limit={previewLimit}
-                      onLimitChange={(limit) => {
-                        setPreviewLimit(limit);
-                        preview(limit);
-                      }}
-                      onColumnChange={(column) =>
-                        void applyCommands([
-                          {
-                            type: 'UPDATE_COLUMN',
-                            outputId: table.outputId,
-                            column: column.column,
-                            columnValue: column,
-                          },
-                        ])
-                      }
-                      onColumnsChange={(columns) =>
-                        void applyCommands(
-                          columns.map((column) => ({
-                            type: 'UPDATE_COLUMN' as const,
-                            outputId: table.outputId,
-                            column: column.column,
-                            columnValue: column,
-                          })),
-                        )
-                      }
-                    />
+                    {candidatePreview ? (
+                      <ConstructionProposalPreview preview={candidatePreview} />
+                    ) : (
+                      <PreviewTable
+                        preview={tablePreview}
+                        table={table}
+                        limit={previewLimit}
+                        onLimitChange={(limit) => {
+                          setPreviewLimit(limit);
+                          preview(limit);
+                        }}
+                        onColumnChange={(column) =>
+                          void applyCommands([
+                            {
+                              type: 'UPDATE_COLUMN',
+                              outputId: table.outputId,
+                              column: column.column,
+                              columnValue: column,
+                            },
+                          ])
+                        }
+                        onColumnsChange={(columns) =>
+                          void applyCommands(
+                            columns.map((column) => ({
+                              type: 'UPDATE_COLUMN' as const,
+                              outputId: table.outputId,
+                              column: column.column,
+                              columnValue: column,
+                            })),
+                          )
+                        }
+                      />
+                    )}
                   </>
                 }
-                editor={operationEditor}
-                previewStatus={currentPreviewStatus}
-                previewReceiptId={tablePreview?.receiptId}
-                previewOutputId={tablePreview?.outputId}
+                editor={workspaceEditor}
+                previewStatus={workspacePreviewStatus}
+                previewReceiptId={workspacePreview?.receiptId}
+                previewOutputId={workspacePreview?.outputId}
+                proposalId={workspacePreviewProposalId}
                 draftVersion={state.draftVersion}
                 draftDigest={state.draftDigest}
               />
@@ -1853,6 +2061,7 @@ const BuilderWorkspaceContent = ({
                   outputId={table.outputId}
                   rowRoot={table.document.rootResourceType}
                   catalog={state.catalog}
+                  sourceProjectionAvailability={sourceAvailability}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                   onAddSelected={addSelectedFeatures}
                   />
@@ -2114,6 +2323,7 @@ const BuilderWorkspaceContent = ({
                       routeContext={selectedRouteContext}
                       layout="panel"
                       catalog={state.catalog}
+                      sourceProjectionAvailability={sourceAvailability}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
                     />
@@ -2152,6 +2362,7 @@ const BuilderWorkspaceContent = ({
               </section>
             ) : null}
             {table &&
+            !table.document.construction &&
             activeConstructionFamily !== 'CALCULATE' &&
             activeConstructionFamily !== 'RESHAPE' ? (
               <details className="rounded-lg border border-slate-200 bg-white p-3">
