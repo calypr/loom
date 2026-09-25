@@ -189,11 +189,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
 				continue
 			}
-			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
+			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
 		case authoringv2.SourceProjectID:
 			logicalType = "string"
 			literal, _ := json.Marshal(project)
-			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
+			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: "project.id", Expr: recipe.Expression{Literal: literal}, ValueMode: recipe.ValueModeFirst})
 		case authoringv2.SourceCodedValue:
 			pivot, pivotErr := semanticCodedValuePivot(column, leaf)
 			if pivotErr != nil {
@@ -484,7 +484,11 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if err != nil {
 		return Result{}, fail("intent", "INVALID_TABLE_RESHAPE", "$.tableShape.reshape", err.Error(), nil, err)
 	}
-	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, DerivedColumns: derivedColumns, TableReshape: tableReshape, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
+	construction, err := recipeConstruction(document.Construction, document.Columns, emitted)
+	if err != nil {
+		return Result{}, fail("capability", "UNSUPPORTED_CONSTRUCTION_SOURCE_SHAPE", "$.construction.sourceColumns", err.Error(), nil, err)
+	}
+	output := recipe.Output{Name: document.Output.ID, RootResourceType: root.graph.ResourceType, RootOccurrenceID: authoringv2.RootOccurrenceID, RowGrain: string(rowGrain), RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact, Fields: nodes[authoringv2.RootOccurrenceID].fields, Pivots: nodes[authoringv2.RootOccurrenceID].pivots, OwnerRecords: nodes[authoringv2.RootOccurrenceID].ownerRecords, Aggregates: nodes[authoringv2.RootOccurrenceID].aggregates, DynamicColumns: nodes[authoringv2.RootOccurrenceID].dynamics, ColumnTransformations: columnTransformations, DerivedColumns: derivedColumns, TableReshape: tableReshape, Construction: construction, Expand: expansion, GroupRows: groupRows, CollisionPolicy: "error"}
 	if expansion != nil {
 		output.Identity = &recipe.Identity{Name: "__loom_row_id", Expansion: &recipe.ExpansionIdentity{}}
 	}
