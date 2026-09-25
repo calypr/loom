@@ -1258,6 +1258,7 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
     kind: z.literal('GROUP'),
     group: z.object({
       constructionId: opaqueIdSchema,
+      missingKeyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']).optional(),
       keys: z.array(z.object({
         inputColumnId: opaqueIdSchema,
         outputColumnId: opaqueIdSchema,

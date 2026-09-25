@@ -126,6 +126,7 @@ describe('ConstructionReshapeEditor', () => {
       kind: 'GROUP',
       group: {
         constructionId: expect.any(String),
+        missingKeyPolicy: 'GROUP',
         keys: [],
         aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: expect.any(String) }],
       },
@@ -138,6 +139,8 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
 
     expect(controlChecked('Group by Site')).toBe(true);
+    expect(controlValue('Missing group key policy')).toBe('GROUP');
+    fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'MEAN' } });
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'mean_age' } });
@@ -153,6 +156,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(parsed.steps.at(-1)?.operation).toMatchObject({
       kind: 'GROUP',
       group: {
+        missingKeyPolicy: 'EXCLUDE',
         keys: [{ inputColumnId: 'site-id', outputColumnId: expect.any(String) }],
         aggregates: [
           { operation: 'MEAN', inputColumnId: 'age-id', outputColumnId: expect.any(String) },
@@ -245,6 +249,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(controlChecked('Group by Site')).toBe(true);
+    expect(controlValue('Missing group key policy')).toBe('GROUP');
     expect(controlValue('Summary 1')).toBe('COUNT_NON_NULL');
     expect(controlValue('Summary field 1')).toBe('age-id');
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Populated ages' } });
@@ -259,6 +264,7 @@ describe('ConstructionReshapeEditor', () => {
       kind: 'GROUP',
       group: {
         constructionId: groupStep.id,
+        missingKeyPolicy: 'GROUP',
         keys: [{ inputColumnId: 'site-id', outputColumnId: 'site-group-id' }],
         aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'age-count-id' }],
       },

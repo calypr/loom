@@ -112,6 +112,7 @@ export type ConstructionReshapeStep = ConstructionStep;
 type GroupForm = {
   readonly kind: 'group';
   readonly stepId: string;
+  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
   readonly keys: ReadonlyArray<GroupKey>;
   readonly aggregates: ReadonlyArray<GroupAggregate>;
 };
@@ -261,6 +262,7 @@ const groupOperationFor = (form: GroupForm): Extract<ConstructionStep['operation
   kind: 'GROUP',
   group: {
     constructionId: form.stepId,
+    missingKeyPolicy: form.missingKeyPolicy,
     keys: form.keys.map(({ inputColumnId, outputColumnId }) => ({ inputColumnId, outputColumnId })),
     aggregates: form.aggregates.map((aggregate) => aggregate.operation === 'COUNT_ROWS'
       ? { operation: aggregate.operation, outputColumnId: aggregate.outputColumnId }
@@ -668,7 +670,7 @@ const initialGroupForm = (
         ? { operation: aggregate.operation, ...common }
         : { operation: aggregate.operation, inputColumnId: inputColumnId ?? '', ...common };
     });
-    return { kind: 'group', stepId: editingStep.id, keys, aggregates };
+    return { kind: 'group', stepId: editingStep.id, missingKeyPolicy: operation.missingKeyPolicy ?? 'GROUP', keys, aggregates };
   }
 
   const scalarIDs = new Set(scalarColumnsFor(stage).map((column) => column.id));
@@ -684,7 +686,7 @@ const initialGroupForm = (
       };
     });
   const aggregate = makeAggregate('COUNT_ROWS', stage, new Set());
-  return { kind: 'group', stepId: createOpaqueId('group'), keys, aggregates: [aggregate] };
+  return { kind: 'group', stepId: createOpaqueId('group'), missingKeyPolicy: 'GROUP', keys, aggregates: [aggregate] };
 };
 
 const initialExpandForm = (
@@ -842,8 +844,13 @@ const stepDescription = (step: ConstructionReshapeStep, capabilities: ReshapeCap
       const group = step.operation.group;
       const keys = (group.keys ?? []).map((key) => stage?.columns.find((column) => column.id === key.inputColumnId)?.label ?? 'a column');
       const measures = (group.aggregates ?? []).length;
+      const missing = group.missingKeyPolicy === 'EXCLUDE'
+        ? ' Rows missing a key are excluded.'
+        : group.missingKeyPolicy === 'ERROR'
+          ? ' Missing keys stop this step.'
+          : ' Absent and null keys share one missing group.';
       return keys.length > 0
-        ? `One row per ${keys.join(', ')} with ${measures} ${measures === 1 ? 'summary' : 'summaries'}.`
+        ? `One row per ${keys.join(', ')} with ${measures} ${measures === 1 ? 'summary' : 'summaries'}.${missing}`
         : `One summary row for the whole table with ${measures} ${measures === 1 ? 'summary' : 'summaries'}.`;
     }
     case 'EXPAND': {
@@ -1289,6 +1296,29 @@ const GroupEditor = (props: {
           </div>
         )}
       </fieldset>
+
+      {props.form.keys.length > 0 ? (
+        <label className="grid gap-1 text-sm font-medium text-slate-800">
+          When a group key is absent or null
+          <select
+            aria-label="Missing group key policy"
+            value={props.form.missingKeyPolicy}
+            disabled={props.disabled || !props.supported}
+            onChange={(event) => {
+              const policy = event.currentTarget.value;
+              if (policy === 'GROUP' || policy === 'EXCLUDE' || policy === 'ERROR') {
+                props.onChange({ ...props.form, missingKeyPolicy: policy });
+              }
+            }}
+            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          >
+            <option value="GROUP">Keep one missing group (absent and null together)</option>
+            <option value="EXCLUDE">Exclude rows missing any group key</option>
+            <option value="ERROR">Stop if any group key is missing</option>
+          </select>
+          <span className="text-xs font-normal text-slate-500">The rule applies before summaries are calculated.</span>
+        </label>
+      ) : null}
 
       {props.form.keys.length > 0 ? (
         <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3">
