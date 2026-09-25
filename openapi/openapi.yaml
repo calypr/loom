@@ -3180,7 +3180,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
@@ -3188,6 +3188,40 @@ components:
         group: {$ref: '#/components/schemas/ConstructionGroup'}
         expand: {$ref: '#/components/schemas/ConstructionExpand'}
         combine: {$ref: '#/components/schemas/ConstructionCombine'}
+        relatedSource: {$ref: '#/components/schemas/ConstructionRelatedSource'}
+    ConstructionRelatedSource:
+      type: object
+      additionalProperties: false
+      required: [anchorColumnId, choiceId, sourceOccurrenceId, source, route, contributorRule, form, outputColumnId]
+      properties:
+        anchorColumnId: {type: string, minLength: 1}
+        choiceId: {type: string, minLength: 1}
+        sourceOccurrenceId: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/RelatedSourceField'}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        contributorRule: {$ref: '#/components/schemas/RelatedSourceContributorRule'}
+        form: {type: string, enum: [ALL]}
+        outputColumnId: {type: string, minLength: 1}
+    RelatedSourceField:
+      type: object
+      additionalProperties: false
+      required: [kind, candidateId, nodeId, resourceType, path, cardinality, logicalType]
+      properties:
+        kind: {type: string, enum: [FIELD]}
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        path: {type: string, minLength: 1}
+        cardinality: {type: string, enum: [optional_one, required_one]}
+        logicalType: {type: string, minLength: 1}
+    RelatedSourceContributorRule:
+      type: object
+      additionalProperties: false
+      required: [policy]
+      properties:
+        policy: {type: string, enum: [ALL_MATCHES]}
     ConstructionPivot:
       type: object
       additionalProperties: false
@@ -3438,7 +3472,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}

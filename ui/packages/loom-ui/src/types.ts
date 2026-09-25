@@ -1172,6 +1172,37 @@ const constructionCombineSchema = z.object({
 }).strict();
 export type ConstructionCombine = z.infer<typeof constructionCombineSchema>;
 
+const constructionRouteStepSchema = z.object({
+  edgeId: opaqueIdSchema,
+  fromNodeId: opaqueIdSchema,
+  toNodeId: opaqueIdSchema,
+  fromResourceType: opaqueIdSchema,
+  toResourceType: opaqueIdSchema,
+  relationship: opaqueIdSchema,
+  storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
+  matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
+}).strict();
+export type ConstructionRouteStep = z.infer<typeof constructionRouteStepSchema>;
+
+const relatedSourceSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  choiceId: z.string().min(1),
+  sourceOccurrenceId: opaqueIdSchema,
+  source: z.object({
+    kind: z.literal('FIELD'),
+    candidateId: opaqueIdSchema,
+    nodeId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    path: opaqueIdSchema,
+    cardinality: z.enum(['optional_one', 'required_one']),
+    logicalType: opaqueIdSchema,
+  }).strict(),
+  route: z.array(constructionRouteStepSchema),
+  contributorRule: z.object({ policy: z.literal('ALL_MATCHES') }).strict(),
+  form: z.literal('ALL'),
+  outputColumnId: opaqueIdSchema,
+}).strict();
+
 const constructionOperationSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('PIVOT'),
@@ -1269,6 +1300,10 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
     kind: z.literal('COMBINE'),
     combine: constructionCombineSchema,
   }).strict(),
+  z.object({
+    kind: z.literal('RELATED_SOURCE'),
+    relatedSource: relatedSourceSchema,
+  }).strict(),
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
@@ -1287,7 +1322,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1641,20 +1676,6 @@ export const constructionChoiceSourceSchema = z.discriminatedUnion('kind', [
 export type ConstructionChoiceSource = z.infer<
   typeof constructionChoiceSourceSchema
 >;
-
-export const constructionRouteStepSchema = z
-  .object({
-    edgeId: opaqueIdSchema,
-    fromNodeId: opaqueIdSchema,
-    toNodeId: opaqueIdSchema,
-    fromResourceType: opaqueIdSchema,
-    toResourceType: opaqueIdSchema,
-    relationship: opaqueIdSchema,
-    storageDirection: z.enum(['INBOUND', 'OUTBOUND']),
-    matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
-  })
-  .strict();
-export type ConstructionRouteStep = z.infer<typeof constructionRouteStepSchema>;
 
 export const sourcePresentationFactSchema = z
   .object({
