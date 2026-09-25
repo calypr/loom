@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -58,5 +59,97 @@ func TestConstructionCombineMembershipPreservesLeftRows(t *testing.T) {
 	combine.Projections[0].InputIndex = 1
 	if err := combine.Validate(2, outputs); err == nil || !strings.Contains(err.Error(), "preserve the left input") {
 		t.Fatalf("membership projection error = %v", err)
+	}
+}
+
+func TestConstructionAcceptsOnlyStandaloneExactRevisionCombine(t *testing.T) {
+	combine := ConstructionCombine{
+		Kind: ConstructionCombineKeyJoin, JoinType: ConstructionCombineLeftJoin,
+		RightMatchPolicy: ConstructionCombinePreserveAllMatches,
+		Keys:             []ConstructionCombineKey{{LeftColumnID: "left_id", RightColumnID: "right_id"}},
+		Projections: []ConstructionCombineProjection{
+			{OutputColumnID: "left", InputIndex: 0, InputColumnID: "left_id"},
+			{OutputColumnID: "right", InputIndex: 1, InputColumnID: "right_label"},
+		},
+	}
+	construction := Construction{
+		Version: 1,
+		Steps: []ConstructionStep{{
+			ID: "join",
+			Inputs: []ConstructionInputRef{
+				{Kind: ConstructionTableRevisionInput, TableID: "source:1:left", RevisionID: "execution-left", OutputID: "left"},
+				{Kind: ConstructionTableRevisionInput, TableID: "source:1:right", RevisionID: "execution-right", OutputID: "right"},
+			},
+			Operation: ConstructionOperation{Kind: ConstructionCombineOp, Combine: &combine},
+			Outputs: []StageColumn{
+				{ID: "left", Name: "left_value", Type: "integer"},
+				{ID: "right", Name: "right_value", Type: "string", Nullable: true},
+			},
+		}},
+	}
+	if err := construction.Validate(nil); err != nil {
+		t.Fatalf("valid terminal combine: %v", err)
+	}
+
+	badRevision := construction
+	badRevision.Steps = append([]ConstructionStep(nil), construction.Steps...)
+	badRevision.Steps[0].Inputs = append([]ConstructionInputRef(nil), construction.Steps[0].Inputs...)
+	badRevision.Steps[0].Inputs[1].RevisionID = " "
+	if err := badRevision.Validate(nil); err == nil || !strings.Contains(err.Error(), "revisionId") {
+		t.Fatalf("untrimmed revision error = %v", err)
+	}
+
+	badNullability := construction
+	badNullability.Steps = append([]ConstructionStep(nil), construction.Steps...)
+	badNullability.Steps[0].Outputs = append([]StageColumn(nil), construction.Steps[0].Outputs...)
+	badNullability.Steps[0].Outputs[1].Nullable = false
+	if err := badNullability.Validate(nil); err == nil || !strings.Contains(err.Error(), "must be nullable") {
+		t.Fatalf("left-join nullability error = %v", err)
+	}
+
+	withSource := construction
+	withSource.Steps = append([]ConstructionStep(nil), construction.Steps...)
+	if err := withSource.Validate([]Field{{Name: "ignored"}}); err == nil || !strings.Contains(err.Error(), "source projection") {
+		t.Fatalf("source prefix error = %v", err)
+	}
+}
+
+func TestConstructionCombineRecipeJSONRoundTripsExactRefsAndPayload(t *testing.T) {
+	combine := ConstructionCombine{
+		Kind: ConstructionCombineAppend,
+		Projections: []ConstructionCombineProjection{
+			{OutputColumnID: "person", InputIndex: 0, InputColumnID: "left-person"},
+			{OutputColumnID: "person", InputIndex: 1, InputColumnID: "right-person"},
+		},
+	}
+	bundle := Bundle{
+		RecipeSchemaVersion: CurrentSchemaVersion, Name: "combined", TranslationVersion: "1",
+		Outputs: []Output{{
+			Name: "joined", RootResourceType: "Patient", RowGrain: "patient",
+			Construction: &Construction{Version: 1, Steps: []ConstructionStep{{
+				ID: "append", Inputs: []ConstructionInputRef{
+					{Kind: ConstructionTableRevisionInput, TableID: "left:1:people", RevisionID: "execution-left", OutputID: "people"},
+					{Kind: ConstructionTableRevisionInput, TableID: "right:1:people", RevisionID: "execution-right", OutputID: "people"},
+				},
+				Operation: ConstructionOperation{Kind: ConstructionCombineOp, Combine: &combine},
+				Outputs:   []StageColumn{{ID: "person", Name: "person_id", Type: "string"}},
+			}}},
+		}},
+	}
+	encoded, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"kind":"TABLE_REVISION"`, `"tableId":"left:1:people"`, `"revisionId":"execution-left"`, `"outputId":"people"`, `"kind":"COMBINE"`, `"inputColumnId":"right-person"`} {
+		if !strings.Contains(string(encoded), expected) {
+			t.Fatalf("Combine recipe JSON is missing %s: %s", expected, encoded)
+		}
+	}
+	var decoded Bundle
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoded.Validate(); err != nil {
+		t.Fatalf("round-tripped Combine bundle is invalid: %v", err)
 	}
 }

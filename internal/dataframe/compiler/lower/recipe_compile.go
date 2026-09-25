@@ -250,17 +250,20 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err := physical.Validate(); err != nil {
 		return CompiledRecipeOutput{}, fmt.Errorf("validate canonical physical plan: %w", err)
 	}
-	outputSchema, err := recipeOutputSchema(physical, output, dynamicMetadata, derivedTypes)
-	if err != nil {
-		return CompiledRecipeOutput{}, err
-	}
+	var outputSchema []CompiledOutputColumn
 	if output.Construction != nil {
 		outputSchema = CloneCompiledOutputSchema(reshapeSchema)
 		if len(output.Construction.Steps) > 0 {
 			identity.Fields = []string{finalStageIdentity}
 		}
-	} else if output.TableReshape != nil {
-		outputSchema = reconcileRecipeTableReshapeSchema(outputSchema, reshapeSchema)
+	} else {
+		outputSchema, err = recipeOutputSchema(physical, output, dynamicMetadata, derivedTypes)
+		if err != nil {
+			return CompiledRecipeOutput{}, err
+		}
+		if output.TableReshape != nil {
+			outputSchema = reconcileRecipeTableReshapeSchema(outputSchema, reshapeSchema)
+		}
 	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,

@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ConstructionCombineKind names one bounded operation over immutable table
@@ -77,7 +78,7 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 	}
 	outputIDs := make(map[string]bool, len(outputs))
 	for _, output := range outputs {
-		if output.ID == "" || outputIDs[output.ID] {
+		if strings.TrimSpace(output.ID) == "" || output.ID != strings.TrimSpace(output.ID) || outputIDs[output.ID] {
 			return fmt.Errorf("combine output IDs must be non-empty and unique")
 		}
 		outputIDs[output.ID] = true
@@ -86,13 +87,13 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 		return fmt.Errorf("combine projections are required")
 	}
 	for index, projection := range combine.Projections {
-		if projection.OutputColumnID == "" || !outputIDs[projection.OutputColumnID] {
+		if strings.TrimSpace(projection.OutputColumnID) == "" || projection.OutputColumnID != strings.TrimSpace(projection.OutputColumnID) || !outputIDs[projection.OutputColumnID] {
 			return fmt.Errorf("combine projection %d references unknown output column %q", index, projection.OutputColumnID)
 		}
 		if projection.InputIndex < 0 || projection.InputIndex >= inputCount {
 			return fmt.Errorf("combine projection %d inputIndex is out of range", index)
 		}
-		if projection.InputColumnID == "" {
+		if strings.TrimSpace(projection.InputColumnID) == "" || projection.InputColumnID != strings.TrimSpace(projection.InputColumnID) {
 			return fmt.Errorf("combine projection %d inputColumnId is required", index)
 		}
 	}
@@ -160,7 +161,8 @@ func (combine ConstructionCombine) Validate(inputCount int, outputs []StageColum
 func validateCombineKeys(keys []ConstructionCombineKey) error {
 	seenLeft, seenRight := map[string]bool{}, map[string]bool{}
 	for index, key := range keys {
-		if key.LeftColumnID == "" || key.RightColumnID == "" {
+		if strings.TrimSpace(key.LeftColumnID) == "" || key.LeftColumnID != strings.TrimSpace(key.LeftColumnID) ||
+			strings.TrimSpace(key.RightColumnID) == "" || key.RightColumnID != strings.TrimSpace(key.RightColumnID) {
 			return fmt.Errorf("combine key %d requires leftColumnId and rightColumnId", index)
 		}
 		if seenLeft[key.LeftColumnID] || seenRight[key.RightColumnID] {

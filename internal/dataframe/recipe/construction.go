@@ -39,10 +39,9 @@ const (
 	ConstructionTableRevisionInput    ConstructionInputKind = "TABLE_REVISION"
 )
 
-// ConstructionInputRef is a closed reference to the input row set. The
-// compiler currently executes source and prior-step inputs; table revisions
-// are represented here for the later Combine package and rejected until its
-// immutable table-input execution contract is available.
+// ConstructionInputRef is a closed reference to an input row set. Table
+// revision references are legal only for a standalone terminal Combine step;
+// they always identify an exact immutable publication.
 type ConstructionInputRef struct {
 	Kind       ConstructionInputKind `json:"kind"`
 	StepID     string                `json:"stepId,omitempty"`
@@ -55,10 +54,11 @@ type ConstructionInputRef struct {
 // optional authoring hint (or "INFER"); the compiler derives the authoritative
 // type from source and operation semantics.
 type StageColumn struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Label string `json:"label,omitempty"`
-	Type  string `json:"type,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Label    string `json:"label,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Nullable bool   `json:"nullable,omitempty"`
 }
 
 type ConstructionOperationKind string
@@ -70,6 +70,7 @@ const (
 	ConstructionUnpivotOp ConstructionOperationKind = "UNPIVOT"
 	ConstructionGroupOp   ConstructionOperationKind = "GROUP"
 	ConstructionExpandOp  ConstructionOperationKind = "EXPAND"
+	ConstructionCombineOp ConstructionOperationKind = "COMBINE"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
@@ -82,6 +83,7 @@ type ConstructionOperation struct {
 	Unpivot *ConstructionUnpivot      `json:"unpivot,omitempty"`
 	Group   *ConstructionGroup        `json:"group,omitempty"`
 	Expand  *ConstructionExpand       `json:"expand,omitempty"`
+	Combine *ConstructionCombine      `json:"combine,omitempty"`
 }
 
 type ConstructionPivot struct {
@@ -184,6 +186,9 @@ func (construction Construction) Validate(sourceFields []Field) error {
 	if len(construction.Steps) > maxConstructionSteps {
 		return fmt.Errorf("construction steps must contain at most %d entries", maxConstructionSteps)
 	}
+	if len(construction.Steps) == 1 && construction.Steps[0].Operation.Kind == ConstructionCombineOp {
+		return construction.validateTerminalCombine(sourceFields)
+	}
 	sourceColumns := append([]StageColumn(nil), construction.SourceColumns...)
 	if len(sourceColumns) == 0 {
 		// Recipe-only callers can validate simple field projections without a
@@ -252,12 +257,82 @@ func (construction Construction) Validate(sourceFields []Field) error {
 	return nil
 }
 
+// TerminalCombineStep reports whether this construction is the standalone
+// terminal Combine form. It deliberately excludes source and intermediate
+// stages; those require a materialized engine boundary before ClickHouse can
+// consume their rows.
+func (construction Construction) TerminalCombineStep() (ConstructionStep, bool) {
+	if len(construction.Steps) != 1 || construction.Steps[0].Operation.Kind != ConstructionCombineOp {
+		return ConstructionStep{}, false
+	}
+	return construction.Steps[0], true
+}
+
+func (construction Construction) validateTerminalCombine(sourceFields []Field) error {
+	if len(construction.SourceColumns) != 0 || len(sourceFields) != 0 {
+		return fmt.Errorf("terminal combine cannot also declare a source projection")
+	}
+	step := construction.Steps[0]
+	if err := validateOpaqueIdentity(step.ID, "steps[0].id"); err != nil {
+		return err
+	}
+	if step.ID == ConstructionSourceProjectionID {
+		return fmt.Errorf("steps[0].id is reserved")
+	}
+	if len(step.Inputs) < 2 {
+		return fmt.Errorf("steps[0].inputs must contain at least two exact table revision references")
+	}
+	seenRefs := make(map[string]bool, len(step.Inputs))
+	for index, input := range step.Inputs {
+		path := fmt.Sprintf("steps[0].inputs[%d]", index)
+		if input.Kind != ConstructionTableRevisionInput || input.StepID != "" {
+			return fmt.Errorf("%s must be an exact TABLE_REVISION reference", path)
+		}
+		if strings.TrimSpace(input.TableID) == "" || input.TableID != strings.TrimSpace(input.TableID) ||
+			strings.TrimSpace(input.RevisionID) == "" || input.RevisionID != strings.TrimSpace(input.RevisionID) ||
+			strings.TrimSpace(input.OutputID) == "" || input.OutputID != strings.TrimSpace(input.OutputID) {
+			return fmt.Errorf("%s requires trimmed tableId, revisionId, and outputId", path)
+		}
+		key := input.TableID + "\x00" + input.RevisionID + "\x00" + input.OutputID
+		if seenRefs[key] {
+			return fmt.Errorf("%s duplicates an exact table revision reference", path)
+		}
+		seenRefs[key] = true
+	}
+	if step.Operation.Combine == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.Expand != nil {
+		return fmt.Errorf("steps[0].operation must contain only a combine payload")
+	}
+	if err := validateStageColumns(step.Outputs, "steps[0].outputs"); err != nil {
+		return err
+	}
+	for index, output := range step.Outputs {
+		if strings.TrimSpace(output.Type) == "" || strings.EqualFold(output.Type, "INFER") || strings.EqualFold(output.Type, "object") {
+			return fmt.Errorf("steps[0].outputs[%d].type must be an explicit scalar type", index)
+		}
+	}
+	if err := step.Operation.Combine.Validate(len(step.Inputs), step.Outputs); err != nil {
+		return fmt.Errorf("steps[0].operation.combine: %w", err)
+	}
+	if step.Operation.Combine.Kind == ConstructionCombineKeyJoin && step.Operation.Combine.JoinType == ConstructionCombineLeftJoin {
+		for _, projection := range step.Operation.Combine.Projections {
+			if projection.InputIndex == 1 && !stageColumnMap(step.Outputs)[projection.OutputColumnID].Nullable {
+				return fmt.Errorf("steps[0].outputs column %q must be nullable for a LEFT key join", projection.OutputColumnID)
+			}
+		}
+	}
+	return nil
+}
+
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
 	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil} {
 		if present {
 			payloads++
 		}
+	}
+	if operation.Combine != nil {
+		payloads++
 	}
 	if payloads != 1 {
 		return fmt.Errorf("%s must contain exactly one operation payload", path)
@@ -266,7 +341,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 	outputByID := stageColumnMap(output)
 	switch operation.Kind {
 	case ConstructionPivotOp:
-		if operation.Pivot == nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
+		if operation.Pivot == nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s pivot operation requires only pivot payload", path)
 		}
 		pivot := operation.Pivot
@@ -307,7 +382,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		}
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionDeriveOp:
-		if operation.Derive == nil || operation.Pivot != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
+		if operation.Derive == nil || operation.Pivot != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s derive operation requires only derive payload", path)
 		}
 		derive := operation.Derive
@@ -333,7 +408,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		expected[derive.OutputColumnID] = true
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionFilterOp:
-		if operation.Filter == nil || operation.Pivot != nil || operation.Derive != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil {
+		if operation.Filter == nil || operation.Pivot != nil || operation.Derive != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s filter operation requires only filter payload", path)
 		}
 		filter := operation.Filter
@@ -349,7 +424,7 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		}
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionUnpivotOp:
-		if operation.Unpivot == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Group != nil || operation.Expand != nil {
+		if operation.Unpivot == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s unpivot operation requires only unpivot payload", path)
 		}
 		unpivot := operation.Unpivot
@@ -390,15 +465,17 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		expected[unpivot.ValueOutputColumnID] = true
 		return requireExactStageOutputIDs(expected, outputByID, path)
 	case ConstructionGroupOp:
-		if operation.Group == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Expand != nil {
+		if operation.Group == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Expand != nil || operation.Combine != nil {
 			return fmt.Errorf("%s group operation requires only group payload", path)
 		}
 		return validateConstructionGroup(*operation.Group, inputByID, outputByID, path, constructionIDs)
 	case ConstructionExpandOp:
-		if operation.Expand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil {
+		if operation.Expand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Combine != nil {
 			return fmt.Errorf("%s expand operation requires only expand payload", path)
 		}
 		return validateConstructionExpand(*operation.Expand, inputByID, outputByID, path, constructionIDs)
+	case ConstructionCombineOp:
+		return fmt.Errorf("%s combine must be the sole terminal operation over exact table revision inputs", path)
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}
@@ -495,7 +572,7 @@ func validateStageColumns(columns []StageColumn, path string) error {
 
 func validConstructionLogicalType(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "boolean", "code", "date", "date_time", "datetime", "decimal", "integer", "number", "object", "string", "uuid":
+	case "boolean", "code", "date", "date-time", "date_time", "datetime", "decimal", "integer", "number", "object", "string", "uuid":
 		return true
 	default:
 		return false

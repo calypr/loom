@@ -42,6 +42,9 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName string, co
 	if plan == nil {
 		return nil, nil, "", fmt.Errorf("physical plan is required")
 	}
+	if step, ok := construction.TerminalCombineStep(); ok {
+		return appendRecipeTerminalCombine(plan, step)
+	}
 	if len(construction.SourceColumns) == 0 {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}

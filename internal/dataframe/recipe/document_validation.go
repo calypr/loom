@@ -98,6 +98,11 @@ func (b Bundle) Validate() error {
 			if err := output.Construction.Validate(output.Fields); err != nil {
 				return validationError("invalid_construction", path+".construction", err.Error())
 			}
+			if _, terminalCombine := output.Construction.TerminalCombineStep(); terminalCombine {
+				if len(output.Filters) != 0 || len(output.Pivots) != 0 || len(output.OwnerRecords) != 0 || len(output.Aggregates) != 0 || len(output.Slices) != 0 || len(output.Traversals) != 0 || output.Expand != nil || output.Identity != nil || output.GroupRows != nil || len(output.DynamicColumns) != 0 || len(output.ExtensionColumns) != 0 || len(output.CatalogProjections) != 0 || len(output.ColumnTransformations) != 0 || output.Population != nil {
+					return validationError("invalid_construction", path+".construction", "terminal combine cannot include source projection operations")
+				}
+			}
 		}
 		if output.TableReshape != nil {
 			if err := output.TableReshape.Validate(); err != nil {
