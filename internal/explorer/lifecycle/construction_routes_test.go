@@ -68,6 +68,15 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 	if len(choice.Route) != 1 || choice.Route[0].Relationship != "subject_Patient" || choice.Route[0].StorageDirection != "INBOUND" || choice.Route[0].ToResourceType != "Observation" {
 		t.Fatalf("compiler-proved inbound route = %#v", choice.Route)
 	}
+	var allOption *capability.ConstructionChoiceOption
+	for index := range choice.Options {
+		if choice.Options[index].Form == capability.ConstructionChoiceAll {
+			allOption = &choice.Options[index]
+		}
+	}
+	if allOption == nil || allOption.Shape != capability.ConstructionChoiceList || allOption.Preservation != capability.ConstructionChoicePreserving {
+		t.Fatalf("related scalar ALL form = %#v", allOption)
+	}
 	if choice.Presentation.Summary == "" || len(choice.Presentation.Facts) == 0 || choice.Presentation.Facts[0].Label != "FHIR field" {
 		t.Fatalf("generic route choice presentation = %#v", choice.Presentation)
 	}

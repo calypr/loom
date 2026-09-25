@@ -104,6 +104,191 @@ func constructionProposalRequest(owner *explorer.Explorer, snapshot capability.S
 	}
 }
 
+func seedConstructionProposalWithRelatedSource(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (authoringv2.Workspace, authoringv2.ConstructionRelatedSource) {
+	t.Helper()
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := make([]authoringv2.StageColumn, 0, len(document.Columns))
+	for _, column := range document.Columns {
+		columns = append(columns, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	if len(columns) == 0 {
+		t.Fatal("proposal fixture has no source columns")
+	}
+	route := []capability.ConstructionRouteStep{{
+		EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+		StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	candidate := capability.Candidate{
+		ID: "observation-status", NodeID: "observation", ResourceType: "Observation", FieldPath: "status",
+		Cardinality: "optional_one", LogicalType: "code", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	choice, err := capability.NewFieldConstructionChoiceForRoute("expired-choice-snapshot", route, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	related := authoringv2.ConstructionRelatedSource{
+		AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, SourceOccurrenceID: candidate.NodeID,
+		Source: authoringv2.ConstructionRelatedFieldSource{
+			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
+			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality, LogicalType: candidate.LogicalType,
+		},
+		Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+		Form: capability.ConstructionChoiceAll, OutputColumnID: "observation-status",
+	}
+	filterOutputs := append([]authoringv2.StageColumn(nil), columns...)
+	relatedOutputs := append([]authoringv2.StageColumn(nil), columns...)
+	relatedOutputs = append(relatedOutputs, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
+	document.Construction = &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{
+		{
+			ID: "filter_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists}},
+			Outputs:   filterOutputs,
+		},
+		{
+			ID: "related_step", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "filter_step"}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related},
+			Outputs:   relatedOutputs,
+		},
+	}}
+	workspace.Documents[0] = document
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate related proposal base: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = draft
+	store.created.DraftDigest = digest
+	return workspace, related
+}
+
+func seedConstructionProposalWithTwoFilters(t *testing.T, store *fakeStore, snapshot capability.Snapshot) (authoringv2.Workspace, authoringv2.ConstructionRelatedSource) {
+	t.Helper()
+	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
+	document := workspace.Documents[0]
+	columns := append([]authoringv2.StageColumn(nil), document.Construction.Steps[0].Outputs...)
+	document.Construction.Steps[1].Operation = authoringv2.ConstructionOperation{
+		Kind:   authoringv2.ConstructionOperationFilter,
+		Filter: &authoringv2.ConstructionFilter{ColumnID: columns[0].ID, Operator: authoringv2.ConstructionFilterExists},
+	}
+	document.Construction.Steps[1].Outputs = columns
+	workspace.Documents[0] = document
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate two-filter proposal base: %v", err)
+	}
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = draft
+	store.created.DraftDigest = digest
+	return workspace, related
+}
+
+func turnProposalStepIntoRelatedSource(workspace authoringv2.Workspace, index int, related authoringv2.ConstructionRelatedSource) authoringv2.ConstructionStep {
+	step := workspace.Documents[0].Construction.Steps[index]
+	step.Operation = authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &related}
+	step.Outputs = append([]authoringv2.StageColumn(nil), workspace.Documents[0].Construction.Steps[0].Outputs...)
+	step.Outputs = append(step.Outputs, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_status", Label: "Observation statuses", Type: related.Source.LogicalType})
+	return step
+}
+
+func relatedSourceProposalRequest(owner *explorer.Explorer, snapshot capability.Snapshot, workspace authoringv2.Workspace, related authoringv2.ConstructionRelatedSource, changedStepID string, removeStepIDs ...string) ConstructionProposalRequest {
+	document := workspace.Documents[0]
+	candidate, _ := authoringv2.UpgradeDocumentToConstruction(document)
+	for index := range candidate.Construction.Steps {
+		if candidate.Construction.Steps[index].ID == "related_step" {
+			candidate.Construction.Steps[index].Operation.RelatedSource = &related
+		}
+	}
+	return ConstructionProposalRequest{
+		Project: owner.Project, ExplorerID: owner.ExplorerID, SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: owner.DraftVersion, ExpectedDraftDigest: owner.DraftDigest,
+		OutputID: "patients", ChangedStepID: changedStepID, RemoveStepIDs: removeStepIDs,
+		CandidateConstruction: authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: append([]authoringv2.ConstructionStep(nil), candidate.Construction.Steps...)},
+	}
+}
+
+func TestProposeConstructionReauthorizesRelatedSourceChangedOutsideHint(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
+	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
+	for index := range request.CandidateConstruction.Steps {
+		if request.CandidateConstruction.Steps[index].ID == "related_step" {
+			request.CandidateConstruction.Steps[index].Operation.RelatedSource.Source.Path = "valueQuantity.value"
+		}
+	}
+	_, err := service.ProposeConstruction(context.Background(), request)
+	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
+		t.Fatalf("tampered related source with unrelated changedStepId error = %v, want stale choice", err)
+	}
+}
+
+func TestProposeConstructionReauthorizesRelatedSourceWhenChangedStepHintOmitted(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
+	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
+	request.CandidateConstruction.Steps = []authoringv2.ConstructionStep{workspace.Documents[0].Construction.Steps[1]}
+	request.CandidateConstruction.Steps[0].Operation.RelatedSource.Source.Path = "valueQuantity.value"
+	_, err := service.ProposeConstruction(context.Background(), request)
+	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
+		t.Fatalf("tampered related source with omitted changedStepId error = %v, want stale choice", err)
+	}
+}
+
+func TestProposeConstructionReauthorizesNewRelatedSourceWhenChangedStepHintIsForged(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, related := seedConstructionProposalWithTwoFilters(t, store, snapshot)
+	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
+	request.CandidateConstruction.Steps[1] = turnProposalStepIntoRelatedSource(workspace, 1, related)
+	_, err := service.ProposeConstruction(context.Background(), request)
+	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
+		t.Fatalf("new related source with forged changedStepId error = %v, want stale choice", err)
+	}
+}
+
+func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHint(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, related := seedConstructionProposalWithTwoFilters(t, store, snapshot)
+	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "", "filter_step")
+	request.CandidateConstruction.Steps = []authoringv2.ConstructionStep{turnProposalStepIntoRelatedSource(workspace, 1, related)}
+	_, err := service.ProposeConstruction(context.Background(), request)
+	if lifecycleErrorCode(err) != "STALE_CONSTRUCTION_CHOICE" {
+		t.Fatalf("new related source with omitted changedStepId error = %v, want stale choice", err)
+	}
+}
+
+func TestProposeConstructionDoesNotReauthorizeUnchangedRelatedSource(t *testing.T) {
+	service, store, snapshot := constructionProposalService(t)
+	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
+	request := relatedSourceProposalRequest(store.created, snapshot, workspace, related, "filter_step")
+	request.CandidateConstruction.Steps[0].Operation.Filter.Operator = authoringv2.ConstructionFilterMissing
+	proposal, err := service.ProposeConstruction(context.Background(), request)
+	if err != nil {
+		t.Fatalf("unrelated edit with unchanged saved related source: %v", err)
+	}
+	if proposal.PreviewStatus != "PREVIEW_PENDING" || proposal.ProposalID == "" {
+		t.Fatalf("unchanged related-source proposal = %#v", proposal)
+	}
+}
+
 func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)

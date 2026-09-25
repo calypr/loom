@@ -127,6 +127,8 @@ type constructionBase struct {
 	document        authoringv2.Document
 	construction    authoringv2.Construction
 	snapshot        capability.Snapshot
+	authorized      AuthorizedCapability
+	catalog         authoringv2.CatalogSnapshot
 	receipt         *explorer.CompilationReceipt
 	stages          []explorer.ReceiptConstructionStage
 	baseDocumentSHA string
@@ -175,6 +177,23 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	candidateDocument, impact, err := base.document.AnalyzeConstructionCandidate(request.CandidateConstruction, request.ChangedStepID, request.RemoveStepIDs)
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
+	}
+	baseRelatedSources := make(map[string]authoringv2.ConstructionRelatedSource)
+	for _, step := range base.construction.Steps {
+		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
+			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
+		}
+	}
+	for _, step := range candidateDocument.Construction.Steps {
+		if step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource || step.Operation.RelatedSource == nil {
+			continue
+		}
+		if prior, exists := baseRelatedSources[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedSource) {
+			continue
+		}
+		if err := reauthorizeConstructionRelatedSource(ctx, base, candidateDocument.RootResourceType, *step.Operation.RelatedSource); err != nil {
+			return ConstructionProposalResponse{}, err
+		}
 	}
 	candidateWorkspace := base.workspace
 	candidateWorkspace.Documents = append([]authoringv2.Document(nil), base.workspace.Documents...)
@@ -227,6 +246,37 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	return baseResponse, nil
 }
 
+func reauthorizeConstructionRelatedSource(ctx context.Context, base constructionBase, rootResourceType string, related authoringv2.ConstructionRelatedSource) error {
+	identity, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source choice identity is invalid", err)
+	}
+	if identity.SnapshotToken != base.snapshot.Token {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related source choice for the current authorized snapshot", nil, nil)
+	}
+	source, ok := identity.Source.(capability.FieldChoiceSource)
+	if !ok {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source must use an exact field choice", nil)
+	}
+	authoredSource := capability.FieldChoiceSource{
+		Kind: related.Source.Kind, CandidateID: related.Source.CandidateID, NodeID: related.Source.NodeID,
+		ResourceType: related.Source.ResourceType, Path: related.Source.Path, Cardinality: related.Source.Cardinality,
+		RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), related.Source.RepeatedBoundaries...),
+	}
+	if !reflect.DeepEqual(source, authoredSource) || !reflect.DeepEqual(identity.Route, related.Route) {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source route or field does not match its server-issued choice", nil)
+	}
+	selection := authoringv2.ConstructionChoiceSelection{ChoiceID: related.ChoiceID, Form: related.Form}
+	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType, selection, identity, source)
+	if err != nil {
+		return err
+	}
+	if resolved.LogicalType != related.Source.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related source type or route differs from the current compiler-proved choice", nil)
+	}
+	return nil
+}
+
 func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID, snapshotToken string, draftVersion int64, draftDigest, outputID string) (constructionBase, error) {
 	if s.config.Capability.ForCompilation == nil {
 		return constructionBase{}, unavailable("construction-capabilities", "CAPABILITY_UNAVAILABLE", "authorized construction compilation is not configured", nil)
@@ -245,6 +295,8 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return constructionBase{}, conflict("construction-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
+	authorized.Snapshot = snapshot.Clone()
+	catalogSnapshot := s.config.Capability.Catalog(snapshot, explorerID)
 	owner, err := s.store.Get(ctx, project, explorerID)
 	if err != nil {
 		return constructionBase{}, err
@@ -295,7 +347,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		}
 		return constructionBase{
 			owner: owner, workspace: workspace, document: document,
-			construction: *upgraded.Construction, snapshot: snapshot,
+			construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
 			stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
 		}, nil
 	}
@@ -321,7 +373,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	}
 	return constructionBase{
 		owner: owner, workspace: workspace, document: document,
-		construction: *upgraded.Construction, snapshot: snapshot,
+		construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
 		receipt: receipt, stages: receipt.ConstructionStages[outputID], baseDocumentSHA: baseDocumentSHA,
 	}, nil
 }

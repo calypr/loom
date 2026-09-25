@@ -204,7 +204,7 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 	if err != nil {
 		return ConstructionChoice{}, err
 	}
-	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: fieldChoicePresentation(source, candidate), Options: constructionOptions(candidate)}
+	choice := ConstructionChoice{ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route), Presentation: fieldChoicePresentation(source, candidate), Options: constructionOptionsForRoute(candidate, route)}
 	if len(choice.Options) == 0 {
 		return ConstructionChoice{}, fmt.Errorf("candidate %q has no compiler-proved construction output", candidate.ID)
 	}
@@ -527,6 +527,24 @@ func constructionOptions(candidate Candidate) []ConstructionChoiceOption {
 		options = append(options, option)
 	}
 	return options
+}
+
+func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteStep) []ConstructionChoiceOption {
+	options := constructionOptions(candidate)
+	if len(route) == 0 || IsRepeatedCardinality(candidate.Cardinality) || !containsProjection(candidate.ProjectionModes, ProjectionScalar) {
+		return options
+	}
+	for _, option := range options {
+		if option.Form == ConstructionChoiceAll {
+			return options
+		}
+	}
+	return append(options, ConstructionChoiceOption{
+		Form: ConstructionChoiceAll, Shape: ConstructionChoiceList,
+		Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoicePreserving,
+		RowEffect: ConstructionChoicePreservesRows, Support: ConstructionChoiceSupported,
+		Reason: "Collect the scalar field from every matching resource on this exact route.",
+	})
 }
 
 func constructionForm(mode ProjectionMode) (ConstructionChoiceForm, bool) {
