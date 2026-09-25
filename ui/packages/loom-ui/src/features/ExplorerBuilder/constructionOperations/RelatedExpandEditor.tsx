@@ -237,8 +237,8 @@ export const RelatedExpandEditor = ({
           setCursor(undefined);
           const suggested = `related_${target.toLowerCase()}_id`;
           setOutputName(suggested);
-          setOutputLabel(`${target} record ID`);
-          emit(undefined, emptyPolicy, suggested, `${target} record ID`);
+          setOutputLabel(`${target} FHIR resource ID`);
+          emit(undefined, emptyPolicy, suggested, `${target} FHIR resource ID`);
         }} className="rounded border border-slate-300 bg-white px-3 py-2">
           <option value="">Choose a record type</option>
           {targetTypes.map((target) => <option key={target} value={target}>{target}</option>)}
@@ -275,7 +275,7 @@ export const RelatedExpandEditor = ({
           <option value="ERROR">Stop if any parent has no match</option>
         </select>
       </label>
-      <label className="grid gap-1 text-sm font-medium text-slate-800">Related record ID column
+      <label className="grid gap-1 text-sm font-medium text-slate-800">Related FHIR resource ID column
         <input value={outputName} disabled={disabled} onChange={(event) => {
           setOutputName(event.target.value);
           emit(choice, emptyPolicy, event.target.value);

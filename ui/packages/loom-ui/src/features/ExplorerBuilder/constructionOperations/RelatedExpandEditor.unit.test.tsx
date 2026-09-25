@@ -47,6 +47,25 @@ const capabilities: ConstructionCapabilitiesResponse = {
 };
 
 describe('RelatedExpandEditor', () => {
+  it('rejects paths issued for a different draft', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2',
+      outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ choiceId: 'stale-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    expect(await screen.findByText('The available paths changed. Reload this table before expanding records.')).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Encounter via subject_Patient' })).not.toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
   it('uses a server-issued route, waits for an empty-match decision, and retains parent columns', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection',
