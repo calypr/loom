@@ -1338,6 +1338,24 @@ export const FeaturePolicyEditor = ({
                 {contributorWindow ? 'Edit date window' : 'Add date window'}
               </button>
             ) : null}
+            {contributorWindow && path && operation !== 'FIRST_ORDERED' && !editingWindow ? (
+              <button
+                type="button"
+                className="rounded border border-slate-300 bg-white px-2 py-0.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                disabled={disabled}
+                onClick={() => {
+                  const withoutWindow = aggregateForOperation({ operation: 'COUNT', path }, operation);
+                  if (withoutWindow) {
+                    onSourceChange({
+                      kind: 'aggregate',
+                      aggregate: aggregateWithUnitNormalization(withoutWindow, unitNormalization),
+                    });
+                  }
+                }}
+              >
+                Remove date window
+              </button>
+            ) : null}
             {editingWindow && path && temporalCapability &&
             isWindowEditorOperation(operation) ? (
               <ContributorWindowEditor
