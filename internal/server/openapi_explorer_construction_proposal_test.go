@@ -236,7 +236,13 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 			Kind: capability.ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
 			ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality, LogicalType: candidate.LogicalType,
 		},
-		Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+		Route: route, ContributorRule: authoringv2.ConstructionRelatedContributorRule{
+			Policy: authoringv2.ConstructionRelatedAllMatches,
+			Predicate: &authoringv2.ContributorPredicate{
+				CandidateID: candidate.ID, Operator: authoringv2.ContributorEquals,
+				Value: &authoringv2.ContributorValue{Kind: authoringv2.ContributorString, String: stringPointer("final")},
+			},
+		},
 		Form: capability.ConstructionChoiceAll, OutputColumnID: "observation-statuses",
 	}
 	stageColumns = append(stageColumns, authoringv2.StageColumn{ID: related.OutputColumnID, Name: "observation_statuses", Label: "Observation statuses", Type: candidate.LogicalType})
@@ -253,6 +259,11 @@ func TestRelatedSourceConstructionProposalHTTPPreviewsAllMatchesAsList(t *testin
 	var decodedConstruction authoringv2.Construction
 	if err := json.Unmarshal(candidateJSON, &decodedConstruction); err != nil || len(decodedConstruction.Steps) != 1 || decodedConstruction.Steps[0].Operation.RelatedSource == nil {
 		t.Fatalf("related-source candidate JSON did not round trip: err=%v json=%s decoded=%#v", err, candidateJSON, decodedConstruction)
+	}
+	decodedPredicate := decodedConstruction.Steps[0].Operation.RelatedSource.ContributorRule.Predicate
+	if decodedPredicate == nil || decodedPredicate.CandidateID != candidate.ID || decodedPredicate.Operator != authoringv2.ContributorEquals ||
+		decodedPredicate.Value == nil || decodedPredicate.Value.String == nil || *decodedPredicate.Value.String != "final" {
+		t.Fatalf("related-source proposal predicate changed during API JSON round trip: %#v", decodedPredicate)
 	}
 	workspace.Documents[0] = document
 	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))

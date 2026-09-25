@@ -55,6 +55,13 @@ type ConstructionChoiceSupport string
 
 const ConstructionChoiceSupported ConstructionChoiceSupport = "SUPPORTED"
 
+type ConstructionChoicePredicateOperator string
+
+const (
+	ConstructionChoicePredicateExists ConstructionChoicePredicateOperator = "EXISTS"
+	ConstructionChoicePredicateEquals ConstructionChoicePredicateOperator = "EQUALS"
+)
+
 type ConstructionChoiceSourceKind string
 
 const (
@@ -113,13 +120,14 @@ type SemanticBindingChoiceSource struct {
 func (SemanticBindingChoiceSource) constructionChoiceSource() {}
 
 type ConstructionChoiceOption struct {
-	Form         ConstructionChoiceForm         `json:"form"`
-	Shape        ConstructionChoiceShape        `json:"shape"`
-	Decision     ConstructionChoiceDecision     `json:"decision"`
-	Preservation ConstructionChoicePreservation `json:"preservation"`
-	RowEffect    ConstructionChoiceRowEffect    `json:"rowEffect"`
-	Support      ConstructionChoiceSupport      `json:"support"`
-	Reason       string                         `json:"reason"`
+	Form                          ConstructionChoiceForm                `json:"form"`
+	Shape                         ConstructionChoiceShape               `json:"shape"`
+	Decision                      ConstructionChoiceDecision            `json:"decision"`
+	Preservation                  ConstructionChoicePreservation        `json:"preservation"`
+	RowEffect                     ConstructionChoiceRowEffect           `json:"rowEffect"`
+	Support                       ConstructionChoiceSupport             `json:"support"`
+	Reason                        string                                `json:"reason"`
+	ContributorPredicateOperators []ConstructionChoicePredicateOperator `json:"contributorPredicateOperators,omitempty"`
 }
 
 type ConstructionChoice struct {
@@ -548,7 +556,7 @@ func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteS
 			Reason: "Collect the scalar field from every matching resource on this exact route.",
 		})
 	}
-	return append(options,
+	options = append(options,
 		ConstructionChoiceOption{
 			Form: ConstructionChoiceCount, Shape: ConstructionChoiceScalar,
 			Decision: ConstructionChoiceRequiresDecision, Preservation: ConstructionChoiceReducing,
@@ -562,6 +570,18 @@ func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteS
 			Reason: "Show whether at least one matching source record exists.",
 		},
 	)
+	operators := []ConstructionChoicePredicateOperator{ConstructionChoicePredicateExists}
+	switch strings.ToLower(strings.TrimSpace(candidate.LogicalType)) {
+	case "string", "code":
+		operators = append(operators, ConstructionChoicePredicateEquals)
+	}
+	for index := range options {
+		switch options[index].Form {
+		case ConstructionChoiceAll, ConstructionChoiceCount, ConstructionChoicePresence:
+			options[index].ContributorPredicateOperators = append([]ConstructionChoicePredicateOperator(nil), operators...)
+		}
+	}
+	return options
 }
 
 func constructionForm(mode ProjectionMode) (ConstructionChoiceForm, bool) {

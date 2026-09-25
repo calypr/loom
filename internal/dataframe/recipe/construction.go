@@ -101,8 +101,18 @@ type ConstructionRelatedSource struct {
 	Source             ConstructionRelatedFieldSource `json:"source"`
 	Route              []ConstructionRelatedRouteStep `json:"route"`
 	ContributorPolicy  string                         `json:"contributorPolicy"`
+	Predicate          *ConstructionRelatedPredicate  `json:"predicate,omitempty"`
 	Form               string                         `json:"form"`
 	OutputColumnID     string                         `json:"outputColumnId"`
+}
+
+// ConstructionRelatedPredicate narrows the already selected scalar source
+// field. CandidateID is repeated deliberately so a recipe cannot silently
+// apply a predicate to a different source field.
+type ConstructionRelatedPredicate struct {
+	CandidateID string         `json:"candidateId"`
+	Operator    FilterOperator `json:"operator"`
+	Value       *FilterValue   `json:"value,omitempty"`
 }
 
 type ConstructionRelatedFieldSource struct {
@@ -572,6 +582,9 @@ func validateConstructionRelatedSource(related ConstructionRelatedSource, input,
 	if (related.Form != "ALL" && related.Form != "COUNT" && related.Form != "PRESENCE") || related.ContributorPolicy != "ALL_MATCHES" {
 		return fmt.Errorf("%s.relatedSource supports ALL, COUNT, or PRESENCE with ALL_MATCHES contributor policy", path)
 	}
+	if err := validateConstructionRelatedPredicate(source, related.Predicate, path+".relatedSource.predicate"); err != nil {
+		return err
+	}
 	if len(related.Route) == 0 {
 		return fmt.Errorf("%s.relatedSource.route must contain at least one hop", path)
 	}
@@ -598,6 +611,42 @@ func validateConstructionRelatedSource(related ConstructionRelatedSource, input,
 	}
 	want[related.OutputColumnID] = true
 	return requireExactStageOutputIDs(want, output, path)
+}
+
+func validateConstructionRelatedPredicate(source ConstructionRelatedFieldSource, predicate *ConstructionRelatedPredicate, path string) error {
+	if predicate == nil {
+		return nil
+	}
+	if !validConstructionColumnID(predicate.CandidateID) || predicate.CandidateID != source.CandidateID {
+		return fmt.Errorf("%s candidateId must match the selected related source field", path)
+	}
+	if predicate.Operator != FilterExists && predicate.Operator != FilterEquals {
+		return fmt.Errorf("%s operator must be EXISTS or EQUALS", path)
+	}
+	if predicate.Operator == FilterExists {
+		if predicate.Value != nil {
+			return fmt.Errorf("%s EXISTS does not accept a value", path)
+		}
+		return nil
+	}
+	if predicate.Value == nil {
+		return fmt.Errorf("%s EQUALS requires a value", path)
+	}
+	if err := predicate.Value.Validate(); err != nil {
+		return fmt.Errorf("%s value: %w", path, err)
+	}
+	wantKind := FilterString
+	switch strings.ToLower(strings.TrimSpace(source.LogicalType)) {
+	case "string":
+	case "code":
+		wantKind = FilterCode
+	default:
+		return fmt.Errorf("%s EQUALS is supported only for string or code source fields", path)
+	}
+	if predicate.Value.Kind != wantKind {
+		return fmt.Errorf("%s EQUALS requires a %s value for the selected source field", path, wantKind)
+	}
+	return nil
 }
 
 func validateConstructionFilter(filter ConstructionFilter, path string) error {

@@ -375,8 +375,32 @@ func validateConstructionRelatedSource(step ConstructionStep, input map[string]S
 	default:
 		return fmt.Errorf("relatedSource.form must be ALL, COUNT, or PRESENCE")
 	}
-	if related.ContributorRule.Policy != ConstructionRelatedAllMatches || related.ContributorRule.Predicate != nil {
-		return fmt.Errorf("relatedSource.contributorRule must be ALL_MATCHES without a predicate")
+	if related.ContributorRule.Policy != ConstructionRelatedAllMatches {
+		return fmt.Errorf("relatedSource.contributorRule policy must be ALL_MATCHES")
+	}
+	if predicate := related.ContributorRule.Predicate; predicate != nil {
+		if err := predicate.Validate(); err != nil {
+			return fmt.Errorf("relatedSource.contributorRule.predicate: %w", err)
+		}
+		if predicate.CandidateID != source.CandidateID {
+			return fmt.Errorf("relatedSource.contributorRule.predicate candidateId must match relatedSource.source.candidateId")
+		}
+		if predicate.Quantifier != "" {
+			return fmt.Errorf("relatedSource scalar contributor predicate must not specify a quantifier")
+		}
+		if predicate.Operator == ContributorEquals {
+			wantKind := ContributorString
+			switch strings.ToLower(strings.TrimSpace(source.LogicalType)) {
+			case "string":
+			case "code":
+				wantKind = ContributorValueCode
+			default:
+				return fmt.Errorf("relatedSource EQUALS predicate is supported only for string or code source fields")
+			}
+			if predicate.Value.Kind != wantKind {
+				return fmt.Errorf("relatedSource EQUALS predicate requires a %s value for the selected source field", wantKind)
+			}
+		}
 	}
 	if len(related.Route) == 0 {
 		return fmt.Errorf("relatedSource.route must contain at least one authorized hop")

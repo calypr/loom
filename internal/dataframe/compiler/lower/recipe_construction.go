@@ -512,6 +512,37 @@ func lowerConstructionRelatedSource(
 		Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
 		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}}, ResourceType: related.Source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(related.Source.ResourceType, selector)},
 	}
+	if predicate := related.Predicate; predicate != nil {
+		if predicate.CandidateID != related.Source.CandidateID {
+			return nil, nil, fmt.Errorf("related source contributor predicate candidate does not match the selected source field")
+		}
+		filterValues := fieldExpression
+		filterValues.Cardinality = ir.PhysicalArrayCardinality
+		filterValues.NullBehavior = ir.PhysicalEmptyOnNull
+		physicalPredicate := ir.PhysicalPredicate{
+			Operator: string(predicate.Operator), LeftExpression: &filterValues,
+		}
+		if predicate.Value != nil {
+			literal, literalErr := constructionFilterLiteral(*predicate.Value)
+			if literalErr != nil {
+				return nil, nil, fmt.Errorf("related source contributor predicate: %w", literalErr)
+			}
+			bindKey := fmt.Sprintf("related_%d_contributor_value", index)
+			plan.BindVars[bindKey] = literal
+			physicalPredicate.Right = &ir.PhysicalValue{BindKey: bindKey}
+			physicalPredicate.ValueKind = spec.FilterValueKind(predicate.Value.Kind)
+		}
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind: ir.PhysicalFilterOp,
+			Source: ir.PhysicalSource{
+				SemanticNode: related.Source.NodeID, ResourceType: related.Source.ResourceType,
+				SemanticField: related.Source.CandidateID,
+			},
+			Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+				Kind: ir.PhysicalComparisonPredicate, Comparison: &physicalPredicate,
+			}},
+		})
+	}
 	outputKind := related.Source.LogicalType
 	outputCardinality := expression.Many
 	outputNullable := true

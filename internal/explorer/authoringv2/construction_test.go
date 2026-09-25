@@ -663,7 +663,7 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	}}
 	raw := `{"version":1,"steps":[
 		{"id":"keep_patients","inputs":[{"kind":"SOURCE_PROJECTION"}],"operation":{"kind":"FILTER","filter":{"columnId":"patient-id","operator":"EXISTS"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"}]},
-		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"_key","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES"},"form":"ALL","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
+		{"id":"add_observation_status","inputs":[{"kind":"STEP_OUTPUT","stepId":"keep_patients"}],"operation":{"kind":"RELATED_SOURCE","relatedSource":{"anchorColumnId":"_key","choiceId":"choice-token","sourceOccurrenceId":"observation-node","source":{"kind":"FIELD","candidateId":"observation-status","nodeId":"observation-node","resourceType":"Observation","path":"status","cardinality":"optional_one","logicalType":"string"},"route":[{"edgeId":"patient-observation","fromNodeId":"patient-node","toNodeId":"observation-node","fromResourceType":"Patient","toResourceType":"Observation","relationship":"subject_Patient","storageDirection":"INBOUND","matchMode":"OPTIONAL"}],"contributorRule":{"policy":"ALL_MATCHES","predicate":{"candidateId":"observation-status","operator":"EQUALS","value":{"kind":"STRING","string":"registered"}}},"form":"ALL","outputColumnId":"observation-status"}},"outputs":[{"id":"patient-id","name":"patient_id","label":"Patient ID","type":"string"},{"id":"observation-status","name":"observation_status","label":"Observation statuses","type":"string"}]}
 	]}`
 	var candidate Construction
 	if err := json.Unmarshal([]byte(raw), &candidate); err != nil {
@@ -680,6 +680,10 @@ func TestRelatedSourceAddsColumnAtSelectedStageWithoutRewritingSourceProjection(
 	}
 	if got := candidate.Steps[1].Operation.RelatedSource.OutputColumnID; got != "observation-status" {
 		t.Fatalf("related source stable output ID = %q", got)
+	}
+	predicate := candidate.Steps[1].Operation.RelatedSource.ContributorRule.Predicate
+	if predicate == nil || predicate.CandidateID != "observation-status" || predicate.Operator != ContributorEquals || predicate.Value == nil || predicate.Value.Kind != ContributorString || predicate.Value.String == nil || *predicate.Value.String != "registered" {
+		t.Fatalf("related source scalar contributor predicate did not round trip: %#v", predicate)
 	}
 	if len(document.Columns) != 1 || document.Columns[0].ColumnID != "patient-id" {
 		t.Fatalf("related source mutated initial projection columns: %#v", document.Columns)

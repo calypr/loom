@@ -185,9 +185,10 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		document(patientKey("o1"), "Observation", generation, map[string]any{"id": "o1", "resourceType": "Observation", "status": "registered"}),
 		document(patientKey("o2"), "Observation", generation, map[string]any{"id": "o2", "resourceType": "Observation", "status": "cancelled"}),
 		document(patientKey("o3"), "Observation", "generation-older", map[string]any{"id": "o3", "resourceType": "Observation", "status": "stale-generation"}),
+		document(patientKey("o4"), "Observation", generation, map[string]any{"id": "o4", "resourceType": "Observation"}),
 	}
 	edges := make([]json.RawMessage, 0, len(observations))
-	for index, observationID := range []string{"o1", "o2", "o3"} {
+	for index, observationID := range []string{"o1", "o2", "o3", "o4"} {
 		encoded, marshalErr := json.Marshal(map[string]any{
 			"_key":  fmt.Sprintf("%s_edge_%d", project, index+1),
 			"_from": "Observation/" + patientKey(observationID), "_to": "Patient/" + patientKey("p1"),
@@ -244,7 +245,12 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 						FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
 						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
 					}},
-					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation-status",
+					ContributorPolicy: "ALL_MATCHES",
+					Predicate: &recipe.ConstructionRelatedPredicate{
+						CandidateID: "observation-status", Operator: recipe.FilterEquals,
+						Value: &recipe.FilterValue{Kind: recipe.FilterString, String: stringPtr("registered")},
+					},
+					Form: "ALL", OutputColumnID: "observation-status",
 				}},
 				Outputs: relatedColumns,
 			},
@@ -277,15 +283,15 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		t.Fatalf("related-source rows = %#v, want both Patient roots", rows)
 	}
 	gotStatuses, ok := byPatient["p1"]["observation_status"].([]any)
-	if !ok || len(gotStatuses) != 2 {
-		t.Fatalf("p1 observation statuses = %#v, want both related rows", byPatient["p1"]["observation_status"])
+	if !ok || len(gotStatuses) != 1 {
+		t.Fatalf("p1 observation statuses = %#v, want only the matching related row", byPatient["p1"]["observation_status"])
 	}
 	statusSet := map[string]int{}
 	for _, status := range gotStatuses {
 		statusSet[fmt.Sprint(status)]++
 	}
-	if statusSet["registered"] != 1 || statusSet["cancelled"] != 1 || statusSet["stale-generation"] != 0 {
-		t.Fatalf("p1 statuses = %#v, want registered + cancelled and no old-generation target", gotStatuses)
+	if statusSet["registered"] != 1 || statusSet["cancelled"] != 0 || statusSet["stale-generation"] != 0 {
+		t.Fatalf("p1 statuses = %#v, want only registered", gotStatuses)
 	}
 	gotSparse, ok := byPatient["p2"]["observation_status"].([]any)
 	if !ok || len(gotSparse) != 0 {
@@ -307,7 +313,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	for patient, expected := range map[string]struct {
 		status string
 		count  int
-	}{patientKey("p1"): {"VALUE", 2}, patientKey("p2"): {"NO_MATCH", 0}} {
+	}{patientKey("p1"): {"VALUE", 1}, patientKey("p2"): {"NO_MATCH", 0}} {
 		row := traces[patient]
 		if row == nil || row[trace.StatusColumn] != expected.status || row[trace.OmissionColumn] != "" {
 			t.Fatalf("%s related-source trace = %#v, want status %q with no omission", patient, row, expected.status)
@@ -317,16 +323,16 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			t.Fatalf("%s related-source contributors = %#v, want %d", patient, row[trace.ContributionsColumn], expected.count)
 		}
 		if patient == patientKey("p1") {
-			values := map[string]string{}
+			values := map[string]int{}
 			for _, raw := range contributors {
 				contribution, ok := raw.(map[string]any)
-				if !ok || contribution["resourceType"] != "Observation" {
+				if !ok || contribution["resourceType"] != "Observation" || contribution["value"] != "registered" {
 					t.Fatalf("p1 related-source contributor = %#v, want Observation", raw)
 				}
-				values[fmt.Sprint(contribution["resourceId"])] = fmt.Sprint(contribution["value"])
+				values[fmt.Sprint(contribution["resourceId"])]++
 			}
-			if values["o1"] != "registered" || values["o2"] != "cancelled" || len(values) != 2 {
-				t.Fatalf("p1 related-source trace values = %#v, want only current-generation observations", values)
+			if values["o1"] != 1 || len(values) != 1 {
+				t.Fatalf("p1 related-source trace values = %#v, want only the matching source record", values)
 			}
 		}
 	}
@@ -383,15 +389,15 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		t.Fatalf("paged related-source rows = %#v, want both Patient roots", pagedRows)
 	}
 	pagedStatuses, ok := pagedByPatient["p1"]["observation_status"].([]any)
-	if !ok || len(pagedStatuses) != 2 {
-		t.Fatalf("paged p1 statuses = %#v, want both related rows", pagedByPatient["p1"]["observation_status"])
+	if !ok || len(pagedStatuses) != 1 {
+		t.Fatalf("paged p1 statuses = %#v, want only the matching related row", pagedByPatient["p1"]["observation_status"])
 	}
 	pagedStatusSet := map[string]int{}
 	for _, status := range pagedStatuses {
 		pagedStatusSet[fmt.Sprint(status)]++
 	}
-	if pagedStatusSet["registered"] != 1 || pagedStatusSet["cancelled"] != 1 || pagedStatusSet["stale-generation"] != 0 {
-		t.Fatalf("paged p1 statuses = %#v, want registered + cancelled and no old-generation target", pagedStatuses)
+	if pagedStatusSet["registered"] != 1 || pagedStatusSet["cancelled"] != 0 || pagedStatusSet["stale-generation"] != 0 {
+		t.Fatalf("paged p1 statuses = %#v, want only registered", pagedStatuses)
 	}
 	pagedSparse, ok := pagedByPatient["p2"]["observation_status"].([]any)
 	if !ok || len(pagedSparse) != 0 {
@@ -416,7 +422,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		absent  any
 		kind    string
 	}{
-		{name: "COUNT", column: "observation_count", present: float64(2), absent: float64(0), kind: "integer"},
+		{name: "COUNT", column: "observation_count", present: float64(1), absent: float64(0), kind: "integer"},
 		{name: "PRESENCE", column: "has_observation", present: true, absent: false, kind: "boolean"},
 	} {
 		t.Run(form.name, func(t *testing.T) {
@@ -470,14 +476,75 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 					continue
 				}
 				contributors, ok := row[trace.ContributionsColumn].([]any)
-				if !ok || len(contributors) != 2 || row[trace.OmissionColumn] != "" {
-					t.Fatalf("%s p1 trace = %#v, want two distinct contributors", form.name, row)
+				if !ok || len(contributors) != 1 || row[trace.OmissionColumn] != "" {
+					t.Fatalf("%s p1 trace = %#v, want only the matching source record", form.name, row)
 				}
 				return
 			}
 			t.Fatalf("%s trace omitted p1", form.name)
 		})
 	}
+
+	related := output.Construction.Steps[1].Operation.RelatedSource
+	related.Form = "ALL"
+	related.Predicate.Operator = recipe.FilterExists
+	related.Predicate.Value = nil
+	output.Name = "related_source_exists"
+	output.Construction.Steps[1].Outputs[len(output.Construction.Steps[1].Outputs)-1].Name = "observation_status"
+	existsBundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	existsPlan, err := semantic.BuildRecipePlan(existsBundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsResolved, err := semantic.ResolveRecipePlan(existsPlan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsCompiled, err := lower.CompileResolvedRecipePlan(existsResolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsQuery, err := CompileRecipeOutputWithPolicy(existsCompiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsRows := executeReshapeOracleQuery(t, ctx, client, existsQuery)
+	existsByPatient := make(map[string]map[string]any, len(existsRows))
+	for _, row := range existsRows {
+		existsByPatient[fmt.Sprint(row["patient_id"])] = row
+	}
+	existsStatuses, ok := existsByPatient["p1"]["observation_status"].([]any)
+	if !ok || len(existsStatuses) != 3 {
+		t.Fatalf("EXISTS p1 statuses = %#v, want both edges to o1 and one o2 status", existsByPatient["p1"]["observation_status"])
+	}
+	existsStatusSet := map[string]int{}
+	for _, status := range existsStatuses {
+		existsStatusSet[fmt.Sprint(status)]++
+	}
+	if existsStatusSet["registered"] != 2 || existsStatusSet["cancelled"] != 1 || existsStatusSet["stale-generation"] != 0 {
+		t.Fatalf("EXISTS p1 statuses = %#v, want only populated current-generation sources", existsStatuses)
+	}
+	existsSparse, ok := existsByPatient["p2"]["observation_status"].([]any)
+	if !ok || len(existsSparse) != 0 {
+		t.Fatalf("EXISTS sparse p2 statuses = %#v, want empty list", existsByPatient["p2"]["observation_status"])
+	}
+	existsTrace, err := CompileCellTraceOutputWithPolicy(existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: existsTrace.Query, BindVars: existsTrace.BindVars})
+	for _, row := range existsTraceRows {
+		parts, ok := row[existsTrace.IdentityPartsColumn].([]any)
+		if !ok || len(parts) != 1 || fmt.Sprint(parts[0]) != patientKey("p1") {
+			continue
+		}
+		contributors, ok := row[existsTrace.ContributionsColumn].([]any)
+		if !ok || len(contributors) != 3 || row[existsTrace.OmissionColumn] != "" {
+			t.Fatalf("EXISTS p1 trace = %#v, want the same three eligible route occurrences as its output", row)
+		}
+		return
+	}
+	t.Fatal("EXISTS cell trace omitted p1")
 }
 
 func constructionOracleOutput() recipe.Output {

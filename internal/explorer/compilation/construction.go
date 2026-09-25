@@ -415,8 +415,9 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			return recipe.ConstructionOperation{}, fmt.Errorf("relatedSource payload is required")
 		}
 		related := authored.RelatedSource
-		if related.ContributorRule.Predicate != nil {
-			return recipe.ConstructionOperation{}, fmt.Errorf("relatedSource contributor predicates are not supported")
+		predicate, err := constructionRelatedPredicate(related.ContributorRule.Predicate)
+		if err != nil {
+			return recipe.ConstructionOperation{}, err
 		}
 		mapped := &recipe.ConstructionRelatedSource{
 			AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
@@ -426,7 +427,7 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 				ResourceType: related.Source.ResourceType, Path: related.Source.Path,
 				Cardinality: related.Source.Cardinality, LogicalType: related.Source.LogicalType,
 			},
-			ContributorPolicy: related.ContributorRule.Policy, Form: string(related.Form),
+			ContributorPolicy: related.ContributorRule.Policy, Predicate: predicate, Form: string(related.Form),
 			OutputColumnID: related.OutputColumnID,
 			Route:          make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route)),
 		}
@@ -466,6 +467,35 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 		return recipe.ConstructionOperation{}, fmt.Errorf("unsupported operation kind %q", authored.Kind)
 	}
 	return operation, nil
+}
+
+func constructionRelatedPredicate(predicate *authoringv2.ContributorPredicate) (*recipe.ConstructionRelatedPredicate, error) {
+	if predicate == nil {
+		return nil, nil
+	}
+	mapped := &recipe.ConstructionRelatedPredicate{
+		CandidateID: predicate.CandidateID,
+		Operator:    recipe.FilterOperator(predicate.Operator),
+	}
+	if predicate.Value == nil {
+		return mapped, nil
+	}
+	value := &recipe.FilterValue{Kind: recipe.FilterValueKind(predicate.Value.Kind)}
+	switch predicate.Value.Kind {
+	case authoringv2.ContributorString:
+		if predicate.Value.String != nil {
+			stringValue := *predicate.Value.String
+			value.String = &stringValue
+		}
+	case authoringv2.ContributorValueCode:
+		if predicate.Value.Code != nil {
+			value.Code = &recipe.CodeValue{Code: predicate.Value.Code.Code}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported related-source contributor value kind %q", predicate.Value.Kind)
+	}
+	mapped.Value = value
+	return mapped, nil
 }
 
 func recipeConstructionOperand(operand authoringv2.ConstructionOperand) (recipe.ConstructionOperand, error) {

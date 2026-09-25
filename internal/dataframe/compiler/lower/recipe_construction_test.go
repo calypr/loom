@@ -89,6 +89,7 @@ func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
 
 func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	output := constructionTestOutput()
+	status := "registered"
 	output.Construction = &recipe.Construction{
 		Version: 1,
 		SourceColumns: []recipe.StageColumn{
@@ -106,7 +107,9 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 					AnchorColumnID: "_key", ChoiceID: "choice-token", SourceOccurrenceID: "observation-node",
 					Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string"},
 					Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
-					ContributorPolicy: "ALL_MATCHES", Form: "ALL", OutputColumnID: "observation-status",
+					ContributorPolicy: "ALL_MATCHES",
+					Predicate:         &recipe.ConstructionRelatedPredicate{CandidateID: "observation-status", Operator: recipe.FilterEquals, Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &status}},
+					Form:              "ALL", OutputColumnID: "observation-status",
 				}},
 				Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"}, {ID: "observation-status", Name: "observation_status", Label: "Observation statuses"}},
 			},
@@ -153,11 +156,22 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	if traversal == nil || traversal.Direction != ir.PhysicalInbound || traversal.EndpointField != "_to" || traversal.EndpointJoinField != "_from" {
 		t.Fatalf("related route did not lower through the schema-derived Patient-to-Observation edge: %#v", traversal)
 	}
+	var contributorFilter *ir.PhysicalFilter
+	for _, operation := range relatedProjection.Expression.Subplan.Operations {
+		if operation.Kind == ir.PhysicalFilterOp && operation.Filter != nil && operation.Filter.Expression != nil {
+			contributorFilter = operation.Filter
+		}
+	}
+	if contributorFilter == nil || contributorFilter.Expression.Comparison == nil || contributorFilter.Expression.Comparison.Operator != string(recipe.FilterEquals) ||
+		contributorFilter.Expression.Comparison.LeftExpression == nil || contributorFilter.Expression.Comparison.LeftExpression.Extract == nil ||
+		contributorFilter.Expression.Comparison.LeftExpression.Extract.Selector.CanonicalPath() != "status" {
+		t.Fatalf("related source predicate did not target the selected scalar field: %#v", contributorFilter)
+	}
 	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"IN @@root_collection", "._key == __loom_construction_input_2._key", "DOCUMENT(", "dataset_generation", "auth_resource_path", ".status"} {
+	for _, expected := range []string{"IN @@root_collection", "._key == __loom_construction_input_2._key", "DOCUMENT(", "dataset_generation", "auth_resource_path", ".status", "== @related_1_contributor_value"} {
 		if !strings.Contains(rendered.Query, expected) {
 			t.Fatalf("rendered related stage omits %q: %s", expected, rendered.Query)
 		}
@@ -167,6 +181,9 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	}
 	if rendered.BindVars["@related_1_hop_1_edge_collection"] != "fhir_edge" {
 		t.Fatalf("rendered route collection bind is missing or unprefixed: %#v", rendered.BindVars)
+	}
+	if rendered.BindVars["related_1_contributor_value"] != status {
+		t.Fatalf("related contributor predicate bind = %#v, want %q", rendered.BindVars["related_1_contributor_value"], status)
 	}
 }
 

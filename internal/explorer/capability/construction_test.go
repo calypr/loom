@@ -89,6 +89,50 @@ func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.
 	})
 }
 
+func TestRelatedRouteOptionsDeclareScalarContributorPredicateSupport(t *testing.T) {
+	t.Parallel()
+
+	route := []ConstructionRouteStep{{
+		EdgeID: "edge", FromNodeID: "patient", ToNodeID: "observation",
+		FromResourceType: "Patient", ToResourceType: "Observation",
+		Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+	}}
+	for _, test := range []struct {
+		logicalType string
+		want        []ConstructionChoicePredicateOperator
+	}{
+		{logicalType: "string", want: []ConstructionChoicePredicateOperator{ConstructionChoicePredicateExists, ConstructionChoicePredicateEquals}},
+		{logicalType: "code", want: []ConstructionChoicePredicateOperator{ConstructionChoicePredicateExists, ConstructionChoicePredicateEquals}},
+		{logicalType: "boolean", want: []ConstructionChoicePredicateOperator{ConstructionChoicePredicateExists}},
+	} {
+		t.Run(test.logicalType, func(t *testing.T) {
+			candidate := Candidate{
+				ID: "observation-status", NodeID: "observation", ResourceType: "Observation",
+				FieldPath: "status", Cardinality: "optional_one", LogicalType: test.logicalType,
+				ProjectionModes: []ProjectionMode{ProjectionScalar},
+			}
+			choice, err := NewFieldConstructionChoiceForRoute("snapshot", route, candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, form := range []ConstructionChoiceForm{ConstructionChoiceAll, ConstructionChoiceCount, ConstructionChoicePresence} {
+				option := constructionOption(t, choice, form)
+				if len(option.ContributorPredicateOperators) != len(test.want) {
+					t.Fatalf("%s operators = %#v, want %#v", form, option.ContributorPredicateOperators, test.want)
+				}
+				for index, want := range test.want {
+					if option.ContributorPredicateOperators[index] != want {
+						t.Fatalf("%s operators = %#v, want %#v", form, option.ContributorPredicateOperators, test.want)
+					}
+				}
+			}
+			if constructionOption(t, choice, ConstructionChoiceValue).ContributorPredicateOperators != nil {
+				t.Fatal("direct source option must not advertise related contributor predicates")
+			}
+		})
+	}
+}
+
 func TestNewSemanticConstructionChoicePinsObservationAndCompilerSource(t *testing.T) {
 	t.Parallel()
 
