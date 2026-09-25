@@ -543,7 +543,7 @@ const tableShapeCapabilityGetForLookupAQL = `
 FOR d IN @@c
   FILTER d._key == @id
     AND d.id == @id
-    AND d.kind == "CATALOG"
+    AND d.kind == @kind
     AND d.binding.project == @project
     AND d.binding.explorerId == @explorerId
     AND d.binding.outputId == @outputId

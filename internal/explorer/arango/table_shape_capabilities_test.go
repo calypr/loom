@@ -244,7 +244,7 @@ func TestTableShapeCapabilityRepositoryLookupUsesCurrentRequestIdentity(t *testi
 			t.Errorf("lookup bind missing %s", field)
 		}
 	}
-	if call.binds["kind"] != "CATALOG" || call.binds["id"] != catalog.ID {
+	if !strings.Contains(call.query, `d.kind == @kind`) || call.binds["kind"] != "CATALOG" || call.binds["id"] != catalog.ID {
 		t.Fatalf("lookup is not constrained to its catalog ID: %#v", call.binds)
 	}
 
