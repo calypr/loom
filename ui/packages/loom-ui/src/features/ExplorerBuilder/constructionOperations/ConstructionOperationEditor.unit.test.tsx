@@ -42,7 +42,7 @@ const capabilitiesFor = (
   outputId: 'table-1',
   stageId: sourceStage.id,
   baseConstruction: construction,
-  stages,
+  stages: [...stages],
   selectedStage: sourceStage,
 });
 

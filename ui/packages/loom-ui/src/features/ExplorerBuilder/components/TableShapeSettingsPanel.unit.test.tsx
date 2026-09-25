@@ -383,6 +383,7 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     renderPanel(client, onApply);
     await open();
     fireEvent.click(screen.getByRole('button', { name: 'Add derived column' }));
+    await screen.findByRole('textbox', { name: 'Derived column 1 output column' });
     enter('Derived column 1 output column', 'calculated');
     enter('Derived column 1 output label', 'Calculated');
     choose('Derived column 1 operation', 'add');
