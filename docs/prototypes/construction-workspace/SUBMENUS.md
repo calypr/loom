@@ -1,6 +1,6 @@
 # Construction workspace submenu specification
 
-Interaction contract under refinement, 2026-09-24. The user accepted the workspace layout, explicit updates of versioned table inputs, repair before Apply, guided calculations with an optional formula editor, and discovery results with meaning, examples, and available coverage. Other details below remain proposals. The [gap analysis](GAP_ANALYSIS.md) distinguishes existing support from required work.
+Interaction contract under refinement, 2026-09-24. The user accepted the workspace layout, explicit updates of versioned table inputs, repair before Apply, guided calculations with an optional formula editor, and discovery results with meaning, examples, and available coverage. The later [ML dataset contract](ML_DATASET_CONTRACT.md) supersedes generic operation families as the primary navigation; the menus below remain advanced or contextual editor specifications. Other details below remain proposals. The [gap analysis](GAP_ANALYSIS.md) distinguishes existing support from required work.
 
 ## Shared editor behavior
 

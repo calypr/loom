@@ -2,7 +2,7 @@
 
 Accepted workspace direction, 2026-09-24. Open [the interactive prototype](index.html), the [submenu specification](SUBMENUS.md), the [gap analysis](GAP_ANALYSIS.md), or the [work packages](WORK_PACKAGES.md).
 
-The user accepted this frontend organization and asked for editable/removable operations and a gap analysis. Detailed submenu behavior remains a proposal. The prototype uses fictional records and simulated responses. Its local calculations exist only to make the design inspectable; production calculations remain backend-owned.
+The user accepted the table-first workspace and editable/removable operations, then clarified that ML dataset construction must organize the primary flow. The five generic operation families are useful advanced actions, not the product's success criteria. The [ML dataset contract](ML_DATASET_CONTRACT.md) now governs the primary path and work-package acceptance. Detailed submenu behavior remains a proposal. The prototype uses fictional records and simulated responses. Its local calculations exist only to make the design inspectable; production calculations remain backend-owned.
 
 The audience understands the intended dataset but does not write SQL. General dataframe construction remains the product scope. Measurement records illustrate the interactions without defining the supported domains.
 
@@ -44,7 +44,7 @@ The current table is the default view. History becomes useful after someone has 
 | --- | --- |
 | Table navigation | Name the independently useful tables. An intermediate step does not automatically create a new table. |
 | Table header | State what one row represents, the current scope, and whether displayed counts are exact or sampled. |
-| Table actions | Show available operation families: Add columns, Keep rows, Calculate, Reshape, Combine. |
+| Table actions | Lead with defining examples, adding signal, reviewing readiness, and publishing; expose Filter, Calculate, Reshape, and Combine as contextual or advanced operations when they answer a dataset decision. |
 | Column selection | Offer actions appropriate to selected columns and provide entry to profiles. Selection never changes data. |
 | Operation editor | Ask about one intended transformation, reveal dependent choices, and show the proposed effect. |
 | Result | Keep current rows visible while a new preview loads. Switch explicitly between current and proposed results. |

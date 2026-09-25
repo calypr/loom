@@ -1,6 +1,6 @@
 # Construction workspace work packages
 
-Implementation planning draft, 2026-09-24. These packages implement the [accepted interaction decisions](DESIGN.md#accepted-interaction-decisions) and [submenu specification](SUBMENUS.md). The [gap analysis](GAP_ANALYSIS.md) records evidence at `arch/integration`, commit `ba882b003289024c3c1c8eb0fbc0d2611fb73eeb`.
+Implementation planning draft, 2026-09-24. These packages implement the [ML dataset construction contract](ML_DATASET_CONTRACT.md), [accepted interaction decisions](DESIGN.md#accepted-interaction-decisions), and [submenu specification](SUBMENUS.md). The [gap analysis](GAP_ANALYSIS.md) records evidence at `arch/integration`, commit `ba882b003289024c3c1c8eb0fbc0d2611fb73eeb`.
 
 ## Product contract
 
@@ -22,16 +22,19 @@ The finish action saves the configuration, computes the dataframe, and publishes
 | --- | --- | --- | --- |
 | P01 | Persistent, composable table operations and intermediate-result compilation | Existing source/compiler baseline | Extending the fixed physical plan layout across operation families without duplicating execution logic. |
 | P02 | Workspace shell, history, and shared editor lifecycle | P01 contract; existing source and shape services | Reusing existing controllers while preserving proposal identity and user input. |
-| P03 | Discovery and Add columns | P01 stage context, P02 | Relating source information to rows after transformations, with honest coverage evidence. |
-| P04 | Keep rows and Calculate | P01 stage input, P02 | Exposing existing expressions and adding any absent ordered-row primitives. |
-| P05 | Reshape | P01 stage input, P02 | General grouping over derived columns and repeated shape operations. |
+| P03 | Discover and add signal | P01 stage context, P02 | Related records, feature forms, time windows, and honest output-row coverage after transformations. |
+| P04 | Eligibility and feature rules | P01 stage input, P02 | Scoped conditions, expressions, recoding, and absence policies that serve dataset decisions. |
+| P05 | Model input representation | P01 stage input, P02 | General grouping, repeated shape operations, and stable wide/long/sequence outputs. |
 | P06 | Versioned table inputs and cross-engine execution | P01, P02 | Exact published-table references and the AQL-to-ClickHouse boundary needed by table-result joins and append. |
-| P07 | Save, publish to ClickHouse, reopen, and inspect | P01–P06 for included operation families | Preserving construction, source, schema, and evidence identity through publication. |
+| P07 | Save, publish to ClickHouse, reopen, and inspect | P01–P06 for included operation families | Preserving construction, source, schema, and evidence identity through publication; P09 defines readiness content. |
 | P08 | Preview performance baseline, hillclimb, and regression checks | Baseline can start immediately; extend with P01–P07 | Current end-to-end latency has not been measured. |
+| P09 | ML-readiness evidence and optional outcome/time semantics | P01 stage context; P03, P04, P07 evidence | Showing sparsity, row identity, target ascertainment, time leakage, and review limits rather than just successful execution. |
 
 P08 starts at the beginning. Each editor package extends its frozen workload and must report its latency. A separate package makes this work visible; it does not defer performance until the interface is finished.
 
 The packages are ownership and verification boundaries. They are not estimates of equal effort or a requirement to use multiple agents. One implementation instance can complete them in dependency order.
+
+An operator implementation does not close a package merely because it executes. Each package must also satisfy the relevant [ML dataset acceptance gates](ML_DATASET_CONTRACT.md#acceptance-gates-across-work-packages). The five toolbar verbs remain available as advanced actions, but the primary workspace follows dataset decisions: define examples, add signal, define an outcome when needed, review readiness, and publish.
 
 ## P01. Persistent, composable table operations and intermediate-result compilation
 
@@ -59,13 +62,14 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 ## P02. Workspace shell and editing lifecycle
 
-**Outcome.** The accepted prototype becomes a production workspace with a table navigation area, visible actions, selected-column shortcuts, an editor beside the result, and usable construction history.
+**Outcome.** The accepted table-first prototype becomes a production dataset workspace with named tables, visible row meaning, an editor beside the result, and usable construction history. The primary navigation follows dataset decisions; generic operations remain contextual or advanced actions.
 
 **Existing code.** `ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx`, its `authoring` state, `components/PreviewTable.tsx`, `ColumnSelector.tsx`, and `TableShapeSettingsPanel.tsx`.
 
 **Required changes.**
 
 - Start from available record types/tables and state row meaning beside the result.
+- Keep defining examples, adding signal, optional outcome definition, readiness review, and publication visible as one dataset workflow. Do not mark a generic operation menu as completion of this outcome.
 - Route toolbar actions and column shortcuts to the same editor. Preserve selection, scroll, focus, and entered values during requests.
 - Reuse existing shape controller behavior for context identity, saved-intent reconstruction, recoverable failure, and stale-response rejection.
 - Show current and proposed results distinctly. Apply is enabled only for a successful preview matching the current parameters and base revision.
@@ -76,9 +80,9 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 **Completion checks.** Drive these interactions in the browser against the real backend, including late responses, preview failure, Cancel, edit/remove, Undo, and reload. Every applied step reopens with the same meaning. The table and editor remain usable at narrow widths and through keyboard navigation.
 
-## P03. Discovery and Add columns
+## P03. Discover and add signal
 
-**Outcome.** A researcher can find what data exists and choose what information each current row should receive.
+**Outcome.** A researcher can find what data exists, relate it to the current examples, and construct useful signal despite sparse or repeated source records.
 
 **Existing code.** Construction choices, semantic inventory, source inspection, contributor policies, and the source catalog. Existing client calls are mapped in `GAP_ANALYSIS.md`.
 
@@ -90,12 +94,13 @@ The packages are ownership and verification boundaries. They are not estimates o
 - Address the selected intermediate stage. Related-source choices require retained semantic evidence about its rows; matching column labels alone cannot establish a relationship after reshaping.
 - Label every count by scope and denominator. Separate source-record frequency from coverage of current output rows. Evidence can load independently from structural choices.
 - Reopen a saved addition with the exact source, relationship, contributor scope, policies, and output identity.
+- Make time windows, source absence, recorded nulls, and output-row coverage explicit for each added signal where applicable. Offer presence, count, reduction, representative value, or repeated output according to backend support.
 
-**Completion checks.** Find an observed code, inspect its evidence, select a valid construction, preview the added output, apply, and reopen. Repeat after a transformation that preserves a meaningful relationship to the source. If no supported relationship remains, explain the reason before proposing a construction.
+**Completion checks.** Find an observed code, inspect its evidence, select a related source and a valid feature form, preview the added output and its output-row coverage, apply, and reopen. Distinguish no source record, recorded null, and zero in the result where the source permits. Repeat after a transformation that preserves a meaningful relationship to the source. If no supported relationship remains, explain the reason before proposing a construction.
 
-## P04. Keep rows and Calculate
+## P04. Eligibility and feature rules
 
-**Outcome.** Typed condition and expression editors operate on both source and derived columns.
+**Outcome.** Researchers can define which examples belong in the dataset and how source values become features or outcomes. Filtering, arithmetic, recoding, and ordered calculations are tools inside those decisions.
 
 **Existing code.** Resource-relative recipe filters, `internal/dataframe/expression`, recipe expressions, derived arithmetic, column transformations, and contributor predicates/windows. These are reuse candidates with different current scopes.
 
@@ -108,11 +113,11 @@ The packages are ownership and verification boundaries. They are not estimates o
 - Inventory supported function signatures and exception policies. Add missing rank/lag/running/window behavior only with explicit partition, ordering, frame, and tie semantics.
 - Support duplicate removal and ranked-row selection with explicit identity and survivor/tie policies. Do not confuse display sorting with analytical ordering.
 
-**Completion checks.** Filter on a derived value; construct nested conditions and a conditional expression; switch between guided and formula views; recode with an unmapped-value policy; reopen and edit. Compare outputs and missing semantics with deterministic expected results. Each newly added ordered-row primitive needs executable coverage of partitions, boundaries, and ties.
+**Completion checks.** Distinguish excluding an example from filtering records that contribute to one feature. Filter on a derived value; construct nested conditions and a conditional expression; switch between guided and formula views; recode with an unmapped-value policy; reopen and edit. Compare example counts, feature values, and missing semantics with deterministic expected results. When defining a target, verify its source and time boundary remain separate from predictor construction. Each newly added ordered-row primitive needs executable coverage of partitions, boundaries, and ties.
 
-## P05. Reshape
+## P05. Model input representation
 
-**Outcome.** Group, pivot, unpivot, and expansion work at the chosen point in a construction, with explicit output meaning.
+**Outcome.** Group, pivot, unpivot, and expansion work at the chosen point in a construction so the same signal can be represented as wide columns, long events, or repeated values with explicit output meaning.
 
 **Existing code.** Table-shape capability/discovery/resolution/proposal services, `TableShapeEditor`, `GroupedPivotEditor`, pivot/unpivot lowering, and row expansion. Existing `GroupRows` reads immutable explicit groups; it is not a general GROUP BY over arbitrary derived columns.
 
@@ -180,9 +185,26 @@ The packages are ownership and verification boundaries. They are not estimates o
 
 **Completion checks.** Demonstrate repeatable gains beyond measurement noise against the declared target workload. Keep calculation, cardinality, authorization, schema, and version-consistency checks green. Publish the baseline and final distributions plus the retained changes. Install a regression check with a documented environment and noise tolerance. If the target remains unmet, report the measured bottleneck and remaining gap explicitly.
 
+## P09. ML-readiness evidence and optional outcome/time semantics
+
+**Outcome.** The researcher can judge whether the published table is usable for the intended ML task and identify where sparse records, ambiguous labels, row duplication, or time leakage limit it. A target is optional; unlabeled and non-temporal datasets remain valid constructions.
+
+**Existing code.** Row-definition and population choices, source inspection, semantic inventory, contributor policies and time windows, dataframe contract, stage receipts, cell trace, publication identity, and available profiles. These provide inputs, not a complete readiness report.
+
+**Required changes.**
+
+- Record optional feature, target, anchor, and evaluation-partition roles without changing the general table algebra. State which checks are inapplicable when those roles are absent.
+- Compare source-record frequency with coverage of the actual output rows. Separate absent records, recorded nulls, zero values, and out-of-window values; disclose when the source cannot distinguish them.
+- Show example count, entity count, duplicate row identities, repeated examples, contributor multiplicity, and row changes caused by each proposed edit.
+- For labeled data, show label counts, unknown/censored outcomes, observation and outcome windows, and source times that could leak future information into predictors.
+- If a split is requested, check entity and time overlap. Any learned imputation or normalization statistics must be derived within training partitions; absent this support, report the limitation instead of claiming split-safe output.
+- Carry the readiness report's exact construction, source generation, input versions, scope, and completeness into publication and reopening. Keep expensive profiles separate from the bounded row preview.
+
+**Completion checks.** Review a sparse related feature and see its output-row coverage and missingness categories before Apply. Review a labeled temporal dataset and detect a deliberately post-anchor predictor. Review an unlabeled dataset without forcing an outcome field. Publish and reopen; the report identifies the same table revision, schema, and input versions. A failed or unavailable check is labeled, not silently passed.
+
 ## Handoff and sequencing
 
-Begin P08 baseline measurement on today's preview path while P01 settles its stage contract. P02 can establish the accepted shell using existing controls and the agreed contract. Implement P03–P06 as complete editor-to-backend units on the same composable stage model, preserving a single evaluator. P06 owns exact table-version inputs and the execution boundary, not a separate Combine lifecycle. P07 closes the saved-config-to-ClickHouse workflow. P08 continues through each unit.
+Begin P08 baseline measurement on today's preview path while P01 settles its stage contract. P02 can establish the accepted shell using existing controls and the agreed contract. Implement P03–P06 as complete editor-to-backend units on the same composable stage model, preserving a single evaluator. P06 owns exact table-version inputs and the execution boundary, not a separate Combine lifecycle. P07 closes the saved-config-to-ClickHouse workflow. P09 starts with the P03/P04 evidence contract and closes the dataset-readiness review; it is not deferred to a cosmetic final screen. P08 continues through each unit.
 
 Each package handoff includes the changed contract, actual files, focused executable checks, browser evidence where relevant, and performance impact. Cross-cutting OpenAPI changes originate in `openapi/openapi.yaml`; generated Go and client contracts must stay synchronized.
 

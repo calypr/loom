@@ -11,10 +11,11 @@
 
 - [ ] P01: durable steps, stable columns, composed compiler, edit/remove/reload and stale proposal behavior.
 - [ ] P02: production table workspace, action panels, real step history, automatic matching preview, Apply/Cancel.
-- [ ] P03: source discovery and Add columns with accurately scoped evidence.
-- [ ] P04: Keep rows and Calculate from source or derived columns; same guided/formula expression.
-- [ ] P05: grouping, pivot, unpivot, and expansion at intermediate stages.
+- [ ] P03: discover related sources and add signal with explicit feature forms, time windows, and output-row coverage.
+- [ ] P04: scoped eligibility and feature/outcome rules using conditions, recoding, and guided/formula expressions.
+- [ ] P05: wide, long, grouped, and repeated model-input representations at intermediate stages.
 - [ ] P06: exact table-revision inputs and cross-engine execution; match, append, and membership remain composable steps with explicit input updates.
 - [ ] P07: saved construction and ClickHouse publication agree; reload and evidence work.
 - [ ] P08: real action-to-render baseline, targeted optimization, final distribution and correctness.
+- [ ] P09: optional outcome/time roles and ML-readiness evidence for sparsity, row identity, leakage, and publication identity.
 - [ ] Integrated focused tests and browser verification on the isolated local stack.
