@@ -69,23 +69,20 @@ export const catalogSourceOptions = (
   const rootNodes = catalog.nodes.filter((node) => node.resourceType === rowRoot);
   const rootSeeds = rootNodes.filter((node) => node.rowRootEligible);
   const seeds = rootSeeds.length > 0 ? rootSeeds : rootNodes;
-  const paths = new Map<string, ReadonlyArray<string>>(
-    seeds.map((node) => [node.nodeId, []]),
-  );
+  const reachableNodeIds = new Set(seeds.map((node) => node.nodeId));
   const queue = seeds.map((node) => node.nodeId);
 
   for (let queueIndex = 0; queueIndex < queue.length; queueIndex += 1) {
     const currentNodeId = queue[queueIndex];
     if (!currentNodeId) continue;
-    const currentPath = paths.get(currentNodeId) ?? [];
     for (const edge of catalog.edges) {
       const nextNodeId = edge.fromNodeId === currentNodeId
         ? edge.toNodeId
         : edge.toNodeId === currentNodeId
           ? edge.fromNodeId
           : undefined;
-      if (!nextNodeId || paths.has(nextNodeId)) continue;
-      paths.set(nextNodeId, [...currentPath, edge.label.trim() || 'related']);
+      if (!nextNodeId || reachableNodeIds.has(nextNodeId)) continue;
+      reachableNodeIds.add(nextNodeId);
       queue.push(nextNodeId);
     }
   }
@@ -102,12 +99,11 @@ export const catalogSourceOptions = (
   }];
 
   for (const node of catalog.nodes) {
-    const path = paths.get(node.nodeId);
-    if (!path || node.resourceType === rowRoot) continue;
+    if (!reachableNodeIds.has(node.nodeId) || node.resourceType === rowRoot) continue;
     options.push({
       kind: 'RELATED',
       key: `node:${node.nodeId}`,
-      label: `${node.resourceType} (related through ${path.join(' › ')})${node.nodeId === savedOccurrenceNodeId ? ' · selected occurrence' : ''}`,
+      label: `${node.resourceType} — related source${node.nodeId === savedOccurrenceNodeId ? ' · selected occurrence' : ''}`,
       resourceType: node.resourceType,
       sourceNodeId: node.nodeId,
     });

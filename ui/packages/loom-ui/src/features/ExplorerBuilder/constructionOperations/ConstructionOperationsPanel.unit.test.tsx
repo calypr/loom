@@ -72,7 +72,7 @@ const relatedCatalog: ExplorerBuilderCatalog = {
     { nodeId: 'patient-node', resourceType: 'Patient', rowRootEligible: true, populated: true, documentCount: 10 },
     { nodeId: 'observation-node', resourceType: 'Observation', rowRootEligible: false, populated: true, documentCount: 20 },
   ],
-  edges: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'observations' }],
+  edges: [{ edgeId: 'patient-observation', fromNodeId: 'patient-node', toNodeId: 'observation-node', label: 'subject_Patient' }],
 };
 
 const capabilities = (): TableShapeCapabilities => ({
@@ -206,7 +206,7 @@ describe('construction operation families', () => {
     fireEvent.click(screen.getByTestId('construction-operation-intention-add_columns-find_information'));
     const source = screen.getByRole('combobox', { name: /Source/ });
     expect(within(source).getByRole('option', { name: 'Patient — table rows' })).toBeInTheDocument();
-    expect(within(source).getByRole('option', { name: 'Observation (related through observations)' })).toBeInTheDocument();
+    expect(within(source).getByRole('option', { name: 'Observation — related source' })).toBeInTheDocument();
 
     fireEvent.change(source, { target: { value: 'node:observation-node' } });
 
