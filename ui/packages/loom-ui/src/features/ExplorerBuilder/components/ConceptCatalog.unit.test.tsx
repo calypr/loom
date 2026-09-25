@@ -873,13 +873,14 @@ describe('ConceptCatalog', () => {
         });
       }
       if (url.endsWith('/construction-choices')) {
+        const request = JSON.parse(String(init?.body)) as { cursor?: string };
         return new Response(JSON.stringify({
           snapshotToken: 'snapshot-a',
           outputId: 'patients',
-          complete: false,
-          truncated: true,
-          nextCursor: 'route-cursor-2',
-          choices: [firstRoute, secondRoute],
+          complete: request.cursor === 'route-cursor-2',
+          truncated: request.cursor !== 'route-cursor-2',
+          ...(request.cursor ? {} : { nextCursor: 'route-cursor-2' }),
+          choices: request.cursor ? [secondRoute] : [firstRoute],
         }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -893,7 +894,11 @@ describe('ConceptCatalog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
-    expect(screen.getByText(/automatic route-search limit/i)).toBeInTheDocument();
+    expect(screen.getByText(/more valid routes are available/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more routes' }));
+    expect(await screen.findByRole('radio', {
+      name: 'Hemoglobin route 2: Observation through DiagnosticReport result',
+    })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('radio', {
       name: 'Hemoglobin route 2: Observation through DiagnosticReport result',
     }));
@@ -914,9 +919,11 @@ describe('ConceptCatalog', () => {
         conceptId: 'concept-718-7',
         bindingId: 'binding-718-7',
       },
-      limit: 50,
+      limit: 10,
     });
     expect(JSON.stringify(routeRequest)).not.toContain('edgeId');
+    const nextRouteRequest = JSON.parse(String(fetch.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
+    expect(nextRouteRequest).toEqual({ ...routeRequest, cursor: 'route-cursor-2' });
   });
 
   it('pins node-local code selection to the selected authored occurrence route', async () => {

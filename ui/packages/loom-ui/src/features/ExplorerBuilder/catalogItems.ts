@@ -36,6 +36,7 @@ export type CatalogChoiceGroup = {
   readonly choices: ReadonlyArray<ConstructionChoice>;
   readonly complete: boolean;
   readonly truncated: boolean;
+  readonly nextCursor?: string;
 };
 
 export type CatalogItemAvailability =

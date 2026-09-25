@@ -19,11 +19,17 @@ const optionLabel = (option: ConstructionChoice['options'][number]): string => {
 export const CatalogSelectionDialog = ({
   groups,
   busy,
+  loadingMoreRoutes,
+  routeLoadError,
+  onLoadMoreRoutes,
   onCancel,
   onConfirm,
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
   readonly busy: boolean;
+  readonly loadingMoreRoutes?: string;
+  readonly routeLoadError?: { readonly key: string; readonly message: string };
+  readonly onLoadMoreRoutes: (group: CatalogChoiceGroup) => void;
   readonly onCancel: () => void;
   readonly onConfirm: (selections: ReadonlyArray<CatalogChoiceIntent>) => void;
 }) => {
@@ -103,6 +109,12 @@ export const CatalogSelectionDialog = ({
                 <article key={key} className="rounded-lg border border-slate-200 p-3">
                   <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
                   <p className="mt-2 text-sm text-amber-900">No compiler-proved route and output form were provided.</p>
+                  {group.nextCursor ? (
+                    <button type="button" disabled={busy} onClick={() => onLoadMoreRoutes(group)} className="mt-3 rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 disabled:opacity-50">
+                      {loadingMoreRoutes === key ? 'Loading routes…' : 'Load more routes'}
+                    </button>
+                  ) : null}
+                  {routeLoadError?.key === key ? <p role="alert" className="mt-2 text-sm text-red-800">{routeLoadError.message}</p> : null}
                 </article>
               );
             }
@@ -112,7 +124,9 @@ export const CatalogSelectionDialog = ({
                 <h3 className="font-semibold text-slate-900">{catalogItemLabel(item)}</h3>
                 {group.truncated ? (
                   <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
-                    Loom reached the automatic route-search limit. The choices below are valid, but more routes may exist in Advanced graph.
+                    {group.nextCursor
+                      ? 'More valid routes are available. Load them if the source you need is not shown.'
+                      : 'The route search reached its safety limit. Additional routes may exist.'}
                   </p>
                 ) : null}
                 {group.choices.length > 1 ? (
@@ -125,7 +139,13 @@ export const CatalogSelectionDialog = ({
                           name={`construction-route-${key}`}
                           aria-label={`${catalogItemLabel(item)} route ${routeIndex + 1}: ${routeChoice.presentation.summary}`}
                           checked={choice?.choiceId === routeChoice.choiceId}
-                          onChange={() => setChoiceIDs((current) => new Map(current).set(key, routeChoice.choiceId))}
+                          onChange={() => {
+                            setChoiceIDs((current) => new Map(current).set(key, routeChoice.choiceId));
+                            const defaultForm = catalogItemDefaultForm(routeChoice);
+                            if (defaultForm) {
+                              setForms((current) => new Map(current).set(routeChoice.choiceId, defaultForm));
+                            }
+                          }}
                           className="mt-1 h-4 w-4 border-slate-300 text-blue-700"
                         />
                         <span className="min-w-0 flex-1">
@@ -139,6 +159,19 @@ export const CatalogSelectionDialog = ({
                       </label>
                     ))}
                   </fieldset>
+                ) : null}
+                {group.nextCursor ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onLoadMoreRoutes(group)}
+                    className="mt-3 rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 disabled:opacity-50"
+                  >
+                    {loadingMoreRoutes === key ? 'Loading routes…' : 'Load more routes'}
+                  </button>
+                ) : null}
+                {routeLoadError?.key === key ? (
+                  <p role="alert" className="mt-2 text-sm text-red-800">{routeLoadError.message}</p>
                 ) : null}
                 {choice ? <p className="mt-2 text-sm text-slate-600">
                   {choice.presentation.summary}

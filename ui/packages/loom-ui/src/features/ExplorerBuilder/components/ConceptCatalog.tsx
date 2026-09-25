@@ -24,6 +24,7 @@ import {
 import { CatalogSelectionDialog } from './CatalogSelectionDialog';
 
 const PAGE_SIZE = 50;
+const ROUTE_PAGE_SIZE = 10;
 const MAX_SELECTIONS = 100;
 
 export interface CatalogRouteContext {
@@ -205,7 +206,9 @@ const ChoiceDetails = ({
   <div className="mt-2 space-y-2" aria-label={`Construction choices for ${catalogItemLabel(group.item)}`}>
     {group.truncated ? (
       <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
-        The server returned valid choices but reports that more routes may exist.
+        {group.nextCursor
+          ? 'More routes are available. Select this source to browse them.'
+          : 'The route search reached its safety limit. Additional routes may exist.'}
       </p>
     ) : null}
     {group.choices.length === 0 ? (
@@ -517,6 +520,8 @@ export const ConceptCatalog = ({
   const [adding, setAdding] = useState(false);
   const [actionMessage, setActionMessage] = useState<string>();
   const [pendingSelection, setPendingSelection] = useState<ReadonlyArray<CatalogChoiceGroup>>();
+  const [loadingMoreRoutes, setLoadingMoreRoutes] = useState<string>();
+  const [routeLoadError, setRouteLoadError] = useState<{ readonly key: string; readonly message: string }>();
   const disabledReasonId = useId();
   const visibleDisabledReasonId = disabled && disabledReason?.trim()
     ? disabledReasonId
@@ -653,6 +658,7 @@ export const ConceptCatalog = ({
   const resolveChoiceGroup = async (
     item: CatalogItem,
     signal?: AbortSignal,
+    cursor?: string,
   ): Promise<CatalogChoiceGroup> => {
     const existingChoice = catalogItemConstructionChoice(item);
     if (
@@ -689,7 +695,8 @@ export const ConceptCatalog = ({
       outputId,
       ...(routeContext ? { occurrenceId: routeContext.occurrenceId } : {}),
       source,
-      limit: PAGE_SIZE,
+      limit: ROUTE_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
       requestId: `construction-choices-${window.crypto.randomUUID()}`,
     }, signal);
     if (
@@ -703,7 +710,43 @@ export const ConceptCatalog = ({
       choices: resolved.choices,
       complete: resolved.complete,
       truncated: resolved.truncated,
+      nextCursor: resolved.nextCursor,
     };
+  };
+
+  const loadMoreChoices = async (group: CatalogChoiceGroup) => {
+    if (!group.nextCursor || loadingMoreRoutes) return;
+    const key = catalogItemKey(group.item);
+    setLoadingMoreRoutes(key);
+    setRouteLoadError(undefined);
+    try {
+      const page = await resolveChoiceGroup(group.item, undefined, group.nextCursor);
+      const seen = new Set(group.choices.map((choice) => choice.choiceId));
+      const updated = {
+        ...group,
+        choices: [
+          ...group.choices,
+          ...page.choices.filter((choice) => !seen.has(choice.choiceId)),
+        ],
+        complete: page.complete,
+        truncated: page.truncated,
+        nextCursor: page.nextCursor,
+      };
+      setPendingSelection((current) => current?.map((candidate) =>
+        catalogItemKey(candidate.item) === key ? updated : candidate,
+      ));
+      setChoiceDetails((current) => new Map(current).set(
+        choiceDetailsKey(group.item),
+        { status: 'ready', group: updated },
+      ));
+    } catch (error) {
+      setRouteLoadError({
+        key,
+        message: error instanceof Error ? error.message : 'Loom could not load more routes.',
+      });
+    } finally {
+      setLoadingMoreRoutes(undefined);
+    }
   };
 
   const inspectChoices = (item: CatalogItem) => {
@@ -770,6 +813,7 @@ export const ConceptCatalog = ({
 
   const openSelection = async () => {
     if (!selectedItems.length || !onAddSelected || !selectedItems.every(canAddCatalogItem)) return;
+    setRouteLoadError(undefined);
     const controller = new AbortController();
     activeChoiceRequest.current?.abort();
     activeChoiceRequest.current = controller;
@@ -857,7 +901,10 @@ export const ConceptCatalog = ({
             rowRoot,
             relatedSourceAvailability,
           )}
-          busy={adding}
+          busy={adding || loadingMoreRoutes !== undefined}
+          loadingMoreRoutes={loadingMoreRoutes}
+          routeLoadError={routeLoadError}
+          onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
           onCancel={() => setPendingSelection(undefined)}
           onConfirm={(selections) => void commitSelections(selections)}
         />
