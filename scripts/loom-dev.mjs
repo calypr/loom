@@ -1333,6 +1333,15 @@ const selectOption = (label, optionText) => {
   select.dispatchEvent(new Event('change', { bubbles: true }));
   return option.value;
 };
+const selectOptionValue = (label, value) => {
+  const select = document.querySelector('select[aria-label="' + label + '"]');
+  if (!select || ![...select.options].some((option) => option.value === value)) {
+    throw new Error('select value not found: ' + label + '/' + value);
+  }
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return select.value;
+};
 const clickText = (selector, text) => {
   const element = [...document.querySelectorAll(selector)].find((candidate) => visible(candidate) && norm(candidate.textContent) === text);
   if (!element) throw new Error('text not found: ' + text);
@@ -1380,7 +1389,7 @@ const waitForBrowser = async (cdp, predicate, timeout = 30000) => {
     }
     await sleep(200);
   }
-  throw new Error(`timed out waiting for browser condition: ${lastError}`);
+  throw new Error(`timed out waiting for browser condition ${predicate.slice(0, 240)}: ${lastError}`);
 };
 
 const snapshot = async (cdp, path) => {
@@ -1432,7 +1441,10 @@ const launchBrowser = async (downloadDir, { promptText } = {}) => {
   cdp.on('Page.javascriptDialogOpening', dialogHandler);
   const awaitExit = () => new Promise((resolvePromise) => {
     if (child.exitCode !== null || child.signalCode !== null) { resolvePromise(); return; }
-    const timer = setTimeout(() => { child.kill('SIGKILL'); resolvePromise(); }, 3000);
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+      resolvePromise();
+    }, 3000);
     child.once('close', () => { clearTimeout(timer); resolvePromise(); });
   });
   return {
@@ -1440,8 +1452,11 @@ const launchBrowser = async (downloadDir, { promptText } = {}) => {
     child,
     profile,
     close: async () => {
+      await Promise.race([cdp.send('Browser.close').catch(() => {}), sleep(1000)]);
       cdp.close();
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      if (child.exitCode === null && child.signalCode === null) {
+        try { child.kill('SIGTERM'); } catch {}
+      }
       await awaitExit();
       rmSync(profile, { recursive: true, force: true });
     },
@@ -4613,6 +4628,10 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
   const openMappingPanel = async () => {
     await browserEval(cdp, `const panel = ${panelExpression}; const details = [...panel.querySelectorAll('details')].find((element) => norm(element.querySelector('summary')?.textContent) === 'Reusable mappings'); if (!details) throw new Error('reusable mappings control not found'); details.open = true;`);
   };
+  const openSourceSetup = async () => {
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`, 60000);
+    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details.open) details.querySelector('summary')?.click();`);
+  };
 
   await openMappingPanel();
   await browserEval(cdp, `const panel = ${panelExpression}; const input = panel.querySelector('input[placeholder="vitals"]'); const explanation = panel.querySelector('textarea[placeholder="What this feature means"]'); if (!input || !explanation) throw new Error('mapping creation controls not found'); const setValue = (element, value) => { const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set; setter?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); }; setValue(input, ${JSON.stringify(libraryID)}); setValue(explanation, 'Patient identifier meaning for the verification fixture'); const button = [...panel.querySelectorAll('button')].find((element) => norm(element.textContent) === 'Save reusable mapping'); if (!button) throw new Error('save reusable mapping control not found'); button.click();`);
@@ -4676,6 +4695,7 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
 
   const cloneBrowserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(v1ConsumerID)}&mode=builder`;
   await navigate(cdp, cloneBrowserURL);
+  await openSourceSetup();
   await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${firstRevision.id}`)})`, 60000);
   const beforeV2Review = await fetchBuilderState(target, v1ConsumerID);
   await openMappingPanel();
@@ -4761,6 +4781,7 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
 
   await cdp.send('Page.reload', { ignoreCache: false });
   await waitForBrowser(cdp, `document.readyState === 'complete'`);
+  await openSourceSetup();
   await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${secondRevision.id}`)})`, 60000);
   await waitForBrowser(cdp, `document.body.innerText.includes(${JSON.stringify(secondRevisionFetched.explanation)}) && document.body.innerText.includes('authored by')`, 30000);
   const reloaded = await fetchBuilderState(target, v1ConsumerID);
@@ -4779,6 +4800,7 @@ const verifyInterpretationCandidate = async (target, report, cdp, explorerID, ev
   recordAssertion(report, 'interpretation-exact-get-rejects-wrong-project', 404, wrongRevision.status);
   recordLimitation(report, 'auth-denial-under-local-allow-all', 'The verify-fast Compose entrypoint starts the API with --no-auth and AllowAllAuthorizer; no honest 401/403 denial assertion is possible in this local stack.');
   await navigate(cdp, browserURL);
+  await openSourceSetup();
   await waitForBrowser(cdp, `document.body.innerText.includes('Feature meanings') && document.body.innerText.includes(${JSON.stringify(`Pinned revision ${firstRevision.id}`)})`, 60000);
   await waitForBrowser(cdp, `document.body.innerText.includes(${JSON.stringify(firstRevisionFetched.explanation)}) && document.body.innerText.includes('authored by')`, 30000);
   const originalReloaded = await fetchBuilderState(target, explorerID);
@@ -4838,7 +4860,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
   let explorerId = '';
   try {
     await navigate(cdp, entryTarget.uiUrl);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table')`, 60000);
     recordAssertion(
       report,
       'bare-development-entry-loads-owned-bootstrap',
@@ -4849,7 +4871,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     recordEvidence(report, join(evidenceDir, 'bare-entry.html'));
 
     await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table'))`, 60000);
     await snapshot(cdp, join(evidenceDir, 'builder-initial.html'));
     recordEvidence(report, join(evidenceDir, 'builder-initial.html'));
 
@@ -4864,8 +4886,12 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
 
     await browserEval(cdp, `setInput('first-table-name', 'Observation owner records')`);
     await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Observation owner records')`);
-    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (!button || button.disabled) throw new Error('Observation row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Observation owner records') && Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`);
+    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details) throw new Error('source setup is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]')) || Boolean(document.querySelector('[aria-label="Row definition"] select[aria-label="One row per"]'))`);
+    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (button) { if (button.disabled) throw new Error('Observation row choice is unavailable'); button.click(); } else { const selected = document.querySelector('select[aria-label="One row per"] option:checked'); if (selected?.textContent.trim() !== 'Observation') throw new Error('Observation rows are not selected'); }`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`);
+    await browserEval(cdp, `const summary = [...document.querySelectorAll('summary')].find((item) => item.textContent.includes('Source and column setup')); if (summary && !summary.parentElement.open) summary.click();`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
     await browserEval(cdp, `clickButton('Search')`);
@@ -4901,25 +4927,36 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
     });
     await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Preview and configure') && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-001'))) && Boolean([...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')].find((button) => button.title.includes('dev-pair-002')))`, 60000);
-    await browserEval(cdp, `
-      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
-        .find((candidate) => candidate.title.includes('dev-pair-002'));
-      if (!button) throw new Error('invalid owner-record preview cell is missing');
-      button.click();
-    `);
+    await waitForBrowser(cdp, `document.querySelector('[data-preview-status="ready"]')?.getAttribute('data-preview-receipt-id')`, 60000);
+    const ownerPreviewReceiptID = String(await evaluate(cdp, `document.querySelector('[data-preview-status="ready"]')?.getAttribute('data-preview-receipt-id') || ''`));
+    const ownerPreview = await requestJSON(`${bootstrapAuthoringURL(target, ownerRecordsExplorerId)}/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receiptId: ownerPreviewReceiptID, outputId: ownerRecordsBuilder.workspace.documents[0].output.id, limit: 1000 }),
+      timeout: 90000,
+    });
+    if (!ownerPreview.response.ok || !Array.isArray(ownerPreview.value?.rows)) {
+      throw new Error(`owner-record preview window failed: HTTP ${ownerPreview.response.status}`);
+    }
+    const ownerPreviewRow = (sourceID) => ownerPreview.value.rows.findIndex((row) =>
+      row[ownerRecordsColumn.column]?.some?.((record) => record?.source?.resourceId === sourceID));
+    const validOwnerRow = ownerPreviewRow('dev-pair-001');
+    const invalidOwnerRow = ownerPreviewRow('dev-pair-002');
+    recordAssertion(report, 'owner-record-source-rows-in-preview-window', true, validOwnerRow >= 0 && invalidOwnerRow >= 0);
+    await browserEval(cdp, `selectOption('Preview row limit', '1,000')`);
+    await waitForBrowser(cdp, `Number(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')) > ${Math.max(validOwnerRow, invalidOwnerRow) + 1}`, 60000);
+    await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${invalidOwnerRow})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect shared for row ${invalidOwnerRow + 1}"]'))`);
+    await browserEval(cdp, `clickButton('Inspect shared for row ${invalidOwnerRow + 1}')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
     const invalidOwnerRecordEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
     recordAssertion(report, 'preview-owner-record-inspector-exposes-invalid-choice-arm', true,
       invalidOwnerRecordEvidence.includes('INVALID_CHOICE_ARM') &&
       invalidOwnerRecordEvidence.includes('dev-pair-002'));
     await browserEval(cdp, `clickButton('Close')`);
-    await browserEval(cdp, `
-      const button = [...document.querySelectorAll('button[aria-label^="Inspect shared for row "]')]
-        .find((candidate) => candidate.title.includes('dev-pair-001'));
-      if (!button) throw new Error('valid owner-record preview cell is missing');
-      button.click();
-    `);
+    await browserEval(cdp, `scrollVirtualTableToRow('preview-table-scroll', ${validOwnerRow})`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Inspect shared for row ${validOwnerRow + 1}"]'))`);
+    await browserEval(cdp, `clickButton('Inspect shared for row ${validOwnerRow + 1}')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="shared record evidence"]')) && document.body.innerText.includes('Repeated FHIR records preserved in this cell')`);
     const ownerRecordEvidence = String(await evaluate(cdp, `document.querySelector('[role="dialog"][aria-label="shared record evidence"]')?.innerText || ''`));
     await snapshot(cdp, join(evidenceDir, 'owner-record-evidence.html'));
@@ -4933,7 +4970,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickButton('Close')`);
 
     await navigate(cdp, browserURL);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Build your features') || document.body.innerText.includes('Create your first table')`, 60000);
+    await waitForBrowser(cdp, `document.querySelector('.demo-controls span')?.textContent.trim() === ${JSON.stringify(`${target.fixtureProject} / ${bootstrapExplorerId}`)} && (Boolean(document.querySelector('[data-testid="construction-workspace"]')) || document.body.innerText.includes('Create your first table'))`, 60000);
 
     const verificationTitle = `Loom dev verification ${target.fixtureProject.slice(-16)}`;
     await browserEval(cdp, `clickText('summary', 'New explorer')`);
@@ -4949,8 +4986,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `clickButton('Create table')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Patients with observations')`);
     await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Patient rows"]'); if (!button || button.disabled) throw new Error('Patient row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`);
+    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (details && !details.open) details.querySelector('summary')?.click();`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts')`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'id')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Search')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
     await browserEval(cdp, `
@@ -5010,7 +5050,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       pane.dispatchEvent(new Event('scroll'));
       return { scrollTop: pane.scrollTop, scrollHeight: pane.scrollHeight, clientHeight: pane.clientHeight };
     `);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Add component[].valueString to table"]'))`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label^="Add "][aria-label$=" to table"]'))`);
     recordAssertion(report, 'builder-virtualized-column-list-scrolls', true,
       columnScroll.scrollTop > 0 && columnScroll.scrollHeight > columnScroll.clientHeight);
     await browserEval(cdp, `clickButton('Count')`);
@@ -5117,7 +5157,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const ambiguousState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'ambiguous-require-one-does-not-publish', false,
       Boolean(ambiguousState.active?.revisionId || ambiguousState.runtime?.outputs?.length));
-    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Count values')`);
+    await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Count values or records')`);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Preview')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
@@ -5138,6 +5178,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     ], valueCounts);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Value nearest a date')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('select[aria-label="Record date"]')) && Boolean(document.querySelector('select[aria-label="Compare with row date"]')) && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply date selection'))`);
+    await browserEval(cdp, `selectOptionValue('Record date', 'effectiveDateTime')`);
+    await browserEval(cdp, `selectOptionValue('Compare with row date', 'meta.lastUpdated')`);
+    recordAssertion(report, 'date-aware-editor-selects-expected-source-and-anchor', ['effectiveDateTime', 'meta.lastUpdated'],
+      await evaluate(cdp, `[document.querySelector('select[aria-label="Record date"]')?.value, document.querySelector('select[aria-label="Compare with row date"]')?.value]`));
     const beforeTemporalApply = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'date-aware-editor-does-not-persist-partial-policy', 'COUNT',
       beforeTemporalApply.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.operation);
@@ -5173,6 +5217,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `document.body.innerText.includes('TEMPORAL_TIE_AMBIGUOUS')`, 60000);
     recordAssertion(report, 'date-aware-selection-rejects-equal-date-ambiguity', true,
       String(await evaluate(cdp, 'document.body.innerText')).includes('TEMPORAL_TIE_AMBIGUOUS'));
+    await browserEval(cdp, `clickButton('Edit date window')`);
     await browserEval(cdp, `selectOption('Equal date handling', 'Choose deterministically by resource key')`);
     await browserEval(cdp, `clickButton('Apply date selection')`);
     const tiePolicyDeadline = Date.now() + 30000;
@@ -5199,7 +5244,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       }).sort((left, right) => left[0].localeCompare(right[0]));
     })()`);
     recordAssertion(report, 'date-aware-selection-resolves-equal-dates-deterministically', [
-      ['dev-patient-001', String(relatedValue)],
+      ['dev-patient-001', '172.5'],
       ['dev-patient-002', '68'],
     ], temporalValues);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
@@ -5211,11 +5256,22 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       if (valueFeature?.source?.aggregate?.operation === 'MAX') break;
       await sleep(200);
     }
+    await browserEval(cdp, `clickButton('Remove date window')`);
+    const unwindowedDeadline = Date.now() + 30000;
+    while (Date.now() < unwindowedDeadline) {
+      reducedBuilder = await fetchBuilderState(target, explorerId);
+      const valueFeature = reducedBuilder.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
+      if (valueFeature?.source?.aggregate?.operation === 'MAX' && !valueFeature.source.aggregate.contributorWindow) break;
+      await sleep(200);
+    }
     const reducedValueFeature = reducedBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value');
     recordAssertion(report, 'builder-replaces-unsafe-related-first-with-explicit-maximum', {
-      kind: 'aggregate',
-      aggregate: { operation: 'MAX', path: 'valueQuantity.value' },
-    }, reducedValueFeature?.source);
+      operation: 'MAX', path: 'valueQuantity.value', contributorWindow: undefined,
+    }, {
+      operation: reducedValueFeature?.source?.aggregate?.operation,
+      path: reducedValueFeature?.source?.aggregate?.path,
+      contributorWindow: reducedValueFeature?.source?.aggregate?.contributorWindow,
+    });
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Preview')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
@@ -5253,8 +5309,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       { label: 'id', sourcePath: 'id', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
       { label: 'name[].family [0]', sourcePath: 'name[].family', sourceResourceType: 'Patient', projectionMode: 'INDEXED', coordinates: [0] },
       { label: 'name[].family [1]', sourcePath: 'name[].family', sourceResourceType: 'Patient', projectionMode: 'INDEXED', coordinates: [1] },
-      { label: 'Observation count', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'COUNT', coordinates: [] },
       { label: 'name__count', sourcePath: 'name[]', sourceResourceType: 'Patient', projectionMode: 'COUNT', coordinates: [] },
+      { label: 'Observation count', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'COUNT', coordinates: [] },
       { label: 'Has Observation', sourcePath: '$resource', sourceResourceType: 'Observation', projectionMode: 'EXISTS', coordinates: [] },
       { label: 'valueQuantity.value', sourcePath: 'valueQuantity.value', sourceResourceType: 'Observation', projectionMode: 'MAX', coordinates: [] },
       { label: 'gender', sourcePath: 'gender', sourceResourceType: 'Patient', projectionMode: 'VALUE', coordinates: [] },
@@ -5313,11 +5369,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
         .find((candidate) => norm(candidate.querySelector('td')?.textContent) === 'dev-patient-002');
       const explain = [...(row?.querySelectorAll('button[aria-label]') || [])]
         .find((candidate) => candidate.getAttribute('aria-label')?.startsWith('Explain name[].family [1] for row '));
-      if (!explain) throw new Error('recorded-null family cell was not found for dev-patient-002');
+      if (!explain) throw new Error('missing indexed family cell was not found for dev-patient-002');
       explain.click();
     `);
-    await waitForBrowser(cdp, `document.body.innerText.includes('A matching source record exists, but its selected value is empty.')`, 30000);
-    await browserEval(cdp, `clickButton('Review null handling')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('No authorized source record matched this feature')`, 30000);
+    await browserEval(cdp, `clickButton('Review matching rules')`);
     await waitForBrowser(cdp, `new URL(window.location.href).searchParams.get('mode') === 'builder' && Boolean(document.querySelector('[data-feature-focus="true"]'))`, 60000);
     const repairFocus = await evaluate(cdp, `({
       mode: new URL(window.location.href).searchParams.get('mode'),
@@ -5326,14 +5382,14 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       search: document.querySelector('input[aria-label="Search columns"]')?.value ?? '',
       highlighted: document.querySelector('[data-feature-focus="true"]')?.getAttribute('data-feature-focus') ?? '',
     })`);
-    recordAssertion(report, 'viewer-null-repair-focuses-exact-builder-feature', true,
+    recordAssertion(report, 'viewer-missing-index-repair-focuses-exact-builder-feature', true,
       repairFocus.mode === 'builder'
       && Boolean(repairFocus.output)
       && Boolean(repairFocus.column)
       && repairFocus.search === repairFocus.column
       && repairFocus.highlighted === 'true');
-    await snapshot(cdp, join(evidenceDir, 'builder-focused-null-repair.html'));
-    recordEvidence(report, join(evidenceDir, 'builder-focused-null-repair.html'));
+    await snapshot(cdp, join(evidenceDir, 'builder-focused-missing-index-repair.html'));
+    recordEvidence(report, join(evidenceDir, 'builder-focused-missing-index-repair.html'));
     await browserEval(cdp, `clickButton('Viewer')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Published') && document.body.innerText.includes('dev-patient-001')`, 60000);
     await browserEval(cdp, `clickButton('Load values')`);
@@ -5348,22 +5404,20 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       };
     })()`);
     recordAssertion(report, 'viewer-filter-shows-exact-table', {
-      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'Observation count', 'name__count', 'Has Observation', 'valueQuantity.value'],
-      rows: [['dev-patient-001', 'Example', 'Example-Smith', '1', '2', 'true', String(maximumRelatedValue)]],
+      headers: ['id', 'name[].family [0]', 'name[].family [1]', 'name__count', 'Observation count', 'Has Observation', 'valueQuantity.value'],
+      rows: [['dev-patient-001', 'Example', 'Example-Smith', '2', '1', 'true', String(maximumRelatedValue)]],
     }, filteredViewer);
     recordAssertion(report, 'viewer-mode-is-persisted-in-url', 'viewer', await evaluate(cdp, 'new URL(window.location.href).searchParams.get("mode")'));
 
     await browserEval(cdp, `clickButton('Explain valueQuantity.value for row 1')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Why is valueQuantity.value ${maximumRelatedValue}?') && document.body.innerText.includes('source records contributed before Loom applied the feature rule.')`, 30000);
-    await browserEval(cdp, `clickText('summary', 'Source details (2)')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Why is valueQuantity.value ${maximumRelatedValue}?') && document.body.innerText.includes('One source record supplied this value.')`, 30000);
+    await browserEval(cdp, `clickText('summary', 'Source details (1)')`);
     const cellExplanation = await evaluate(cdp, `(() => {
       const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Why is valueQuantity.value'));
       return dialog?.innerText ?? '';
     })()`);
-    recordAssertion(report, 'viewer-explains-related-aggregate-with-exact-fhir-sources', true,
-      cellExplanation.includes('dev-observation-001')
-      && cellExplanation.includes('172.5')
-      && cellExplanation.includes('dev-observation-003')
+    recordAssertion(report, 'viewer-explains-related-maximum-with-winning-fhir-source', true,
+      cellExplanation.includes('dev-observation-003')
       && cellExplanation.includes('180'));
     await snapshot(cdp, join(evidenceDir, 'viewer-cell-explanation.html'));
     recordEvidence(report, join(evidenceDir, 'viewer-cell-explanation.html'));
@@ -5371,7 +5425,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await waitForBrowser(cdp, `![...document.querySelectorAll('[role="dialog"]')].some((candidate) => candidate.innerText.includes('Why is valueQuantity.value'))`);
 
     const trainingArtifactDownloadStarted = Date.now();
-    await browserEval(cdp, `clickButton('Download training artifact')`);
+    await browserEval(cdp, `clickButton('Download dataset')`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Download dataset') && dialog.querySelector('a[download]')))`, 60000);
+    await browserEval(cdp, `const link = [...document.querySelectorAll('a[download]')].find((candidate) => norm(candidate.textContent) === 'Download ZIP'); if (!link) throw new Error('download link not found: Download ZIP'); link.click();`);
     const archivePath = await findDownloadedArchive(downloadDir);
     report.timings.training_artifact_download_ms = Date.now() - trainingArtifactDownloadStarted;
     report.target.trainingArtifactBytes = statSync(archivePath).size;
