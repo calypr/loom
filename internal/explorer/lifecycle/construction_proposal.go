@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -179,20 +180,37 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}
 	baseRelatedSources := make(map[string]authoringv2.ConstructionRelatedSource)
+	baseRelatedExpands := make(map[string]authoringv2.ConstructionRelatedExpand)
 	for _, step := range base.construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
 		}
+		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedExpand && step.Operation.RelatedExpand != nil {
+			baseRelatedExpands[step.ID] = *step.Operation.RelatedExpand
+		}
 	}
 	for _, step := range candidateDocument.Construction.Steps {
-		if step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource || step.Operation.RelatedSource == nil {
-			continue
-		}
-		if prior, exists := baseRelatedSources[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedSource) {
-			continue
-		}
-		if err := reauthorizeConstructionRelatedSource(ctx, base, candidateDocument.RootResourceType, *step.Operation.RelatedSource); err != nil {
-			return ConstructionProposalResponse{}, err
+		switch step.Operation.Kind {
+		case authoringv2.ConstructionOperationRelatedSource:
+			if step.Operation.RelatedSource == nil {
+				continue
+			}
+			if prior, exists := baseRelatedSources[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedSource) {
+				continue
+			}
+			if err := reauthorizeConstructionRelatedSource(ctx, base, candidateDocument.RootResourceType, *step.Operation.RelatedSource); err != nil {
+				return ConstructionProposalResponse{}, err
+			}
+		case authoringv2.ConstructionOperationRelatedExpand:
+			if step.Operation.RelatedExpand == nil {
+				continue
+			}
+			if prior, exists := baseRelatedExpands[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedExpand) {
+				continue
+			}
+			if err := reauthorizeConstructionRelatedExpand(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedExpand); err != nil {
+				return ConstructionProposalResponse{}, err
+			}
 		}
 	}
 	candidateWorkspace := base.workspace
@@ -244,6 +262,118 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
 	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil
+}
+
+func reauthorizeConstructionRelatedExpand(
+	ctx context.Context,
+	base constructionBase,
+	rootResourceType string,
+	step authoringv2.ConstructionStep,
+	related authoringv2.ConstructionRelatedExpand,
+) error {
+	inputStageID, err := relatedExpandInputStageID(step)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
+	}
+	var inputStage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == inputStageID {
+			inputStage = &base.stages[index]
+			break
+		}
+	}
+	if inputStage == nil {
+		return conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the related expansion input stage is not in the current compiled output", nil, nil)
+	}
+	stageSupportsRelatedExpand := false
+	for _, operation := range inputStage.Capabilities {
+		if operation.Kind == "RELATED_EXPAND" {
+			stageSupportsRelatedExpand = operation.Supported
+			break
+		}
+	}
+	if !stageSupportsRelatedExpand {
+		return unprocessable("construction-proposal", "NO_SOURCE_ROW_ANCHOR", "the related expansion input stage does not retain the root resource key", nil)
+	}
+	choice, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion route choice identity is invalid", err)
+	}
+	if choice.SnapshotToken != base.snapshot.Token {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related expansion route for the current authorized snapshot", nil, nil)
+	}
+	source, ok := choice.Source.(capability.RelatedResourceChoiceSource)
+	if !ok {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion must use an exact related-resource route choice", nil)
+	}
+	if source.StageID != inputStageID || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+		!reflect.DeepEqual(choice.Route, related.Route) {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion target, input stage, or route differs from its server-issued choice", nil)
+	}
+	resolvedRoute, err := reauthorizeConstructionRoute(base.snapshot, rootResourceType, related.TargetNodeID, related.Route)
+	if err != nil || !reflect.DeepEqual(resolvedRoute, related.Route) {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected related-resource route is no longer available", nil, err)
+	}
+	if !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
+		return unprocessable("construction-proposal", "UNSUPPORTED_CONSTRUCTION_ROUTE", "the selected related-resource route is no longer supported by the compiler", nil)
+	}
+	if related.ContributorRule.Predicate == nil {
+		return nil
+	}
+	return reauthorizeRelatedExpandContributor(ctx, base, rootResourceType, related)
+}
+
+func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error) {
+	if len(step.Inputs) != 1 {
+		return "", fmt.Errorf("related expansion requires exactly one input stage")
+	}
+	input := step.Inputs[0]
+	switch input.Kind {
+	case authoringv2.ConstructionInputSourceProjection:
+		return recipe.ConstructionSourceProjectionID, nil
+	case authoringv2.ConstructionInputStepOutput:
+		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
+			return "", fmt.Errorf("related expansion input step ID must be exact")
+		}
+		return input.StepID, nil
+	default:
+		return "", fmt.Errorf("related expansion input must be a source or prior construction stage")
+	}
+}
+
+func reauthorizeRelatedExpandContributor(ctx context.Context, base constructionBase, rootResourceType string, related authoringv2.ConstructionRelatedExpand) error {
+	if related.ContributorSource == nil || related.ContributorChoiceID == "" {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor predicate has no exact field choice", nil)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(related.ContributorChoiceID)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor choice identity is invalid", err)
+	}
+	if identity.SnapshotToken != base.snapshot.Token {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the related expansion contributor for the current authorized snapshot", nil, nil)
+	}
+	source, ok := identity.Source.(capability.FieldChoiceSource)
+	if !ok {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor must use an exact field choice", nil)
+	}
+	authored := related.ContributorSource
+	expected := capability.FieldChoiceSource{
+		Kind: authored.Kind, CandidateID: authored.CandidateID, NodeID: authored.NodeID, ResourceType: authored.ResourceType,
+		Path: authored.Path, Cardinality: authored.Cardinality, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), authored.RepeatedBoundaries...),
+	}
+	if !reflect.DeepEqual(source, expected) || !reflect.DeepEqual(identity.Route, related.Route) ||
+		source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor does not match the exact target route and field", nil)
+	}
+	resolved, _, err := resolveFieldConstructionChoice(ctx, base.authorized, base.snapshot, base.catalog, rootResourceType,
+		authoringv2.ConstructionChoiceSelection{ChoiceID: related.ContributorChoiceID, Form: capability.ConstructionChoiceValue}, identity, source)
+	if err != nil {
+		return err
+	}
+	if resolved.LogicalType != authored.LogicalType || !reflect.DeepEqual(resolved.Route, related.Route) {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion contributor type or route differs from its current compiler-proved choice", nil)
+	}
+	return nil
 }
 
 func reauthorizeConstructionRelatedSource(ctx context.Context, base constructionBase, rootResourceType string, related authoringv2.ConstructionRelatedSource) error {

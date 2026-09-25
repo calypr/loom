@@ -52,6 +52,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 		return []explorer.ReceiptConstructionOperationChoice{
 			{Kind: "PIVOT", Supported: true}, {Kind: "DERIVE", Supported: true},
 			{Kind: "FILTER", Supported: true}, {Kind: "UNPIVOT", Supported: true},
+			{Kind: "RELATED_EXPAND", Supported: true},
 		}
 	}
 	stages := []explorer.ReceiptConstructionStage{{
@@ -71,10 +72,28 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 		if len(stages) > 1 {
 			inputStageID = stages[len(stages)-1].ID
 		}
-		stages = append(stages, explorer.ReceiptConstructionStage{
+		stage := explorer.ReceiptConstructionStage{
 			ID: step.ID, InputStageID: inputStageID, Operation: string(step.Operation.Kind),
 			Columns: stageColumns, Capabilities: allChoices(),
-		})
+		}
+		if related := step.Operation.RelatedExpand; related != nil {
+			route := make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route))
+			for _, hop := range related.Route {
+				route = append(route, recipe.ConstructionRelatedRouteStep{
+					EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
+					FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
+					Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
+				})
+			}
+			stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
+				AnchorColumnID: related.AnchorColumnID, AnchorColumn: "_key",
+				RelatedRecordColumnID:  related.RelatedRecordColumnID,
+				ParentIdentityColumnID: "__test_parent_identity", ParentIdentityColumn: "__test_parent_identity",
+				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
+				TargetResourceType: related.TargetResourceType, Route: route,
+			}
+		}
+		stages = append(stages, stage)
 	}
 	return stages
 }
@@ -275,6 +294,77 @@ func TestProposeConstructionReauthorizesNewRelatedSourceWithOmittedChangedStepHi
 	}
 }
 
+func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt.ConstructionProposal = cloneConstructionProposalBinding(request.ConstructionProposal)
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{
+			"patients": testConstructionStageDescriptors(request.Workspace, "patients"),
+		}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	choices, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, TargetResourceType: "Observation",
+	})
+	if err != nil || len(choices.Choices) != 1 {
+		t.Fatalf("related expansion route search = %#v, %v", choices, err)
+	}
+	choice := choices.Choices[0]
+	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := make([]authoringv2.StageColumn, 0, len(document.Columns)+1)
+	for _, column := range document.Columns {
+		outputs = append(outputs, authoringv2.StageColumn{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType})
+	}
+	outputs = append(outputs, authoringv2.StageColumn{ID: "observation_id", Name: "observation_id", Label: "FHIR resource ID", Type: "string"})
+	makeRequest := func(route []capability.ConstructionRouteStep) ConstructionProposalRequest {
+		related := &authoringv2.ConstructionRelatedExpand{
+			AnchorColumnID: "_key", ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID,
+			TargetResourceType: choice.TargetResourceType, Route: route,
+			ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+			EmptyPolicy:     authoringv2.ConstructionExpandEmptyExclude, RelatedRecordColumnID: "observation_id",
+		}
+		return ConstructionProposalRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+			OutputID: "patients", ChangedStepID: "expand_observations",
+			CandidateConstruction: authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+				ID: "expand_observations", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedExpand, RelatedExpand: related}, Outputs: outputs,
+			}}},
+		}
+	}
+	valid, err := service.ProposeConstruction(context.Background(), makeRequest(choice.Route))
+	if err != nil || valid.PreviewStatus != "PREVIEW_PENDING" || valid.ProposalID == "" {
+		t.Fatalf("authorized related expansion proposal = %#v, %v", valid, err)
+	}
+	forgedRoute := append([]capability.ConstructionRouteStep(nil), choice.Route...)
+	forgedRoute[0].EdgeID = "forged-edge"
+	_, err = service.ProposeConstruction(context.Background(), makeRequest(forgedRoute))
+	if lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
+		t.Fatalf("route changed after server-issued choice error = %v, want invalid choice", err)
+	}
+}
+
 func TestProposeConstructionDoesNotReauthorizeUnchangedRelatedSource(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	workspace, related := seedConstructionProposalWithRelatedSource(t, store, snapshot)
@@ -304,7 +394,7 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capabilities.SelectedStage.ID != recipe.ConstructionSourceProjectionID || len(capabilities.Stages) != 1 || len(capabilities.SelectedStage.Capabilities) != 4 {
+	if capabilities.SelectedStage.ID != recipe.ConstructionSourceProjectionID || len(capabilities.Stages) != 1 || len(capabilities.SelectedStage.Capabilities) != 5 {
 		t.Fatalf("source-stage capabilities = %#v", capabilities)
 	}
 	if len(capabilities.SelectedStage.Columns) == 0 || capabilities.SelectedStage.Columns[0].ID == "" {
