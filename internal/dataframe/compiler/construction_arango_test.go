@@ -270,6 +270,45 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(gotSparse) != 0 {
 		t.Fatalf("sparse p2 observation statuses = %#v, want empty list", byPatient["p2"]["observation_status"])
 	}
+	trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
+	traces := make(map[string]map[string]any, len(traceRows))
+	for _, row := range traceRows {
+		parts, ok := row[trace.IdentityPartsColumn].([]any)
+		if !ok || len(parts) != 1 {
+			t.Fatalf("related-source trace identity = %#v, want one retained root key", row[trace.IdentityPartsColumn])
+		}
+		traces[fmt.Sprint(parts[0])] = row
+	}
+	for patient, expected := range map[string]struct {
+		status string
+		count  int
+	}{patientKey("p1"): {"VALUE", 2}, patientKey("p2"): {"NO_MATCH", 0}} {
+		row := traces[patient]
+		if row == nil || row[trace.StatusColumn] != expected.status || row[trace.OmissionColumn] != "" {
+			t.Fatalf("%s related-source trace = %#v, want status %q with no omission", patient, row, expected.status)
+		}
+		contributors, ok := row[trace.ContributionsColumn].([]any)
+		if !ok || len(contributors) != expected.count {
+			t.Fatalf("%s related-source contributors = %#v, want %d", patient, row[trace.ContributionsColumn], expected.count)
+		}
+		if patient == patientKey("p1") {
+			values := map[string]string{}
+			for _, raw := range contributors {
+				contribution, ok := raw.(map[string]any)
+				if !ok || contribution["resourceType"] != "Observation" {
+					t.Fatalf("p1 related-source contributor = %#v, want Observation", raw)
+				}
+				values[fmt.Sprint(contribution["resourceId"])] = fmt.Sprint(contribution["value"])
+			}
+			if values["o1"] != "registered" || values["o2"] != "cancelled" || len(values) != 2 {
+				t.Fatalf("p1 related-source trace values = %#v, want only current-generation observations", values)
+			}
+		}
+	}
 }
 
 func constructionOracleOutput() recipe.Output {
