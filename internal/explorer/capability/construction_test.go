@@ -317,7 +317,9 @@ func TestRelatedResourceRouteChoicePinsNodeAndRouteWithoutField(t *testing.T) {
 		FromResourceType: "Patient", ToResourceType: "Observation",
 		Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
 	}}
-	choice, err := NewConstructionRelatedResourceRouteChoice("snapshot", "stage_1", "observation_node", "Observation", route)
+	choice, err := NewConstructionRelatedResourceRouteChoiceFromAnchor(
+		"snapshot", "stage_1", "_key", "root", "patient_node", "Patient", "observation_node", "Observation", route,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,10 +328,14 @@ func TestRelatedResourceRouteChoicePinsNodeAndRouteWithoutField(t *testing.T) {
 		t.Fatalf("decode route choice: %v", err)
 	}
 	source, ok := identity.Source.(RelatedResourceChoiceSource)
-	if !ok || source.StageID != "stage_1" || source.NodeID != "observation_node" || source.ResourceType != "Observation" || identity.SnapshotToken != "snapshot" || !reflect.DeepEqual(identity.Route, route) {
+	if !ok || source.StageID != "stage_1" || source.AnchorColumnID != "_key" || source.AnchorKind != "root" ||
+		source.AnchorNodeID != "patient_node" || source.AnchorResourceType != "Patient" || source.NodeID != "observation_node" ||
+		source.ResourceType != "Observation" || identity.SnapshotToken != "snapshot" || !reflect.DeepEqual(identity.Route, route) {
 		t.Fatalf("route choice lost its pinned identity: %#v", identity)
 	}
-	if _, err := NewConstructionRelatedResourceRouteChoice("snapshot", "stage_1", "other_node", "Observation", route); err == nil {
+	if _, err := NewConstructionRelatedResourceRouteChoiceFromAnchor(
+		"snapshot", "stage_1", "_key", "root", "patient_node", "Patient", "other_node", "Observation", route,
+	); err == nil {
 		t.Fatal("route choice accepted a target node that differs from its terminal hop")
 	}
 }

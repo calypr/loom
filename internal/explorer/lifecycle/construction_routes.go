@@ -57,6 +57,7 @@ type RelatedExpandChoiceSearchRequest struct {
 	ExpectedDraftDigest  string
 	OutputID             string
 	StageID              string
+	AnchorColumnID       string
 	TargetResourceType   string
 	Limit                int
 	Cursor               string
@@ -64,6 +65,11 @@ type RelatedExpandChoiceSearchRequest struct {
 
 type RelatedExpandRouteChoice struct {
 	ChoiceID           string                             `json:"choiceId"`
+	AnchorColumnID     string                             `json:"anchorColumnId"`
+	AnchorKind         string                             `json:"kind"`
+	NodeID             string                             `json:"nodeId"`
+	ResourceType       string                             `json:"resourceType"`
+	AnchorLabel        string                             `json:"label"`
 	TargetNodeID       string                             `json:"targetNodeId"`
 	TargetResourceType string                             `json:"targetResourceType"`
 	Route              []capability.ConstructionRouteStep `json:"route"`
@@ -300,7 +306,7 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 	}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
 		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" ||
-		strings.TrimSpace(request.StageID) == "" || strings.TrimSpace(request.TargetResourceType) == "" ||
+		strings.TrimSpace(request.StageID) == "" || strings.TrimSpace(request.AnchorColumnID) == "" || strings.TrimSpace(request.TargetResourceType) == "" ||
 		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 ||
 		strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftVersion < 1 {
 		return result, malformed("related-expand-choices", "project, explorer, snapshot, draft, output, stage, and target resource identities are required", nil)
@@ -324,15 +330,12 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 	if stage == nil {
 		return result, conflict("related-expand-choices", "STALE_STAGE_REFERENCE", "the selected stage is not in the current compiled output", nil, nil)
 	}
-	anchorAvailable := false
-	for _, operation := range stage.Capabilities {
-		if operation.Kind == "RELATED_EXPAND" {
-			anchorAvailable = operation.Supported
-			break
-		}
+	if !constructionStageSupportsRelatedExpand(*stage) {
+		return result, unprocessable("related-expand-choices", "NO_SOURCE_ROW_ANCHOR", "the selected stage does not expose executable related expansion", nil)
 	}
-	if !anchorAvailable {
-		return result, unprocessable("related-expand-choices", "NO_SOURCE_ROW_ANCHOR", "the selected stage does not retain the root resource key", nil)
+	anchor, err := resolveRelatedExpandAnchor(base.snapshot, *stage, base.document.RootResourceType, request.AnchorColumnID)
+	if err != nil {
+		return result, unprocessable("related-expand-choices", "NO_SOURCE_ROW_ANCHOR", "the selected stage does not retain that exact resource anchor", err)
 	}
 	if err := validateAuthorizedReadScope(base.authorized.Scope, base.snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return result, conflict("related-expand-choices", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
@@ -348,8 +351,8 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 		return result, nil
 	}
 	page, err := capability.PlanConstructionRoutes(capability.ConstructionRouteSearch{
-		Snapshot: base.snapshot, RootResource: base.document.RootResourceType, TargetNodeIDs: targetNodeIDs,
-		SourceKey: "related-resource:" + request.StageID + ":" + request.TargetResourceType,
+		Snapshot: base.snapshot, RootNodeID: anchor.NodeID, TargetNodeIDs: targetNodeIDs,
+		SourceKey: "related-resource:" + request.StageID + ":" + anchor.ColumnID + ":" + anchor.Kind + ":" + anchor.NodeID + ":" + request.TargetResourceType,
 		Cursor:    request.Cursor, Limit: request.Limit,
 	})
 	if err != nil {
@@ -361,12 +364,13 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 			continue
 		}
 		targetNodeID := route[len(route)-1].ToNodeID
-		resolved, routeErr := reauthorizeConstructionRoute(base.snapshot, base.document.RootResourceType, targetNodeID, route)
+		resolved, routeErr := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.NodeID, targetNodeID, route)
 		if routeErr != nil || !constructionRouteHasCompilerProof(ctx, base.authorized, resolved) {
 			continue
 		}
-		choice, choiceErr := capability.NewConstructionRelatedResourceRouteChoice(
-			base.snapshot.Token, request.StageID, targetNodeID, request.TargetResourceType, resolved,
+		choice, choiceErr := capability.NewConstructionRelatedResourceRouteChoiceFromAnchor(
+			base.snapshot.Token, request.StageID, anchor.ColumnID, anchor.Kind, anchor.NodeID, anchor.ResourceType,
+			targetNodeID, request.TargetResourceType, resolved,
 		)
 		if choiceErr != nil {
 			continue
@@ -374,9 +378,72 @@ func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request Relate
 		result.Choices = append(result.Choices, RelatedExpandRouteChoice{
 			ChoiceID: choice.ChoiceID, TargetNodeID: choice.TargetNodeID,
 			TargetResourceType: choice.TargetResource, Route: choice.Route,
+			AnchorColumnID: choice.AnchorColumnID, AnchorKind: choice.AnchorKind, NodeID: choice.AnchorNodeID,
+			ResourceType: choice.AnchorResourceType, AnchorLabel: anchor.Label,
 		})
 	}
 	return result, nil
+}
+
+func constructionStageSupportsRelatedExpand(stage explorer.ReceiptConstructionStage) bool {
+	for _, operation := range stage.Capabilities {
+		if operation.Kind == "RELATED_EXPAND" {
+			return operation.Supported
+		}
+	}
+	return false
+}
+
+type resolvedRelatedExpandAnchor struct {
+	ColumnID     string
+	Kind         string
+	NodeID       string
+	ResourceType string
+	Label        string
+}
+
+func resolveRelatedExpandAnchor(snapshot capability.Snapshot, stage explorer.ReceiptConstructionStage, rootResourceType, columnID string) (resolvedRelatedExpandAnchor, error) {
+	for _, anchor := range stage.RelatedExpandAnchors {
+		if anchor.AnchorColumnID != columnID {
+			continue
+		}
+		resolved := resolvedRelatedExpandAnchor{
+			ColumnID: anchor.AnchorColumnID, Kind: anchor.Kind,
+			ResourceType: anchor.ResourceType, Label: anchor.Label,
+		}
+		switch anchor.Kind {
+		case "root":
+			if anchor.AnchorColumnID != "_key" || anchor.ResourceType != rootResourceType || rootResourceType == "" {
+				return resolvedRelatedExpandAnchor{}, fmt.Errorf("compiler root anchor differs from the output root resource")
+			}
+			for _, node := range snapshot.Nodes {
+				if !node.RowRootEligible || node.ResourceType != rootResourceType {
+					continue
+				}
+				if resolved.NodeID != "" {
+					return resolvedRelatedExpandAnchor{}, fmt.Errorf("row root is ambiguous")
+				}
+				resolved.NodeID = node.ID
+			}
+		case "activeRelatedRecord":
+			active := stage.ActiveRelatedRecord
+			if active == nil || active.TerminalIdentityColumn != anchor.AnchorColumnID ||
+				active.TargetNodeID != anchor.NodeID || active.TargetResourceType != anchor.ResourceType {
+				return resolvedRelatedExpandAnchor{}, fmt.Errorf("compiler active anchor differs from the selected stage terminal identity")
+			}
+			resolved.NodeID = anchor.NodeID
+		default:
+			return resolvedRelatedExpandAnchor{}, fmt.Errorf("compiler returned unsupported row anchor kind %q", anchor.Kind)
+		}
+		if resolved.NodeID == "" {
+			return resolvedRelatedExpandAnchor{}, fmt.Errorf("row anchor node is unavailable")
+		}
+		if node, ok := snapshot.Node(resolved.NodeID); !ok || node.ResourceType != resolved.ResourceType {
+			return resolvedRelatedExpandAnchor{}, fmt.Errorf("row anchor no longer identifies the exact resource node")
+		}
+		return resolved, nil
+	}
+	return resolvedRelatedExpandAnchor{}, fmt.Errorf("anchor column %q is not compiler-proven for stage %q", columnID, stage.ID)
 }
 
 func constructionRouteHasCompilerProof(ctx context.Context, authorized AuthorizedCapability, route []capability.ConstructionRouteStep) bool {
@@ -448,10 +515,17 @@ func reauthorizeConstructionRoute(snapshot capability.Snapshot, rootResourceType
 	if root.ID == "" {
 		return nil, fmt.Errorf("row root is unavailable")
 	}
+	return reauthorizeConstructionRouteFromAnchor(snapshot, root.ID, targetNodeID, route)
+}
+
+func reauthorizeConstructionRouteFromAnchor(snapshot capability.Snapshot, anchorNodeID, targetNodeID string, route []capability.ConstructionRouteStep) ([]capability.ConstructionRouteStep, error) {
+	current, ok := snapshot.Node(anchorNodeID)
+	if !ok || current.ID == "" {
+		return nil, fmt.Errorf("row resource anchor is unavailable")
+	}
 	if snapshot.Policy.Route.MaxHops > 0 && len(route) > snapshot.Policy.Route.MaxHops {
 		return nil, fmt.Errorf("route exceeds the current policy")
 	}
-	current := root
 	seenEdges := make(map[string]bool, len(route))
 	resolved := make([]capability.ConstructionRouteStep, 0, len(route))
 	for index, step := range route {

@@ -4290,6 +4290,9 @@ type ConstructionRelatedExpandEmptyPolicy string
 type ConstructionRelatedExpandStageDescriptor struct {
 	AnchorColumn           string                  `json:"anchorColumn"`
 	AnchorColumnId         string                  `json:"anchorColumnId"`
+	AnchorKind             string                  `json:"anchorKind"`
+	AnchorNodeId           *string                 `json:"anchorNodeId,omitempty"`
+	AnchorResourceType     string                  `json:"anchorResourceType"`
 	ParentIdentityColumn   string                  `json:"parentIdentityColumn"`
 	ParentIdentityColumnId string                  `json:"parentIdentityColumnId"`
 	RelatedRecordColumnId  string                  `json:"relatedRecordColumnId"`
@@ -4297,6 +4300,15 @@ type ConstructionRelatedExpandStageDescriptor struct {
 	TargetNodeId           string                  `json:"targetNodeId"`
 	TargetResourceType     string                  `json:"targetResourceType"`
 	TerminalIdentityColumn string                  `json:"terminalIdentityColumn"`
+}
+
+// ConstructionRelatedExpandAnchor defines model for ConstructionRelatedExpandAnchor.
+type ConstructionRelatedExpandAnchor struct {
+	AnchorColumnId string  `json:"anchorColumnId"`
+	Kind           string  `json:"kind"`
+	Label          string  `json:"label"`
+	NodeId         *string `json:"nodeId,omitempty"`
+	ResourceType   string  `json:"resourceType"`
 }
 
 // ConstructionRelatedField defines model for ConstructionRelatedField.
@@ -4369,9 +4381,10 @@ type ConstructionStageDescriptor struct {
 	InputStageId        string                                     `json:"inputStageId"`
 
 	// Operation Empty for the implicit source projection stage.
-	Operation         *string                                   `json:"operation,omitempty"`
-	RelatedExpand     *ConstructionRelatedExpandStageDescriptor `json:"relatedExpand,omitempty"`
-	RowIdentityColumn *string                                   `json:"rowIdentityColumn,omitempty"`
+	Operation            *string                                   `json:"operation,omitempty"`
+	RelatedExpand        *ConstructionRelatedExpandStageDescriptor `json:"relatedExpand,omitempty"`
+	RelatedExpandAnchors *[]ConstructionRelatedExpandAnchor        `json:"relatedExpandAnchors,omitempty"`
+	RowIdentityColumn    *string                                   `json:"rowIdentityColumn,omitempty"`
 }
 
 // ConstructionStep defines model for ConstructionStep.
@@ -5122,6 +5135,7 @@ type ReconcileRequest struct {
 
 // RelatedExpandChoiceSearchRequest defines model for RelatedExpandChoiceSearchRequest.
 type RelatedExpandChoiceSearchRequest struct {
+	AnchorColumnId       string  `json:"anchorColumnId"`
 	Cursor               *string `json:"cursor,omitempty"`
 	ExpectedDraftDigest  string  `json:"expectedDraftDigest"`
 	ExpectedDraftVersion int     `json:"expectedDraftVersion"`
@@ -5147,7 +5161,12 @@ type RelatedExpandChoiceSearchResponse struct {
 
 // RelatedExpandRouteChoice defines model for RelatedExpandRouteChoice.
 type RelatedExpandRouteChoice struct {
+	AnchorColumnId     string                  `json:"anchorColumnId"`
 	ChoiceId           string                  `json:"choiceId"`
+	Kind               string                  `json:"kind"`
+	Label              string                  `json:"label"`
+	NodeId             string                  `json:"nodeId"`
+	ResourceType       string                  `json:"resourceType"`
 	Route              []ConstructionRouteStep `json:"route"`
 	TargetNodeId       string                  `json:"targetNodeId"`
 	TargetResourceType string                  `json:"targetResourceType"`

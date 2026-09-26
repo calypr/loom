@@ -254,10 +254,10 @@ func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related 
 }
 
 func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related PhysicalStageRelatedExpand, bindVars map[string]any) error {
-	if related.AnchorColumnID != "_key" || related.RelatedRecordColumnID == "" || related.TargetNodeID == "" ||
+	if related.AnchorColumnID == "" || related.AnchorKind == "" || related.AnchorNodeID == "" || related.AnchorResourceType == "" || related.RelatedRecordColumnID == "" || related.TargetNodeID == "" ||
 		related.TargetResourceType == "" || related.ParentIdentityColumn == "" || related.ParentIdentityColumnID == "" ||
 		related.TerminalIdentityColumn == "" || related.ConstructionIDBindKey == "" || len(related.Route) == 0 {
-		return fmt.Errorf("root anchor, target, route, identities, and expansion bind are required")
+		return fmt.Errorf("row resource anchor, target, route, identities, and expansion bind are required")
 	}
 	if err := requireNonEmptyStringBind(bindVars, related.ConstructionIDBindKey); err != nil {
 		return fmt.Errorf("construction ID: %w", err)
@@ -277,8 +277,37 @@ func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related
 
 	inputColumns := stageColumnsByID(stage.InputColumns)
 	anchor, found := inputColumns[related.AnchorColumnID]
-	if !found || !anchor.Internal || anchor.Name != "_key" || anchor.Kind != "string" || anchor.Cardinality != "required_one" {
-		return fmt.Errorf("root anchor does not identify a retained required string _key")
+	if !found || !anchor.Internal || anchor.Name != related.AnchorColumnID || anchor.Kind != "string" ||
+		(anchor.Cardinality != "required_one" && anchor.Cardinality != "optional_one") {
+		return fmt.Errorf("selected anchor does not identify a retained exact string resource identity")
+	}
+	switch related.AnchorKind {
+	case "root":
+		if related.AnchorColumnID != "_key" || anchor.Cardinality != "required_one" || related.AnchorNodeID != related.Route[0].FromNodeID {
+			return fmt.Errorf("root anchor must select the retained _key and exact route root")
+		}
+	case "activeRelatedRecord":
+		if related.AnchorColumnID == "_key" || anchor.RelatedRecordAnchor == nil ||
+			anchor.RelatedRecordAnchor.NodeID != related.AnchorNodeID || anchor.RelatedRecordAnchor.ResourceType != related.AnchorResourceType {
+			return fmt.Errorf("active anchor must select the exact retained related-record identity")
+		}
+	default:
+		return fmt.Errorf("anchor kind %q is unsupported", related.AnchorKind)
+	}
+	if related.Route[0].FromNodeID != related.AnchorNodeID || related.Route[0].FromResourceType != related.AnchorResourceType {
+		return fmt.Errorf("route starts at a different node or resource type from its exact anchor")
+	}
+	if len(related.RelatedRecords.Operations) == 0 {
+		return fmt.Errorf("related route has no exact anchor lookup")
+	}
+	firstOperation := related.RelatedRecords.Operations[0]
+	if related.AnchorKind == "root" && (firstOperation.Kind != PhysicalCollectionScanOp || firstOperation.CollectionScan == nil) {
+		return fmt.Errorf("root anchor route must begin with the scoped root collection lookup")
+	}
+	if related.AnchorKind == "activeRelatedRecord" && (firstOperation.Kind != PhysicalDocumentLookupOp || firstOperation.DocumentLookup == nil ||
+		firstOperation.DocumentLookup.Variable == "" || firstOperation.DocumentLookup.ExactID.Variable != stage.InputRowVariable ||
+		len(firstOperation.DocumentLookup.ExactID.Path) != 1 || firstOperation.DocumentLookup.ExactID.Path[0] != related.AnchorColumnID) {
+		return fmt.Errorf("active anchor route must begin with an exact DOCUMENT lookup of the selected hidden _id")
 	}
 	parentIdentity, found := physicalStageColumnMap(stage.InputColumns)[related.ParentIdentityColumn]
 	if !found || !parentIdentity.Internal || !parentIdentity.Identity || parentIdentity.Kind != "string" || parentIdentity.Cardinality != "required_one" {
@@ -362,9 +391,14 @@ func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related
 	if !found || !terminalID.Internal || terminalID.Identity || terminalID.Kind != "string" || terminalID.Cardinality != wantCardinality || terminalID.Nullable != wantNullable {
 		return fmt.Errorf("terminal _id is not retained as a typed hidden identity")
 	}
-	rootKey, found := physicalStageColumnMap(stage.OutputColumns)["_key"]
-	if !found || !rootKey.Internal || rootKey.Identity || rootKey.Kind != "string" || rootKey.Cardinality != "required_one" {
-		return fmt.Errorf("root _key anchor is not retained separately from the terminal identity")
+	inputRootKey, inputHasRootKey := physicalStageColumnMap(stage.InputColumns)["_key"]
+	outputRootKey, outputHasRootKey := physicalStageColumnMap(stage.OutputColumns)["_key"]
+	if inputHasRootKey && (!outputHasRootKey || !inputRootKey.Internal || !outputRootKey.Internal || outputRootKey.Identity ||
+		outputRootKey.Kind != "string" || outputRootKey.Cardinality != "required_one") {
+		return fmt.Errorf("available root _key anchor must remain separate from the terminal identity")
+	}
+	if !inputHasRootKey && outputHasRootKey {
+		return fmt.Errorf("related expansion cannot introduce a root _key that was absent from its input")
 	}
 	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
 		return err
@@ -803,6 +837,11 @@ func validatePhysicalStageColumns(columns []PhysicalStageColumn, identityName st
 		if strings.TrimSpace(column.Kind) == "" || strings.TrimSpace(column.Cardinality) == "" {
 			return fmt.Errorf("column %q requires logical kind and cardinality", column.Name)
 		}
+		if column.RelatedRecordAnchor != nil && (!column.Internal || column.Identity || column.Kind != "string" ||
+			(column.Cardinality != "required_one" && column.Cardinality != "optional_one") ||
+			strings.TrimSpace(column.RelatedRecordAnchor.NodeID) == "" || strings.TrimSpace(column.RelatedRecordAnchor.ResourceType) == "") {
+			return fmt.Errorf("related-record anchor column %q must be a hidden scalar terminal identity with exact node and type metadata", column.Name)
+		}
 		ids[column.ID], names[column.Name] = true, true
 		if column.Name == identityName {
 			if !column.Internal || !column.Identity {
@@ -823,7 +862,7 @@ func samePhysicalStageColumns(left, right []PhysicalStageColumn) bool {
 	}
 	for index := range left {
 		a, b := left[index], right[index]
-		if a.ID != b.ID || a.Name != b.Name || a.Label != b.Label || a.Kind != b.Kind || a.Cardinality != b.Cardinality || a.Nullable != b.Nullable || a.Internal != b.Internal || a.Identity != b.Identity {
+		if a.ID != b.ID || a.Name != b.Name || a.Label != b.Label || a.Kind != b.Kind || a.Cardinality != b.Cardinality || a.Nullable != b.Nullable || a.Internal != b.Internal || a.Identity != b.Identity || !reflect.DeepEqual(a.RelatedRecordAnchor, b.RelatedRecordAnchor) {
 			return false
 		}
 	}

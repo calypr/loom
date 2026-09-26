@@ -108,9 +108,10 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
 		capabilities := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
 		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+		anchors := []explorer.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities},
-			{ID: "keep_patients", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "FILTER", Columns: columns, Capabilities: capabilities},
+			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
+			{ID: "keep_patients", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "FILTER", Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: anchors},
 		}}
 		var err error
 		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
@@ -127,7 +128,7 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 	result, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		OutputID: "patients", StageID: "keep_patients", TargetResourceType: "Observation",
+		OutputID: "patients", StageID: "keep_patients", AnchorColumnID: "_key", TargetResourceType: "Observation",
 	})
 	if err != nil || !result.Complete || len(result.Choices) != 1 {
 		t.Fatalf("related expand route choices = %#v, %v", result, err)
@@ -138,7 +139,8 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 		t.Fatal(err)
 	}
 	source, ok := identity.Source.(capability.RelatedResourceChoiceSource)
-	if !ok || source.StageID != "keep_patients" || source.NodeID != "observation" || source.ResourceType != "Observation" ||
+	if !ok || source.StageID != "keep_patients" || source.AnchorColumnID != "_key" || source.AnchorKind != "root" ||
+		source.AnchorNodeID != "patient" || source.AnchorResourceType != "Patient" || source.NodeID != "observation" || source.ResourceType != "Observation" ||
 		identity.SnapshotToken != snapshot.Token || len(identity.Route) != 1 || identity.Route[0].EdgeID != "subject-patient" {
 		t.Fatalf("route choice did not bind the selected stage and exact route: source=%#v route=%#v", identity.Source, identity.Route)
 	}
@@ -149,9 +151,12 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
 		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}
+		anchors := []explorer.ReceiptConstructionRelatedExpandAnchor{{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
-			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}},
-			{ID: "after_group", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP", Columns: columns, Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: false, ReasonCode: "ROOT_KEY_NOT_RETAINED", Reason: "selected stage does not retain a root resource key"}}},
+			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}, RelatedExpandAnchors: anchors},
+			{ID: "after_group", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP", Columns: columns,
+				Capabilities:         []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: false, ReasonCode: "ROOT_KEY_NOT_RETAINED", Reason: "selected stage does not retain a root resource key"}},
+				RelatedExpandAnchors: anchors},
 		}}
 		var err error
 		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
@@ -168,7 +173,7 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 	request := RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		OutputID: "patients", StageID: "after_group", TargetResourceType: "Observation",
+		OutputID: "patients", StageID: "after_group", AnchorColumnID: "_key", TargetResourceType: "Observation",
 	}
 	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_SOURCE_ROW_ANCHOR" {
 		t.Fatalf("unsupported selected stage error = %v, want NO_SOURCE_ROW_ANCHOR", err)
@@ -176,6 +181,97 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 	request.StageID = "missing_stage"
 	if _, err := service.SearchRelatedExpandChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
 		t.Fatalf("missing selected stage error = %v, want STALE_STAGE_REFERENCE", err)
+	}
+}
+
+func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "specimen", ResourceType: "Specimen"})
+	snapshot.Edges = append(snapshot.Edges, capability.Edge{
+		ID: "observation-specimen", FromNodeID: "observation", ToNodeID: "specimen",
+		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
+	})
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
+			AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient",
+		}
+		activeAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
+			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
+			ResourceType: "Observation", Label: "Current related Observation",
+		}
+		patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
+			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+		}}
+		active := &explorer.ReceiptConstructionActiveRelatedRecord{
+			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
+		}
+		relatedExpand := &explorer.ReceiptConstructionRelatedExpand{
+			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorResourceType: "Patient",
+			RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity",
+			ParentIdentityColumn: "__parent_identity", TerminalIdentityColumn: activeAnchor.AnchorColumnID,
+			TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
+		}
+		capabilities := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+		columns := []explorer.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID"}}
+		expandedColumns := append(append([]explorer.ReceiptConstructionStageColumn(nil), columns...), explorer.ReceiptConstructionStageColumn{
+			ID: "observation_id", Name: "observation_id", Label: "Observation ID",
+		})
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
+			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+				Columns: expandedColumns, Capabilities: capabilities, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
+				Columns: expandedColumns, Capabilities: capabilities, ActiveRelatedRecord: active,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	search := func(anchorColumnID, targetResourceType string) RelatedExpandChoiceSearchResponse {
+		t.Helper()
+		result, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+			OutputID: "patients", StageID: "keep_observations", AnchorColumnID: anchorColumnID,
+			TargetResourceType: targetResourceType,
+		})
+		if err != nil || !result.Complete || len(result.Choices) != 1 {
+			t.Fatalf("related expansion choices from %q to %s = %#v, %v", anchorColumnID, targetResourceType, result, err)
+		}
+		return result
+	}
+
+	activeResult := search("__terminal_observation_id", "Specimen")
+	activeChoice := activeResult.Choices[0]
+	if activeChoice.AnchorColumnID != "__terminal_observation_id" || activeChoice.AnchorKind != "activeRelatedRecord" ||
+		activeChoice.NodeID != "observation" || activeChoice.ResourceType != "Observation" ||
+		activeChoice.AnchorLabel != "Current related Observation" || len(activeChoice.Route) != 1 ||
+		activeChoice.Route[0].FromNodeID != "observation" || activeChoice.Route[0].ToNodeID != "specimen" {
+		t.Fatalf("active-record route was not pinned to the current related resource: %#v", activeChoice)
+	}
+	rootResult := search("_key", "Observation")
+	rootChoice := rootResult.Choices[0]
+	if rootChoice.AnchorColumnID != "_key" || rootChoice.AnchorKind != "root" || rootChoice.NodeID != "patient" ||
+		rootChoice.ResourceType != "Patient" || rootChoice.AnchorLabel != "Original Patient" || len(rootChoice.Route) != 1 ||
+		rootChoice.Route[0].FromNodeID != "patient" || rootChoice.Route[0].ToNodeID != "observation" {
+		t.Fatalf("root sibling route was not retained at the same stage: %#v", rootChoice)
 	}
 }
 
@@ -206,21 +302,25 @@ func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T
 			ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string",
 		})
 		relatedExpand := &explorer.ReceiptConstructionRelatedExpand{
-			AnchorColumnID: "_key", AnchorColumn: "_key", RelatedRecordColumnID: "observation-id",
+			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient", RelatedRecordColumnID: "observation-id",
 			ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
 			TerminalIdentityColumn: active.TerminalIdentityColumn, TargetNodeID: active.TargetNodeID,
 			TargetResourceType: active.TargetResourceType, Route: route,
 		}
 		fieldCapability := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_FIELD", Supported: true}}
+		rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
+		activeAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: active.TerminalIdentityColumn, Kind: "activeRelatedRecord", NodeID: active.TargetNodeID, ResourceType: active.TargetResourceType, Label: "Current related Observation"}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
 			{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: []explorer.ReceiptConstructionOperationChoice{
 				{Kind: "RELATED_EXPAND", Supported: true},
 				{Kind: "RELATED_FIELD", Supported: false, ReasonCode: "NO_ACTIVE_RELATED_RECORD", Reason: "no active related record"},
-			}},
+			}, RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
 			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
-				Columns: expandedColumns, Capabilities: fieldCapability, RelatedExpand: relatedExpand, ActiveRelatedRecord: active},
+				Columns: expandedColumns, Capabilities: fieldCapability, RelatedExpand: relatedExpand, ActiveRelatedRecord: active,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
 			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
-				Columns: expandedColumns, Capabilities: fieldCapability, ActiveRelatedRecord: active},
+				Columns: expandedColumns, Capabilities: fieldCapability, ActiveRelatedRecord: active,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
 		}}
 		var err error
 		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)

@@ -17,19 +17,31 @@ const constructionRowID = "__loom_row_id"
 // CompiledStageDescriptor is the compiler-owned schema and capability view
 // for one exact stage reference. Columns describe the stage output.
 type CompiledStageDescriptor struct {
-	ID                  string
-	InputStageID        string
-	Operation           string
-	Columns             []CompiledOutputColumn
-	RowIdentityColumn   string
-	Capabilities        []StageOperationCapability
-	RelatedExpand       *CompiledRelatedExpandStage
-	ActiveRelatedRecord *CompiledActiveRelatedRecordStage
+	ID                   string
+	InputStageID         string
+	Operation            string
+	Columns              []CompiledOutputColumn
+	RowIdentityColumn    string
+	Capabilities         []StageOperationCapability
+	RelatedExpandAnchors []CompiledRelatedExpandAnchor
+	RelatedExpand        *CompiledRelatedExpandStage
+	ActiveRelatedRecord  *CompiledActiveRelatedRecordStage
+}
+
+type CompiledRelatedExpandAnchor struct {
+	AnchorColumnID string
+	Kind           string
+	NodeID         string
+	ResourceType   string
+	Label          string
 }
 
 type CompiledRelatedExpandStage struct {
 	AnchorColumnID         string
 	AnchorColumn           string
+	AnchorKind             string
+	AnchorNodeID           string
+	AnchorResourceType     string
 	RelatedRecordColumnID  string
 	ParentIdentityColumnID string
 	ParentIdentityColumn   string
@@ -58,7 +70,7 @@ type StageOperationCapability struct {
 // discovery for a new, zero-column table: the physical compiler has still
 // resolved row identity and source columns, but the result is never treated
 // as an executable public output.
-func DescribeConstructionSourceStage(schema []CompiledOutputColumn) (CompiledStageDescriptor, error) {
+func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResourceType string) (CompiledStageDescriptor, error) {
 	identity := constructionSourceIdentity(schema)
 	if identity == "" {
 		return CompiledStageDescriptor{}, fmt.Errorf("construction source has no supported row identity projection")
@@ -85,6 +97,7 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn) (CompiledSta
 		Columns: columns, RowIdentityColumn: identity,
 	}
 	descriptor.Capabilities = stageCapabilities(columns)
+	descriptor.RelatedExpandAnchors = relatedExpandAnchors(columns, rootResourceType)
 	return descriptor, nil
 }
 
@@ -124,6 +137,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		Columns: cloneCompiledSchema(resolvedSource), RowIdentityColumn: sourceIdentity,
 	}}
 	descriptors[0].Capabilities = stageCapabilities(resolvedSource)
+	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType)
 	if len(construction.Steps) == 0 {
 		return resolvedSource, descriptors, sourceIdentity, nil
 	}
@@ -471,7 +485,9 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	}
 	if base.RelatedExpand != nil {
 		descriptor.RelatedExpand = &CompiledRelatedExpandStage{
-			AnchorColumnID: base.RelatedExpand.AnchorColumnID, AnchorColumn: "_key",
+			AnchorColumnID: base.RelatedExpand.AnchorColumnID, AnchorColumn: base.RelatedExpand.AnchorColumnID,
+			AnchorKind: base.RelatedExpand.AnchorKind, AnchorNodeID: base.RelatedExpand.AnchorNodeID,
+			AnchorResourceType:     base.RelatedExpand.AnchorResourceType,
 			RelatedRecordColumnID:  base.RelatedExpand.RelatedRecordColumnID,
 			ParentIdentityColumnID: base.RelatedExpand.ParentIdentityColumnID,
 			ParentIdentityColumn:   base.RelatedExpand.ParentIdentityColumn,
@@ -489,6 +505,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		}
 	}
 	descriptor.Capabilities = stageCapabilities(outputSchema)
+	descriptor.RelatedExpandAnchors = relatedExpandAnchors(outputSchema, rootResourceType)
 	return constructionStageResult{physical: base, schema: outputSchema, identity: outputIdentity, descriptor: descriptor}, nil
 }
 
@@ -936,9 +953,31 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
-		capability(recipe.ConstructionRelatedExpandOp, rootKey, "NO_SOURCE_ROW_ANCHOR", "related expansion requires the root document key to survive this stage"),
+		capability(recipe.ConstructionRelatedExpandOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key or exact related-record identity"),
 		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
 	}
+}
+
+func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string) []CompiledRelatedExpandAnchor {
+	anchors := make([]CompiledRelatedExpandAnchor, 0, 2)
+	for _, column := range schema {
+		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) &&
+			column.Cardinality == string(expression.RequiredOne) && rootResourceType != "" {
+			anchors = append(anchors, CompiledRelatedExpandAnchor{
+				AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
+				Label: "Original " + rootResourceType,
+			})
+			break
+		}
+	}
+	if active, ok := activeRelatedRecordColumn(schema); ok {
+		anchors = append(anchors, CompiledRelatedExpandAnchor{
+			AnchorColumnID: active.Name, Kind: "activeRelatedRecord",
+			NodeID: active.RelatedRecordAnchor.TargetNodeID, ResourceType: active.RelatedRecordAnchor.TargetResourceType,
+			Label: "Current related " + active.RelatedRecordAnchor.TargetResourceType,
+		})
+	}
+	return anchors
 }
 
 func activeRelatedRecordColumn(schema []CompiledOutputColumn) (CompiledOutputColumn, bool) {
@@ -1036,11 +1075,18 @@ func publicCompiledSchema(schema []CompiledOutputColumn) []CompiledOutputColumn 
 func toPhysicalStageColumns(schema []CompiledOutputColumn) []ir.PhysicalStageColumn {
 	result := make([]ir.PhysicalStageColumn, 0, len(schema))
 	for _, column := range schema {
+		var relatedAnchor *ir.PhysicalStageRelatedRecordAnchor
+		if column.RelatedRecordAnchor != nil {
+			relatedAnchor = &ir.PhysicalStageRelatedRecordAnchor{
+				NodeID: column.RelatedRecordAnchor.TargetNodeID, ResourceType: column.RelatedRecordAnchor.TargetResourceType,
+			}
+		}
 		result = append(result, ir.PhysicalStageColumn{
 			ID: column.ID, Name: column.Name, Label: column.Label,
 			Kind: column.Kind, Cardinality: column.Cardinality, Nullable: column.Nullable,
 			Internal: column.Internal, Identity: column.Identity,
-			NormalizedUnit: cloneUnitIdentity(column.NormalizedUnit),
+			RelatedRecordAnchor: relatedAnchor,
+			NormalizedUnit:      cloneUnitIdentity(column.NormalizedUnit),
 		})
 	}
 	return result

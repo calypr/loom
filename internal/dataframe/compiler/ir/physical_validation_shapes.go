@@ -118,6 +118,17 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			if err := definePhysicalVariable(defined, operation.CollectionScan.Variable); err != nil {
 				return fmt.Errorf("subplan operation %d: %w", index, err)
 			}
+		case PhysicalDocumentLookupOp:
+			lookup := operation.DocumentLookup
+			if err := requireCollectionBind(bindVars, lookup.CollectionBindKey); err != nil {
+				return fmt.Errorf("subplan operation %d collection: %w", index, err)
+			}
+			if err := validatePhysicalValue(lookup.ExactID, defined, bindVars); err != nil {
+				return fmt.Errorf("subplan operation %d exact document identity: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, lookup.Variable); err != nil {
+				return fmt.Errorf("subplan operation %d: %w", index, err)
+			}
 		case PhysicalTraversalOp:
 			traversal := operation.Traversal
 			if !defined[traversal.SourceVariable] {

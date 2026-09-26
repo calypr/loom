@@ -357,7 +357,7 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	output.Construction = nil
 	compiled := compileDerivedTestOutput(t, output)
 
-	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema)
+	descriptor, err := DescribeConstructionSourceStage(compiled.OutputSchema, output.RootResourceType)
 	if err != nil {
 		t.Fatalf("describe compiler-resolved source stage: %v", err)
 	}
@@ -566,6 +566,105 @@ func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(
 				}
 			}
 		})
+	}
+}
+
+func TestOnwardRelatedExpandLooksUpActiveIdentityAndPreservesNullParentRows(t *testing.T) {
+	output := constructionTestOutput()
+	_, observationIdentity := relatedExpandIdentityColumnNames("expand_observations")
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{
+			{
+				ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: "_key", ChoiceID: "patient-observation", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+						FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+						StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+					}},
+					ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "observation_id",
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"}, {ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+				},
+			},
+			{
+				ID: "expand_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "expand_observations"}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+					AnchorColumnID: observationIdentity, ChoiceID: "observation-specimen", TargetNodeID: "specimen-node", TargetResourceType: "Specimen",
+					Route: []recipe.ConstructionRelatedRouteStep{{
+						EdgeID: "observation-specimen", FromNodeID: "observation-node", ToNodeID: "specimen-node",
+						FromResourceType: "Observation", ToResourceType: "Specimen", Relationship: "specimen_Specimen",
+						StorageDirection: "OUTBOUND", MatchMode: "OPTIONAL",
+					}},
+					ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent, RelatedRecordColumnID: "specimen_id",
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group", Label: "Group"}, {ID: "category_id", Name: "category", Label: "Category"},
+					{ID: "amount_id", Name: "amount", Label: "Amount"},
+					{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true},
+					{ID: "specimen_id", Name: "specimen_id", Label: "Specimen ID", Type: "string", Nullable: true},
+				},
+			},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Plan.StageSequence.Stages) != 2 {
+		t.Fatalf("onward related expansion stages = %d, want 2", len(compiled.Plan.StageSequence.Stages))
+	}
+	first, second := compiled.Plan.StageSequence.Stages[0], compiled.Plan.StageSequence.Stages[1]
+	if second.RelatedExpand == nil || second.RelatedExpand.AnchorKind != "activeRelatedRecord" ||
+		second.RelatedExpand.AnchorNodeID != "observation-node" || second.RelatedExpand.AnchorResourceType != "Observation" ||
+		second.RelatedExpand.AnchorColumnID != observationIdentity {
+		t.Fatalf("onward expansion did not retain its exact active source identity: %#v", second.RelatedExpand)
+	}
+	if first.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent || second.RelatedExpand.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("both expansions must preserve parents with missing related records: first=%q second=%q", first.RelatedExpand.EmptyPolicy, second.RelatedExpand.EmptyPolicy)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("onward expansion dropped the original root key needed for sibling routes: %#v", compiled.OutputSchema)
+	}
+	var activeLookup *ir.PhysicalDocumentLookup
+	for _, operation := range second.RelatedExpand.RelatedRecords.Operations {
+		if operation.Kind == ir.PhysicalDocumentLookupOp {
+			activeLookup = operation.DocumentLookup
+			break
+		}
+	}
+	if activeLookup == nil || activeLookup.ExactID.Path[0] != observationIdentity || compiled.Plan.BindVars[activeLookup.CollectionBindKey] != "Observation" {
+		t.Fatalf("onward expansion must point-lookup the selected Observation identity: lookup=%#v binds=%#v", activeLookup, compiled.Plan.BindVars)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := rendered.Query
+	parseIndex := strings.Index(query, "PARSE_IDENTIFIER(")
+	if parseIndex < 0 {
+		t.Fatalf("active source lookup did not parse the exact FHIR id: %s", query)
+	}
+	guardIndex := strings.LastIndex(query[:parseIndex], "FILTER ")
+	if guardIndex < 0 || !strings.Contains(query[guardIndex:parseIndex], " != null") {
+		t.Fatalf("null-preserved parent identity must be filtered before PARSE_IDENTIFIER: %s", query)
+	}
+	for _, expected := range []string{
+		activeLookup.Variable + ".project == @project",
+		activeLookup.Variable + ".dataset_generation == @dataset_generation",
+		activeLookup.Variable + ".auth_resource_path IN @auth_resource_paths",
+		"LENGTH(" + second.RelatedExpand.RelatedRecordsVariable + ") == 0 ? [null]",
+	} {
+		if !strings.Contains(query, expected) {
+			t.Fatalf("onward expansion query omitted %q: %s", expected, query)
+		}
 	}
 }
 

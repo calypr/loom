@@ -392,15 +392,12 @@ func reauthorizeConstructionRelatedExpand(
 	if inputStage == nil {
 		return conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the related expansion input stage is not in the current compiled output", nil, nil)
 	}
-	stageSupportsRelatedExpand := false
-	for _, operation := range inputStage.Capabilities {
-		if operation.Kind == "RELATED_EXPAND" {
-			stageSupportsRelatedExpand = operation.Supported
-			break
-		}
+	if !constructionStageSupportsRelatedExpand(*inputStage) {
+		return unprocessable("construction-proposal", "UNSUPPORTED_CONSTRUCTION_OPERATION", "the related expansion input stage does not support this operation", nil)
 	}
-	if !stageSupportsRelatedExpand {
-		return unprocessable("construction-proposal", "NO_SOURCE_ROW_ANCHOR", "the related expansion input stage does not retain the root resource key", nil)
+	anchor, err := resolveRelatedExpandAnchor(base.snapshot, *inputStage, rootResourceType, related.AnchorColumnID)
+	if err != nil {
+		return unprocessable("construction-proposal", "NO_SOURCE_ROW_ANCHOR", "the related expansion input stage does not retain the selected exact resource anchor", err)
 	}
 	choice, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
 	if err != nil {
@@ -413,11 +410,13 @@ func reauthorizeConstructionRelatedExpand(
 	if !ok {
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion must use an exact related-resource route choice", nil)
 	}
-	if source.StageID != inputStageID || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+	if source.StageID != inputStageID || source.AnchorColumnID != related.AnchorColumnID || source.AnchorKind != anchor.Kind ||
+		source.AnchorNodeID != anchor.NodeID || source.AnchorResourceType != anchor.ResourceType ||
+		source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
 		!reflect.DeepEqual(choice.Route, related.Route) {
-		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion target, input stage, or route differs from its server-issued choice", nil)
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related expansion anchor, target, input stage, or route differs from its server-issued choice", nil)
 	}
-	resolvedRoute, err := reauthorizeConstructionRoute(base.snapshot, rootResourceType, related.TargetNodeID, related.Route)
+	resolvedRoute, err := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.NodeID, related.TargetNodeID, related.Route)
 	if err != nil || !reflect.DeepEqual(resolvedRoute, related.Route) {
 		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected related-resource route is no longer available", nil, err)
 	}
@@ -427,7 +426,7 @@ func reauthorizeConstructionRelatedExpand(
 	if related.ContributorRule.Predicate == nil {
 		return nil
 	}
-	return reauthorizeRelatedExpandContributor(ctx, base, rootResourceType, related)
+	return reauthorizeRelatedExpandContributor(ctx, base, anchor.ResourceType, related)
 }
 
 func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error) {

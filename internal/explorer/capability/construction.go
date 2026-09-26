@@ -124,10 +124,14 @@ func (SemanticBindingChoiceSource) constructionChoiceSource() {}
 // RelatedResourceChoiceSource identifies one exact terminal resource node.
 // It lets lifecycle authorize a route without requiring a field selection.
 type RelatedResourceChoiceSource struct {
-	Kind         ConstructionChoiceSourceKind `json:"kind"`
-	StageID      string                       `json:"stageId"`
-	NodeID       string                       `json:"nodeId"`
-	ResourceType string                       `json:"resourceType"`
+	Kind               ConstructionChoiceSourceKind `json:"kind"`
+	StageID            string                       `json:"stageId"`
+	AnchorColumnID     string                       `json:"anchorColumnId"`
+	AnchorKind         string                       `json:"anchorKind"`
+	AnchorNodeID       string                       `json:"anchorNodeId"`
+	AnchorResourceType string                       `json:"anchorResourceType"`
+	NodeID             string                       `json:"nodeId"`
+	ResourceType       string                       `json:"resourceType"`
 }
 
 func (RelatedResourceChoiceSource) constructionChoiceSource() {}
@@ -204,10 +208,14 @@ type ConstructionChoiceIdentity struct {
 }
 
 type ConstructionRelatedResourceRouteChoice struct {
-	ChoiceID       string
-	TargetNodeID   string
-	TargetResource string
-	Route          []ConstructionRouteStep
+	ChoiceID           string
+	TargetNodeID       string
+	TargetResource     string
+	AnchorColumnID     string
+	AnchorKind         string
+	AnchorNodeID       string
+	AnchorResourceType string
+	Route              []ConstructionRouteStep
 }
 
 type ConstructionRelatedFieldChoice struct {
@@ -262,11 +270,20 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 	return choice, nil
 }
 
-// NewConstructionRelatedResourceRouteChoice pins a route to one exact terminal
-// resource node without requiring a selected field on that resource.
-func NewConstructionRelatedResourceRouteChoice(snapshotToken, stageID, targetNodeID, targetResource string, route []ConstructionRouteStep) (ConstructionRelatedResourceRouteChoice, error) {
+// NewConstructionRelatedResourceRouteChoiceFromAnchor pins a route to one
+// exact compiler-proven row anchor as well as its terminal resource.
+func NewConstructionRelatedResourceRouteChoiceFromAnchor(
+	snapshotToken, stageID, anchorColumnID, anchorKind, anchorNodeID, anchorResource,
+	targetNodeID, targetResource string, route []ConstructionRouteStep,
+) (ConstructionRelatedResourceRouteChoice, error) {
 	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(stageID) == "" || strings.TrimSpace(targetNodeID) == "" || strings.TrimSpace(targetResource) == "" || len(route) == 0 {
-		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("snapshot, input stage, terminal node, resource type, and non-empty route are required")
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("snapshot, input stage, exact row anchor, terminal node, resource type, and non-empty route are required")
+	}
+	if strings.TrimSpace(anchorColumnID) == "" || strings.TrimSpace(anchorKind) == "" || strings.TrimSpace(anchorNodeID) == "" || strings.TrimSpace(anchorResource) == "" {
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("related-resource route anchor identity is incomplete")
+	}
+	if anchorKind != "root" && anchorKind != "activeRelatedRecord" {
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("related-resource route anchor kind %q is unsupported", anchorKind)
 	}
 	if err := validateConstructionRoute(route); err != nil {
 		return ConstructionRelatedResourceRouteChoice{}, err
@@ -275,7 +292,14 @@ func NewConstructionRelatedResourceRouteChoice(snapshotToken, stageID, targetNod
 	if terminal.ToNodeID != targetNodeID || terminal.ToResourceType != targetResource {
 		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("route does not end at the exact terminal resource")
 	}
-	source := RelatedResourceChoiceSource{Kind: ConstructionChoiceSourceRelatedResource, StageID: stageID, NodeID: targetNodeID, ResourceType: targetResource}
+	if route[0].FromNodeID != anchorNodeID || route[0].FromResourceType != anchorResource {
+		return ConstructionRelatedResourceRouteChoice{}, fmt.Errorf("route does not start at the exact selected row anchor")
+	}
+	source := RelatedResourceChoiceSource{
+		Kind: ConstructionChoiceSourceRelatedResource, StageID: stageID,
+		AnchorColumnID: anchorColumnID, AnchorKind: anchorKind, AnchorNodeID: anchorNodeID,
+		AnchorResourceType: anchorResource, NodeID: targetNodeID, ResourceType: targetResource,
+	}
 	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
 		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceRelatedResource,
 		SnapshotToken: snapshotToken, Source: source, Route: cloneConstructionRoute(route),
@@ -285,7 +309,8 @@ func NewConstructionRelatedResourceRouteChoice(snapshotToken, stageID, targetNod
 	}
 	return ConstructionRelatedResourceRouteChoice{
 		ChoiceID: choiceID, TargetNodeID: targetNodeID, TargetResource: targetResource,
-		Route: cloneConstructionRoute(route),
+		AnchorColumnID: anchorColumnID, AnchorKind: anchorKind, AnchorNodeID: anchorNodeID,
+		AnchorResourceType: anchorResource, Route: cloneConstructionRoute(route),
 	}, nil
 }
 

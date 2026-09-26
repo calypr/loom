@@ -395,8 +395,8 @@ func validateConstructionRelatedField(step ConstructionStep, input map[string]St
 
 func validateConstructionRelatedExpand(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
 	related := step.Operation.RelatedExpand
-	if related.AnchorColumnID != "_key" || !requiredID(related.AnchorColumnID) {
-		return fmt.Errorf("relatedExpand.anchorColumnId must identify the retained root document key")
+	if !requiredID(related.AnchorColumnID) {
+		return fmt.Errorf("relatedExpand.anchorColumnId must identify a retained row resource")
 	}
 	if !requiredID(related.ChoiceID) || !requiredID(related.TargetNodeID) || !requiredID(related.TargetResourceType) ||
 		!requiredID(related.RelatedRecordColumnID) || len(related.Route) == 0 {

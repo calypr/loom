@@ -308,6 +308,12 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 		switch operation.Kind {
 		case ir.PhysicalCollectionScanOp:
 			lines = append(lines, fmt.Sprintf("%sFOR %s IN @@%s", indent+"  ", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
+		case ir.PhysicalDocumentLookupOp:
+			rendered, err := r.renderDocumentLookup(*operation.DocumentLookup, indent+"  ")
+			if err != nil {
+				return "", fmt.Errorf("subplan operation %d document lookup: %w", index, err)
+			}
+			lines = append(lines, rendered...)
 		case ir.PhysicalTraversalOp:
 			lines = append(lines, r.renderTraversalScan(*operation.Traversal, operation.Traversal.SourceVariable, indent+"  ")...)
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
@@ -340,4 +346,16 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 		result = "SORTED_UNIQUE(" + result + ")"
 	}
 	return result, nil
+}
+
+func (r *physicalPlanRenderer) renderDocumentLookup(lookup ir.PhysicalDocumentLookup, indent string) ([]string, error) {
+	exactID, err := r.renderValue(lookup.ExactID)
+	if err != nil {
+		return nil, fmt.Errorf("render exact document identity: %w", err)
+	}
+	return []string{
+		fmt.Sprintf("%sFILTER %s != null", indent, exactID),
+		fmt.Sprintf("%sLET %s = DOCUMENT(@@%s, PARSE_IDENTIFIER(%s).key)", indent, lookup.Variable, lookup.CollectionBindKey, exactID),
+		fmt.Sprintf("%sFILTER %s != null && %s._id == %s", indent, lookup.Variable, lookup.Variable, exactID),
+	}, nil
 }

@@ -247,19 +247,31 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 // ReceiptConstructionStage preserves the exact inferred schema and supported
 // operation set for a stable stage in a compiled output.
 type ReceiptConstructionStage struct {
-	ID                  string                                  `json:"id"`
-	InputStageID        string                                  `json:"inputStageId"`
-	Operation           string                                  `json:"operation,omitempty"`
-	RowIdentityColumn   string                                  `json:"rowIdentityColumn,omitempty"`
-	Columns             []ReceiptConstructionStageColumn        `json:"columns"`
-	Capabilities        []ReceiptConstructionOperationChoice    `json:"capabilities"`
-	RelatedExpand       *ReceiptConstructionRelatedExpand       `json:"relatedExpand,omitempty"`
-	ActiveRelatedRecord *ReceiptConstructionActiveRelatedRecord `json:"activeRelatedRecord,omitempty"`
+	ID                   string                                   `json:"id"`
+	InputStageID         string                                   `json:"inputStageId"`
+	Operation            string                                   `json:"operation,omitempty"`
+	RowIdentityColumn    string                                   `json:"rowIdentityColumn,omitempty"`
+	Columns              []ReceiptConstructionStageColumn         `json:"columns"`
+	Capabilities         []ReceiptConstructionOperationChoice     `json:"capabilities"`
+	RelatedExpandAnchors []ReceiptConstructionRelatedExpandAnchor `json:"relatedExpandAnchors,omitempty"`
+	RelatedExpand        *ReceiptConstructionRelatedExpand        `json:"relatedExpand,omitempty"`
+	ActiveRelatedRecord  *ReceiptConstructionActiveRelatedRecord  `json:"activeRelatedRecord,omitempty"`
+}
+
+type ReceiptConstructionRelatedExpandAnchor struct {
+	AnchorColumnID string `json:"anchorColumnId"`
+	Kind           string `json:"kind"`
+	NodeID         string `json:"nodeId,omitempty"`
+	ResourceType   string `json:"resourceType"`
+	Label          string `json:"label"`
 }
 
 type ReceiptConstructionRelatedExpand struct {
 	AnchorColumnID         string                                `json:"anchorColumnId"`
 	AnchorColumn           string                                `json:"anchorColumn"`
+	AnchorKind             string                                `json:"anchorKind"`
+	AnchorNodeID           string                                `json:"anchorNodeId,omitempty"`
+	AnchorResourceType     string                                `json:"anchorResourceType"`
 	RelatedRecordColumnID  string                                `json:"relatedRecordColumnId"`
 	ParentIdentityColumnID string                                `json:"parentIdentityColumnId"`
 	ParentIdentityColumn   string                                `json:"parentIdentityColumn"`
@@ -352,12 +364,57 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] needs a reason for unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
 			}
+			anchorIDs := make(map[string]ReceiptConstructionRelatedExpandAnchor, len(stage.RelatedExpandAnchors))
+			for anchorIndex, anchor := range stage.RelatedExpandAnchors {
+				if strings.TrimSpace(anchor.AnchorColumnID) == "" || anchor.AnchorColumnID != strings.TrimSpace(anchor.AnchorColumnID) ||
+					strings.TrimSpace(anchor.ResourceType) == "" || anchor.ResourceType != strings.TrimSpace(anchor.ResourceType) ||
+					strings.TrimSpace(anchor.Label) == "" || anchor.Label != strings.TrimSpace(anchor.Label) {
+					return fmt.Errorf("constructionStages[%q][%d].relatedExpandAnchors[%d] requires exact column, type, and label", outputID, index, anchorIndex)
+				}
+				if _, exists := anchorIDs[anchor.AnchorColumnID]; exists {
+					return fmt.Errorf("constructionStages[%q][%d] duplicates related expansion anchor %q", outputID, index, anchor.AnchorColumnID)
+				}
+				switch anchor.Kind {
+				case "root":
+					if anchor.AnchorColumnID != "_key" || anchor.NodeID != "" {
+						return fmt.Errorf("constructionStages[%q][%d] root expansion anchor must be _key without a node override", outputID, index)
+					}
+				case "activeRelatedRecord":
+					if strings.TrimSpace(anchor.NodeID) == "" || anchor.NodeID != strings.TrimSpace(anchor.NodeID) {
+						return fmt.Errorf("constructionStages[%q][%d] active related-record anchor requires an exact node id", outputID, index)
+					}
+				default:
+					return fmt.Errorf("constructionStages[%q][%d] has unsupported related expansion anchor kind %q", outputID, index, anchor.Kind)
+				}
+				anchorIDs[anchor.AnchorColumnID] = anchor
+			}
 			if stage.Operation == "RELATED_EXPAND" {
-				if stage.RelatedExpand == nil || stage.RelatedExpand.AnchorColumnID != "_key" || stage.RelatedExpand.AnchorColumn != "_key" ||
+				if stage.RelatedExpand == nil || stage.RelatedExpand.AnchorColumnID == "" || stage.RelatedExpand.AnchorColumn != stage.RelatedExpand.AnchorColumnID ||
+					stage.RelatedExpand.AnchorKind == "" || stage.RelatedExpand.AnchorResourceType == "" ||
 					stage.RelatedExpand.RelatedRecordColumnID == "" || stage.RelatedExpand.ParentIdentityColumnID == "" ||
 					stage.RelatedExpand.ParentIdentityColumn == "" || stage.RelatedExpand.TerminalIdentityColumn == "" ||
 					stage.RelatedExpand.TargetNodeID == "" || stage.RelatedExpand.TargetResourceType == "" || len(stage.RelatedExpand.Route) == 0 {
 					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND lacks its exact target and identity metadata", outputID, index)
+				}
+				var inputStage *ReceiptConstructionStage
+				for inputIndex := range stages {
+					if stages[inputIndex].ID == stage.InputStageID {
+						inputStage = &stages[inputIndex]
+						break
+					}
+				}
+				var inputAnchor *ReceiptConstructionRelatedExpandAnchor
+				if inputStage != nil {
+					for anchorIndex := range inputStage.RelatedExpandAnchors {
+						if inputStage.RelatedExpandAnchors[anchorIndex].AnchorColumnID == stage.RelatedExpand.AnchorColumnID {
+							inputAnchor = &inputStage.RelatedExpandAnchors[anchorIndex]
+							break
+						}
+					}
+				}
+				if inputAnchor == nil || inputAnchor.Kind != stage.RelatedExpand.AnchorKind || inputAnchor.ResourceType != stage.RelatedExpand.AnchorResourceType ||
+					(inputAnchor.Kind == "activeRelatedRecord" && inputAnchor.NodeID != stage.RelatedExpand.AnchorNodeID) {
+					return fmt.Errorf("constructionStages[%q][%d] RELATED_EXPAND anchor differs from the compiler-proven input stage anchors", outputID, index)
 				}
 				foundOutput := false
 				for _, column := range stage.Columns {
@@ -399,6 +456,10 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_FIELD":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d] cannot carry an active related record through %q", outputID, index, stage.Operation)
+				}
+				activeAnchor, foundActiveAnchor := anchorIDs[active.TerminalIdentityColumn]
+				if !foundActiveAnchor || activeAnchor.Kind != "activeRelatedRecord" || activeAnchor.NodeID != active.TargetNodeID || activeAnchor.ResourceType != active.TargetResourceType {
+					return fmt.Errorf("constructionStages[%q][%d] active related record is absent from compiler-proven expansion anchors", outputID, index)
 				}
 			} else if stage.Operation == "RELATED_FIELD" {
 				return fmt.Errorf("constructionStages[%q][%d] RELATED_FIELD lacks its active exact terminal record", outputID, index)

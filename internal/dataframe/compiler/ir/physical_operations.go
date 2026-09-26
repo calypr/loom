@@ -402,6 +402,15 @@ type PhysicalCollectionScan struct {
 	CollectionBindKey string
 }
 
+// PhysicalDocumentLookup resolves an exact hidden _id in one compiler-chosen
+// resource collection. The renderer verifies the resolved _id still equals
+// the captured value before later scope filters or traversals can use it.
+type PhysicalDocumentLookup struct {
+	Variable          string
+	CollectionBindKey string
+	ExactID           PhysicalValue
+}
+
 type PhysicalPredicate struct {
 	Operator string
 	Left     PhysicalValue

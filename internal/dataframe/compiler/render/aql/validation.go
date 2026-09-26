@@ -34,6 +34,8 @@ func collectionBindKeys(plan ir.PhysicalPlan) (map[string]struct{}, error) {
 				}
 			case ir.PhysicalCollectionScanOp:
 				keys[operation.CollectionScan.CollectionBindKey] = struct{}{}
+			case ir.PhysicalDocumentLookupOp:
+				keys[operation.DocumentLookup.CollectionBindKey] = struct{}{}
 			case ir.PhysicalGroupRowsOp:
 				groupRows := operation.GroupRows
 				for _, key := range []string{groupRows.RevisionCollectionBindKey, groupRows.SelectionCollectionBindKey, groupRows.DefinitionsCollectionBindKey, groupRows.MembershipsCollectionBindKey, groupRows.SelectionMembersCollectionBindKey, groupRows.ResourceCollectionBindKey} {
@@ -216,6 +218,15 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 	case ir.PhysicalRootScanOp:
 		return nil
 	case ir.PhysicalCollectionScanOp:
+		return nil
+	case ir.PhysicalDocumentLookupOp:
+		lookup := operation.DocumentLookup
+		if err := checkValue(lookup.ExactID); err != nil {
+			return err
+		}
+		if _, exists := collectionKeys[lookup.CollectionBindKey]; !exists {
+			return fmt.Errorf("DOCUMENT_LOOKUP collection bind key %q is not defined", lookup.CollectionBindKey)
+		}
 		return nil
 	case ir.PhysicalGroupRowsOp:
 		return nil

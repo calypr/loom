@@ -57,7 +57,7 @@ func compileConstructionSourceStage(ctx context.Context, request lifecycle.Const
 		if output.Name != request.OutputID {
 			continue
 		}
-		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema)
+		descriptor, err := lower.DescribeConstructionSourceStage(output.OutputSchema, document.RootResourceType)
 		if err != nil {
 			return explorer.ReceiptConstructionStage{}, err
 		}
@@ -451,9 +451,16 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
 	stage := explorer.ReceiptConstructionStage{
 		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
-		RowIdentityColumn: descriptor.RowIdentityColumn,
-		Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
-		Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
+		RowIdentityColumn:    descriptor.RowIdentityColumn,
+		Columns:              make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
+		Capabilities:         make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
+		RelatedExpandAnchors: make([]explorer.ReceiptConstructionRelatedExpandAnchor, 0, len(descriptor.RelatedExpandAnchors)),
+	}
+	for _, anchor := range descriptor.RelatedExpandAnchors {
+		stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{
+			AnchorColumnID: anchor.AnchorColumnID, Kind: anchor.Kind, NodeID: anchor.NodeID,
+			ResourceType: anchor.ResourceType, Label: anchor.Label,
+		})
 	}
 	for _, column := range descriptor.Columns {
 		if column.Internal || column.Identity {
@@ -481,6 +488,8 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 		related := descriptor.RelatedExpand
 		stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
 			AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumn,
+			AnchorKind: related.AnchorKind, AnchorNodeID: related.AnchorNodeID,
+			AnchorResourceType:     related.AnchorResourceType,
 			RelatedRecordColumnID:  related.RelatedRecordColumnID,
 			ParentIdentityColumnID: related.ParentIdentityColumnID, ParentIdentityColumn: related.ParentIdentityColumn,
 			TerminalIdentityColumn: related.TerminalIdentityColumn,

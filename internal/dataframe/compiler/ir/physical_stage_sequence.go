@@ -19,15 +19,21 @@ type PhysicalStageSequence struct {
 }
 
 type PhysicalStageColumn struct {
-	ID             string
-	Name           string
-	Label          string
-	Kind           string
-	Cardinality    string
-	Nullable       bool
-	Internal       bool
-	Identity       bool
-	NormalizedUnit *unit.UnitIdentity
+	ID                  string
+	Name                string
+	Label               string
+	Kind                string
+	Cardinality         string
+	Nullable            bool
+	Internal            bool
+	Identity            bool
+	RelatedRecordAnchor *PhysicalStageRelatedRecordAnchor
+	NormalizedUnit      *unit.UnitIdentity
+}
+
+type PhysicalStageRelatedRecordAnchor struct {
+	NodeID       string
+	ResourceType string
 }
 
 type PhysicalConstructionStage struct {
@@ -129,6 +135,9 @@ type PhysicalStageRelatedSource struct {
 // identity are retained as hidden columns for downstream related-field stages.
 type PhysicalStageRelatedExpand struct {
 	AnchorColumnID         string
+	AnchorKind             string
+	AnchorNodeID           string
+	AnchorResourceType     string
 	RelatedRecordColumnID  string
 	TargetNodeID           string
 	TargetResourceType     string

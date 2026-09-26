@@ -77,6 +77,9 @@ const (
 	PhysicalPathExtendOp     PhysicalOperationKind = "PATH_EXTEND"
 	PhysicalGraphReturnOp    PhysicalOperationKind = "GRAPH_RETURN"
 	PhysicalCollectionScanOp PhysicalOperationKind = "COLLECTION_SCAN"
+	// PhysicalDocumentLookupOp reads one compiler-pinned resource collection
+	// using an exact active document identity captured from an earlier stage.
+	PhysicalDocumentLookupOp PhysicalOperationKind = "DOCUMENT_LOOKUP"
 	// PhysicalPopulationMappingReturnOp expands matched members only after the
 	// canonical final-row plan has completed. Its witness rows are internal.
 	PhysicalPopulationMappingReturnOp PhysicalOperationKind = "POPULATION_MAPPING_RETURN"
@@ -118,6 +121,7 @@ type PhysicalOperation struct {
 	PathExtend                *PhysicalPathExtend
 	GraphReturn               *PhysicalGraphReturn
 	CollectionScan            *PhysicalCollectionScan
+	DocumentLookup            *PhysicalDocumentLookup
 	PopulationMappingReturn   *PhysicalPopulationMappingReturn
 	CellTraceReturn           *PhysicalCellTraceReturn
 	TableShapeExclusionReturn *PhysicalTableShapeExclusionReturn

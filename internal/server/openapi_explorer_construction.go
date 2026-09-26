@@ -56,7 +56,7 @@ func (h *explorerHTTPHandlers) searchRelatedExpandChoicesDirect(ctx context.Cont
 	request := lifecycle.RelatedExpandChoiceSearchRequest{
 		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
 		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
-		OutputID: body.OutputId, StageID: body.StageId, TargetResourceType: body.TargetResourceType,
+		OutputID: body.OutputId, StageID: body.StageId, AnchorColumnID: body.AnchorColumnId, TargetResourceType: body.TargetResourceType,
 	}
 	if body.Limit != nil {
 		request.Limit = *body.Limit

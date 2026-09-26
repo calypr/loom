@@ -25,6 +25,10 @@ const (
 type ConstructionRouteSearch struct {
 	Snapshot     Snapshot
 	RootResource string
+	// RootNodeID pins traversal to an exact retained record type when the
+	// route starts from a compiler-proven related-record identity. Exactly one
+	// of RootResource and RootNodeID must be supplied.
+	RootNodeID   string
 	TargetNodeID string
 	// TargetNodeIDs supports route searches whose terminal is one of several
 	// equivalent capability nodes (for example a population's resource type).
@@ -61,7 +65,7 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
 		return page, err
 	}
-	if strings.TrimSpace(request.RootResource) == "" || strings.TrimSpace(request.SourceKey) == "" ||
+	if (strings.TrimSpace(request.RootResource) == "") == (strings.TrimSpace(request.RootNodeID) == "") || strings.TrimSpace(request.SourceKey) == "" ||
 		(request.TargetNodeID == "" && len(request.TargetNodeIDs) == 0) || (request.TargetNodeID != "" && len(request.TargetNodeIDs) != 0) {
 		return page, fmt.Errorf("route search requires a row root, target node, and exact source identity")
 	}
@@ -72,9 +76,19 @@ func PlanConstructionRoutes(request ConstructionRouteSearch) (ConstructionRouteP
 	if limit < 1 || limit > ConstructionRouteMaxLimit {
 		return page, fmt.Errorf("route search limit must be between 1 and %d", ConstructionRouteMaxLimit)
 	}
-	root, ok := uniqueRootNode(snapshot, request.RootResource)
-	if !ok {
-		return page, fmt.Errorf("row root %q is not unique in the capability snapshot", request.RootResource)
+	var root Node
+	if request.RootNodeID != "" {
+		var ok bool
+		root, ok = snapshot.Node(request.RootNodeID)
+		if !ok {
+			return page, fmt.Errorf("route start node %q is not in the capability snapshot", request.RootNodeID)
+		}
+	} else {
+		var ok bool
+		root, ok = uniqueRootNode(snapshot, request.RootResource)
+		if !ok {
+			return page, fmt.Errorf("row root %q is not unique in the capability snapshot", request.RootResource)
+		}
 	}
 	targetIDs := append([]string(nil), request.TargetNodeIDs...)
 	if request.TargetNodeID != "" {

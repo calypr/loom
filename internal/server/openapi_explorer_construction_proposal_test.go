@@ -246,7 +246,7 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 	response := requestJSON(t, app, http.MethodPost, basePath+"/related-expand-choices", fmt.Sprintf(
-		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","targetResourceType":"Observation"}`,
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","anchorColumnId":"_key","targetResourceType":"Observation"}`,
 		snapshot.Token, digest,
 	))
 	if response.StatusCode != http.StatusOK {
@@ -261,6 +261,10 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		t.Fatalf("related expansion choice identity = %#v", result)
 	}
 	choice := result.Choices[0]
+	if choice.AnchorColumnId != "_key" || choice.Kind != "root" || choice.NodeId != "n_patient" ||
+		choice.ResourceType != "Patient" || choice.Label != "Original Patient" {
+		t.Fatalf("related expansion anchor identity = %#v", choice)
+	}
 	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceId)
 	if err != nil {
 		t.Fatal(err)

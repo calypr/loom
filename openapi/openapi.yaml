@@ -3575,8 +3575,21 @@ components:
         capabilities:
           type: array
           items: {$ref: '#/components/schemas/ConstructionOperationCapability'}
+        relatedExpandAnchors:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRelatedExpandAnchor'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpandStageDescriptor'}
         activeRelatedRecord: {$ref: '#/components/schemas/ConstructionActiveRelatedRecordDescriptor'}
+    ConstructionRelatedExpandAnchor:
+      type: object
+      additionalProperties: false
+      required: [anchorColumnId, kind, resourceType, label]
+      properties:
+        anchorColumnId: {type: string, minLength: 1}
+        kind: {type: string, enum: [root, activeRelatedRecord]}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
     ConstructionActiveRelatedRecordDescriptor:
       type: object
       additionalProperties: false
@@ -3588,10 +3601,13 @@ components:
     ConstructionRelatedExpandStageDescriptor:
       type: object
       additionalProperties: false
-      required: [anchorColumnId, anchorColumn, relatedRecordColumnId, parentIdentityColumnId, parentIdentityColumn, terminalIdentityColumn, targetNodeId, targetResourceType, route]
+      required: [anchorColumnId, anchorColumn, anchorKind, anchorResourceType, relatedRecordColumnId, parentIdentityColumnId, parentIdentityColumn, terminalIdentityColumn, targetNodeId, targetResourceType, route]
       properties:
         anchorColumnId: {type: string, minLength: 1}
         anchorColumn: {type: string, minLength: 1}
+        anchorKind: {type: string, enum: [root, activeRelatedRecord]}
+        anchorNodeId: {type: string, minLength: 1}
+        anchorResourceType: {type: string, minLength: 1}
         relatedRecordColumnId: {type: string, minLength: 1}
         parentIdentityColumnId: {type: string, minLength: 1}
         parentIdentityColumn: {type: string, minLength: 1}
@@ -4673,22 +4689,28 @@ components:
     RelatedExpandChoiceSearchRequest:
       type: object
       additionalProperties: false
-      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, targetResourceType]
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, anchorColumnId, targetResourceType]
       properties:
         snapshotToken: {type: string, minLength: 1}
         expectedDraftVersion: {type: integer, minimum: 1}
         expectedDraftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+        anchorColumnId: {type: string, minLength: 1}
         targetResourceType: {type: string, minLength: 1}
         limit: {type: integer, minimum: 1, maximum: 50}
         cursor: {type: string, maxLength: 4096}
     RelatedExpandRouteChoice:
       type: object
       additionalProperties: false
-      required: [choiceId, targetNodeId, targetResourceType, route]
+      required: [choiceId, anchorColumnId, kind, nodeId, resourceType, label, targetNodeId, targetResourceType, route]
       properties:
         choiceId: {type: string, minLength: 1}
+        anchorColumnId: {type: string, minLength: 1}
+        kind: {type: string, enum: [root, activeRelatedRecord]}
+        nodeId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
         targetNodeId: {type: string, minLength: 1}
         targetResourceType: {type: string, minLength: 1}
         route:

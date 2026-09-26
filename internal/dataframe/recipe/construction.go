@@ -673,10 +673,10 @@ func validateConstructionRelatedField(related ConstructionRelatedField, input, o
 }
 
 func validateConstructionRelatedExpand(related ConstructionRelatedExpand, input, output map[string]StageColumn, path string) error {
-	if related.AnchorColumnID != "_key" || !validConstructionColumnID(related.ChoiceID) ||
+	if !validConstructionColumnID(related.AnchorColumnID) || !validConstructionColumnID(related.ChoiceID) ||
 		!validConstructionColumnID(related.TargetNodeID) || !validConstructionColumnID(related.TargetResourceType) ||
 		!validConstructionColumnID(related.RelatedRecordColumnID) || len(related.Route) == 0 {
-		return fmt.Errorf("%s.relatedExpand requires a root key, exact choice and target, route, and output", path)
+		return fmt.Errorf("%s.relatedExpand requires an exact row anchor, choice and target, route, and output", path)
 	}
 	priorNode, priorResource := related.Route[0].FromNodeID, related.Route[0].FromResourceType
 	for index, hop := range related.Route {

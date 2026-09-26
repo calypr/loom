@@ -55,9 +55,15 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 			{Kind: "RELATED_EXPAND", Supported: true},
 		}
 	}
+	rootAnchor := explorer.ReceiptConstructionRelatedExpandAnchor{
+		AnchorColumnID: "_key", Kind: "root", ResourceType: document.RootResourceType,
+		Label: "Original " + document.RootResourceType,
+	}
 	stages := []explorer.ReceiptConstructionStage{{
 		ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: allChoices(),
+		RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor},
 	}}
+	var activeAnchor *explorer.ReceiptConstructionActiveRelatedRecord
 	if document.Construction == nil {
 		return stages
 	}
@@ -86,12 +92,32 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 				})
 			}
 			stage.RelatedExpand = &explorer.ReceiptConstructionRelatedExpand{
-				AnchorColumnID: related.AnchorColumnID, AnchorColumn: "_key",
+				AnchorColumnID: related.AnchorColumnID, AnchorColumn: related.AnchorColumnID,
+				AnchorKind: "root", AnchorNodeID: related.Route[0].FromNodeID,
+				AnchorResourceType:     related.Route[0].FromResourceType,
 				RelatedRecordColumnID:  related.RelatedRecordColumnID,
 				ParentIdentityColumnID: "__test_parent_identity", ParentIdentityColumn: "__test_parent_identity",
 				TerminalIdentityColumn: "__test_terminal_identity", TargetNodeID: related.TargetNodeID,
 				TargetResourceType: related.TargetResourceType, Route: route,
 			}
+			activeAnchor = &explorer.ReceiptConstructionActiveRelatedRecord{
+				TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
+				TerminalIdentityColumn: "__test_terminal_identity",
+			}
+		} else if step.Operation.Kind != authoringv2.ConstructionOperationFilter &&
+			step.Operation.Kind != authoringv2.ConstructionOperationDerive &&
+			step.Operation.Kind != authoringv2.ConstructionOperationRelatedSource &&
+			step.Operation.Kind != authoringv2.ConstructionOperationRelatedField {
+			activeAnchor = nil
+		}
+		stage.RelatedExpandAnchors = []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}
+		if activeAnchor != nil {
+			stage.ActiveRelatedRecord = activeAnchor
+			stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{
+				AnchorColumnID: activeAnchor.TerminalIdentityColumn, Kind: "activeRelatedRecord",
+				NodeID: activeAnchor.TargetNodeID, ResourceType: activeAnchor.TargetResourceType,
+				Label: "Current related " + activeAnchor.TargetResourceType,
+			})
 		}
 		stages = append(stages, stage)
 	}
@@ -317,7 +343,7 @@ func TestProposeConstructionReauthorizesRelatedExpandRouteChoice(t *testing.T) {
 	choices, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
 		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, TargetResourceType: "Observation",
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, AnchorColumnID: "_key", TargetResourceType: "Observation",
 	})
 	if err != nil || len(choices.Choices) != 1 {
 		t.Fatalf("related expansion route search = %#v, %v", choices, err)
