@@ -12,17 +12,26 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 	if group == nil {
 		return nil, fmt.Errorf("group stage is missing payload")
 	}
-	projected, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.InputProjections})
-	if err != nil {
-		return nil, fmt.Errorf("input projection: %w", err)
+	countRowsOnly := len(group.Aggregates) != 0
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" {
+			countRowsOnly = false
+			break
+		}
 	}
-	rowsVariable := r.newInternalVariable("construction_group_input_rows")
-	lines := []string{
-		fmt.Sprintf("  LET %s = (FOR %s IN %s RETURN %s)", rowsVariable, stage.InputRowVariable, inputRows, projected),
-	}
-	rowSource := rowsVariable
-	if len(group.Keys) == 0 {
-		rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", rowsVariable, rowsVariable)
+	lines := make([]string, 0, 8+len(group.Keys)*2+len(group.Aggregates))
+	rowSource := inputRows
+	if !countRowsOnly {
+		projected, err := r.renderReturn(ir.PhysicalReturn{Projections: stage.InputProjections})
+		if err != nil {
+			return nil, fmt.Errorf("input projection: %w", err)
+		}
+		rowsVariable := r.newInternalVariable("construction_group_input_rows")
+		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s RETURN %s)", rowsVariable, stage.InputRowVariable, inputRows, projected))
+		rowSource = rowsVariable
+		if len(group.Keys) == 0 {
+			rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", rowsVariable, rowsVariable)
+		}
 	}
 	lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
 	collectKeys := make([]string, 0, len(group.Keys))
@@ -59,20 +68,35 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 		}
 		identityParts = append(identityParts, "[@"+nameBind+", "+key.Variable+"]")
 	}
-	groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", stage.InputRowVariable, stage.InputRowVariable)
-	if len(collectKeys) == 0 {
-		allRowsVariable := r.newInternalVariable("construction_group_all_rows")
-		lines = append(lines, fmt.Sprintf("  COLLECT %s = null INTO %s = %s", allRowsVariable, group.GroupRowsVariable, groupMembers))
-	} else {
-		lines = append(lines, fmt.Sprintf("  COLLECT %s INTO %s = %s", strings.Join(collectKeys, ", "), group.GroupRowsVariable, groupMembers))
-		lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
-	}
-	for index, aggregate := range group.Aggregates {
-		expression, err := r.renderConstructionGroupAggregate(group, aggregate, index)
-		if err != nil {
-			return nil, fmt.Errorf("aggregate %q: %w", aggregate.Output, err)
+	if countRowsOnly {
+		countVariable := r.newInternalVariable("construction_group_count_rows")
+		collect := "COLLECT"
+		if len(collectKeys) != 0 {
+			collect += " " + strings.Join(collectKeys, ", ")
 		}
-		lines = append(lines, fmt.Sprintf("  LET %s = %s", aggregate.Variable, expression))
+		lines = append(lines, fmt.Sprintf("  %s WITH COUNT INTO %s", collect, countVariable))
+		if len(sortKeys) != 0 {
+			lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
+		}
+		for _, aggregate := range group.Aggregates {
+			lines = append(lines, fmt.Sprintf("  LET %s = %s", aggregate.Variable, countVariable))
+		}
+	} else {
+		groupMembers := fmt.Sprintf("{row: %s, present: %s != null}", stage.InputRowVariable, stage.InputRowVariable)
+		if len(collectKeys) == 0 {
+			allRowsVariable := r.newInternalVariable("construction_group_all_rows")
+			lines = append(lines, fmt.Sprintf("  COLLECT %s = null INTO %s = %s", allRowsVariable, group.GroupRowsVariable, groupMembers))
+		} else {
+			lines = append(lines, fmt.Sprintf("  COLLECT %s INTO %s = %s", strings.Join(collectKeys, ", "), group.GroupRowsVariable, groupMembers))
+			lines = append(lines, "  SORT "+strings.Join(sortKeys, ", "))
+		}
+		for index, aggregate := range group.Aggregates {
+			expression, err := r.renderConstructionGroupAggregate(group, aggregate, index)
+			if err != nil {
+				return nil, fmt.Errorf("aggregate %q: %w", aggregate.Output, err)
+			}
+			lines = append(lines, fmt.Sprintf("  LET %s = %s", aggregate.Variable, expression))
+		}
 	}
 	identity := "TO_STRING([" + strings.Join(identityParts, ", ") + "])"
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", group.IdentityVariable, identity))

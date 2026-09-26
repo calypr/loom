@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,44 @@ func TestConstructionGroupSummaryRowsAgainstArango(t *testing.T) {
 		if emptyRows[0][name] != nil {
 			t.Errorf("empty summary %s = %#v, want null", name, emptyRows[0][name])
 		}
+	}
+}
+
+func TestConstructionGroupCountRowsOnlyKeylessEmptyAndNonemptyAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	project, generation := "loom_construction_group_count_only_"+uuid.NewString(), "generation-group-count-only"
+	insertConstructionReshapeRows(t, ctx, client, project, generation, []map[string]any{
+		{"id": "count-only-a", "status": "active"},
+		{"id": "count-only-b", "status": "active"},
+		{"id": "count-only-c", "status": "inactive"},
+	})
+
+	rows := executeConstructionOutput(t, ctx, client, constructionCountRowsOnlyOutput(), project, generation)
+	if len(rows) != 1 || !constructionNumericEqual(rows[0]["rows"], 3) {
+		t.Fatalf("keyless count rows = %#v, want one row with count 3", rows)
+	}
+
+	emptyProject := "loom_construction_group_count_only_empty_" + uuid.NewString()
+	emptyRows := executeConstructionOutput(t, ctx, client, constructionCountRowsOnlyOutput(), emptyProject, generation)
+	if len(emptyRows) != 1 || !constructionNumericEqual(emptyRows[0]["rows"], 0) {
+		t.Fatalf("empty keyless count rows = %#v, want one row with count 0", emptyRows)
+	}
+}
+
+func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) {
+	query := compileConstructionOutputQuery(t, constructionCountRowsOnlyOutput(), "construction-count-rows-only", "generation-count-rows-only")
+	if !strings.Contains(query.Query, "COLLECT WITH COUNT INTO ") {
+		t.Fatalf("count-only query does not use streaming row count:\n%s", query.Query)
+	}
+	for _, bufferedRows := range []string{"construction_group_input_rows", "construction_group_all_rows"} {
+		if strings.Contains(query.Query, bufferedRows) {
+			t.Errorf("count-only query retains %q:\n%s", bufferedRows, query.Query)
+		}
+	}
+
+	keyedQuery := compileConstructionOutputQuery(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyError), "construction-count-rows-only", "generation-count-rows-only")
+	if !strings.Contains(keyedQuery.Query, "WITH COUNT INTO ") || !strings.Contains(keyedQuery.Query, "CONSTRUCTION_GROUP_MISSING_KEY") {
+		t.Fatalf("keyed count query did not retain its missing-key error behavior:\n%s", keyedQuery.Query)
 	}
 }
 
@@ -264,6 +303,25 @@ func constructionSummaryOutput() recipe.Output {
 	}
 }
 
+func constructionCountRowsOnlyOutput() recipe.Output {
+	return recipe.Output{
+		Name: "construction_group_count_rows_only", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "count_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+					ConstructionID: "count_rows",
+					Aggregates:     []recipe.ConstructionGroupAggregate{{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"}},
+				}},
+				Outputs: []recipe.StageColumn{{ID: "rows_id", Name: "rows", Type: "integer"}},
+			}},
+		},
+	}
+}
+
 func constructionExpandOutput() recipe.Output {
 	return recipe.Output{
 		Name: "construction_expand_oracle", RootResourceType: "Observation", RowGrain: "observation",
@@ -348,6 +406,12 @@ func insertConstructionReshapeRows(t *testing.T, ctx context.Context, client *st
 
 func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) []map[string]any {
 	t.Helper()
+	query := compileConstructionOutputQuery(t, output, project, generation)
+	return executeReshapeOracleQuery(t, ctx, client, query)
+}
+
+func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) CompiledQuery {
+	t.Helper()
 	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
@@ -366,7 +430,7 @@ func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.
 	if err != nil {
 		t.Fatalf("compile construction query: %v", err)
 	}
-	return executeReshapeOracleQuery(t, ctx, client, query)
+	return query
 }
 
 func constructionRowIdentities(rows []map[string]any) []string {
