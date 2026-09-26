@@ -1,6 +1,6 @@
 # Construction workspace work packages
 
-Implementation planning draft, 2026-09-25. [F0: Frame sparse ArangoDB records as a model table](SPARSE_RECORD_FRAMING_WP.md) is the central product package. P01–P09 support its end-to-end acceptance. The [framing contract](FRAMING_CONTRACT.md) sets scope, the [interaction design](DESIGN.md#accepted-interaction-decisions) records accepted UI behavior, and the [full plan audit](PLAN_AUDIT.md) records the failure cases added to each package. The [original gap analysis](GAP_ANALYSIS.md) records source evidence at `arch/integration`, commit `ba882b003289024c3c1c8eb0fbc0d2611fb73eeb`.
+Implementation planning draft, 2026-09-25. [F0: Frame sparse ArangoDB records as a model table](SPARSE_RECORD_FRAMING_WP.md) is the central product package. P01–P09 support its end-to-end acceptance. The [frontend feature ledger](FRONTEND_FEATURE_LEDGER.md) is the delivery and QA order; package implementation alone is not a user-visible completion claim. The [framing contract](FRAMING_CONTRACT.md) sets scope, the [interaction design](DESIGN.md#accepted-interaction-decisions) records accepted UI behavior, and the [full plan audit](PLAN_AUDIT.md) records the failure cases added to each package. The [original gap analysis](GAP_ANALYSIS.md) records source evidence at `arch/integration`, commit `ba882b003289024c3c1c8eb0fbc0d2611fb73eeb`.
 
 ## Product contract
 
