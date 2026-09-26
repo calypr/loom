@@ -533,6 +533,80 @@ func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T
 	}
 }
 
+func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testing.T) {
+	const columnName = "col_f49356bac08742bd007bfd24"
+	source := explorer.EmittedColumn{
+		EmissionID: "source-system", OutputID: "body-structures", NodeID: "body-structure-node",
+		CandidateID: "system-candidate", OccurrenceID: "base", AuthoredColumns: []string{columnName},
+		PublicColumn: columnName, Label: "System", LogicalType: "string", Cardinality: "optional_one",
+		Nullable: true, Shape: "scalar", SourceResourceType: "BodyStructure",
+		SourcePath: "includedStructure[].structure.coding[].system", Lossless: true,
+		StructuralSuitability: "scalar",
+	}
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{
+		Name: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
+	}}}
+	groupOutput := authoringv2.StageColumn{ID: "grouped-system", Name: columnName, Label: "System", Type: "string", Nullable: true}
+	sourceContractColumn := receiptTestPublicColumn(source)
+	sourceContractColumn.Cardinality = source.Cardinality
+	document := authoringv2.Document{
+		Output:  authoringv2.Output{ID: "body-structures", Title: "Body structures"},
+		Columns: []authoringv2.Column{{ColumnID: "source-system-id", Column: columnName, Label: "System"}},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "group-step",
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+				ConstructionID: "group-by-system",
+				Keys:           []authoringv2.ConstructionGroupKey{{InputColumnID: "source-system-id", OutputColumnID: groupOutput.ID}},
+			}},
+			Outputs: []authoringv2.StageColumn{groupOutput},
+		}}},
+	}
+	translated := explorercompilation.WorkspaceResult{
+		Bundle: bundle, Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
+		EmittedColumns: []explorer.EmittedColumn{source},
+		OutputContracts: []explorer.PublicOutputContract{{
+			OutputID: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
+			Lossless: true, MLReady: false, StructuralSuitability: "scalar",
+			Columns: []explorer.PublicOutputColumn{sourceContractColumn},
+		}},
+		Presentations: []explorercompilation.PresentationConfig{{
+			OutputID: "body-structures", Title: "Body structures",
+			Columns: []explorercompilation.PresentationColumn{{
+				EmissionID: source.EmissionID, PublicColumn: columnName, Label: source.Label, Visible: true, Order: 0,
+			}},
+		}},
+	}
+	resolved := dataframeexecution.Resolved{
+		Bundle: bundle,
+		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+			Name: "body-structures", OutputSchema: []lower.CompiledOutputColumn{{
+				Name: columnName, Kind: "string", Cardinality: "optional_one", Nullable: true,
+			}},
+		}}},
+	}
+
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatalf("reconcile a grouped key that retains its source name: %v", err)
+	}
+	if len(reconciled.EmittedColumns) != 1 {
+		t.Fatalf("reconciled emissions = %#v, want exactly the grouped key", reconciled.EmittedColumns)
+	}
+	grouped := reconciled.EmittedColumns[0]
+	if grouped.ConstructionID != "group-by-system" || grouped.EmissionID != constructedEmissionID("group-by-system", columnName) {
+		t.Fatalf("grouped key construction metadata = %#v", grouped)
+	}
+	if !reflect.DeepEqual(grouped.InputColumns, []string{columnName}) || !reflect.DeepEqual(grouped.AuthoredColumns, []string{columnName}) {
+		t.Fatalf("grouped key inputs/lineage = %#v/%#v", grouped.InputColumns, grouped.AuthoredColumns)
+	}
+	if grouped.NodeID != source.NodeID || grouped.CandidateID != source.CandidateID || grouped.SourceResourceType != source.SourceResourceType || grouped.SourcePath != source.SourcePath {
+		t.Fatalf("grouped key lost source identity: %#v", grouped)
+	}
+	if grouped.Lossless || grouped.MLReady || grouped.StructuralSuitability != "requires-review" || !reflect.DeepEqual(grouped.LossReasons, []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN", tableShapeMLReadinessUnassessed}) {
+		t.Fatalf("grouped key quality = %#v", grouped)
+	}
+}
+
 func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T) {
 	patient := authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
 	status := authoringv2.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}

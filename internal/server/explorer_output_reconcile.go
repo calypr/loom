@@ -16,15 +16,18 @@ import (
 )
 
 type authoredOutputColumn struct {
-	ConstructionID     string
-	Label              string
-	InputColumns       []string
-	NodeID             string
-	CandidateID        string
-	OccurrenceID       string
-	SourceResourceType string
-	SourcePath         string
-	Quality            constructedOutputQuality
+	ConstructionID          string
+	Label                   string
+	InputColumns            []string
+	NodeID                  string
+	CandidateID             string
+	OccurrenceID            string
+	SourceResourceType      string
+	SourcePath              string
+	TypedStageOutput        bool
+	PriorStageSelfInput     bool
+	PreservesSourceIdentity bool
+	Quality                 constructedOutputQuality
 }
 
 type constructedOutputQuality struct {
@@ -168,10 +171,11 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 
 			metadata, authored := constructed[schemaColumn.Name]
 			emitted, translatedEmission := emittedByOutput[recipeOutput.Name][schemaColumn.Name]
-			if authored && translatedEmission {
+			stageShadow := authored && translatedEmission && metadata.TypedStageOutput
+			if authored && translatedEmission && !stageShadow {
 				return explorercompilation.WorkspaceResult{}, fmt.Errorf("output %q column %q is both a translated emission and a table-shape construction", recipeOutput.Name, schemaColumn.Name)
 			}
-			if translatedEmission {
+			if translatedEmission && !stageShadow {
 				emitted = cloneEmittedColumn(emitted)
 				if err := applyCompiledColumnMetadata(&emitted, schemaColumn); err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
@@ -187,6 +191,7 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				if err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
 				}
+				sourceEmission := cloneEmittedColumn(emitted)
 				emitted = explorer.EmittedColumn{
 					EmissionID:            constructedEmissionID(metadata.ConstructionID, schemaColumn.Name),
 					OutputID:              recipeOutput.Name,
@@ -206,11 +211,32 @@ func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult
 				if err := applyCompiledColumnMetadata(&emitted, schemaColumn); err != nil {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("reconcile constructed output %q column %q: %w", recipeOutput.Name, schemaColumn.Name, err)
 				}
-				emitted.NodeID = metadata.NodeID
-				emitted.CandidateID = metadata.CandidateID
-				emitted.OccurrenceID = metadata.OccurrenceID
-				emitted.SourceResourceType = metadata.SourceResourceType
-				emitted.SourcePath = metadata.SourcePath
+				if stageShadow && metadata.PreservesSourceIdentity {
+					emitted.NodeID = sourceEmission.NodeID
+					emitted.CandidateID = sourceEmission.CandidateID
+					emitted.OccurrenceID = sourceEmission.OccurrenceID
+					emitted.SourceResourceType = sourceEmission.SourceResourceType
+					emitted.SourcePath = sourceEmission.SourcePath
+					emitted.ChoiceArm = sourceEmission.ChoiceArm
+					emitted.Coordinates = sourceEmission.Coordinates
+					emitted.ProjectionMode = sourceEmission.ProjectionMode
+					emitted.UnitNormalization = sourceEmission.UnitNormalization
+				}
+				if metadata.NodeID != "" {
+					emitted.NodeID = metadata.NodeID
+				}
+				if metadata.CandidateID != "" {
+					emitted.CandidateID = metadata.CandidateID
+				}
+				if metadata.OccurrenceID != "" {
+					emitted.OccurrenceID = metadata.OccurrenceID
+				}
+				if metadata.SourceResourceType != "" {
+					emitted.SourceResourceType = metadata.SourceResourceType
+				}
+				if metadata.SourcePath != "" {
+					emitted.SourcePath = metadata.SourcePath
+				}
 				if _, collision := emittedIDs[recipeOutput.Name][emitted.EmissionID]; collision {
 					return explorercompilation.WorkspaceResult{}, fmt.Errorf("constructed output %q column %q duplicates translated emission identity %q", recipeOutput.Name, schemaColumn.Name, emitted.EmissionID)
 				}
@@ -436,9 +462,17 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					lineageInputs = append(lineageInputs, name)
 				}
 			}
+			priorStageSelfInput := false
+			for _, input := range lineageInputs {
+				if input == output.Name {
+					priorStageSelfInput = true
+					break
+				}
+			}
 			nextAuthored[output.Name] = authoredOutputColumn{
 				ConstructionID: constructionID, Label: output.Label,
-				InputColumns: lineageInputs, Quality: quality,
+				InputColumns: lineageInputs, TypedStageOutput: true,
+				PriorStageSelfInput: priorStageSelfInput, Quality: quality,
 			}
 			return nil
 		}
@@ -455,6 +489,15 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			for _, key := range group.Keys {
 				if err := addOutput(key.OutputColumnID, group.ConstructionID, []string{key.InputColumnID}, quality); err != nil {
 					return err
+				}
+				inputName := prior[key.InputColumnID]
+				for _, output := range step.Outputs {
+					if output.ID == key.OutputColumnID && output.Name == inputName {
+						metadata := nextAuthored[output.Name]
+						metadata.PreservesSourceIdentity = true
+						nextAuthored[output.Name] = metadata
+						break
+					}
 				}
 			}
 			for _, aggregate := range group.Aggregates {
@@ -787,6 +830,20 @@ func isSupportedConstructedScalarKind(kind expression.ValueKind) bool {
 func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, emitted map[string]explorer.EmittedColumn) (map[string][]string, error) {
 	states := make(map[string]uint8, len(constructed))
 	resolved := make(map[string][]string, len(constructed))
+	baseLineage := func(column string) ([]string, error) {
+		emission, ok := emitted[column]
+		if !ok {
+			return nil, fmt.Errorf("missing dependency %q", column)
+		}
+		roots, err := sortedUniqueColumns(emission.AuthoredColumns)
+		if err != nil {
+			return nil, fmt.Errorf("base dependency %q: %w", column, err)
+		}
+		if len(roots) == 0 {
+			return nil, fmt.Errorf("base dependency %q has no authored lineage", column)
+		}
+		return roots, nil
+	}
 	var visit func(string) ([]string, error)
 	visit = func(column string) ([]string, error) {
 		if authored, ok := constructed[column]; ok {
@@ -799,6 +856,14 @@ func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, e
 			states[column] = 1
 			roots := make([]string, 0)
 			for _, input := range authored.InputColumns {
+				if input == column && authored.PriorStageSelfInput {
+					lineage, err := baseLineage(input)
+					if err != nil {
+						return nil, err
+					}
+					roots = append(roots, lineage...)
+					continue
+				}
 				lineage, err := visit(input)
 				if err != nil {
 					return nil, err
@@ -813,18 +878,7 @@ func resolveAuthoredOutputLineage(constructed map[string]authoredOutputColumn, e
 			resolved[column] = lineage
 			return append([]string(nil), lineage...), nil
 		}
-		emission, ok := emitted[column]
-		if !ok {
-			return nil, fmt.Errorf("missing dependency %q", column)
-		}
-		roots, err := sortedUniqueColumns(emission.AuthoredColumns)
-		if err != nil {
-			return nil, fmt.Errorf("base dependency %q: %w", column, err)
-		}
-		if len(roots) == 0 {
-			return nil, fmt.Errorf("base dependency %q has no authored lineage", column)
-		}
-		return roots, nil
+		return baseLineage(column)
 	}
 
 	columns := make([]string, 0, len(constructed))
