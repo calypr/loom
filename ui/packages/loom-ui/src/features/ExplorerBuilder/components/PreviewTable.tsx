@@ -88,6 +88,11 @@ export const PreviewTable = ({
   const authoredByColumn = new Map(
     table?.document.columns.map((column) => [column.column, column]) ?? [],
   );
+  const constructionOutputNames = new Set(
+    table?.document.construction?.steps.flatMap((step) =>
+      step.outputs.map((output) => output.name),
+    ) ?? [],
+  );
   const authoredColumnsFor = (column: ExplorerBuilderEmission) => {
     const names = column.authoredColumns ?? [column.column];
     return names.flatMap((name) => {
@@ -138,7 +143,11 @@ export const PreviewTable = ({
         ),
     );
   const columns = orderedColumns.filter((column) => {
-    return authoredColumnsFor(column).some(
+    const authoredColumns = authoredColumnsFor(column);
+    if (authoredColumns.length === 0) {
+      return constructionOutputNames.has(column.column);
+    }
+    return authoredColumns.some(
       (authored) => authored.table?.visible ?? Boolean(authored.table),
     );
   });

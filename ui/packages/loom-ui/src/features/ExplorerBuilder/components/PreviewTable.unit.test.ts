@@ -3,6 +3,7 @@ import React from 'react';
 import { vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type {
+  Construction,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderColumn,
 } from '../../../types';
@@ -56,6 +57,82 @@ const preview: ExplorerBuilderPreviewResult = {
   rowCount: 1,
   diagnostics: [],
 };
+const specimenSourceColumns = [
+  { ...column('specimen_id', 'Specimen ID', 0), columnId: 'specimen-id' },
+  { ...column('subject_reference', 'Subject reference', 1), columnId: 'subject-reference' },
+  { ...column('specimen_status', 'Specimen status', 2), columnId: 'specimen-status' },
+  { ...column('collection_date', 'Collection date', 3), columnId: 'collection-date' },
+];
+const relatedPatientConstruction: Construction = {
+  version: 1,
+  steps: [{
+    id: 'related_patient_id',
+    inputs: [{ kind: 'SOURCE_PROJECTION' }],
+    operation: {
+      kind: 'RELATED_SOURCE',
+      relatedSource: {
+        anchorColumnId: 'subject-reference',
+        choiceId: 'Specimen.subject_Patient',
+        sourceOccurrenceId: 'base',
+        source: {
+          kind: 'FIELD',
+          candidateId: 'patient-id',
+          nodeId: 'patient-node',
+          resourceType: 'Patient',
+          path: 'id',
+          cardinality: 'required_one',
+          logicalType: 'string',
+        },
+        route: [{
+          edgeId: 'Specimen.subject_Patient',
+          fromNodeId: 'specimen-node',
+          toNodeId: 'patient-node',
+          fromResourceType: 'Specimen',
+          toResourceType: 'Patient',
+          relationship: 'subject',
+          storageDirection: 'OUTBOUND',
+          matchMode: 'OPTIONAL',
+        }],
+        contributorRule: { policy: 'ALL_MATCHES' },
+        form: 'ALL',
+        outputColumnId: 'patient-id',
+      },
+    },
+    outputs: [{
+      id: 'patient-id',
+      name: 'patient_id',
+      label: 'Patient ID',
+      type: 'string',
+      nullable: true,
+    }],
+  }],
+};
+const relatedPatientPreview: ExplorerBuilderPreviewResult = {
+  ...preview,
+  columns: [
+    ...specimenSourceColumns.map((sourceColumn) => ({
+      column: sourceColumn.column,
+      label: sourceColumn.label,
+      logicalType: 'string',
+      filterable: true,
+      chartable: false,
+    })),
+    {
+      column: 'patient_id',
+      label: 'Patient ID',
+      logicalType: 'string',
+      filterable: true,
+      chartable: false,
+    },
+  ],
+  rows: [{
+    specimen_id: 'specimen-1',
+    subject_reference: 'Patient/patient-42',
+    specimen_status: 'available',
+    collection_date: '2024-01-01',
+    patient_id: 'patient-42',
+  }],
+};
 
 describe('formatPreviewCell', () => {
   it('preserves scalar values', () => {
@@ -100,6 +177,59 @@ describe('formatPreviewCell', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('shows related construction outputs in the preview after applying a saved construction', () => {
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: specimenSourceColumns,
+        construction: relatedPatientConstruction,
+      },
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: relatedPatientPreview,
+        table: relatedTable,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-colcount', '5');
+    expect(screen.getByRole('columnheader', { name: 'Patient ID' })).toBeInTheDocument();
+    expect(screen.getByText('patient-42')).toBeInTheDocument();
+  });
+
+  it('keeps explicitly hidden authored fields hidden while showing construction outputs', () => {
+    const relatedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: specimenSourceColumns.map((sourceColumn, index) => index === 0
+          ? { ...sourceColumn, table: { visible: false, order: 0 } }
+          : sourceColumn),
+        construction: relatedPatientConstruction,
+      },
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: relatedPatientPreview,
+        table: relatedTable,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByRole('table')).toHaveAttribute('aria-colcount', '4');
+    expect(screen.queryByRole('columnheader', { name: 'Specimen ID' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Patient ID' })).toBeInTheDocument();
+    expect(screen.getByText('patient-42')).toBeInTheDocument();
+  });
+
   it('shows compiler-provided units in Preview headers while leaving unitless columns unchanged', () => {
     const previewWithUnit: ExplorerBuilderPreviewResult = {
       ...preview,
