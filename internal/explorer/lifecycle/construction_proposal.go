@@ -181,12 +181,16 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	baseRelatedSources := make(map[string]authoringv2.ConstructionRelatedSource)
 	baseRelatedExpands := make(map[string]authoringv2.ConstructionRelatedExpand)
+	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
 	for _, step := range base.construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
 		}
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedExpand && step.Operation.RelatedExpand != nil {
 			baseRelatedExpands[step.ID] = *step.Operation.RelatedExpand
+		}
+		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
+			baseRelatedFields[step.ID] = *step.Operation.RelatedField
 		}
 	}
 	for _, step := range candidateDocument.Construction.Steps {
@@ -209,6 +213,16 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 				continue
 			}
 			if err := reauthorizeConstructionRelatedExpand(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedExpand); err != nil {
+				return ConstructionProposalResponse{}, err
+			}
+		case authoringv2.ConstructionOperationRelatedField:
+			if step.Operation.RelatedField == nil {
+				continue
+			}
+			if prior, exists := baseRelatedFields[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedField) {
+				continue
+			}
+			if err := reauthorizeConstructionRelatedField(ctx, base, step, *step.Operation.RelatedField); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
 		}
@@ -262,6 +276,99 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseResponse.Stages = candidateReceipt.ConstructionStages[request.OutputID]
 	baseResponse.PreviewStatus = "PREVIEW_PENDING"
 	return baseResponse, nil
+}
+
+func reauthorizeConstructionRelatedField(
+	ctx context.Context,
+	base constructionBase,
+	step authoringv2.ConstructionStep,
+	related authoringv2.ConstructionRelatedField,
+) error {
+	inputStageID, err := relatedFieldInputStageID(step)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
+	}
+	var inputStage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == inputStageID {
+			inputStage = &base.stages[index]
+			break
+		}
+	}
+	if inputStage == nil {
+		return conflict("construction-proposal", "STALE_STAGE_REFERENCE", "the related field input stage is not in the current compiled output", nil, nil)
+	}
+	active := inputStage.ActiveRelatedRecord
+	if active == nil {
+		return unprocessable("construction-proposal", "NO_ACTIVE_RELATED_RECORD", "the related field input stage does not retain an exact terminal resource identity", nil)
+	}
+	supported := false
+	for _, operation := range inputStage.Capabilities {
+		if operation.Kind == "RELATED_FIELD" {
+			supported = operation.Supported
+			break
+		}
+	}
+	if !supported {
+		return unprocessable("construction-proposal", "NO_ACTIVE_RELATED_RECORD", "the related field input stage cannot project an exact terminal field", nil)
+	}
+	if related.Source.Kind != capability.ConstructionChoiceSourceField || related.Source.NodeID != active.TargetNodeID ||
+		related.Source.ResourceType != active.TargetResourceType || len(related.Source.RepeatedBoundaries) != 0 {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source does not identify a scalar on the active terminal resource", nil)
+	}
+	choice, err := capability.DecodeConstructionChoiceID(related.ChoiceID)
+	if err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field choice identity is invalid", err)
+	}
+	if choice.SnapshotToken != base.snapshot.Token {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload the exact related field for the current authorized snapshot", nil, nil)
+	}
+	choiceSource, ok := choice.Source.(capability.RelatedFieldChoiceSource)
+	if !ok || choiceSource.StageID != inputStageID || choiceSource.CandidateID != related.Source.CandidateID ||
+		choiceSource.NodeID != active.TargetNodeID || choiceSource.ResourceType != active.TargetResourceType ||
+		choiceSource.Path != related.Source.Path || choiceSource.Cardinality != related.Source.Cardinality ||
+		choiceSource.LogicalType != related.Source.LogicalType {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "related field source differs from its stage-bound server choice", nil)
+	}
+	candidate, found := uniqueCapabilityCandidate(base.snapshot, related.Source.CandidateID)
+	if !found || candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
+		candidate.FieldPath != related.Source.Path || (candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
+		len(candidate.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(candidate.FieldPath) ||
+		!relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the exact scalar candidate is no longer available on the active terminal resource", nil, nil)
+	}
+	proved, err := proveConstructionCandidate(ctx, base.authorized, active.TargetResourceType, candidate, nil)
+	if err != nil || proved.NodeID != active.TargetNodeID || proved.ResourceType != active.TargetResourceType ||
+		proved.FieldPath != related.Source.Path || proved.Cardinality != related.Source.Cardinality || proved.LogicalType != related.Source.LogicalType ||
+		len(proved.RepeatedBoundaries) != 0 || !relatedFieldPathExecutable(proved.FieldPath) ||
+		!relatedFieldLogicalTypeExecutable(proved.LogicalType) {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected scalar field is no longer supported by the compiler", nil, err)
+	}
+	reissued, err := capability.NewConstructionRelatedFieldChoice(base.snapshot.Token, inputStageID, proved)
+	if err != nil || reissued.ChoiceID != related.ChoiceID || reissued.Source.CandidateID != related.Source.CandidateID ||
+		reissued.Source.NodeID != related.Source.NodeID || reissued.Source.ResourceType != related.Source.ResourceType ||
+		reissued.Source.Path != related.Source.Path || reissued.Source.Cardinality != related.Source.Cardinality {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the related field choice could not be reissued from the current authorized candidate", err)
+	}
+	return nil
+}
+
+func relatedFieldInputStageID(step authoringv2.ConstructionStep) (string, error) {
+	if len(step.Inputs) != 1 {
+		return "", fmt.Errorf("related field requires exactly one input stage")
+	}
+	input := step.Inputs[0]
+	switch input.Kind {
+	case authoringv2.ConstructionInputSourceProjection:
+		return recipe.ConstructionSourceProjectionID, nil
+	case authoringv2.ConstructionInputStepOutput:
+		if strings.TrimSpace(input.StepID) == "" || input.StepID != strings.TrimSpace(input.StepID) {
+			return "", fmt.Errorf("related field input step ID must be exact")
+		}
+		return input.StepID, nil
+	default:
+		return "", fmt.Errorf("related field input must be a source or prior construction stage")
+	}
 }
 
 func reauthorizeConstructionRelatedExpand(

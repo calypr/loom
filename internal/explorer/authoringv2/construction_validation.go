@@ -298,6 +298,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
 		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
 		step.Operation.Combine != nil, step.Operation.RelatedSource != nil, step.Operation.RelatedExpand != nil,
+		step.Operation.RelatedField != nil,
 	} {
 		if present {
 			payloads++
@@ -347,13 +348,49 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		}
 		return validateConstructionRelatedSource(step, input, inputColumns)
 	case ConstructionOperationRelatedExpand:
-		if step.Operation.RelatedExpand == nil {
+		if step.Operation.RelatedExpand == nil || step.Operation.RelatedField != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
 		return validateConstructionRelatedExpand(step, input, inputColumns)
+	case ConstructionOperationRelatedField:
+		if step.Operation.RelatedField == nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionRelatedField(step, input, inputColumns)
 	default:
 		return fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+}
+
+func validateConstructionRelatedField(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	related := step.Operation.RelatedField
+	source := related.Source
+	if !requiredID(related.ChoiceID) || source.Kind != capability.ConstructionChoiceSourceField ||
+		!requiredID(source.CandidateID) || !requiredID(source.NodeID) || !requiredID(source.ResourceType) ||
+		!requiredID(source.Path) || !requiredID(source.LogicalType) ||
+		(source.Cardinality != "optional_one" && source.Cardinality != "required_one") || len(source.RepeatedBoundaries) != 0 {
+		return fmt.Errorf("relatedField requires one exact scalar field choice")
+	}
+	if !requiredID(related.OutputColumnID) || input[related.OutputColumnID].ID != "" {
+		return fmt.Errorf("relatedField.outputColumnId is empty or already exists")
+	}
+	expected := orderedStageIDs(inputColumns)
+	expected = append(expected, related.OutputColumnID)
+	if err := validateDeclaredOutputIDs(step.Outputs, expected); err != nil {
+		return err
+	}
+	for _, output := range step.Outputs {
+		if output.ID != related.OutputColumnID {
+			continue
+		}
+		if output.Type != "" && output.Type != source.LogicalType {
+			return fmt.Errorf("relatedField output type must match the selected field logical type")
+		}
+		if !output.Nullable {
+			return fmt.Errorf("relatedField output must be nullable because the active terminal record may be absent")
+		}
+	}
+	return nil
 }
 
 func validateConstructionRelatedExpand(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {

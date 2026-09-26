@@ -2,9 +2,12 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -76,6 +79,211 @@ type RelatedExpandChoiceSearchResponse struct {
 	Truncated     bool                       `json:"truncated"`
 	NextCursor    string                     `json:"nextCursor,omitempty"`
 	Choices       []RelatedExpandRouteChoice `json:"choices"`
+}
+
+type RelatedFieldChoiceSearchRequest struct {
+	Project              string
+	ExplorerID           string
+	SnapshotToken        string
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	OutputID             string
+	StageID              string
+	Query                string
+	Limit                int
+	Cursor               string
+}
+
+type RelatedFieldChoice struct {
+	ChoiceID string                                     `json:"choiceId"`
+	Label    string                                     `json:"label"`
+	Source   authoringv2.ConstructionRelatedFieldSource `json:"source"`
+}
+
+type RelatedFieldChoiceSearchResponse struct {
+	SnapshotToken string               `json:"snapshotToken"`
+	DraftVersion  int64                `json:"draftVersion"`
+	DraftDigest   string               `json:"draftDigest"`
+	OutputID      string               `json:"outputId"`
+	StageID       string               `json:"stageId"`
+	Complete      bool                 `json:"complete"`
+	Truncated     bool                 `json:"truncated"`
+	NextCursor    string               `json:"nextCursor,omitempty"`
+	Choices       []RelatedFieldChoice `json:"choices"`
+}
+
+type relatedFieldChoiceCursor struct {
+	Version      int    `json:"version"`
+	Snapshot     string `json:"snapshot"`
+	DraftVersion int64  `json:"draftVersion"`
+	DraftDigest  string `json:"draftDigest"`
+	OutputID     string `json:"outputId"`
+	StageID      string `json:"stageId"`
+	Query        string `json:"query"`
+	Offset       int    `json:"offset"`
+}
+
+// SearchRelatedFieldChoices returns compiler-proved scalar fields on the
+// active exact terminal resource at one current output stage.
+func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
+	result := RelatedFieldChoiceSearchResponse{
+		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
+		Choices: []RelatedFieldChoice{},
+	}
+	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
+		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" ||
+		strings.TrimSpace(request.StageID) == "" || strings.TrimSpace(request.ExpectedDraftDigest) == "" ||
+		request.ExpectedDraftVersion < 1 || strings.TrimSpace(request.Query) != request.Query ||
+		len(request.Query) > 256 || strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
+		return result, malformed("related-field-choices", "project, explorer, snapshot, draft, output, and stage identities are required", nil)
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+		return result, unavailable("related-field-choices", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+	}
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	if err != nil {
+		return result, err
+	}
+	result.DraftVersion, result.DraftDigest = base.owner.DraftVersion, base.owner.DraftDigest
+	var stage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == request.StageID {
+			stage = &base.stages[index]
+			break
+		}
+	}
+	if stage == nil {
+		return result, conflict("related-field-choices", "STALE_STAGE_REFERENCE", "the selected stage is not in the current compiled output", nil, nil)
+	}
+	if stage.ActiveRelatedRecord == nil {
+		return result, unprocessable("related-field-choices", "NO_ACTIVE_RELATED_RECORD", "the selected stage does not retain an exact terminal resource identity", nil)
+	}
+	active := stage.ActiveRelatedRecord
+	if active.TargetNodeID == "" || active.TargetResourceType == "" || active.TerminalIdentityColumn == "" {
+		return result, conflict("related-field-choices", "INVALID_COMPILATION_RECEIPT", "the selected stage has incomplete terminal identity metadata", nil, nil)
+	}
+	if err := validateAuthorizedReadScope(base.authorized.Scope, base.snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, conflict("related-field-choices", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	if cursor := request.Cursor; cursor != "" {
+		decoded, decodeErr := decodeRelatedFieldChoiceCursor(cursor)
+		if decodeErr != nil || decoded.Version != 1 || decoded.Snapshot != request.SnapshotToken ||
+			decoded.DraftVersion != base.owner.DraftVersion || decoded.DraftDigest != base.owner.DraftDigest ||
+			decoded.OutputID != request.OutputID || decoded.StageID != request.StageID || decoded.Query != request.Query || decoded.Offset < 0 {
+			return result, conflict("related-field-choices", "STALE_OR_INVALID_CHOICE_CURSOR", "restart exact field search for this output stage", nil, decodeErr)
+		}
+	}
+	candidates := make([]capability.Candidate, 0)
+	query := strings.ToLower(request.Query)
+	for _, candidate := range base.snapshot.Candidates {
+		if candidate.NodeID != active.TargetNodeID || candidate.ResourceType != active.TargetResourceType ||
+			(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") ||
+			len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(candidate.Label), query) && !strings.Contains(strings.ToLower(candidate.FieldPath), query) {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	offset := 0
+	if request.Cursor != "" {
+		decoded, _ := decodeRelatedFieldChoiceCursor(request.Cursor)
+		offset = decoded.Offset
+	}
+	if offset > len(candidates) {
+		return result, conflict("related-field-choices", "STALE_OR_INVALID_CHOICE_CURSOR", "restart exact field search for this output stage", nil, nil)
+	}
+	limit := request.Limit
+	if limit == 0 {
+		limit = 25
+	}
+	if limit < 1 || limit > 50 {
+		return result, malformed("related-field-choices", "limit must be between 1 and 50", nil)
+	}
+	end := offset + limit
+	if end > len(candidates) {
+		end = len(candidates)
+	}
+	for _, candidate := range candidates[offset:end] {
+		proved, proofErr := proveConstructionCandidate(ctx, base.authorized, active.TargetResourceType, candidate, nil)
+		if proofErr != nil || proved.NodeID != active.TargetNodeID || proved.ResourceType != active.TargetResourceType ||
+			(proved.Cardinality != "optional_one" && proved.Cardinality != "required_one") || len(proved.RepeatedBoundaries) != 0 ||
+			!relatedFieldPathExecutable(proved.FieldPath) || !relatedFieldLogicalTypeExecutable(proved.LogicalType) {
+			continue
+		}
+		choice, choiceErr := capability.NewConstructionRelatedFieldChoice(base.snapshot.Token, request.StageID, proved)
+		if choiceErr != nil {
+			continue
+		}
+		result.Choices = append(result.Choices, RelatedFieldChoice{
+			ChoiceID: choice.ChoiceID, Label: choice.Label,
+			Source: authoringv2.ConstructionRelatedFieldSource{
+				Kind: capability.ConstructionChoiceSourceField, CandidateID: choice.Source.CandidateID,
+				NodeID: choice.Source.NodeID, ResourceType: choice.Source.ResourceType, Path: choice.Source.Path,
+				Cardinality: proved.Cardinality, LogicalType: proved.LogicalType,
+			},
+		})
+	}
+	result.Complete = end >= len(candidates)
+	result.Truncated = !result.Complete
+	if result.Truncated {
+		cursor, encodeErr := encodeRelatedFieldChoiceCursor(relatedFieldChoiceCursor{
+			Version: 1, Snapshot: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			OutputID: request.OutputID, StageID: request.StageID, Query: request.Query, Offset: end,
+		})
+		if encodeErr != nil {
+			return RelatedFieldChoiceSearchResponse{}, fmt.Errorf("encode related field cursor: %w", encodeErr)
+		}
+		result.NextCursor = cursor
+	}
+	return result, nil
+}
+
+func containsProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
+	for _, mode := range modes {
+		if mode == want {
+			return true
+		}
+	}
+	return false
+}
+
+func relatedFieldPathExecutable(path string) bool {
+	_, err := spec.ParseDirectScalarSelector(path)
+	return err == nil
+}
+
+func relatedFieldLogicalTypeExecutable(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "string", "date", "date_time", "code", "uuid", "integer", "decimal", "boolean":
+		return true
+	default:
+		return false
+	}
+}
+
+func encodeRelatedFieldChoiceCursor(cursor relatedFieldChoiceCursor) (string, error) {
+	raw, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeRelatedFieldChoiceCursor(encoded string) (relatedFieldChoiceCursor, error) {
+	var cursor relatedFieldChoiceCursor
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return cursor, err
+	}
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return cursor, err
+	}
+	return cursor, nil
 }
 
 type ResolvedPopulationRouteChoice struct {

@@ -30,6 +30,7 @@ const (
 	CompilationReceiptCompilerContractVersion          = "loom.explorer.compiler/v16"
 	previousCompilationReceiptCompilerContractVersion  = "loom.explorer.compiler/v15"
 	legacyCompilationReceiptB06CompilerContractVersion = "loom.explorer.compiler/v14"
+	legacyCompilationReceiptV13CompilerContractVersion = "loom.explorer.compiler/v13"
 	legacyCompilationReceiptCompilerContractVersion    = "loom.explorer.compiler/v12"
 	legacyCompilationReceiptOlderContractVersion       = "loom.explorer.compiler/v11"
 	legacyCompilationReceiptV10ContractVersion         = "loom.explorer.compiler/v10"
@@ -246,13 +247,14 @@ func (b ConstructionProposalBinding) Validate(intentDigest, snapshotToken string
 // ReceiptConstructionStage preserves the exact inferred schema and supported
 // operation set for a stable stage in a compiled output.
 type ReceiptConstructionStage struct {
-	ID                string                               `json:"id"`
-	InputStageID      string                               `json:"inputStageId"`
-	Operation         string                               `json:"operation,omitempty"`
-	RowIdentityColumn string                               `json:"rowIdentityColumn,omitempty"`
-	Columns           []ReceiptConstructionStageColumn     `json:"columns"`
-	Capabilities      []ReceiptConstructionOperationChoice `json:"capabilities"`
-	RelatedExpand     *ReceiptConstructionRelatedExpand    `json:"relatedExpand,omitempty"`
+	ID                  string                                  `json:"id"`
+	InputStageID        string                                  `json:"inputStageId"`
+	Operation           string                                  `json:"operation,omitempty"`
+	RowIdentityColumn   string                                  `json:"rowIdentityColumn,omitempty"`
+	Columns             []ReceiptConstructionStageColumn        `json:"columns"`
+	Capabilities        []ReceiptConstructionOperationChoice    `json:"capabilities"`
+	RelatedExpand       *ReceiptConstructionRelatedExpand       `json:"relatedExpand,omitempty"`
+	ActiveRelatedRecord *ReceiptConstructionActiveRelatedRecord `json:"activeRelatedRecord,omitempty"`
 }
 
 type ReceiptConstructionRelatedExpand struct {
@@ -265,6 +267,12 @@ type ReceiptConstructionRelatedExpand struct {
 	TargetNodeID           string                                `json:"targetNodeId"`
 	TargetResourceType     string                                `json:"targetResourceType"`
 	Route                  []recipe.ConstructionRelatedRouteStep `json:"route"`
+}
+
+type ReceiptConstructionActiveRelatedRecord struct {
+	TargetNodeID           string `json:"targetNodeId"`
+	TargetResourceType     string `json:"targetResourceType"`
+	TerminalIdentityColumn string `json:"terminalIdentityColumn"`
 }
 
 type ReceiptConstructionStageColumn struct {
@@ -332,7 +340,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND":
+				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_FIELD":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
@@ -375,6 +383,25 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 				}
 			} else if stage.RelatedExpand != nil {
 				return fmt.Errorf("constructionStages[%q][%d] has related-expansion metadata for %q", outputID, index, stage.Operation)
+			}
+			if stage.ActiveRelatedRecord != nil {
+				active := stage.ActiveRelatedRecord
+				if strings.TrimSpace(active.TargetNodeID) == "" || active.TargetNodeID != strings.TrimSpace(active.TargetNodeID) ||
+					strings.TrimSpace(active.TargetResourceType) == "" || active.TargetResourceType != strings.TrimSpace(active.TargetResourceType) ||
+					strings.TrimSpace(active.TerminalIdentityColumn) == "" || active.TerminalIdentityColumn != strings.TrimSpace(active.TerminalIdentityColumn) {
+					return fmt.Errorf("constructionStages[%q][%d].activeRelatedRecord requires exact target and terminal identity fields", outputID, index)
+				}
+				switch stage.Operation {
+				case "RELATED_EXPAND":
+					if active.TargetNodeID != stage.RelatedExpand.TargetNodeID || active.TargetResourceType != stage.RelatedExpand.TargetResourceType || active.TerminalIdentityColumn != stage.RelatedExpand.TerminalIdentityColumn {
+						return fmt.Errorf("constructionStages[%q][%d] active terminal identity differs from RELATED_EXPAND metadata", outputID, index)
+					}
+				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_FIELD":
+				default:
+					return fmt.Errorf("constructionStages[%q][%d] cannot carry an active related record through %q", outputID, index, stage.Operation)
+				}
+			} else if stage.Operation == "RELATED_FIELD" {
+				return fmt.Errorf("constructionStages[%q][%d] RELATED_FIELD lacks its active exact terminal record", outputID, index)
 			}
 		}
 	}
@@ -548,7 +575,7 @@ func (r CompilationReceipt) Validate() error {
 	if r.ReceiptFormatVersion != 0 && r.ReceiptFormatVersion != CompilationReceiptFormatVersion && r.ReceiptFormatVersion != previousCompilationReceiptFormatVersion && r.ReceiptFormatVersion != legacyCompilationReceiptFormatVersion {
 		return fmt.Errorf("unsupported receipt format version %d", r.ReceiptFormatVersion)
 	}
-	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
+	if r.CompilerContractVersion != "" && r.CompilerContractVersion != CompilationReceiptCompilerContractVersion && r.CompilerContractVersion != previousCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptB06CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV13CompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptCompilerContractVersion && r.CompilerContractVersion != legacyCompilationReceiptOlderContractVersion && r.CompilerContractVersion != legacyCompilationReceiptV10ContractVersion {
 		return fmt.Errorf("unsupported compiler contract %q", r.CompilerContractVersion)
 	}
 	if strings.TrimSpace(r.Project) == "" || strings.TrimSpace(r.ExplorerID) == "" {

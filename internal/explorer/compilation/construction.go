@@ -453,10 +453,10 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
 			TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
 			ContributorPolicy: related.ContributorRule.Policy, ContributorPredicate: predicate,
-			ContributorChoiceID: related.ContributorChoiceID,
-			EmptyPolicy: recipe.ExpansionEmptyPolicy(related.EmptyPolicy),
+			ContributorChoiceID:   related.ContributorChoiceID,
+			EmptyPolicy:           recipe.ExpansionEmptyPolicy(related.EmptyPolicy),
 			RelatedRecordColumnID: related.RelatedRecordColumnID,
-			Route: make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route)),
+			Route:                 make([]recipe.ConstructionRelatedRouteStep, 0, len(related.Route)),
 		}
 		if related.ContributorSource != nil {
 			source := related.ContributorSource
@@ -473,6 +473,20 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.RelatedExpand = mapped
+	case authoringv2.ConstructionOperationRelatedField:
+		if authored.RelatedField == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("relatedField payload is required")
+		}
+		related := authored.RelatedField
+		operation.RelatedField = &recipe.ConstructionRelatedField{
+			ChoiceID: related.ChoiceID,
+			Source: recipe.ConstructionRelatedFieldSource{
+				CandidateID: related.Source.CandidateID, NodeID: related.Source.NodeID,
+				ResourceType: related.Source.ResourceType, Path: related.Source.Path,
+				Cardinality: related.Source.Cardinality, LogicalType: related.Source.LogicalType,
+			},
+			OutputColumnID: related.OutputColumnID,
+		}
 	case authoringv2.ConstructionOperationCombine:
 		if authored.Combine == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("combine payload is required")

@@ -68,6 +68,7 @@ const (
 	ConstructionChoiceSourceField           ConstructionChoiceSourceKind = "FIELD"
 	ConstructionChoiceSourceSemantic        ConstructionChoiceSourceKind = "SEMANTIC"
 	ConstructionChoiceSourceRelatedResource ConstructionChoiceSourceKind = "RELATED_RESOURCE"
+	ConstructionChoiceSourceRelatedField    ConstructionChoiceSourceKind = "RELATED_FIELD"
 )
 
 // ConstructionChoiceSource is closed to the variants defined by this package.
@@ -131,6 +132,21 @@ type RelatedResourceChoiceSource struct {
 
 func (RelatedResourceChoiceSource) constructionChoiceSource() {}
 
+// RelatedFieldChoiceSource binds one scalar field to a specific stage that
+// carries an exact terminal resource identity.
+type RelatedFieldChoiceSource struct {
+	Kind         ConstructionChoiceSourceKind `json:"kind"`
+	StageID      string                       `json:"stageId"`
+	CandidateID  string                       `json:"candidateId"`
+	NodeID       string                       `json:"nodeId"`
+	ResourceType string                       `json:"resourceType"`
+	Path         string                       `json:"path"`
+	Cardinality  string                       `json:"cardinality"`
+	LogicalType  string                       `json:"logicalType"`
+}
+
+func (RelatedFieldChoiceSource) constructionChoiceSource() {}
+
 type ConstructionChoiceOption struct {
 	Form                          ConstructionChoiceForm                `json:"form"`
 	Shape                         ConstructionChoiceShape               `json:"shape"`
@@ -192,6 +208,12 @@ type ConstructionRelatedResourceRouteChoice struct {
 	TargetNodeID   string
 	TargetResource string
 	Route          []ConstructionRouteStep
+}
+
+type ConstructionRelatedFieldChoice struct {
+	ChoiceID string
+	Source   FieldChoiceSource
+	Label    string
 }
 
 type constructionChoiceToken struct {
@@ -265,6 +287,39 @@ func NewConstructionRelatedResourceRouteChoice(snapshotToken, stageID, targetNod
 		ChoiceID: choiceID, TargetNodeID: targetNodeID, TargetResource: targetResource,
 		Route: cloneConstructionRoute(route),
 	}, nil
+}
+
+// NewConstructionRelatedFieldChoice issues a stage-bound choice for one
+// compiler catalog scalar field on the active exact terminal resource.
+func NewConstructionRelatedFieldChoice(snapshotToken, stageID string, candidate Candidate) (ConstructionRelatedFieldChoice, error) {
+	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(stageID) == "" ||
+		strings.TrimSpace(candidate.ID) == "" || strings.TrimSpace(candidate.NodeID) == "" ||
+		strings.TrimSpace(candidate.ResourceType) == "" || strings.TrimSpace(candidate.FieldPath) == "" ||
+		strings.TrimSpace(candidate.LogicalType) == "" ||
+		(candidate.Cardinality != "optional_one" && candidate.Cardinality != "required_one") {
+		return ConstructionRelatedFieldChoice{}, fmt.Errorf("snapshot, stage, and exact scalar field identity are required")
+	}
+	source := FieldChoiceSource{
+		Kind: ConstructionChoiceSourceField, CandidateID: candidate.ID, NodeID: candidate.NodeID,
+		ResourceType: candidate.ResourceType, Path: candidate.FieldPath, Cardinality: candidate.Cardinality,
+	}
+	identitySource := RelatedFieldChoiceSource{
+		Kind: ConstructionChoiceSourceRelatedField, StageID: stageID, CandidateID: candidate.ID,
+		NodeID: candidate.NodeID, ResourceType: candidate.ResourceType, Path: candidate.FieldPath,
+		Cardinality: candidate.Cardinality, LogicalType: candidate.LogicalType,
+	}
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceRelatedField,
+		SnapshotToken: snapshotToken, Source: identitySource,
+	})
+	if err != nil {
+		return ConstructionRelatedFieldChoice{}, err
+	}
+	label := strings.TrimSpace(candidate.Label)
+	if label == "" {
+		label = strings.TrimSpace(candidate.ResourceType + "." + candidate.FieldPath)
+	}
+	return ConstructionRelatedFieldChoice{ChoiceID: choiceID, Source: source, Label: label}, nil
 }
 
 // NewSemanticConstructionChoice binds an inventory observation to the exact
@@ -419,6 +474,20 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			return ConstructionChoiceIdentity{}, fmt.Errorf("related resource choice identity is incomplete or inconsistent")
 		}
 		identity.Source = source
+	case ConstructionChoiceSourceRelatedField:
+		var source RelatedFieldChoiceSource
+		if err := decodeChoiceJSON(token.Source, &source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("decode related field choice source: %w", err)
+		}
+		if source.Kind != token.Kind || strings.TrimSpace(source.StageID) == "" ||
+			strings.TrimSpace(source.CandidateID) == "" || strings.TrimSpace(source.NodeID) == "" ||
+			strings.TrimSpace(source.ResourceType) == "" || strings.TrimSpace(source.Path) == "" ||
+			strings.TrimSpace(source.LogicalType) == "" ||
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") ||
+			token.SemanticContextToken != "" || token.BuildID != "" || len(token.Route) != 0 {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("related field choice identity is incomplete or inconsistent")
+		}
+		identity.Source = source
 	default:
 		return ConstructionChoiceIdentity{}, fmt.Errorf("construction choice id has an unsupported source kind")
 	}
@@ -440,6 +509,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 		kind = source.Kind
 	case RelatedResourceChoiceSource:
 		kind = source.Kind
+	case RelatedFieldChoiceSource:
+		kind = source.Kind
 	default:
 		return "", fmt.Errorf("construction choice identity has an unsupported source")
 	}
@@ -454,6 +525,9 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	}
 	if kind == ConstructionChoiceSourceRelatedResource && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) == 0) {
 		return "", fmt.Errorf("related resource choice identity requires a route and cannot include semantic inventory context")
+	}
+	if kind == ConstructionChoiceSourceRelatedField && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) != 0) {
+		return "", fmt.Errorf("related field choice identity is stage-bound and cannot include route or semantic inventory context")
 	}
 	source, err := json.Marshal(identity.Source)
 	if err != nil {

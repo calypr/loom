@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -37,17 +38,24 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 8 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 9 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
 	}
 	var sourceRelatedExpandCapability *StageOperationCapability
+	var sourceRelatedFieldCapability *StageOperationCapability
 	for _, capability := range compiled.Stages[0].Capabilities {
 		if capability.Operation == recipe.ConstructionRelatedExpandOp {
 			sourceRelatedExpandCapability = &capability
 		}
+		if capability.Operation == recipe.ConstructionRelatedFieldOp {
+			sourceRelatedFieldCapability = &capability
+		}
 	}
 	if sourceRelatedExpandCapability == nil || !sourceRelatedExpandCapability.Supported {
 		t.Fatalf("source stage should retain its root key for related expansion: %#v", sourceRelatedExpandCapability)
+	}
+	if sourceRelatedFieldCapability == nil || sourceRelatedFieldCapability.Supported || sourceRelatedFieldCapability.ReasonCode != "NO_ACTIVE_RELATED_RECORD" {
+		t.Fatalf("source stage must not offer exact related fields without a terminal record: %#v", sourceRelatedFieldCapability)
 	}
 	var relatedSourceCapability *StageOperationCapability
 	for _, capability := range compiled.Stages[1].Capabilities {
@@ -205,6 +213,144 @@ func TestCompileRelatedSourceAddsAllMatchesAfterSelectedStage(t *testing.T) {
 	}
 }
 
+func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStages(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		operations []string
+	}{
+		{name: "expand then repeated fields", operations: []string{"RELATED_EXPAND", "RELATED_FIELD", "RELATED_FIELD"}},
+		{name: "expand then filter then field", operations: []string{"RELATED_EXPAND", "FILTER", "RELATED_FIELD"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := constructionTestOutput()
+			output.Construction = relatedFieldTestConstruction(test.operations)
+			compiled := compileDerivedTestOutput(t, output)
+			sequence := compiled.Plan.StageSequence
+			if sequence == nil || len(sequence.Stages) != len(test.operations) {
+				t.Fatalf("stage sequence = %#v, want %d operations", sequence, len(test.operations))
+			}
+			terminalColumn := sequence.Stages[0].RelatedExpand.TerminalIdentityColumn
+			activeIdentity := sequence.Stages[0].RowIdentityColumn
+			for index, operation := range test.operations {
+				stage := sequence.Stages[index]
+				if string(stage.Kind) != operation {
+					t.Fatalf("stage %d kind = %q, want %q", index, stage.Kind, operation)
+				}
+				if index == 0 {
+					continue
+				}
+				if stage.RowIdentityColumn != activeIdentity {
+					t.Fatalf("row-preserving stage %q changed exact row identity from %q to %q", stage.ID, activeIdentity, stage.RowIdentityColumn)
+				}
+				if _, found := physicalStageColumnsForTest(stage.InputColumns)[terminalColumn]; !found {
+					t.Fatalf("stage %q input lost physical terminal identity %q: %#v", stage.ID, terminalColumn, stage.InputColumns)
+				}
+				if anchor, found := physicalStageColumnsForTest(stage.OutputColumns)[terminalColumn]; !found || !anchor.Internal || anchor.Identity {
+					t.Fatalf("stage %q output lost hidden terminal identity %q: %#v", stage.ID, terminalColumn, anchor)
+				}
+				if !projectionPassesThroughHiddenColumn(stage.OutputProjections, terminalColumn) {
+					t.Fatalf("stage %q does not physically project terminal identity %q: %#v", stage.ID, terminalColumn, stage.OutputProjections)
+				}
+				descriptor := compiled.Stages[index+1]
+				if descriptor.ActiveRelatedRecord == nil || descriptor.ActiveRelatedRecord.TerminalIdentityColumn != terminalColumn ||
+					descriptor.ActiveRelatedRecord.TargetNodeID != "observation-node" || descriptor.ActiveRelatedRecord.TargetResourceType != "Observation" {
+					t.Fatalf("stage %q descriptor lost exact active terminal record: %#v", stage.ID, descriptor.ActiveRelatedRecord)
+				}
+			}
+			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range []string{
+				"related_field_document.project == @project",
+				"related_field_document.dataset_generation == @dataset_generation",
+				"related_field_document.resourceType == @",
+				"related_field_document.auth_resource_path IN @auth_resource_paths",
+				".payload[@",
+			} {
+				if !strings.Contains(rendered.Query, expected) {
+					t.Fatalf("rendered query lacks scoped exact-field lookup %q: %s", expected, rendered.Query)
+				}
+			}
+		})
+	}
+}
+
+func relatedFieldTestConstruction(operations []string) *recipe.Construction {
+	sourceColumns := []recipe.StageColumn{
+		{ID: "group_id", Name: "group", Label: "Group"},
+		{ID: "category_id", Name: "category", Label: "Category"},
+		{ID: "amount_id", Name: "amount", Label: "Amount"},
+	}
+	steps := make([]recipe.ConstructionStep, 0, len(operations))
+	priorID := ""
+	columns := append([]recipe.StageColumn(nil), sourceColumns...)
+	for index, operation := range operations {
+		step := recipe.ConstructionStep{ID: fmt.Sprintf("related_step_%d", index+1)}
+		if index == 0 {
+			step.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}
+		} else {
+			step.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: priorID}}
+		}
+		switch operation {
+		case "RELATED_EXPAND":
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "related-route-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: recipe.ExpansionPreserveParent,
+				RelatedRecordColumnID: "observation_id",
+			}}
+			columns = append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
+				ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string", Nullable: true,
+			})
+		case "FILTER":
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+				ColumnID: "group_id", Operator: recipe.FilterExists,
+			}}
+		case "RELATED_FIELD":
+			fieldID, fieldName, candidateID, path := "observation_status", "observation_status", "observation-status", "status"
+			if len(steps) > 0 && steps[len(steps)-1].Operation.RelatedField != nil {
+				fieldID, fieldName, candidateID, path = "observation_effective", "observation_effective", "observation-effective", "effectiveDateTime"
+			}
+			step.Operation = recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedFieldOp, RelatedField: &recipe.ConstructionRelatedField{
+				ChoiceID: "related-field-choice-" + candidateID,
+				Source: recipe.ConstructionRelatedFieldSource{
+					CandidateID: candidateID, NodeID: "observation-node", ResourceType: "Observation", Path: path,
+					Cardinality: "optional_one", LogicalType: "string",
+				},
+				OutputColumnID: fieldID,
+			}}
+			columns = append(append([]recipe.StageColumn(nil), columns...), recipe.StageColumn{
+				ID: fieldID, Name: fieldName, Label: fieldName, Type: "string", Nullable: true,
+			})
+		}
+		step.Outputs = append([]recipe.StageColumn(nil), columns...)
+		steps = append(steps, step)
+		priorID = step.ID
+	}
+	return &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: steps}
+}
+
+func projectionPassesThroughHiddenColumn(projections []ir.PhysicalProjection, name string) bool {
+	for _, projection := range projections {
+		if projection.Name == name && projection.Hidden && len(projection.Value.Path) > 0 && projection.Value.Path[0] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func physicalStageColumnsForTest(columns []ir.PhysicalStageColumn) map[string]ir.PhysicalStageColumn {
+	indexed := make(map[string]ir.PhysicalStageColumn, len(columns))
+	for _, column := range columns {
+		indexed[column.ID] = column
+	}
+	return indexed
+}
+
 func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	output := constructionTestOutput()
 	output.Fields = nil
@@ -228,15 +374,17 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 		t.Fatalf("zero-column source descriptor exposed %d public columns: %#v", publicColumns, descriptor.Columns)
 	}
 	wantUnsupported := map[recipe.ConstructionOperationKind]string{
-		recipe.ConstructionPivotOp:         "INSUFFICIENT_SCALAR_COLUMNS",
-		recipe.ConstructionDeriveOp:        "NO_NUMERIC_COLUMN",
-		recipe.ConstructionFilterOp:        "NO_PUBLIC_COLUMNS",
-		recipe.ConstructionUnpivotOp:       "NO_COMPATIBLE_UNPIVOT_COLUMNS",
-		recipe.ConstructionGroupOp:         "NO_PUBLIC_COLUMNS",
-		recipe.ConstructionExpandOp:        "NO_ARRAY_COLUMNS",
+		recipe.ConstructionPivotOp:        "INSUFFICIENT_SCALAR_COLUMNS",
+		recipe.ConstructionDeriveOp:       "NO_NUMERIC_COLUMN",
+		recipe.ConstructionFilterOp:       "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionUnpivotOp:      "NO_COMPATIBLE_UNPIVOT_COLUMNS",
+		recipe.ConstructionGroupOp:        "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionExpandOp:       "NO_ARRAY_COLUMNS",
+		recipe.ConstructionRelatedFieldOp: "NO_ACTIVE_RELATED_RECORD",
 	}
 	var relatedSourceCapability *StageOperationCapability
 	var relatedExpandCapability *StageOperationCapability
+	var relatedFieldCapability *StageOperationCapability
 	for _, capability := range descriptor.Capabilities {
 		if capability.Operation == recipe.ConstructionRelatedSourceOp {
 			relatedSourceCapability = &capability
@@ -244,6 +392,15 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 		}
 		if capability.Operation == recipe.ConstructionRelatedExpandOp {
 			relatedExpandCapability = &capability
+			continue
+		}
+		if capability.Operation == recipe.ConstructionRelatedFieldOp {
+			relatedFieldCapability = &capability
+			wantReason, exists := wantUnsupported[capability.Operation]
+			if !exists || capability.Supported || capability.ReasonCode != wantReason {
+				t.Fatalf("zero-column capability = %#v, want unsupported reason %q", capability, wantReason)
+			}
+			delete(wantUnsupported, capability.Operation)
 			continue
 		}
 		wantReason, exists := wantUnsupported[capability.Operation]
@@ -260,6 +417,9 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	}
 	if relatedExpandCapability == nil || !relatedExpandCapability.Supported {
 		t.Fatalf("zero-column source retains its root _key and should advertise related expansion: %#v", relatedExpandCapability)
+	}
+	if relatedFieldCapability == nil || relatedFieldCapability.Supported || relatedFieldCapability.ReasonCode != "NO_ACTIVE_RELATED_RECORD" {
+		t.Fatalf("zero-column source must not offer exact related fields without a terminal record: %#v", relatedFieldCapability)
 	}
 	if compiled.Plan.StageSequence != nil {
 		t.Fatal("capability description introduced an executable construction stage sequence")

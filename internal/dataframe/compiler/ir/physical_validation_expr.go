@@ -59,6 +59,9 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 	if expression.Call != nil {
 		payloads++
 	}
+	if expression.RelatedField != nil {
+		payloads++
+	}
 	if payloads != 1 {
 		return fmt.Errorf("expression must contain exactly one payload")
 	}
@@ -159,9 +162,42 @@ func validatePhysicalExpression(expression PhysicalExpression, defined map[strin
 			return fmt.Errorf("expression payload does not match kind")
 		}
 		return validatePhysicalCall(*expression.Call, defined, bindVars)
+	case PhysicalRelatedFieldExpression:
+		if expression.RelatedField == nil {
+			return fmt.Errorf("expression payload does not match kind")
+		}
+		if expression.Cardinality != PhysicalScalarCardinality || expression.NullBehavior != PhysicalPreserveNull {
+			return fmt.Errorf("related field expression must be a nullable scalar")
+		}
+		if err := validatePhysicalValue(expression.RelatedField.DocumentID, defined, bindVars); err != nil {
+			return fmt.Errorf("related field document ID: %w", err)
+		}
+		if expression.RelatedField.ResourceType == "" || len(expression.RelatedField.Path) == 0 || expression.RelatedField.Path[0] != "payload" {
+			return fmt.Errorf("related field path is empty")
+		}
+		for index, segment := range expression.RelatedField.Path {
+			if !validPhysicalFieldPathSegment(segment) {
+				return fmt.Errorf("related field path segment %d is invalid", index)
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown expression kind %q", expression.Kind)
 	}
+}
+
+func validPhysicalFieldPathSegment(segment string) bool {
+	if segment == "" || (segment[0] < 'a' || segment[0] > 'z') && (segment[0] < 'A' || segment[0] > 'Z') {
+		return false
+	}
+	for index := 1; index < len(segment); index++ {
+		character := segment[index]
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, bindVars map[string]any) error {

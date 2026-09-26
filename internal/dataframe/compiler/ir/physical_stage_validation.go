@@ -71,7 +71,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 		switch stage.Kind {
 		case PhysicalStageDeriveOp:
-			if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil {
+			if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedField != nil {
 				return fmt.Errorf("%s DERIVE has mismatched operation payloads", path)
 			}
 			if len(stage.DerivedLets) == 0 {
@@ -81,7 +81,7 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageFilterOp:
-			if stage.Filter == nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.Filter == nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedField != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s FILTER requires only a filter payload", path)
 			}
 			if err := validateStageRowOperations(stage, bindVars, true); err != nil {
@@ -156,18 +156,25 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageRelatedSourceOp:
-			if stage.RelatedSource == nil || stage.RelatedExpand != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.RelatedSource == nil || stage.RelatedExpand != nil || stage.RelatedField != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s RELATED_SOURCE requires only a related-source payload", path)
 			}
 			if err := validatePhysicalStageRelatedSource(stage, *stage.RelatedSource, bindVars); err != nil {
 				return fmt.Errorf("%s related source: %w", path, err)
 			}
 		case PhysicalStageRelatedExpandOp:
-			if stage.RelatedExpand == nil || stage.RelatedSource != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+			if stage.RelatedExpand == nil || stage.RelatedSource != nil || stage.RelatedField != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s RELATED_EXPAND requires only a related-expansion payload", path)
 			}
 			if err := validatePhysicalStageRelatedExpand(stage, *stage.RelatedExpand, bindVars); err != nil {
 				return fmt.Errorf("%s related expansion: %w", path, err)
+			}
+		case PhysicalStageRelatedFieldOp:
+			if stage.RelatedField == nil || stage.RelatedExpand != nil || stage.RelatedSource != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s RELATED_FIELD requires only a related-field payload", path)
+			}
+			if err := validatePhysicalStageRelatedField(stage, *stage.RelatedField, bindVars); err != nil {
+				return fmt.Errorf("%s related field: %w", path, err)
 			}
 		default:
 			return fmt.Errorf("%s has unsupported operation kind %q", path, stage.Kind)
@@ -187,6 +194,63 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 	}
 	return nil
+}
+
+func validatePhysicalStageRelatedField(stage PhysicalConstructionStage, related PhysicalStageRelatedField, bindVars map[string]any) error {
+	if related.ActiveRecordColumn == "" || related.CandidateID == "" || related.TargetNodeID == "" ||
+		related.TargetResourceType == "" || related.OutputColumnID == "" || related.LogicalType == "" || len(related.Path) == 0 {
+		return fmt.Errorf("active record, exact field identity, and output are required")
+	}
+	if project, ok := bindVars["project"].(string); !ok || project == "" {
+		return fmt.Errorf("related field requires the exact project runtime binding")
+	}
+	if generation, ok := bindVars["dataset_generation"].(string); !ok || generation == "" {
+		return fmt.Errorf("related field requires the exact dataset generation runtime binding")
+	}
+	if _, ok := bindVars["auth_resource_paths"].([]string); !ok {
+		return fmt.Errorf("related field requires the effective authorization resource paths")
+	}
+	if _, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok {
+		return fmt.Errorf("related field requires the effective unrestricted authorization flag")
+	}
+	inputColumns := physicalStageColumnMap(stage.InputColumns)
+	anchor, found := inputColumns[related.ActiveRecordColumn]
+	if !found || !anchor.Internal || anchor.Identity || anchor.Kind != "string" ||
+		(anchor.Cardinality != "required_one" && anchor.Cardinality != "optional_one") {
+		return fmt.Errorf("active record does not identify a retained terminal document identity")
+	}
+	outputColumns := stageColumnsByID(stage.OutputColumns)
+	output, found := outputColumns[related.OutputColumnID]
+	wantNullable := true
+	wantCardinality := "optional_one"
+	if !found || output.Internal || output.Kind != related.LogicalType || output.Cardinality != wantCardinality {
+		return fmt.Errorf("related field output schema differs from its exact source")
+	}
+	if output.Nullable != wantNullable {
+		return fmt.Errorf("related field output nullability differs from its source and active record")
+	}
+	var fieldProjection *PhysicalProjection
+	for index := range stage.OutputProjections {
+		if stage.OutputProjections[index].Name == output.Name {
+			fieldProjection = &stage.OutputProjections[index]
+			break
+		}
+	}
+	if fieldProjection == nil || fieldProjection.Expression == nil ||
+		fieldProjection.Expression.Kind != PhysicalRelatedFieldExpression || fieldProjection.Expression.RelatedField == nil {
+		return fmt.Errorf("related field projection does not use the typed exact-record expression")
+	}
+	value := fieldProjection.Expression.RelatedField
+	if value.DocumentID.Variable != stage.InputRowVariable || value.ResourceType != related.TargetResourceType || len(value.DocumentID.Path) != 1 ||
+		value.DocumentID.Path[0] != related.ActiveRecordColumn || !reflect.DeepEqual(value.Path, related.Path) {
+		return fmt.Errorf("related field expression differs from its active record, resource, or selected path")
+	}
+	for index, segment := range related.Path {
+		if !validPhysicalFieldPathSegment(segment) {
+			return fmt.Errorf("related field path segment %d is invalid", index)
+		}
+	}
+	return validateStageRowOperations(stage, bindVars, false)
 }
 
 func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related PhysicalStageRelatedExpand, bindVars map[string]any) error {

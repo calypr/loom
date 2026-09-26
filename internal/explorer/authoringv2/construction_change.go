@@ -467,6 +467,21 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 		}
 		column.Nullable = step.Operation.RelatedExpand.EmptyPolicy == ConstructionExpandEmptyPreserveParent
 		outputs = append(outputs, column)
+	case ConstructionOperationRelatedField:
+		if step.Operation.RelatedField == nil {
+			return nil, fmt.Errorf("relatedField payload is required")
+		}
+		outputs = append(outputs, input...)
+		column, err := produced(step.Operation.RelatedField.OutputColumnID)
+		if err != nil {
+			return nil, err
+		}
+		if column.Type == "" || column.Type == "INFER" {
+			column.Type = step.Operation.RelatedField.Source.LogicalType
+		}
+		// The terminal record can be absent after PRESERVE_PARENT expansion.
+		column.Nullable = true
+		outputs = append(outputs, column)
 	default:
 		return nil, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}

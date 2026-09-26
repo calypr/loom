@@ -48,6 +48,7 @@ type PhysicalConstructionStage struct {
 	Unpivot           *PhysicalUnpivot
 	RelatedSource     *PhysicalStageRelatedSource
 	RelatedExpand     *PhysicalStageRelatedExpand
+	RelatedField      *PhysicalStageRelatedField
 	RowIdentityColumn string
 }
 
@@ -62,6 +63,7 @@ const (
 	PhysicalStageExpandOp        PhysicalStageOperationKind = "EXPAND"
 	PhysicalStageRelatedSourceOp PhysicalStageOperationKind = "RELATED_SOURCE"
 	PhysicalStageRelatedExpandOp PhysicalStageOperationKind = "RELATED_EXPAND"
+	PhysicalStageRelatedFieldOp  PhysicalStageOperationKind = "RELATED_FIELD"
 )
 
 type PhysicalStageGroup struct {
@@ -141,6 +143,17 @@ type PhysicalStageRelatedExpand struct {
 	EmptyPolicy            PhysicalUnnestEmptyPolicy
 	RelatedRecords         PhysicalSubplan
 	Route                  []PhysicalStageRelatedRouteStep
+}
+
+type PhysicalStageRelatedField struct {
+	ActiveRecordColumn string
+	CandidateID        string
+	TargetNodeID       string
+	TargetResourceType string
+	OutputColumnID     string
+	LogicalType        string
+	Path               []string
+	Nullable           bool
 }
 
 type PhysicalStageRelatedRouteStep struct {

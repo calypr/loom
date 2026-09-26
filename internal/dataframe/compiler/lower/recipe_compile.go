@@ -85,6 +85,14 @@ type CompiledOutputColumn struct {
 	Identity       bool
 	Discovered     bool
 	SourceChild    *lineage.SourceChild
+	// RelatedRecordAnchor marks the hidden exact terminal document identity
+	// emitted by RELATED_EXPAND. It is copied only by row-preserving stages.
+	RelatedRecordAnchor *CompiledRelatedRecordAnchor
+}
+
+type CompiledRelatedRecordAnchor struct {
+	TargetNodeID       string
+	TargetResourceType string
 }
 
 // CloneCompiledOutputSchema copies output metadata, including optional unit identities.
@@ -93,6 +101,10 @@ func CloneCompiledOutputSchema(columns []CompiledOutputColumn) []CompiledOutputC
 	for index := range cloned {
 		cloned[index].NormalizedUnit = cloneUnitIdentity(cloned[index].NormalizedUnit)
 		cloned[index].SourceChild = lineage.CloneSourceChild(cloned[index].SourceChild)
+		if cloned[index].RelatedRecordAnchor != nil {
+			anchor := *cloned[index].RelatedRecordAnchor
+			cloned[index].RelatedRecordAnchor = &anchor
+		}
 	}
 	return cloned
 }

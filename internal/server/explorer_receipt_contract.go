@@ -488,6 +488,13 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 			Route: append([]recipe.ConstructionRelatedRouteStep(nil), related.Route...),
 		}
 	}
+	if descriptor.ActiveRelatedRecord != nil {
+		active := descriptor.ActiveRelatedRecord
+		stage.ActiveRelatedRecord = &explorer.ReceiptConstructionActiveRelatedRecord{
+			TargetNodeID: active.TargetNodeID, TargetResourceType: active.TargetResourceType,
+			TerminalIdentityColumn: active.TerminalIdentityColumn,
+		}
+	}
 	return stage, nil
 }
 

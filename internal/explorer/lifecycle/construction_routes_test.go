@@ -179,6 +179,135 @@ func TestRelatedExpandChoiceSearchRequiresCompilerSupportedSelectedStage(t *test
 	}
 }
 
+func TestRelatedFieldChoicesAreStageBoundAndOnlyOfferLowerablePaths(t *testing.T) {
+	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	unsupported := capability.Candidate{
+		ID: "observation-indexed-code", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "component[0].code", Label: "Indexed code", LogicalType: "code", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	}
+	snapshot.Candidates = append(snapshot.Candidates, unsupported)
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		route := []recipe.ConstructionRelatedRouteStep{{
+			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+		}}
+		active := &explorer.ReceiptConstructionActiveRelatedRecord{
+			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: "__terminal_observation_id",
+		}
+		sourceColumns := []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
+		expandedColumns := append(append([]explorer.ReceiptConstructionStageColumn(nil), sourceColumns...), explorer.ReceiptConstructionStageColumn{
+			ID: "observation-id", Name: "observation_id", Label: "Observation ID", Type: "string",
+		})
+		relatedExpand := &explorer.ReceiptConstructionRelatedExpand{
+			AnchorColumnID: "_key", AnchorColumn: "_key", RelatedRecordColumnID: "observation-id",
+			ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
+			TerminalIdentityColumn: active.TerminalIdentityColumn, TargetNodeID: active.TargetNodeID,
+			TargetResourceType: active.TargetResourceType, Route: route,
+		}
+		fieldCapability := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_FIELD", Supported: true}}
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: []explorer.ReceiptConstructionOperationChoice{
+				{Kind: "RELATED_EXPAND", Supported: true},
+				{Kind: "RELATED_FIELD", Supported: false, ReasonCode: "NO_ACTIVE_RELATED_RECORD", Reason: "no active related record"},
+			}},
+			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+				Columns: expandedColumns, Capabilities: fieldCapability, RelatedExpand: relatedExpand, ActiveRelatedRecord: active},
+			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
+				Columns: expandedColumns, Capabilities: fieldCapability, ActiveRelatedRecord: active},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	response, err := service.SearchRelatedFieldChoices(context.Background(), RelatedFieldChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "keep_observations", Query: "status", Limit: 20,
+	})
+	if err != nil || !response.Complete || response.SnapshotToken != snapshot.Token || response.OutputID != "patients" ||
+		response.StageID != "keep_observations" || response.DraftVersion != store.created.DraftVersion ||
+		response.DraftDigest != store.created.DraftDigest || len(response.Choices) != 1 {
+		t.Fatalf("stage-bound exact related field choices = %#v, %v", response, err)
+	}
+	choice := response.Choices[0]
+	if choice.Label != candidate.Label || choice.Source.Kind != capability.ConstructionChoiceSourceField || choice.Source.CandidateID != candidate.ID ||
+		choice.Source.NodeID != "observation" || choice.Source.ResourceType != "Observation" {
+		t.Fatalf("related field identity = %#v", choice)
+	}
+	if choice.Source.Path != "status" {
+		t.Fatalf("related field path = %q", choice.Source.Path)
+	}
+	if choice.Source.Cardinality != "optional_one" {
+		t.Fatalf("related field cardinality = %q", choice.Source.Cardinality)
+	}
+	if choice.Source.LogicalType != "string" {
+		t.Fatalf("related field logical type = %q", choice.Source.LogicalType)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, ok := identity.Source.(capability.RelatedFieldChoiceSource)
+	if !ok || identity.SnapshotToken != snapshot.Token || issued.StageID != "keep_observations" ||
+		issued.CandidateID != candidate.ID || issued.NodeID != "observation" || issued.ResourceType != "Observation" ||
+		issued.Path != "status" || issued.LogicalType != "string" {
+		t.Fatalf("related field choice was not bound to snapshot, stage, and exact candidate: %#v", identity)
+	}
+	for _, got := range response.Choices {
+		if got.Source.CandidateID == unsupported.ID {
+			t.Fatalf("unsupported indexed path was offered as executable choice: %#v", got)
+		}
+	}
+}
+
+func TestRelatedFieldChoicesRequireActiveStageIdentity(t *testing.T) {
+	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: []explorer.ReceiptConstructionStageColumn{{ID: "patient-id", Name: "patient_id", Label: "Patient ID"}}},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+	request := RelatedFieldChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID,
+	}
+	if _, err := service.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "NO_ACTIVE_RELATED_RECORD" {
+		t.Fatalf("source-stage related field choices error = %v, want NO_ACTIVE_RELATED_RECORD", err)
+	}
+	request.StageID = "missing-stage"
+	if _, err := service.SearchRelatedFieldChoices(context.Background(), request); err == nil || lifecycleErrorCode(err) != "STALE_STAGE_REFERENCE" {
+		t.Fatalf("missing-stage related field choices error = %v, want STALE_STAGE_REFERENCE", err)
+	}
+}
+
 func TestParallelConstructionChoicesApplyToDistinctPinnedOccurrences(t *testing.T) {
 	store, service, snapshot, catalog, candidate := inboundPatientObservationRouteFixture(t)
 	snapshot, catalog = addParallelObservationRoute(service, snapshot, catalog)

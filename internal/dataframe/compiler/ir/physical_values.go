@@ -59,6 +59,9 @@ const (
 	// Name is validated against the compiler-owned operator registry and Args
 	// remain typed expressions; neither contains AQL source text.
 	PhysicalCallExpression PhysicalExpressionKind = "CALL"
+	// PhysicalRelatedFieldExpression loads one compiler-selected scalar path
+	// from a document identified by its exact retained Arango _id.
+	PhysicalRelatedFieldExpression PhysicalExpressionKind = "RELATED_FIELD"
 )
 
 // PhysicalSelectorExecutionMode records a schema-proven selector lowering.
@@ -93,6 +96,7 @@ type PhysicalExpression struct {
 	Object       *PhysicalObject
 	Subplan      *PhysicalSubplan
 	Call         *PhysicalCall
+	RelatedField *PhysicalRelatedField
 }
 
 // PhysicalLiteral references a value in the plan bind map. BindKey is
@@ -109,6 +113,12 @@ type PhysicalCall struct {
 	Name       string
 	Args       []PhysicalExpression
 	TargetKind string
+}
+
+type PhysicalRelatedField struct {
+	DocumentID   PhysicalValue
+	ResourceType string
+	Path         []string
 }
 
 // PhysicalExtract obtains one FHIR selector from a variable or prior set

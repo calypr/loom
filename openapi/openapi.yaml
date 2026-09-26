@@ -265,6 +265,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-field-choices:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerRelatedFieldChoices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelatedFieldChoiceSearchRequest'}
+      responses:
+        '200':
+          description: Server-issued exact scalar fields on the selected stage's active related terminal resource.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelatedFieldChoiceSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3209,7 +3234,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_FIELD]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
@@ -3219,6 +3244,7 @@ components:
         combine: {$ref: '#/components/schemas/ConstructionCombine'}
         relatedSource: {$ref: '#/components/schemas/ConstructionRelatedSource'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpand'}
+        relatedField: {$ref: '#/components/schemas/ConstructionRelatedField'}
     ConstructionRelatedSource:
       type: object
       additionalProperties: false
@@ -3271,6 +3297,14 @@ components:
         contributorChoiceId: {type: string, minLength: 1}
         emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
         relatedRecordColumnId: {type: string, minLength: 1}
+    ConstructionRelatedField:
+      type: object
+      additionalProperties: false
+      required: [choiceId, source, outputColumnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/RelatedSourceField'}
+        outputColumnId: {type: string, minLength: 1}
     ConstructionPivot:
       type: object
       additionalProperties: false
@@ -3522,7 +3556,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_FIELD]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -3542,6 +3576,15 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionOperationCapability'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpandStageDescriptor'}
+        activeRelatedRecord: {$ref: '#/components/schemas/ConstructionActiveRelatedRecordDescriptor'}
+    ConstructionActiveRelatedRecordDescriptor:
+      type: object
+      additionalProperties: false
+      required: [targetNodeId, targetResourceType, terminalIdentityColumn]
+      properties:
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        terminalIdentityColumn: {type: string, minLength: 1}
     ConstructionRelatedExpandStageDescriptor:
       type: object
       additionalProperties: false
@@ -4669,6 +4712,44 @@ components:
           type: array
           maxItems: 50
           items: {$ref: '#/components/schemas/RelatedExpandRouteChoice'}
+    RelatedFieldChoiceSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        query: {type: string, maxLength: 256}
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    RelatedFieldChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, label, source]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/RelatedSourceField'}
+    RelatedFieldChoiceSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, complete, truncated, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string}
+        choices:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/RelatedFieldChoice'}
     PopulationRoutesRequest:
       type: object
       additionalProperties: false

@@ -17,13 +17,14 @@ const constructionRowID = "__loom_row_id"
 // CompiledStageDescriptor is the compiler-owned schema and capability view
 // for one exact stage reference. Columns describe the stage output.
 type CompiledStageDescriptor struct {
-	ID                string
-	InputStageID      string
-	Operation         string
-	Columns           []CompiledOutputColumn
-	RowIdentityColumn string
-	Capabilities      []StageOperationCapability
-	RelatedExpand     *CompiledRelatedExpandStage
+	ID                  string
+	InputStageID        string
+	Operation           string
+	Columns             []CompiledOutputColumn
+	RowIdentityColumn   string
+	Capabilities        []StageOperationCapability
+	RelatedExpand       *CompiledRelatedExpandStage
+	ActiveRelatedRecord *CompiledActiveRelatedRecordStage
 }
 
 type CompiledRelatedExpandStage struct {
@@ -36,6 +37,13 @@ type CompiledRelatedExpandStage struct {
 	TargetNodeID           string
 	TargetResourceType     string
 	Route                  []recipe.ConstructionRelatedRouteStep
+}
+
+type CompiledActiveRelatedRecordStage struct {
+	TerminalIdentityColumn string
+	TargetNodeID           string
+	TargetResourceType     string
+	Nullable               bool
 }
 
 type StageOperationCapability struct {
@@ -414,14 +422,33 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		base.Kind, base.RelatedExpand = ir.PhysicalStageRelatedExpandOp, &physicalExpand
 		base.OutputProjections = projections
 		outputSchema, outputIdentity = compiled, constructionRowID
+	case recipe.ConstructionRelatedFieldOp:
+		related := step.Operation.RelatedField
+		if related == nil {
+			return constructionStageResult{}, fmt.Errorf("related field payload is required")
+		}
+		physicalRelatedField, projections, compiled, err := lowerConstructionRelatedField(step, *related, inputByID, outputByID, inputSchema, inputRow)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.RelatedField, base.OutputProjections = ir.PhysicalStageRelatedFieldOp, &physicalRelatedField, projections
+		outputSchema, outputIdentity = compiled, inputIdentity
 	default:
 		return constructionStageResult{}, fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
 	if outputIdentity == "" {
 		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")
 	}
+	if base.Kind != ir.PhysicalStageRelatedExpandOp && preservesActiveRelatedRecord(base.Kind) {
+		if anchor, ok := activeRelatedRecordColumn(inputSchema); ok {
+			outputSchema = append(outputSchema, anchor)
+			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
+				Name: anchor.Name, Hidden: true, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{anchor.Name}},
+			})
+		}
+	}
 	outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
 			Name: outputIdentity, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
@@ -435,7 +462,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	base.RowIdentityColumn = outputIdentity
 	base.InputColumns = inputColumns
 	base.OutputColumns = toPhysicalStageColumns(outputSchema)
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.InputProjections = inputProjections
 	}
 	descriptor := CompiledStageDescriptor{
@@ -451,6 +478,14 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			TerminalIdentityColumn: base.RelatedExpand.TerminalIdentityColumn,
 			TargetNodeID:           base.RelatedExpand.TargetNodeID, TargetResourceType: base.RelatedExpand.TargetResourceType,
 			Route: append([]recipe.ConstructionRelatedRouteStep(nil), step.Operation.RelatedExpand.Route...),
+		}
+	}
+	if anchor, ok := activeRelatedRecordColumn(outputSchema); ok {
+		descriptor.ActiveRelatedRecord = &CompiledActiveRelatedRecordStage{
+			TerminalIdentityColumn: anchor.Name,
+			TargetNodeID:           anchor.RelatedRecordAnchor.TargetNodeID,
+			TargetResourceType:     anchor.RelatedRecordAnchor.TargetResourceType,
+			Nullable:               anchor.Nullable,
 		}
 	}
 	descriptor.Capabilities = stageCapabilities(outputSchema)
@@ -862,6 +897,7 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 	public := publicCompiledSchema(columns)
 	numeric, scalar, unpivotPairs, arrays := 0, 0, false, 0
 	rootKey, rootRowIdentity := false, false
+	_, activeRelatedRecord := activeRelatedRecordColumn(columns)
 	for _, column := range columns {
 		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) && column.Cardinality == string(expression.RequiredOne) {
 			rootKey = true
@@ -901,6 +937,31 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
 		capability(recipe.ConstructionRelatedExpandOp, rootKey, "NO_SOURCE_ROW_ANCHOR", "related expansion requires the root document key to survive this stage"),
+		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
+	}
+}
+
+func activeRelatedRecordColumn(schema []CompiledOutputColumn) (CompiledOutputColumn, bool) {
+	var active CompiledOutputColumn
+	for _, column := range schema {
+		if column.RelatedRecordAnchor == nil {
+			continue
+		}
+		if active.Name != "" || !column.Internal || column.Identity || column.Kind != string(expression.KindString) ||
+			(column.Cardinality != string(expression.RequiredOne) && column.Cardinality != string(expression.OptionalOne)) {
+			return CompiledOutputColumn{}, false
+		}
+		active = column
+	}
+	return active, active.Name != ""
+}
+
+func preservesActiveRelatedRecord(operation ir.PhysicalStageOperationKind) bool {
+	switch operation {
+	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedFieldOp:
+		return true
+	default:
+		return false
 	}
 }
 

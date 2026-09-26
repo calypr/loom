@@ -80,6 +80,7 @@ const (
 	ConstructionCombineOp       ConstructionOperationKind = "COMBINE"
 	ConstructionRelatedSourceOp ConstructionOperationKind = "RELATED_SOURCE"
 	ConstructionRelatedExpandOp ConstructionOperationKind = "RELATED_EXPAND"
+	ConstructionRelatedFieldOp  ConstructionOperationKind = "RELATED_FIELD"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
@@ -95,6 +96,7 @@ type ConstructionOperation struct {
 	Combine       *ConstructionCombine       `json:"combine,omitempty"`
 	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
 	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
+	RelatedField  *ConstructionRelatedField  `json:"relatedField,omitempty"`
 }
 
 type ConstructionRelatedSource struct {
@@ -121,6 +123,14 @@ type ConstructionRelatedExpand struct {
 	ContributorChoiceID  string
 	EmptyPolicy           ExpansionEmptyPolicy
 	RelatedRecordColumnID string
+}
+
+// ConstructionRelatedField projects one scalar field from the exact terminal
+// resource retained by a preceding RELATED_EXPAND stage.
+type ConstructionRelatedField struct {
+	ChoiceID       string                         `json:"choiceId"`
+	Source         ConstructionRelatedFieldSource `json:"source"`
+	OutputColumnID string                         `json:"outputColumnId"`
 }
 
 // ConstructionRelatedPredicate narrows the already selected scalar source
@@ -463,7 +473,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedField != nil} {
 		if present {
 			payloads++
 		}
@@ -617,15 +627,49 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 		}
 		return validateConstructionRelatedSource(*operation.RelatedSource, inputByID, outputByID, path)
 	case ConstructionRelatedExpandOp:
-		if operation.RelatedExpand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil {
+		if operation.RelatedExpand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedField != nil {
 			return fmt.Errorf("%s related expansion operation requires only relatedExpand payload", path)
 		}
 		return validateConstructionRelatedExpand(*operation.RelatedExpand, inputByID, outputByID, path)
+	case ConstructionRelatedFieldOp:
+		if operation.RelatedField == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil {
+			return fmt.Errorf("%s related field operation requires only relatedField payload", path)
+		}
+		return validateConstructionRelatedField(*operation.RelatedField, inputByID, outputByID, path)
 	case ConstructionCombineOp:
 		return fmt.Errorf("%s combine must be the sole terminal operation over exact table revision inputs", path)
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}
+}
+
+func validateConstructionRelatedField(related ConstructionRelatedField, input, output map[string]StageColumn, path string) error {
+	source := related.Source
+	if !validConstructionColumnID(related.ChoiceID) || !validConstructionColumnID(source.CandidateID) ||
+		!validConstructionColumnID(source.NodeID) || !validConstructionColumnID(source.ResourceType) ||
+		!validConstructionColumnID(source.Path) || !validConstructionColumnID(source.LogicalType) ||
+		(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+		return fmt.Errorf("%s.relatedField requires an exact scalar field choice and output", path)
+	}
+	if !validConstructionColumnID(related.OutputColumnID) || input[related.OutputColumnID].ID != "" {
+		return fmt.Errorf("%s.relatedField.outputColumnId is empty or already exists", path)
+	}
+	want := make(map[string]bool, len(input)+1)
+	for id := range input {
+		want[id] = true
+	}
+	want[related.OutputColumnID] = true
+	if err := requireExactStageOutputIDs(want, output, path); err != nil {
+		return err
+	}
+	column := output[related.OutputColumnID]
+	if column.Type != "" && column.Type != "INFER" && column.Type != source.LogicalType {
+		return fmt.Errorf("%s.relatedField output type must match the selected field logical type", path)
+	}
+	if !column.Nullable {
+		return fmt.Errorf("%s.relatedField output must be nullable because the active terminal record may be absent", path)
+	}
+	return nil
 }
 
 func validateConstructionRelatedExpand(related ConstructionRelatedExpand, input, output map[string]StageColumn, path string) error {

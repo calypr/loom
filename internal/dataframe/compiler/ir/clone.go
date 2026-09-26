@@ -111,6 +111,11 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			relatedExpandCopy.Route = append([]PhysicalStageRelatedRouteStep(nil), stage.RelatedExpand.Route...)
 			cloned.RelatedExpand = &relatedExpandCopy
 		}
+		if stage.RelatedField != nil {
+			relatedFieldCopy := *stage.RelatedField
+			relatedFieldCopy.Path = cloneStrings(stage.RelatedField.Path)
+			cloned.RelatedField = &relatedFieldCopy
+		}
 		if stage.GroupedPivot != nil {
 			cloned.GroupedPivot = clonePhysicalOperation(PhysicalOperation{Kind: PhysicalGroupedPivotOp, GroupedPivot: stage.GroupedPivot}).GroupedPivot
 		}
@@ -776,6 +781,12 @@ func clonePhysicalExpression(expression PhysicalExpression) PhysicalExpression {
 	if expression.ObjectLookup != nil {
 		lookup := *expression.ObjectLookup
 		copy.ObjectLookup = &lookup
+	}
+	if expression.RelatedField != nil {
+		relatedField := *expression.RelatedField
+		relatedField.DocumentID = clonePhysicalValue(expression.RelatedField.DocumentID)
+		relatedField.Path = cloneStrings(expression.RelatedField.Path)
+		copy.RelatedField = &relatedField
 	}
 	if expression.KeyedMap != nil {
 		keyed := *expression.KeyedMap

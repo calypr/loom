@@ -262,6 +262,7 @@ func lowerConstructionRelatedExpand(
 	terminalColumn := CompiledOutputColumn{
 		ID: terminalColumnID, Name: terminalColumnID, Label: terminalColumnID, SemanticPath: "related_expand:terminal_document_identity",
 		Kind: string(expression.KindString), Cardinality: terminalCardinality, Nullable: terminalNullable, Internal: true,
+		RelatedRecordAnchor: &CompiledRelatedRecordAnchor{TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType},
 	}
 	compiled = append(compiled, terminalColumn)
 	projections = append(projections, ir.PhysicalProjection{

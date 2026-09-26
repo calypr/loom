@@ -30,6 +30,7 @@ const (
 	ConstructionOperationCombine       ConstructionOperationKind = "COMBINE"
 	ConstructionOperationRelatedSource ConstructionOperationKind = "RELATED_SOURCE"
 	ConstructionOperationRelatedExpand ConstructionOperationKind = "RELATED_EXPAND"
+	ConstructionOperationRelatedField  ConstructionOperationKind = "RELATED_FIELD"
 )
 
 // Construction stores the ordered, durable operations applied after the
@@ -130,6 +131,7 @@ type ConstructionOperation struct {
 	Combine       *ConstructionCombine       `json:"combine,omitempty"`
 	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
 	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
+	RelatedField  *ConstructionRelatedField  `json:"relatedField,omitempty"`
 }
 
 // ConstructionRelatedSource adds one compiler-authorized field from related
@@ -160,6 +162,14 @@ type ConstructionRelatedExpand struct {
 	ContributorChoiceID   string                             `json:"contributorChoiceId,omitempty"`
 	EmptyPolicy           ConstructionExpandEmptyPolicy      `json:"emptyPolicy"`
 	RelatedRecordColumnID string                             `json:"relatedRecordColumnId"`
+}
+
+// ConstructionRelatedField adds one scalar field from the exact terminal
+// resource retained by a preceding RELATED_EXPAND stage.
+type ConstructionRelatedField struct {
+	ChoiceID       string                         `json:"choiceId"`
+	Source         ConstructionRelatedFieldSource `json:"source"`
+	OutputColumnID string                         `json:"outputColumnId"`
 }
 
 type ConstructionRelatedFieldSource struct {
