@@ -520,6 +520,61 @@ func TestCompileRelatedSourceMarksNonObservationListsWithCompilerSemanticPath(t 
 	t.Fatal("compiled schema omitted the MedicationAdministration related-source list")
 }
 
+func TestCompileRelatedExpandSupportsScalarContributorPredicate(t *testing.T) {
+	output := constructionTestOutput()
+	specimenID := "specimen-123"
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "expand_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+				AnchorColumnID: "_key", ChoiceID: "patient-observations", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+				Route: []recipe.ConstructionRelatedRouteStep{{
+					EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+					FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+					StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+				}},
+				ContributorPolicy: "ALL_MATCHES",
+				ContributorPredicate: &recipe.ConstructionRelatedPredicate{
+					CandidateID: "observation-id", Operator: recipe.FilterEquals,
+					Value: &recipe.FilterValue{Kind: recipe.FilterString, String: &specimenID},
+				},
+				ContributorSource: &recipe.ConstructionRelatedFieldSource{
+					CandidateID: "observation-id", NodeID: "observation-node", ResourceType: "Observation",
+					Path: "Observation.id", Cardinality: "required_one", LogicalType: "string",
+				},
+				ContributorChoiceID: "observation-id-choice",
+				EmptyPolicy:         recipe.ExpansionExclude, RelatedRecordColumnID: "observation_id",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: "Group"},
+				{ID: "category_id", Name: "category", Label: "Category"},
+				{ID: "amount_id", Name: "amount", Label: "Amount"},
+				{ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string"},
+			},
+		}},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{".id", "== @related_expand_contributor_value"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("rendered related expansion omitted %q: %s", expected, rendered.Query)
+		}
+	}
+	if rendered.BindVars["related_expand_contributor_value"] != specimenID {
+		t.Fatalf("related expansion contributor bind = %#v, want %q", rendered.BindVars["related_expand_contributor_value"], specimenID)
+	}
+}
+
 func TestCompileRelatedExpandUsesDistinctTerminalIdentityAndExplicitEmptyPolicy(t *testing.T) {
 	for _, policy := range []recipe.ExpansionEmptyPolicy{
 		recipe.ExpansionError,
