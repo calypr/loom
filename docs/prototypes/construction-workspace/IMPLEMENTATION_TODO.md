@@ -47,10 +47,15 @@ AQL stage. The live Arango oracle passed duplicate paths, a filtered input
 stage, stable identities, and all three no-match policies. The synthetic local
 API returned a ready three-row preview, and a disposable Explorer applied,
 reopened, and published the step. ClickHouse returned the same three
-Patient–Observation ID pairs with distinct row IDs. Exact field selection from
-each expanded record, onward traversal from that record, contributor trace,
-and browser authoring for this operation remain open; the small-fixture query
-timing does not close P08.
+Patient–Observation ID pairs with distinct row IDs. The exact-record Add
+columns source now uses stage-bound scalar choices. A saved Observation
+`status` field reopened and published the same three rows and values to
+ClickHouse; another field proposed from that result retained the row count.
+The browser showed the exact-record source, applicable preview, and editable
+saved step. The Arango oracle covered FILTER-preserved terminal identity and
+scoped lookup. Onward traversal from the terminal record, contributor trace,
+expansion predicates in the UI, repeated-field policies, and same-proposal
+predecessor creation remain open; small-fixture timings do not close P08.
 
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
 - [x] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.

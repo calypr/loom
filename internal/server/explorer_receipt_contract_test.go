@@ -466,6 +466,41 @@ func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
 	}
 }
 
+func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T) {
+	patient := authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
+	status := authoringv2.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}
+	document := authoringv2.Document{
+		Output:  authoringv2.Output{ID: "patients"},
+		Columns: []authoringv2.Column{{ColumnID: patient.ID, Column: patient.Name, Label: patient.Label}},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "observation-status-step",
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+				ChoiceID: "choice", OutputColumnID: status.ID,
+				Source: authoringv2.ConstructionRelatedFieldSource{
+					Kind: capability.ConstructionChoiceSourceField, CandidateID: "status-candidate", NodeID: "observation-node",
+					ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
+				},
+			}},
+			Outputs: []authoringv2.StageColumn{patient, status},
+		}}},
+	}
+	_, columns, err := authoredOutputColumns(authoringv2.Workspace{Documents: []authoringv2.Document{document}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := columns["patients"][status.Name]
+	if field.CandidateID != "status-candidate" || field.NodeID != "observation-node" || field.SourceResourceType != "Observation" || field.SourcePath != "status" {
+		t.Fatalf("exact field source metadata = %#v", field)
+	}
+	profile, err := constructedOutputProfileFor(field.Quality, lower.CompiledOutputColumn{Name: status.Name, Kind: "string", Cardinality: "optional_one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Shape != "scalar" {
+		t.Fatalf("exact field profile shape = %q, want scalar", profile.Shape)
+	}
+}
+
 func TestReconcileFinalOutputMetadataUsesAuthoredReshapeOutputs(t *testing.T) {
 	one := int64(1)
 	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "pivoted"}, {Name: "unpivoted"}}}

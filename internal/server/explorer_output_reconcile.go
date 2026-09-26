@@ -543,6 +543,29 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					break
 				}
 			}
+		case authoringv2.ConstructionOperationRelatedField:
+			if step.Operation.RelatedField == nil {
+				return fmt.Errorf("related-field step %q has no operation payload", step.ID)
+			}
+			related := step.Operation.RelatedField
+			quality := constructedOutputQuality{
+				Lossless: false, StructuralSuitability: "requires-review",
+				LossReasons: []string{"RELATED_FIELD_AUTHORIZED_EXACT_RECORD"},
+			}
+			if err := addOutput(related.OutputColumnID, step.ID, nil, quality); err != nil {
+				return err
+			}
+			for _, output := range step.Outputs {
+				if output.ID == related.OutputColumnID {
+					metadata := authored[output.Name]
+					metadata.NodeID = related.Source.NodeID
+					metadata.CandidateID = related.Source.CandidateID
+					metadata.SourceResourceType = related.Source.ResourceType
+					metadata.SourcePath = related.Source.Path
+					authored[output.Name] = metadata
+					break
+				}
+			}
 		default:
 			return fmt.Errorf("step %q has unsupported operation kind %q", step.ID, step.Operation.Kind)
 		}
