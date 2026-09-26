@@ -578,6 +578,55 @@ func int64Pointer(value int64) *int64 { return &value }
 
 func stringPointer(value string) *string { return &value }
 
+func TestConstructionOutputPresentationPersistsWithoutChangingCompilerIdentity(t *testing.T) {
+	document := documentWithDependentSteps()
+	workspace := constructionWorkspace(document)
+	visible, order := false, 7
+	updated, _, err := ApplyCommands(workspace, commandCatalog(), "rename-derived-output", []Command{{
+		Type:     CommandUpdateConstructionOutput,
+		OutputID: "patients",
+		ConstructionOutput: &ConstructionOutputPresentation{
+			StepID:   "bonus_step",
+			ColumnID: "score_id",
+			Label:    "Patient score",
+			Table:    &TablePresentation{Visible: &visible, Order: &order},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("update construction output presentation: %v", err)
+	}
+
+	for index, step := range updated.Documents[0].Construction.Steps {
+		output, found := findStageColumnByID(step.Outputs, "score_id")
+		if !found {
+			continue
+		}
+		if output.Name != "score" || output.Type != "integer" || output.Label != "Patient score" {
+			t.Fatalf("step %q output identity or label = %#v", step.ID, output)
+		}
+		if output.Table == nil || output.Table.Visible == nil || *output.Table.Visible ||
+			output.Table.Order == nil || *output.Table.Order != order {
+			t.Fatalf("step %q output table presentation = %#v", step.ID, output.Table)
+		}
+		if !reflect.DeepEqual(step.Operation, document.Construction.Steps[index].Operation) {
+			t.Fatalf("step %q compiler operation changed during presentation update", step.ID)
+		}
+	}
+
+	encoded, err := updated.CanonicalJSON()
+	if err != nil {
+		t.Fatalf("serialize updated construction presentation: %v", err)
+	}
+	reloaded, err := DecodeWorkspace(encoded)
+	if err != nil {
+		t.Fatalf("reload updated construction presentation: %v", err)
+	}
+	output, found := findStageColumnByID(reloaded.Documents[0].Construction.Steps[2].Outputs, "score_id")
+	if !found || output.Label != "Patient score" || output.Table == nil || output.Table.Visible == nil || *output.Table.Visible {
+		t.Fatalf("reloaded construction output presentation = %#v, found=%v", output, found)
+	}
+}
+
 func TestSourceColumnsAddedAfterConstructionReceiveStableIDsAndFlowThroughStages(t *testing.T) {
 	accepted := constructionWorkspace(documentWithDependentSteps())
 	oldIDs := make(map[string]string, len(accepted.Documents[0].Columns))

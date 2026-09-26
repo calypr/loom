@@ -2520,6 +2520,15 @@ components:
         order: {type: integer, minimum: 0}
         pinned: {type: boolean}
         cellRenderer: {type: string, enum: [fileActions]}
+    ConstructionOutputPresentation:
+      type: object
+      additionalProperties: false
+      required: [stepId, columnId, label]
+      properties:
+        stepId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
+        table: {$ref: '#/components/schemas/TablePresentation'}
     FilterPresentation:
       type: object
       additionalProperties: false
@@ -2555,7 +2564,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -2573,6 +2582,7 @@ components:
         initialPresentation: {type: string, enum: [TABLE, FILTER, CHART]}
         column: {type: string, minLength: 1}
         columnValue: {$ref: '#/components/schemas/Column'}
+        constructionOutput: {$ref: '#/components/schemas/ConstructionOutputPresentation'}
         transformationChange: {$ref: '#/components/schemas/ColumnTransformationChange'}
         contributor: {$ref: '#/components/schemas/ContributorPredicate'}
         source: {$ref: '#/components/schemas/ColumnSource'}
@@ -3266,6 +3276,7 @@ components:
         label: {type: string, minLength: 1}
         type: {type: string}
         nullable: {type: boolean}
+        table: {$ref: '#/components/schemas/TablePresentation'}
     ConstructionStageColumnDescriptor:
       type: object
       additionalProperties: false

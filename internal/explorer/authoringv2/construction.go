@@ -113,11 +113,12 @@ func (r ConstructionInputRef) Validate() error {
 // source-derived operations, while terminal Combine requires a concrete scalar
 // type and uses Nullable to declare left-join output behavior.
 type StageColumn struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Label    string `json:"label"`
-	Type     string `json:"type,omitempty"`
-	Nullable bool   `json:"nullable,omitempty"`
+	ID       string             `json:"id"`
+	Name     string             `json:"name"`
+	Label    string             `json:"label"`
+	Type     string             `json:"type,omitempty"`
+	Nullable bool               `json:"nullable,omitempty"`
+	Table    *TablePresentation `json:"table,omitempty"`
 }
 
 type ConstructionOperation struct {

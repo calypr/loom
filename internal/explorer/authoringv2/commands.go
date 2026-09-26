@@ -31,6 +31,7 @@ const (
 	CommandAddColumn                     = "ADD_COLUMN"
 	CommandAddColumnSource               = "ADD_COLUMN_SOURCE"
 	CommandUpdateColumn                  = "UPDATE_COLUMN"
+	CommandUpdateConstructionOutput      = "UPDATE_CONSTRUCTION_OUTPUT"
 	CommandUpdateColumnTransformation    = "UPDATE_COLUMN_TRANSFORMATION"
 	CommandSetColumnContributor          = "SET_COLUMN_CONTRIBUTOR"
 	CommandClearColumnContributor        = "CLEAR_COLUMN_CONTRIBUTOR"
@@ -107,42 +108,69 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                    string                        `json:"type"`
-	OutputID                string                        `json:"outputId,omitempty"`
-	SourceOutputID          string                        `json:"sourceOutputId,omitempty"`
-	Title                   string                        `json:"title,omitempty"`
-	RootNodeID              string                        `json:"rootNodeId,omitempty"`
-	SelectionRevisionID     string                        `json:"selectionRevisionId,omitempty"`
-	EdgeIDs                 []string                      `json:"edgeIds,omitempty"`
-	RouteChoiceID           string                        `json:"routeChoiceId,omitempty"`
-	ParentOccurrenceID      string                        `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID            string                        `json:"occurrenceId,omitempty"`
-	EdgeID                  string                        `json:"edgeId,omitempty"`
-	MatchMode               RouteMatchMode                `json:"matchMode,omitempty"`
-	CandidateID             string                        `json:"candidateId,omitempty"`
-	ProjectionMode          string                        `json:"projectionMode,omitempty"`
-	InitialPresentation     string                        `json:"initialPresentation,omitempty"`
-	Column                  string                        `json:"column,omitempty"`
-	ColumnValue             *Column                       `json:"columnValue,omitempty"`
-	TransformationChange    *ColumnTransformationChange   `json:"transformationChange,omitempty"`
-	Contributor             *ContributorPredicate         `json:"contributor,omitempty"`
-	Source                  *ColumnSource                 `json:"source,omitempty"`
-	RowChange               *RowChangeProposal            `json:"rowChange,omitempty"`
-	InterpretationCandidate *ApplyInterpretationCandidate `json:"interpretationCandidate,omitempty"`
-	ProposalID              string                        `json:"proposalId,omitempty"`
-	DraftRevisionID         string                        `json:"draftRevisionId,omitempty"`
-	ContextToken            string                        `json:"contextToken,omitempty"`
-	SemanticSelections      []SemanticSelection           `json:"semanticSelections,omitempty"`
-	ConstructionChoice      *ConstructionChoiceSelection  `json:"constructionChoice,omitempty"`
-	ResolvedChoice          *ResolvedConstructionChoice   `json:"-"`
-	ResolvedPopulationRoute []PopulationRouteStep         `json:"-"`
-	OutputIDs               []string                      `json:"outputIds,omitempty"`
+	Type                    string                          `json:"type"`
+	OutputID                string                          `json:"outputId,omitempty"`
+	SourceOutputID          string                          `json:"sourceOutputId,omitempty"`
+	Title                   string                          `json:"title,omitempty"`
+	RootNodeID              string                          `json:"rootNodeId,omitempty"`
+	SelectionRevisionID     string                          `json:"selectionRevisionId,omitempty"`
+	EdgeIDs                 []string                        `json:"edgeIds,omitempty"`
+	RouteChoiceID           string                          `json:"routeChoiceId,omitempty"`
+	ParentOccurrenceID      string                          `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID            string                          `json:"occurrenceId,omitempty"`
+	EdgeID                  string                          `json:"edgeId,omitempty"`
+	MatchMode               RouteMatchMode                  `json:"matchMode,omitempty"`
+	CandidateID             string                          `json:"candidateId,omitempty"`
+	ProjectionMode          string                          `json:"projectionMode,omitempty"`
+	InitialPresentation     string                          `json:"initialPresentation,omitempty"`
+	Column                  string                          `json:"column,omitempty"`
+	ColumnValue             *Column                         `json:"columnValue,omitempty"`
+	ConstructionOutput      *ConstructionOutputPresentation `json:"constructionOutput,omitempty"`
+	TransformationChange    *ColumnTransformationChange     `json:"transformationChange,omitempty"`
+	Contributor             *ContributorPredicate           `json:"contributor,omitempty"`
+	Source                  *ColumnSource                   `json:"source,omitempty"`
+	RowChange               *RowChangeProposal              `json:"rowChange,omitempty"`
+	InterpretationCandidate *ApplyInterpretationCandidate   `json:"interpretationCandidate,omitempty"`
+	ProposalID              string                          `json:"proposalId,omitempty"`
+	DraftRevisionID         string                          `json:"draftRevisionId,omitempty"`
+	ContextToken            string                          `json:"contextToken,omitempty"`
+	SemanticSelections      []SemanticSelection             `json:"semanticSelections,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection    `json:"constructionChoice,omitempty"`
+	ResolvedChoice          *ResolvedConstructionChoice     `json:"-"`
+	ResolvedPopulationRoute []PopulationRouteStep           `json:"-"`
+	OutputIDs               []string                        `json:"outputIds,omitempty"`
 	resolvedRowDefinition   *RowDefinition
 	resolvedTableShape      *TableShape
 	resolvedTableShapeSet   bool
 	resolvedConstruction    *Construction
 	resolvedConstructionSet bool
 	resolvedDraftRevision   *Workspace
+}
+
+// ConstructionOutputPresentation updates user-facing metadata for a stable
+// construction output. Name and Type remain compiler-owned identities.
+type ConstructionOutputPresentation struct {
+	StepID   string             `json:"stepId"`
+	ColumnID string             `json:"columnId"`
+	Label    string             `json:"label"`
+	Table    *TablePresentation `json:"table,omitempty"`
+}
+
+func (p ConstructionOutputPresentation) Validate() error {
+	if strings.TrimSpace(p.StepID) == "" || strings.TrimSpace(p.ColumnID) == "" || strings.TrimSpace(p.Label) == "" ||
+		p.StepID != strings.TrimSpace(p.StepID) ||
+		p.ColumnID != strings.TrimSpace(p.ColumnID) || p.Label != strings.TrimSpace(p.Label) {
+		return fmt.Errorf("stepId, columnId, and label must be non-empty and trimmed")
+	}
+	if p.Table != nil {
+		if p.Table.Order != nil && *p.Table.Order < 0 {
+			return fmt.Errorf("table.order must be non-negative")
+		}
+		if p.Table.CellRenderer != "" && p.Table.CellRenderer != "fileActions" {
+			return fmt.Errorf("table.cellRenderer is unsupported")
+		}
+	}
+	return nil
 }
 
 // ResolveDraftRevision binds a restore command to a workspace resolved by the
@@ -559,6 +587,13 @@ func (c Command) validate() error {
 	case CommandUpdateColumn:
 		if !required(c.OutputID, c.Column) || c.ColumnValue == nil {
 			return fmt.Errorf("UPDATE_COLUMN requires outputId, column, and columnValue")
+		}
+	case CommandUpdateConstructionOutput:
+		if !required(c.OutputID) || c.ConstructionOutput == nil {
+			return fmt.Errorf("UPDATE_CONSTRUCTION_OUTPUT requires outputId and constructionOutput")
+		}
+		if err := c.ConstructionOutput.Validate(); err != nil {
+			return fmt.Errorf("constructionOutput: %w", err)
 		}
 	case CommandUpdateColumnTransformation:
 		if !required(c.OutputID, c.Column) || c.TransformationChange == nil {
@@ -1051,6 +1086,48 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: current.Column}, nil
 		}
 		return result, fmt.Errorf("column %q was not found", command.Column)
+	case CommandUpdateConstructionOutput:
+		documentIndex := documentIndex(workspace, command.OutputID)
+		if documentIndex < 0 {
+			return result, fmt.Errorf("output %q was not found", command.OutputID)
+		}
+		construction := workspace.Documents[documentIndex].Construction
+		if construction == nil {
+			return result, fmt.Errorf("output %q has no construction", command.OutputID)
+		}
+		presentation := command.ConstructionOutput
+		outputName := ""
+		for _, step := range construction.Steps {
+			if step.ID != presentation.StepID {
+				continue
+			}
+			for _, output := range step.Outputs {
+				if output.ID == presentation.ColumnID {
+					outputName = output.Name
+					break
+				}
+			}
+			break
+		}
+		if outputName == "" {
+			return result, fmt.Errorf("construction output %q was not found in step %q", presentation.ColumnID, presentation.StepID)
+		}
+		for stepIndex := range construction.Steps {
+			for outputIndex := range construction.Steps[stepIndex].Outputs {
+				current := &construction.Steps[stepIndex].Outputs[outputIndex]
+				if current.ID != presentation.ColumnID {
+					continue
+				}
+				current.Label = presentation.Label
+				if presentation.Table == nil {
+					current.Table = nil
+				} else {
+					table := *presentation.Table
+					current.Table = &table
+				}
+			}
+		}
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID, Column: outputName}, nil
 	case CommandUpdateColumnTransformation:
 		document := documentIndex(workspace, command.OutputID)
 		if document < 0 {

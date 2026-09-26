@@ -38,7 +38,10 @@ import { GuidedGraphWorkspace } from './components/GuidedGraphWorkspace';
 import { ColumnSelector } from './components/ColumnSelector';
 import { ConceptCatalog } from './components/ConceptCatalog';
 import { RowRootPicker } from './components/RowRootPicker';
-import { PreviewTable } from './components/PreviewTable';
+import {
+  PreviewTable,
+  type PreviewTablePresentationChange,
+} from './components/PreviewTable';
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
@@ -71,6 +74,7 @@ import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
 import { catalogSourceOptions, type CatalogChoiceIntent } from './catalogItems';
+
 import {
   ConstructionWorkspace,
   constructionOperationFamilies,
@@ -102,6 +106,30 @@ import {
   type RelatedSourceStep,
 } from './constructionOperations/RelatedSourceStepEditor';
 import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
+
+const previewPresentationCommand = (
+  outputId: string,
+  change: PreviewTablePresentationChange,
+): ExplorerBuilderCommand => {
+  if (change.kind === 'AUTHORED_COLUMN') {
+    return {
+      type: 'UPDATE_COLUMN',
+      outputId,
+      column: change.column.column,
+      columnValue: change.column,
+    };
+  }
+  return {
+    type: 'UPDATE_CONSTRUCTION_OUTPUT',
+    outputId,
+    constructionOutput: {
+      stepId: change.stepId,
+      columnId: change.column.id,
+      label: change.column.label,
+      table: change.column.table,
+    },
+  };
+};
 
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
@@ -421,11 +449,17 @@ const BuilderWorkspaceContent = ({
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
+  const presentationPreviewTimer = useRef<number | undefined>(undefined);
+  const presentationPreviewSerial = useRef(0);
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
+  useEffect(() => () => {
+    presentationPreviewSerial.current += 1;
+    window.clearTimeout(presentationPreviewTimer.current);
+  }, []);
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
   const [interpretationContextLoad, setInterpretationContextLoad] = useState<InterpretationContextLoad>();
 
@@ -1711,6 +1745,29 @@ const BuilderWorkspaceContent = ({
         : await reconcileCurrent();
     if (receipt) await executePreview(request, receipt.receiptId);
   };
+  const applyPresentationChanges = (changes: ReadonlyArray<PreviewTablePresentationChange>) => {
+    const outputId = table?.outputId;
+    if (!outputId || changes.length === 0) return;
+    const serial = ++presentationPreviewSerial.current;
+    window.clearTimeout(presentationPreviewTimer.current);
+    void applyCommandsWithResult(changes.map((change) =>
+      previewPresentationCommand(outputId, change),
+    )).then((result) => {
+      if (!result || serial !== presentationPreviewSerial.current) return;
+      presentationPreviewTimer.current = window.setTimeout(() => {
+        if (
+          serial !== presentationPreviewSerial.current ||
+          latestState.current.selectedOutputId !== outputId ||
+          latestState.current.draftVersion !== result.draftVersion
+        ) return;
+        void (async () => {
+          const receipt = await reconcileCurrent();
+          if (receipt && serial === presentationPreviewSerial.current)
+            await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
+        })();
+      }, 250);
+    });
+  };
   const executePublish = useCallback(
     async (receiptId: string) => {
       let activeReceiptId = receiptId;
@@ -2532,26 +2589,8 @@ const BuilderWorkspaceContent = ({
                           setPreviewLimit(limit);
                           preview(limit);
                         }}
-                        onColumnChange={(column) =>
-                          void applyCommands([
-                            {
-                              type: 'UPDATE_COLUMN',
-                              outputId: table.outputId,
-                              column: column.column,
-                              columnValue: column,
-                            },
-                          ])
-                        }
-                        onColumnsChange={(columns) =>
-                          void applyCommands(
-                            columns.map((column) => ({
-                              type: 'UPDATE_COLUMN' as const,
-                              outputId: table.outputId,
-                              column: column.column,
-                              columnValue: column,
-                            })),
-                          )
-                        }
+                        onColumnChange={(change) => applyPresentationChanges([change])}
+                        onColumnsChange={applyPresentationChanges}
                       />
                     )}
                   </>
@@ -2833,27 +2872,11 @@ const BuilderWorkspaceContent = ({
                     },
                   ])
                 }
-                onChange={(column) =>
-                  table &&
-                  void applyCommands([
-                    {
-                      type: 'UPDATE_COLUMN',
-                      outputId: table.outputId,
-                      column: column.column,
-                      columnValue: column,
-                    },
-                  ])
-                }
-                onColumnsChange={(columns) =>
-                  table &&
-                  void applyCommands(
-                    columns.map((column) => ({
-                      type: 'UPDATE_COLUMN' as const,
-                      outputId: table.outputId,
-                      column: column.column,
-                      columnValue: column,
-                    })),
-                  )
+                onChange={(column) => applyPresentationChanges([{ kind: 'AUTHORED_COLUMN', column }])}
+                onColumnsChange={(columns) => applyPresentationChanges(columns.map((column) => ({ kind: 'AUTHORED_COLUMN', column })))}
+                onPresentationChanges={applyPresentationChanges}
+                onConstructionOutputChange={(stepId, column) =>
+                  applyPresentationChanges([{ kind: 'CONSTRUCTION_OUTPUT', stepId, column }])
                 }
                 onRemove={(column) =>
                   table &&

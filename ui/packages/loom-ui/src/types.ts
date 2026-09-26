@@ -1119,6 +1119,7 @@ const constructionStageColumnBaseSchema = z.object({
 
 const constructionStageColumnSchema = constructionStageColumnBaseSchema.extend({
   nullable: z.boolean().optional(),
+  table: explorerTablePresentationSchema.optional(),
 }).strict();
 export type ConstructionStageColumn = z.infer<typeof constructionStageColumnSchema>;
 
@@ -2252,6 +2253,7 @@ export const explorerBuilderCommandSchema = z
       'ADD_COLUMN_SOURCE',
       'UPDATE_COLUMN_SOURCE',
       'UPDATE_COLUMN',
+      'UPDATE_CONSTRUCTION_OUTPUT',
       'UPDATE_COLUMN_TRANSFORMATION',
       'SET_COLUMN_CONTRIBUTOR',
       'CLEAR_COLUMN_CONTRIBUTOR',
@@ -2280,6 +2282,12 @@ export const explorerBuilderCommandSchema = z
     initialPresentation: z.enum(['TABLE', 'FILTER', 'CHART']).optional(),
     column: opaqueIdSchema.optional(),
     columnValue: explorerBuilderColumnSchema.optional(),
+    constructionOutput: z.object({
+      stepId: opaqueIdSchema,
+      columnId: opaqueIdSchema,
+      label: z.string().min(1),
+      table: explorerTablePresentationSchema.optional(),
+    }).strict().optional(),
     transformationChange: columnTransformationChangeSchema.optional(),
     contributor: contributorPredicateSchema.optional(),
     source: explorerColumnSourceSchema.optional(),

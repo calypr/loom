@@ -5,6 +5,7 @@ import type {
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
+  ConstructionStageColumn,
   ExplorerColumnSourceDescriptor,
   ExplorerColumnSource,
 } from '../../../types';
@@ -22,6 +23,7 @@ import {
   ColumnSourceInspector,
 } from './ColumnSourceInspector';
 import { useVirtualViewport, virtualRange } from './virtualization';
+import type { PreviewTablePresentationChange } from './PreviewTable';
 
 const CANDIDATE_ROW_HEIGHT = 144;
 
@@ -79,6 +81,77 @@ const candidateColumnName = (
 
 const sourceSummary = (column: ExplorerBuilderColumn): string =>
   [column.logicalType, column.source.kind].filter(Boolean).join(' · ');
+
+const ConstructionOutputRow = ({
+  column,
+  disabled,
+  onChange,
+}: {
+  readonly column: ConstructionStageColumn;
+  readonly disabled: boolean;
+  readonly onChange: (column: ConstructionStageColumn) => void;
+}) => {
+  const [label, setLabel] = useState(column.label);
+  useEffect(() => setLabel(column.label), [column.label]);
+  const commitLabel = () => {
+    const next = label.trim();
+    if (!next) {
+      setLabel(column.label);
+      return;
+    }
+    if (next !== column.label) onChange({ ...column, label: next });
+  };
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem_3.5rem_2rem_2rem] items-center gap-2 border-b border-slate-200 px-2 py-1.5 last:border-b-0 hover:bg-slate-50/70">
+      <div className="min-w-0">
+        <input
+          aria-label={`Display name for construction output ${column.label}`}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm font-medium text-slate-800 outline-blue-500 focus:border-blue-500"
+          value={label}
+          disabled={disabled}
+          onChange={(event) => setLabel(event.currentTarget.value)}
+          onBlur={commitLabel}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+            if (event.key === 'Escape') {
+              setLabel(column.label);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <div className="break-all px-1 font-mono text-[10px] leading-tight text-slate-400">
+          {column.name} · {column.type ?? 'constructed'}
+        </div>
+        <p className="mt-1 px-1 text-[10px] leading-tight text-slate-500">
+          Reorder in Preview → Columns. Filters, charts, and removal aren’t available for constructed outputs.
+        </p>
+      </div>
+      <label className="flex justify-center" title="Display in table">
+        <span className="sr-only">Table</span>
+        <input
+          aria-label={`Display ${column.label} in table`}
+          type="checkbox"
+          checked={column.table?.visible ?? true}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({
+              ...column,
+              table: {
+                ...(column.table ?? {}),
+                visible: event.currentTarget.checked,
+              },
+            })
+          }
+        />
+      </label>
+      <span className="text-center text-xs text-slate-400" title="Filters are unavailable for constructed outputs">—</span>
+      <span className="text-center text-xs text-slate-400" title="Charts are unavailable for constructed outputs">—</span>
+      <span className="text-center text-[10px] text-slate-500">Preview</span>
+      <span />
+    </div>
+  );
+};
 
 const candidateForRowRoot = (
   candidate: ExplorerBuilderCandidate | undefined,
@@ -417,6 +490,8 @@ export const ColumnSelector = ({
   onAddSource,
   onChange,
   onColumnsChange,
+  onPresentationChanges,
+  onConstructionOutputChange,
   onSourceChange,
   onContributorChange = () => undefined,
   onTransformationChange = () => undefined,
@@ -444,6 +519,13 @@ export const ColumnSelector = ({
   readonly onChange: (column: ExplorerBuilderColumn) => void;
   readonly onColumnsChange?: (
     columns: ReadonlyArray<ExplorerBuilderColumn>,
+  ) => void;
+  readonly onConstructionOutputChange?: (
+    stepId: string,
+    column: ConstructionStageColumn,
+  ) => void;
+  readonly onPresentationChanges?: (
+    changes: ReadonlyArray<PreviewTablePresentationChange>,
   ) => void;
   readonly onSourceChange: (column: string, source: ExplorerColumnSource) => void;
   readonly onContributorChange?: (
@@ -491,6 +573,15 @@ export const ColumnSelector = ({
         : (table?.document.columns ?? []),
     [occurrenceId, showAvailable, table?.document.columns],
   );
+  const constructionStep = showAvailable
+    ? undefined
+    : table?.document.construction?.steps.at(-1);
+  const authoredColumnNames = new Set(
+    table?.document.columns.map((column) => column.column) ?? [],
+  );
+  const constructionOutputs = constructionStep?.outputs.filter(
+    (output) => !authoredColumnNames.has(output.name),
+  ) ?? [];
   const inspectedColumn = configured.find(
     (column) => column.column === inspection?.column,
   );
@@ -575,6 +666,11 @@ export const ColumnSelector = ({
           kind: 'configured' as const,
           column,
         })),
+        ...constructionOutputs.map((column) => ({
+          kind: 'construction' as const,
+          stepId: constructionStep?.id ?? '',
+          column,
+        })),
         ...available.map((candidate) => ({
           kind: 'available' as const,
           candidate,
@@ -585,21 +681,27 @@ export const ColumnSelector = ({
           const value =
             row.kind === 'configured'
               ? `${row.column.label} ${row.column.column} ${sourceSummary(row.column)}`
-              : `${row.candidate.label} ${row.candidate.fieldPath} ${row.candidate.logicalType}`;
+              : row.kind === 'construction'
+                ? `${row.column.label} ${row.column.name} ${row.column.type ?? 'constructed'}`
+                : `${row.candidate.label} ${row.candidate.fieldPath} ${row.candidate.logicalType}`;
           return value.toLowerCase().includes(normalizedQuery);
         })
         .sort((left, right) => {
           const leftLabel =
             left.kind === 'configured'
               ? configuredCapabilities.get(left.column.column)?.label ?? sourceSummary(left.column)
-              : left.candidate.label;
+              : left.kind === 'construction'
+                ? left.column.label
+                : left.candidate.label;
           const rightLabel =
             right.kind === 'configured'
               ? configuredCapabilities.get(right.column.column)?.label ?? sourceSummary(right.column)
-              : right.candidate.label;
+              : right.kind === 'construction'
+                ? right.column.label
+                : right.candidate.label;
           return leftLabel.localeCompare(rightLabel);
         }),
-    [available, configured, configuredCapabilities, normalizedQuery],
+    [available, configured, configuredCapabilities, constructionOutputs, constructionStep?.id, normalizedQuery],
   );
   const rowRange = virtualRange({
     count: rows.length,
@@ -618,10 +720,11 @@ export const ColumnSelector = ({
   };
   const allTableColumnsSelected =
     available.length === 0 &&
-    configured.length > 0 &&
+    configured.length + constructionOutputs.length > 0 &&
     configured.every(
       (column) => column.table?.visible ?? Boolean(column.table),
-    );
+    ) &&
+    constructionOutputs.every((column) => column.table?.visible ?? true);
   const visibleConfigured = (table?.document.columns ?? [])
     .filter((column) => column.table?.visible ?? Boolean(column.table))
     .map((column, index) => ({ column, index }))
@@ -656,33 +759,77 @@ export const ColumnSelector = ({
     if (onColumnsChange) onColumnsChange(updates);
     else updates.forEach(onChange);
   };
-  const toggleAllTableColumns = () => {
-    if (disabled) return;
-    if (allTableColumnsSelected) {
-      configured.forEach((column) =>
-        onChange({
-          ...column,
-          table: {
-            ...(column.table ?? {}),
-            visible: false,
-          },
-        }),
-      );
+  const dispatchPresentationChanges = (
+    changes: ReadonlyArray<PreviewTablePresentationChange>,
+  ) => {
+    if (onPresentationChanges) {
+      onPresentationChanges(changes);
       return;
     }
-    configured
-      .filter((column) => !(column.table?.visible ?? Boolean(column.table)))
-      .forEach((column, order) =>
-        onChange({
-          ...column,
-          table: {
-            ...(column.table ?? {}),
-            visible: true,
-            order: column.table?.order ?? order,
-          },
-        }),
-      );
-    if (available.length > 0) onAddAll(available);
+    const authored = changes.flatMap((change) =>
+      change.kind === 'AUTHORED_COLUMN' ? [change.column] : [],
+    );
+    if (authored.length > 0) {
+      if (onColumnsChange) onColumnsChange(authored);
+      else authored.forEach((column) => onChange(column));
+    }
+    changes.forEach((change) => {
+      if (change.kind === 'CONSTRUCTION_OUTPUT') {
+        onConstructionOutputChange?.(change.stepId, change.column);
+      }
+    });
+  };
+  const toggleAllTableColumns = () => {
+    if (disabled) return;
+    const changes: PreviewTablePresentationChange[] = allTableColumnsSelected
+      ? [
+          ...configured.map((column) => ({
+            kind: 'AUTHORED_COLUMN' as const,
+            column: {
+              ...column,
+              table: { ...(column.table ?? {}), visible: false },
+            },
+          })),
+          ...constructionOutputs.map((column) => ({
+            kind: 'CONSTRUCTION_OUTPUT' as const,
+            stepId: constructionStep?.id ?? '',
+            column: {
+              ...column,
+              table: { ...(column.table ?? {}), visible: false },
+            },
+          })),
+        ]
+      : [
+          ...configured
+            .filter((column) => !(column.table?.visible ?? Boolean(column.table)))
+            .map((column, order) => ({
+              kind: 'AUTHORED_COLUMN' as const,
+              column: {
+                ...column,
+                table: {
+                  ...(column.table ?? {}),
+                  visible: true,
+                  order: column.table?.order ?? order,
+                },
+              },
+            })),
+          ...constructionOutputs
+            .filter((column) => !(column.table?.visible ?? true))
+            .map((column, order) => ({
+              kind: 'CONSTRUCTION_OUTPUT' as const,
+              stepId: constructionStep?.id ?? '',
+              column: {
+                ...column,
+                table: {
+                  ...(column.table ?? {}),
+                  visible: true,
+                  order: column.table?.order ?? configured.length + order,
+                },
+              },
+            })),
+        ];
+    dispatchPresentationChanges(changes);
+    if (!allTableColumnsSelected && available.length > 0) onAddAll(available);
   };
 
   return (
@@ -706,7 +853,10 @@ export const ColumnSelector = ({
           <button
             type="button"
             disabled={
-              disabled || (configured.length === 0 && available.length === 0)
+              disabled ||
+              (configured.length === 0 &&
+                constructionOutputs.length === 0 &&
+                available.length === 0)
             }
             aria-pressed={allTableColumnsSelected}
             onClick={toggleAllTableColumns}
@@ -719,7 +869,7 @@ export const ColumnSelector = ({
           <span className="rounded bg-slate-100 px-2 py-1 text-[11px] text-slate-600">
             {showAvailable
               ? `${configured.length} configured · ${available.length} available`
-              : `${configured.length} configured`}
+              : `${configured.length + constructionOutputs.length} configured`}
           </span>
         </div>
       </div>
@@ -812,7 +962,11 @@ export const ColumnSelector = ({
                     : undefined;
                   return (
                     <div
-                      key={row.kind === 'configured' ? `configured:${row.column.column}` : `available:${row.candidate.candidateId}`}
+                      key={row.kind === 'configured'
+                        ? `configured:${row.column.column}`
+                        : row.kind === 'construction'
+                          ? `construction:${row.stepId}:${row.column.id}`
+                          : `available:${row.candidate.candidateId}`}
                       className={`absolute inset-x-0 ${row.kind === 'configured' && row.column.column === focusColumn ? 'rounded border-2 border-blue-500 bg-blue-50' : ''}`}
                       data-feature-focus={row.kind === 'configured' && row.column.column === focusColumn ? 'true' : undefined}
                       style={{ top: order * CANDIDATE_ROW_HEIGHT, height: CANDIDATE_ROW_HEIGHT }}
@@ -855,6 +1009,14 @@ export const ColumnSelector = ({
                           onRemove={() => onRemove(row.column.column)}
                           onInspect={() =>
                             void inspectColumn(row.column)
+                          }
+                        />
+                      ) : row.kind === 'construction' ? (
+                        <ConstructionOutputRow
+                          column={row.column}
+                          disabled={disabled || !onConstructionOutputChange}
+                          onChange={(column) =>
+                            onConstructionOutputChange?.(row.stepId, column)
                           }
                         />
                       ) : (

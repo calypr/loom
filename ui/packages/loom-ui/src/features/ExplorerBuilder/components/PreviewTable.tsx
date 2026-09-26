@@ -3,6 +3,7 @@ import type {
   ExplorerBuilderColumn,
   ExplorerBuilderEmission,
   ExplorerBuilderPreviewResult,
+  ConstructionStageColumn,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { displayValue, losslessText } from '../../../valueDisplay';
@@ -17,6 +18,38 @@ const PREVIEW_COLUMN_WIDTH = 180;
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
   readonly value: unknown;
+};
+
+export type PreviewTablePresentationChange =
+  | { readonly kind: 'AUTHORED_COLUMN'; readonly column: ExplorerBuilderColumn }
+  | {
+      readonly kind: 'CONSTRUCTION_OUTPUT';
+      readonly stepId: string;
+      readonly column: ConstructionStageColumn;
+    };
+
+type PreviewPresentationColumn = {
+  readonly name: string;
+  readonly label: string;
+  readonly table?: ConstructionStageColumn['table'];
+  readonly visibleByDefault: boolean;
+  readonly change: PreviewTablePresentationChange;
+};
+
+const withPresentationTable = (
+  entry: PreviewPresentationColumn,
+  table: NonNullable<ConstructionStageColumn['table']>,
+): PreviewTablePresentationChange => {
+  if (entry.change.kind === 'AUTHORED_COLUMN') {
+    return {
+      kind: 'AUTHORED_COLUMN',
+      column: { ...entry.change.column, table },
+    };
+  }
+  return {
+    ...entry.change,
+    column: { ...entry.change.column, table },
+  };
 };
 
 const isStructuredRecord = (value: unknown): value is object =>
@@ -60,9 +93,9 @@ export const PreviewTable = ({
   readonly table?: DraftTable;
   readonly limit: number;
   readonly onLimitChange: (value: 25 | 50 | 100 | 500 | 1000) => void;
-  readonly onColumnChange: (column: ExplorerBuilderColumn) => void;
+  readonly onColumnChange: (change: PreviewTablePresentationChange) => void;
   readonly onColumnsChange: (
-    columns: ReadonlyArray<ExplorerBuilderColumn>,
+    changes: ReadonlyArray<PreviewTablePresentationChange>,
   ) => void;
 }) => {
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -88,10 +121,15 @@ export const PreviewTable = ({
   const authoredByColumn = new Map(
     table?.document.columns.map((column) => [column.column, column]) ?? [],
   );
+  const constructionStep = table?.document.construction?.steps.at(-1);
+  const constructionOutputs = constructionStep?.outputs.filter(
+    (output) => !authoredByColumn.has(output.name),
+  ) ?? [];
+  const constructionOutputByName = new Map(
+    constructionOutputs.map((output) => [output.name, output]),
+  );
   const constructionOutputNames = new Set(
-    table?.document.construction?.steps.flatMap((step) =>
-      step.outputs.map((output) => output.name),
-    ) ?? [],
+    constructionOutputByName.keys(),
   );
   const authoredColumnsFor = (column: ExplorerBuilderEmission) => {
     const names = column.authoredColumns ?? [column.column];
@@ -102,11 +140,30 @@ export const PreviewTable = ({
   };
   const authoredColumnFor = (column: ExplorerBuilderEmission) =>
     authoredColumnsFor(column)[0];
-  const configuredColumns = [...authoredByColumn.values()].sort(
+  const configuredColumns: PreviewPresentationColumn[] = [
+    ...[...authoredByColumn.values()].map((column) => ({
+      name: column.column,
+      label: column.label,
+      table: column.table,
+      visibleByDefault: Boolean(column.table),
+      change: { kind: 'AUTHORED_COLUMN' as const, column },
+    })),
+    ...(constructionStep ? constructionOutputs.map((column) => ({
+      name: column.name,
+      label: column.label,
+      table: column.table,
+      visibleByDefault: true,
+      change: {
+        kind: 'CONSTRUCTION_OUTPUT' as const,
+        stepId: constructionStep.id,
+        column,
+      },
+    })) : []),
+  ].sort(
     (left, right) =>
       (left.table?.order ?? Number.MAX_SAFE_INTEGER) -
       (right.table?.order ?? Number.MAX_SAFE_INTEGER),
-    );
+  );
   const orderedColumns: ExplorerBuilderEmission[] = (preview?.columns ?? [])
     .map((column) => {
       const authored = (column.authoredColumns ?? [column.column])
@@ -114,6 +171,7 @@ export const PreviewTable = ({
         .find((value) => value !== undefined);
       return {
         ...column,
+        label: constructionOutputByName.get(column.column)?.label ?? column.label,
         outputId: preview?.outputId ?? table?.outputId ?? '',
         candidateId: column.column,
         occurrenceId: authored?.occurrenceId ?? 'base',
@@ -134,18 +192,22 @@ export const PreviewTable = ({
           ...authoredColumnsFor(left).map(
             (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
           ),
+          constructionOutputByName.get(left.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
         ) -
         Math.min(
           Number.MAX_SAFE_INTEGER,
           ...authoredColumnsFor(right).map(
             (column) => column.table?.order ?? Number.MAX_SAFE_INTEGER,
           ),
+          constructionOutputByName.get(right.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
         ),
     );
   const columns = orderedColumns.filter((column) => {
     const authoredColumns = authoredColumnsFor(column);
     if (authoredColumns.length === 0) {
-      return constructionOutputNames.has(column.column);
+      const constructionOutput = constructionOutputByName.get(column.column);
+      return constructionOutputNames.has(column.column) &&
+        (constructionOutput?.table?.visible ?? true);
     }
     return authoredColumns.some(
       (authored) => authored.table?.visible ?? Boolean(authored.table),
@@ -178,7 +240,7 @@ export const PreviewTable = ({
   };
   const reorderColumns = (columnName: string, insertionIndex: number) => {
     const fromIndex = configuredColumns.findIndex(
-      (column) => column.column === columnName,
+      (column) => column.name === columnName,
     );
     if (fromIndex < 0) return;
     const reordered = [...configuredColumns];
@@ -195,10 +257,10 @@ export const PreviewTable = ({
       return column.table?.order === order
         ? []
         : [
-            {
-              ...column,
-              table: { ...(column.table ?? {}), order },
-            },
+            withPresentationTable(column, {
+              ...(column.table ?? {}),
+              order,
+            }),
           ];
     });
     if (updates.length > 0) onColumnsChange(updates);
@@ -228,10 +290,10 @@ export const PreviewTable = ({
                 className="max-h-[min(60dvh,28rem)] overflow-y-auto overflow-x-hidden py-1 pr-1"
               >
                 {configuredColumns.map((column, index) => {
-                  const visible = column.table?.visible ?? Boolean(column.table);
+                  const visible = column.table?.visible ?? column.visibleByDefault;
                   return (
                     <div
-                      key={column.column}
+                      key={column.name}
                       role="listitem"
                       onDragOver={(event) => {
                         if (!draggedColumnRef.current) return;
@@ -262,7 +324,7 @@ export const PreviewTable = ({
                         }
                         resetDrag();
                       }}
-                      className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.column ? 'opacity-50' : ''}`}
+                      className={`relative flex items-center gap-2 rounded px-2 py-2 text-xs hover:bg-slate-50 ${draggedColumn === column.name ? 'opacity-50' : ''}`}
                     >
                       {draggedColumn && dropIndex === index && (
                         <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-blue-500" />
@@ -274,10 +336,10 @@ export const PreviewTable = ({
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData(
                             'text/plain',
-                            column.column,
+                            column.name,
                           );
-                          draggedColumnRef.current = column.column;
-                          setDraggedColumn(column.column);
+                          draggedColumnRef.current = column.name;
+                          setDraggedColumn(column.name);
                           setDropIndex(index);
                         }}
                         onDragEnd={resetDrag}
@@ -291,14 +353,13 @@ export const PreviewTable = ({
                           className="mt-0.5 shrink-0"
                           checked={visible}
                           onChange={(event) =>
-                            onColumnChange({
-                              ...column,
-                              table: {
+                            onColumnChange(
+                              withPresentationTable(column, {
                                 ...(column.table ?? {}),
                                 visible: event.currentTarget.checked,
                                 order: column.table?.order ?? index,
-                              },
-                            })
+                              }),
+                            )
                           }
                         />
                         <span className="min-w-0 break-words">

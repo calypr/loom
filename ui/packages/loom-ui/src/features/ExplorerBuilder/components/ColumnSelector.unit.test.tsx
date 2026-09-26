@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type {
   AggregateTransformationCapability,
   ColumnValueTransformationCapabilities,
+  Construction,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
   ExplorerBuilderColumn,
@@ -1415,6 +1416,124 @@ describe('configured V2 columns', () => {
         name: 'Use Research Subject ID as chart',
       }),
     ).toBeDisabled();
+  });
+
+  it('edits constructed output labels and table visibility without changing compiler identity', () => {
+    const construction = {
+      version: 1,
+      steps: [{
+        id: 'patient_score_step',
+        outputs: [{
+          id: 'research-subject-id',
+          name: 'research_subject_identifier',
+          label: 'Stale stage identifier',
+          type: 'string',
+        }, {
+          id: 'patient-score-id',
+          name: 'patient_score',
+          label: 'Patient score',
+          type: 'integer',
+        }, {
+          id: 'study-count-id',
+          name: 'study_count',
+          label: 'Study count',
+          type: 'integer',
+        }],
+      }],
+    } as unknown as Construction;
+    const constructedTable: DraftTable = {
+      ...table,
+      document: { ...table.document, construction },
+    };
+    const onConstructionOutputChange = vi.fn();
+    const onPresentationChanges = vi.fn();
+    const onChange = vi.fn();
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={constructedTable}
+        occurrenceId="base"
+        disabled={false}
+        showAvailable={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={onChange}
+        onConstructionOutputChange={onConstructionOutputChange}
+        onPresentationChanges={onPresentationChanges}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('textbox', {
+      name: 'Display name for configured Research Subject ID',
+    })).toHaveLength(1);
+    expect(screen.queryByRole('textbox', {
+      name: 'Display name for construction output Stale stage identifier',
+    })).not.toBeInTheDocument();
+    const label = screen.getByRole('textbox', {
+      name: 'Display name for construction output Patient score',
+    });
+    fireEvent.change(label, { target: { value: 'Patient total' } });
+    fireEvent.blur(label);
+    expect(onConstructionOutputChange).toHaveBeenLastCalledWith(
+      'patient_score_step',
+      expect.objectContaining({
+        id: 'patient-score-id',
+        name: 'patient_score',
+        type: 'integer',
+        label: 'Patient total',
+      }),
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Display Patient score in table',
+    }));
+    expect(onConstructionOutputChange).toHaveBeenLastCalledWith(
+      'patient_score_step',
+      expect.objectContaining({
+        id: 'patient-score-id',
+        name: 'patient_score',
+        table: expect.objectContaining({ visible: false }),
+      }),
+    );
+    expect(screen.getAllByText(/Reorder in Preview → Columns/)).toHaveLength(2);
+    expect(screen.getAllByText(/Filters, charts, and removal/)).toHaveLength(2);
+
+    onConstructionOutputChange.mockClear();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Deselect all table columns',
+    }));
+    expect(onPresentationChanges).toHaveBeenCalledTimes(1);
+    expect(onPresentationChanges).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kind: 'AUTHORED_COLUMN',
+        column: expect.objectContaining({
+          column: 'research_subject_identifier',
+          table: expect.objectContaining({ visible: false }),
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'CONSTRUCTION_OUTPUT',
+        stepId: 'patient_score_step',
+        column: expect.objectContaining({
+          id: 'patient-score-id',
+          name: 'patient_score',
+          table: { visible: false },
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'CONSTRUCTION_OUTPUT',
+        stepId: 'patient_score_step',
+        column: expect.objectContaining({
+          id: 'study-count-id',
+          name: 'study_count',
+          table: { visible: false },
+        }),
+      }),
+    ]);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onConstructionOutputChange).not.toHaveBeenCalled();
   });
 
   it('toggles all configured table columns off without removing their configuration', () => {

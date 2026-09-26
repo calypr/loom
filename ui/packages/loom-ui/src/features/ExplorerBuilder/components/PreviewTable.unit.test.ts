@@ -230,6 +230,150 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByText('patient-42')).toBeInTheDocument();
   });
 
+  it('shows copied source columns only once and keeps their authored labels authoritative', () => {
+    const copiedSourceOutputs = specimenSourceColumns.map((sourceColumn, index) => ({
+      id: sourceColumn.columnId,
+      name: sourceColumn.column,
+      label: index === 0 ? 'Stale stage label' : sourceColumn.label,
+      type: 'string',
+    }));
+    const mixedConstruction: Construction = {
+      ...relatedPatientConstruction,
+      steps: relatedPatientConstruction.steps.map((step) => ({
+        ...step,
+        outputs: [...copiedSourceOutputs, ...step.outputs],
+      })),
+    };
+    const sourceColumns = specimenSourceColumns.map((sourceColumn, index) =>
+      index === 0 ? { ...sourceColumn, label: 'Specimen identifier' } : sourceColumn,
+    );
+    const mixedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: sourceColumns,
+        construction: mixedConstruction,
+      },
+    };
+    const mixedPreview: ExplorerBuilderPreviewResult = {
+      ...relatedPatientPreview,
+      columns: relatedPatientPreview.columns.map((column) =>
+        column.column === 'specimen_id'
+          ? { ...column, label: 'Specimen identifier' }
+          : column,
+      ),
+    };
+    render(
+      React.createElement(PreviewTable, {
+        preview: mixedPreview,
+        table: mixedTable,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    expect(screen.getAllByRole('checkbox', { name: 'Specimen identifier' })).toHaveLength(1);
+    expect(screen.queryByRole('checkbox', { name: 'Stale stage label' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Specimen identifier' })).toBeInTheDocument();
+    expect(screen.getByText('patient-42')).toBeInTheDocument();
+  });
+
+  it('renames, hides, and reorders saved construction outputs through presentation controls', () => {
+    const outputWithPresentation = (label: string, visible: boolean, order = 4): Construction => ({
+      ...relatedPatientConstruction,
+      steps: relatedPatientConstruction.steps.map((step) => ({
+        ...step,
+        outputs: step.outputs.map((output) => ({
+          ...output,
+          label,
+          table: { visible, order },
+        })),
+      })),
+    });
+    const makeTable = (construction: Construction): DraftTable => ({
+      ...table,
+      document: {
+        ...table.document,
+        columns: specimenSourceColumns,
+        construction,
+      },
+    });
+    const onColumnChange = vi.fn();
+    const onColumnsChange = vi.fn();
+    const rendered = render(
+      React.createElement(PreviewTable, {
+        preview: relatedPatientPreview,
+        table: makeTable(outputWithPresentation('Patient ID', true)),
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange,
+        onColumnsChange,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+
+    expect((screen.getByRole('checkbox', { name: 'Patient ID' }) as HTMLInputElement).checked).toBe(true);
+    const dataTransfer = {
+      effectAllowed: 'move',
+      setData: vi.fn(),
+      getData: vi.fn(() => 'patient_id'),
+    };
+    fireEvent.dragStart(screen.getByLabelText('Drag Patient ID'), { dataTransfer });
+    const firstRow = screen.getByLabelText('Drag Specimen ID').parentElement;
+    expect(firstRow).not.toBeNull();
+    fireEvent.dragOver(firstRow!, { clientY: 0, dataTransfer });
+    fireEvent.drop(firstRow!, { clientY: 0, dataTransfer });
+    expect(onColumnsChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'CONSTRUCTION_OUTPUT',
+        column: expect.objectContaining({
+          id: 'patient-id',
+          name: 'patient_id',
+          table: expect.objectContaining({ order: 0 }),
+        }),
+      }),
+    ]));
+
+    onColumnsChange.mockClear();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Patient ID' }));
+    expect(onColumnChange).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'CONSTRUCTION_OUTPUT',
+      stepId: 'related_patient_id',
+      column: expect.objectContaining({
+        id: 'patient-id',
+        name: 'patient_id',
+        label: 'Patient ID',
+        table: { visible: false, order: 4 },
+      }),
+    }));
+
+    rendered.rerender(React.createElement(PreviewTable, {
+      preview: relatedPatientPreview,
+      table: makeTable(outputWithPresentation('Related Patient ID', false)),
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange,
+      onColumnsChange,
+    }));
+    expect(screen.getByRole('table')).toHaveAttribute('aria-colcount', '4');
+    expect(screen.queryByRole('columnheader', { name: 'Related Patient ID' })).not.toBeInTheDocument();
+
+    rendered.rerender(React.createElement(PreviewTable, {
+      preview: relatedPatientPreview,
+      table: makeTable(outputWithPresentation('Related Patient ID', true)),
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange,
+      onColumnsChange,
+    }));
+    expect(screen.getByRole('columnheader', { name: 'Related Patient ID' })).toBeInTheDocument();
+    expect(screen.getByText('patient-42')).toBeInTheDocument();
+  });
+
   it('shows compiler-provided units in Preview headers while leaving unitless columns unchanged', () => {
     const previewWithUnit: ExplorerBuilderPreviewResult = {
       ...preview,
@@ -389,8 +533,11 @@ describe('PreviewTable column controls', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'First column' }));
     expect(onColumnChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        column: 'first_column',
-        table: { visible: false, order: 0 },
+        kind: 'AUTHORED_COLUMN',
+        column: expect.objectContaining({
+          column: 'first_column',
+          table: { visible: false, order: 0 },
+        }),
       }),
     );
 
@@ -412,12 +559,18 @@ describe('PreviewTable column controls', () => {
     expect(onColumnsChange).toHaveBeenCalledTimes(1);
     expect(onColumnsChange).toHaveBeenCalledWith([
       expect.objectContaining({
-        column: 'second_column',
-        table: expect.objectContaining({ order: 0 }),
+        kind: 'AUTHORED_COLUMN',
+        column: expect.objectContaining({
+          column: 'second_column',
+          table: expect.objectContaining({ order: 0 }),
+        }),
       }),
       expect.objectContaining({
-        column: 'first_column',
-        table: expect.objectContaining({ order: 1 }),
+        kind: 'AUTHORED_COLUMN',
+        column: expect.objectContaining({
+          column: 'first_column',
+          table: expect.objectContaining({ order: 1 }),
+        }),
       }),
     ]);
   });
