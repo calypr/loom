@@ -95,6 +95,7 @@ import {
 import {
   sourceProjectionAvailability,
 } from './constructionWorkspace/sourceProjectionAvailability';
+import { relatedSourceOutputLabel } from './constructionWorkspace/relatedSourceOutputLabel';
 import {
   useConstructionLifecycle,
   type ConstructionCandidateIntent,
@@ -969,6 +970,7 @@ const BuilderWorkspaceContent = ({
       const { choice, candidate } = relatedSource;
       const source = choice.source;
       const form = relatedSelections[0]!.constructionChoice.form;
+      const contributorPredicate = relatedSelections[0]?.contributorPredicate;
       const supportedForm = choice.options.find((option) =>
         option.form === form &&
         option.support === 'SUPPORTED',
@@ -1025,8 +1027,8 @@ const BuilderWorkspaceContent = ({
             route: choice.route,
             contributorRule: {
               policy: 'ALL_MATCHES',
-              ...(relatedSelections[0]?.contributorPredicate
-                ? { predicate: relatedSelections[0].contributorPredicate }
+              ...(contributorPredicate
+                ? { predicate: contributorPredicate }
                 : {}),
             },
             form,
@@ -1043,13 +1045,9 @@ const BuilderWorkspaceContent = ({
           {
             id: outputColumnId,
             name: outputName,
-            label: form === 'COUNT'
-              ? `Count of related ${source.resourceType} records`
-              : form === 'PRESENCE'
-                ? `Has related ${source.resourceType} record`
-                : candidate.fieldPath === 'id'
-                  ? `${source.resourceType} IDs`
-                  : `${source.resourceType} ${candidate.label.trim() || candidate.fieldPath}`,
+            label: relatedSourceOutputLabel(
+              source.resourceType, candidate.fieldPath, candidate.label, form, contributorPredicate,
+            ),
             type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
           },
         ],

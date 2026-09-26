@@ -623,7 +623,7 @@ try {
         responsePath: response.path,
       };
     };
-    const addRelatedForm = async (form, labelPattern) => {
+    const addRelatedForm = async (form, labelPattern, contributorValue) => {
       await clickDOM('button[aria-label^="Add columns:"]', `Open related columns for ${form}`);
       await chooseRelatedSource('Observation');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))`, 60000);
@@ -642,6 +642,17 @@ try {
       assert(choice && !choice.disabled, `${form} is unavailable for Observation.id`);
       await browserEval(browser.cdp,
         'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.getAttribute("aria-label")===' + JSON.stringify(choice.label) + ');input.click();return true;');
+      if (contributorValue) {
+        const predicateChoices = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].filter(input=>input.name.startsWith("construction-condition-")).map(input=>({name:input.name,label:input.closest("label")?.innerText??"",disabled:input.disabled}));');
+        results.predicateChoices = predicateChoices;
+        const equals = predicateChoices.find(option => /Only records where id equals/i.test(option.label));
+        assert(equals && !equals.disabled, 'Related Observation.id equality condition is unavailable');
+        await browserEval(browser.cdp,
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.name===' + JSON.stringify(equals.name) + '&&/Only records where id equals/i.test(input.closest("label")?.innerText??""));input.click();return true;');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id exact value"]'))`, 30000);
+        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', contributorValue, 'Limit related Observations to one ID');
+      }
       const proposalStartedAt = Date.now();
       await browserEval(browser.cdp,
         'const button=[...document.querySelectorAll("[role=\\"dialog\\"] button")].find(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled);if(!button)throw new Error("Add form button unavailable");button.click();return true;');
@@ -655,12 +666,15 @@ try {
       const proposal = JSON.parse(request.postData);
       const step = proposal.candidateConstruction?.steps?.filter(item => item.operation?.kind === 'RELATED_SOURCE').at(-1);
       assert.equal(step?.operation?.relatedSource?.form, form);
+      if (contributorValue) {
+        assert.equal(step.operation.relatedSource.contributorRule?.predicate?.operator, 'EQUALS');
+      }
       const output = step.outputs?.find(item => item.id === step.operation.relatedSource.outputColumnId);
       assert(output, `${form} output missing from proposal`);
       await clickDOM('[data-testid="construction-apply-proposal"]', `Apply Observation.id ${form}`);
       await navigate(browser.cdp, pageURL);
       await selectTemporaryTable();
-      return { output, proposalPreview, proposalPreviewMs };
+      return { output, proposalPreview, proposalPreviewMs, contributorValue };
     };
     try {
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
@@ -783,6 +797,48 @@ try {
         const expectedIDs = rawValues.patients.find(patient => patient.patientId === manyPatientId).subjectObservations.map(observation => observation.id).sort();
         assert.deepEqual([...results.manyForms.row[results.allForm.output.name]].sort(), expectedIDs);
         assert.equal(results.manyForms.row[results.presenceForm.output.name], true);
+        results.filteredForm = await addRelatedForm('COUNT', /Count matching records/i, expectedIDs[0]);
+        results.manyFiltered = await previewFor(manyPatientId);
+        assert.equal(results.manyFiltered.row[results.filteredForm.output.name], 1);
+        assert(results.manyFiltered.visible.rows.some(cells => cells.includes('1')));
+        const relatedHistoryId = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].at(-1)?.getAttribute("data-testid");');
+        assert(relatedHistoryId, 'Saved related contributor step is missing');
+        await clickDOM('[data-testid=' + JSON.stringify(relatedHistoryId) + ']', 'Select saved contributor step');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+        await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit saved contributor step');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"]'))`, 30000);
+        results.savedContributorEditor = await browserEval(browser.cdp,
+          'const editor=document.querySelector("[data-testid=\\"related-source-step-editor\\"]");return {text:editor.innerText.slice(0,4500),controls:[...editor.querySelectorAll("input,button")].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute("aria-label"),text:element.innerText.slice(0,70),disabled:element.disabled,value:element.value})).slice(0,35)};');
+        assert(results.savedContributorEditor.text.includes('Fields on Observation'), 'Saved editor did not open its related Observation source');
+        await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id field');
+        await clickButtonText('Add 1 selected feature', 'Open saved Observation.id choices');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
+        await browserEval(browser.cdp,
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Direct relationship: Patient to Observation via Subject/i.test(input.getAttribute("aria-label")??""));if(!input)throw new Error("Saved direct subject route missing");input.click();return true;');
+        await waitForBrowser(browser.cdp,
+          '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
+        await browserEval(browser.cdp,
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""));input.click();return true;');
+        await browserEval(browser.cdp,
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.name.startsWith("construction-condition-")&&/Only records where id equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Saved equality condition missing");input.click();return true;');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id exact value"]'))`, 30000);
+        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', expectedIDs[1], 'Change saved contributor ID');
+        await browserEval(browser.cdp,
+          'const button=[...document.querySelectorAll("[role=\\"dialog\\"] button")].find(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled);if(!button)throw new Error("Save edited source choice unavailable");button.click();return true;');
+        await waitForBrowser(browser.cdp,
+          'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"', 180000);
+        const editedRequest = JSON.parse(proposalRequests.filter(item => item.postData).at(-1)?.postData ?? '{}');
+        const editedStep = editedRequest.candidateConstruction?.steps?.filter(item => item.operation?.kind === 'RELATED_SOURCE').at(-1);
+        assert.equal(editedStep?.operation?.relatedSource?.contributorRule?.predicate?.value?.string, expectedIDs[1]);
+        results.editedContributorProposal = await browserEval(browser.cdp,
+          'return document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText;');
+        await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply saved contributor edit');
+        await navigate(browser.cdp, pageURL);
+        await selectTemporaryTable();
+        results.editedContributor = await previewFor(manyPatientId);
+        assert.equal(results.editedContributor.row[results.filteredForm.output.name], 1);
+        assert(results.editedContributor.visible.headers.some(header => header.toLowerCase().includes(expectedIDs[1].toLowerCase())), 'Edited contributor label was not restored');
       }
 
       const filterStep = await browserEval(browser.cdp,
@@ -814,6 +870,7 @@ try {
       if (includeAllAndPresence) {
         assert.deepEqual(results.zero.row[results.allForm.output.name], []);
         assert.equal(results.zero.row[results.presenceForm.output.name], false);
+        assert.equal(results.zero.row[results.filteredForm.output.name], 0);
       }
 
       results.assertions = [
@@ -829,6 +886,7 @@ try {
         results.assertions.push(
           'ALL matched every raw CDA Observation ID for the many Patient and returned an empty list for the zero Patient.',
           'PRESENCE returned true for the many Patient and false for the zero Patient.',
+          'A contributor rule limited related Observation.id to one raw CDA ID and changed COUNT from 38 to 1 for the many Patient; the zero Patient remained at 0.',
         );
       }
     } catch (error) {
@@ -876,6 +934,7 @@ try {
       zero: results.zero && { patientId: results.zero.patientId, count: results.zero.count },
       all: results.allForm && { output: results.allForm.output.name, manyValues: results.manyForms?.row[results.allForm.output.name]?.length, zeroValues: results.zero?.row[results.allForm.output.name]?.length },
       presence: results.presenceForm && { output: results.presenceForm.output.name, many: results.manyForms?.row[results.presenceForm.output.name], zero: results.zero?.row[results.presenceForm.output.name] },
+      contributor: results.filteredForm && { value: results.filteredForm.contributorValue, many: results.manyFiltered?.row[results.filteredForm.output.name], zero: results.zero?.row[results.filteredForm.output.name] },
       relatedRoute: results.relatedRoute,
       clicks: results.clicks,
       timings: results.timings,

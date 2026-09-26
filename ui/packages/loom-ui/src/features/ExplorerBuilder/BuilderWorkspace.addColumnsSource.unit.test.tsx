@@ -914,7 +914,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     }));
     expect(proposalArgs.candidateConstruction.steps[1].outputs.at(-1)).toEqual(expect.objectContaining({
       name: 'related_Observation_count',
-      label: 'Count of related Observation records',
+      label: 'Count of related Observation records where status equals registered',
       type: 'integer',
     }));
     expect(await screen.findByText('Proposal preview')).toBeInTheDocument();
@@ -1208,6 +1208,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(screen.getByText('Current route: Patient → Observation via observations')).toBeInTheDocument();
 
     const editor = within(screen.getByTestId('related-source-step-editor'));
+    const relatedSourceSelector = editor.getByRole('combobox', { name: 'Related source to inspect' });
+    const reportOption = within(relatedSourceSelector).getByRole('option', { name: /DiagnosticReport/ });
+    fireEvent.change(relatedSourceSelector, { target: { value: (reportOption as HTMLOptionElement).value } });
     fireEvent.change(editor.getByRole('searchbox', { name: 'Search features by field name, concept, or code' }), {
       target: { value: 'DiagnosticReport' },
     });

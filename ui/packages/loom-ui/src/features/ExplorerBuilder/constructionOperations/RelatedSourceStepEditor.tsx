@@ -12,7 +12,8 @@ import type {
   ExplorerBuilderCatalog,
 } from '../../../types';
 import { ConceptCatalog } from '../components/ConceptCatalog';
-import type { CatalogChoiceIntent } from '../catalogItems';
+import { catalogSourceOptions, type CatalogChoiceIntent } from '../catalogItems';
+import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
 
 type RelatedSourceOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_SOURCE' }>;
 type RelatedSourceForm = RelatedSourceOperation['relatedSource']['form'];
@@ -170,6 +171,14 @@ export const RelatedSourceStepEditor = ({
   const [selectedForm, setSelectedForm] = useState<RelatedSourceForm>(relatedSource.form);
   const [selectedPredicate, setSelectedPredicate] = useState<ContributorPredicate | undefined>(relatedSource.contributorRule.predicate);
   const support = relatedSourceSupport(capabilities);
+  const sourceOptions = catalogSourceOptions(catalog, rowRoot).filter(
+    (option) => option.kind === 'RELATED' || option.kind === 'SAVED_OCCURRENCE',
+  );
+  const [sourceKey, setSourceKey] = useState(
+    sourceOptions.find((option) => option.sourceNodeId === relatedSource.sourceOccurrenceId)?.key ??
+      sourceOptions[0]?.key,
+  );
+  const activeSource = sourceOptions.find((option) => option.key === sourceKey);
 
   const candidateFor = (
     nextName: string,
@@ -296,11 +305,13 @@ export const RelatedSourceStepEditor = ({
         );
     const nextLabel = labelEdited
       ? outputLabel
-      : form === 'COUNT'
-        ? `Count of related ${selected.choice.source.resourceType} records`
-        : form === 'PRESENCE'
-          ? `Has related ${selected.choice.source.resourceType} record`
-          : selected.candidate.label.trim() || selected.candidate.fieldPath;
+      : relatedSourceOutputLabel(
+          selected.choice.source.resourceType,
+          selected.candidate.fieldPath,
+          selected.candidate.label,
+          form,
+          predicate,
+        );
     setSelectedSource(selected);
     setSelectedForm(form);
     setSelectedPredicate(predicate);
@@ -377,14 +388,35 @@ export const RelatedSourceStepEditor = ({
               ? 'Only records with a value in the selected field'
               : 'All related records'}
         </p>
+        <label className="mt-3 grid gap-1 text-sm font-medium text-slate-800">
+          Related source to inspect
+          <select
+            aria-label="Related source to inspect"
+            data-testid="related-source-step-source"
+            value={activeSource?.key ?? ''}
+            disabled={disabled || !support.supported}
+            onChange={(event) => {
+              setSourceKey(event.currentTarget.value);
+              setSelectedSource(undefined);
+              onCandidateChange(undefined);
+            }}
+            className="rounded border border-slate-300 bg-white px-2 py-1.5"
+          >
+            {sourceOptions.map((option) => (
+              <option key={option.key} value={option.key}>{option.label}</option>
+            ))}
+          </select>
+        </label>
         <ConceptCatalog
-          key={`${snapshotToken}:${outputId}:${step.id}`}
+          key={`${snapshotToken}:${outputId}:${step.id}:${activeSource?.key ?? ''}`}
           project={project}
           explorerId={explorerId}
           authResourcePath={authResourcePath}
           snapshotToken={snapshotToken}
           outputId={outputId}
           rowRoot={rowRoot}
+          resourceType={activeSource?.resourceType}
+          sourceNodeId={activeSource?.sourceNodeId}
           layout="panel"
           catalog={catalog}
           disabled={disabled || !support.supported}
@@ -394,6 +426,7 @@ export const RelatedSourceStepEditor = ({
             reason: 'This saved step uses a related source, not source-projection fields.',
           }}
           relatedSourceAvailability={support}
+          suppressUnavailableNotices
           onAddSelected={useSelectedField}
         />
       </div>
