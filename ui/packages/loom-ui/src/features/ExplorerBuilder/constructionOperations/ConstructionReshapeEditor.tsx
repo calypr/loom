@@ -1758,10 +1758,10 @@ const PivotEditor = (props: {
               {existingNotListed.map((category) => {
                 const identity = scalarIdentity(category.key);
                 return (
-                  <div key={identity} className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-2">
+                  <div key={identity} className={`grid gap-2 rounded p-2 ${discoveryComplete ? 'border border-amber-200 bg-amber-50' : 'bg-slate-50'}`}>
                     <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
                       <input type="checkbox" aria-label={`Keep saved category ${scalarLabel(category.key)}`} checked disabled={props.disabled || !props.supported} onChange={(event) => { if (!event.currentTarget.checked) toggleCategory({ key: category.key, label: scalarLabel(category.key) }, false); }} />
-                      {scalarLabel(category.key)} <span className="font-normal text-amber-900">Not found in the latest category list</span>
+                      {scalarLabel(category.key)} {discoveryComplete ? <span className="font-normal text-amber-900">Not found in the latest category list</span> : null}
                     </label>
                     <PivotCategoryOutput category={category} disabled={props.disabled || !props.supported} onChange={(update) => updateCategory(identity, update)} />
                   </div>

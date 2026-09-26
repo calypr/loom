@@ -408,7 +408,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(onEditStep).toHaveBeenCalledWith('expand-saved');
   });
 
-  it('reopens a pivot with the saved categories, stable outputs, and all policies', () => {
+  it('keeps saved pivot categories editable until a complete scan finds them missing', () => {
     const pivotStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
       ...sourceStage,
       columns: [
@@ -450,16 +450,20 @@ describe('ConstructionReshapeEditor', () => {
     } satisfies ConstructionReshapeEditorProps['capabilities']['stages'][number];
     const onCandidateChange = vi.fn();
     const onEditStep = vi.fn();
-    renderEditor({
+    const editorProps: ConstructionReshapeEditorProps = {
       construction: { version: 1, steps: [pivotStep] },
       capabilities: capabilitiesFor([pivotStage, afterPivot], pivotStage),
       editingStep: pivotStep,
+      disabled: false,
       onCandidateChange,
       onEditStep,
-    });
+    };
+    const view = render(<ConstructionReshapeEditor {...editorProps} />);
 
     expect(controlValue('Pivot category field')).toBe('kind-id');
     expect(controlValue('Pivot values field')).toBe('value-id');
+    expect(controlChecked('Keep saved category baseline')).toBe(true);
+    expect(screen.queryByText('Not found in the latest category list')).not.toBeInTheDocument();
     expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     expect(controlValue('Pivot missing cell policy')).toBe('NULL');
     expect(controlValue('Pivot unlisted category policy')).toBe('EXCLUDE_WITH_EVIDENCE');
@@ -485,6 +489,20 @@ describe('ConstructionReshapeEditor', () => {
     expect(intent?.candidateConstruction.steps[0]?.outputs).toContainEqual(expect.objectContaining({ id: 'baseline-value-id', label: 'Baseline result' }));
     fireEvent.click(screen.getByTestId('construction-reshape-edit-pivot-saved'));
     expect(onEditStep).toHaveBeenCalledWith('pivot-saved');
+
+    view.rerender(
+      <ConstructionReshapeEditor
+        {...editorProps}
+        pivotDiscovery={{
+          stageId: 'source_projection',
+          categoryColumnId: 'kind-id',
+          valueColumnId: 'value-id',
+          status: 'complete',
+          categories: [{ key: { kind: 'STRING', string: 'followup' }, label: 'Follow up' }],
+        }}
+      />,
+    );
+    expect(screen.getByText('Not found in the latest category list')).toBeInTheDocument();
   });
 
   it('reopens an unpivot with exact typed keys and edits output metadata without changing its mapping', () => {
