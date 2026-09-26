@@ -56,7 +56,11 @@ vi.mock('../../react', () => ({
   useReconcileExplorerBuilderV2Mutation: vi.fn(),
 }));
 
-vi.mock('./components/BuilderToolbar', () => ({ BuilderToolbar: () => null }));
+vi.mock('./components/BuilderToolbar', () => ({
+  BuilderToolbar: ({ onPreview }: { readonly onPreview: () => void }) => (
+    <button type="button" onClick={onPreview}>Preview</button>
+  ),
+}));
 vi.mock('./components/GuidedGraphWorkspace', () => ({
   GuidedGraphWorkspace: ({
     onSelectOccurrence,
@@ -542,6 +546,128 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(searchArgs).not.toHaveProperty('occurrenceId');
 
     expect(applyExplorerCommands).not.toHaveBeenCalled();
+  });
+
+  it('offers per-column repair for unsupported saved fields across all tables and suppresses repeated 422s', async () => {
+    const rawCompileError = 'INVALID_RECIPE at $.recipe: invalid_construction at $.outputs[0].construction: source projection[2].type "unknown" is unsupported';
+    const validPatientId = {
+      column: 'patient_id',
+      label: 'Patient ID',
+      logicalType: 'string',
+      occurrenceId: 'base',
+      source: { kind: 'field' as const, field: { path: 'id', projectionMode: 'VALUE' as const } },
+      table: { visible: true },
+    };
+    const unsupportedCollection = {
+      column: 'collection',
+      label: 'collection',
+      logicalType: 'unknown',
+      occurrenceId: 'base',
+      source: { kind: 'field' as const, field: { path: 'collection', projectionMode: 'VALUE' as const } },
+      table: { visible: true },
+    };
+    const unsupportedValueReference = {
+      column: 'extension_value_reference',
+      label: 'extension[].valueReference',
+      logicalType: 'unknown',
+      occurrenceId: 'base',
+      source: { kind: 'field' as const, field: { path: 'extension[].valueReference', projectionMode: 'VALUE' as const } },
+      table: { visible: true },
+    };
+    const invalidWorkspace: ExplorerBuilderWorkspace = {
+      ...workspace,
+      documents: [
+        {
+          ...workspace.documents[0]!,
+          output: { id: 'patients', title: 'Patients' },
+          rootResourceType: 'Patient',
+          route: { occurrenceId: 'base', resourceType: 'Patient' },
+          columns: [validPatientId],
+        },
+        {
+          ...workspace.documents[0]!,
+          output: { id: 'specimens', title: 'Specimens' },
+          rootResourceType: 'Specimen',
+          route: { occurrenceId: 'base', resourceType: 'Specimen' },
+          columns: [unsupportedCollection, unsupportedValueReference],
+        },
+      ],
+      tabs: [
+        { id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 0, visible: true },
+        { id: 'specimens-tab', title: 'Specimens', outputId: 'specimens', order: 1, visible: true },
+      ],
+    };
+    const partiallyRepairedWorkspace: ExplorerBuilderWorkspace = {
+      ...invalidWorkspace,
+      documents: invalidWorkspace.documents.map((document) =>
+        document.output.id === 'specimens'
+          ? { ...document, columns: [unsupportedValueReference] }
+          : document,
+      ),
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: { ...builderState, workspace: invalidWorkspace },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    applyExplorerCommands.mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue({
+        commandId: 'remove-collection',
+        workspace: partiallyRepairedWorkspace,
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'TABLE_CHANGED', outputId: 'specimens' }],
+        diagnostics: [],
+      }),
+    });
+    const reconcile = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockRejectedValue({
+        code: 'DOCUMENT_COMPILE_FAILED',
+        message: rawCompileError,
+        requestId: 'compile-request-1',
+      }),
+    });
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      reconcile,
+      { isLoading: false },
+    ]);
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Remove collection from Specimens' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Specimens table to review collection' })).toBeInTheDocument();
+    expect(screen.getByText('extension[].valueReference')).toBeInTheDocument();
+    expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledOnce());
+    expect(await screen.findByText(
+      'Some saved source fields have an unsupported type. Remove them to restore Preview and field selection.',
+    )).toBeInTheDocument();
+    const technicalDetails = screen.getByText(rawCompileError).closest('details');
+    expect(technicalDetails).not.toBeNull();
+    expect(technicalDetails?.open).toBe(false);
+    expect(screen.queryByText(/Add from source is unavailable here:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Adding fields from related resources is unavailable here:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove collection from Specimens' }));
+    await waitFor(() => expect(applyExplorerCommands).toHaveBeenCalledWith(expect.objectContaining({
+      commands: [{
+        type: 'REMOVE_COLUMN',
+        outputId: 'specimens',
+        column: 'collection',
+      }],
+    })));
+    const repairAlert = screen.getByRole('alert');
+    expect(within(repairAlert).getByText('extension[].valueReference')).toBeInTheDocument();
+    expect(within(repairAlert).queryByText('collection')).not.toBeInTheDocument();
+    expect(mockLoomClient.getConstructionCapabilities).not.toHaveBeenCalled();
   });
 
   it('proposes a distinct related-record count at the selected stage and applies only the proposal', async () => {

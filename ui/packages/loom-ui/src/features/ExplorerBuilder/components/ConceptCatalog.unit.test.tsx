@@ -213,6 +213,7 @@ const renderCatalog = (
   } = {},
   catalogOverride: ExplorerBuilderCatalog = catalog,
   relatedSourceAvailability?: CatalogRelatedSourceAvailability,
+  suppressUnavailableNotices = false,
 ) => {
     render(
       <LoomProvider client={createLoomClient({ fetch })}>
@@ -228,6 +229,7 @@ const renderCatalog = (
           catalog={catalogOverride}
           sourceProjectionAvailability={sourceProjectionAvailability}
           relatedSourceAvailability={relatedSourceAvailability}
+          suppressUnavailableNotices={suppressUnavailableNotices}
           onAddSelected={onAddSelected}
         />
       </LoomProvider>,
@@ -694,6 +696,31 @@ describe('ConceptCatalog', () => {
       relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
     }]));
     expect(screen.getByText('Related-source proposal submitted. Review the preview before applying.')).toBeInTheDocument();
+  });
+
+  it('suppresses repeated capability errors while the Builder repairs saved source fields', async () => {
+    const rawCompileError = 'INVALID_RECIPE at $.recipe: invalid_construction at $.outputs[0].construction: source projection[2].type "unknown" is unsupported';
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    renderCatalog(
+      fetch,
+      vi.fn().mockResolvedValue(undefined),
+      { available: false, reason: rawCompileError },
+      {},
+      catalog,
+      { supported: false, reason: rawCompileError },
+      true,
+    );
+
+    expect(await screen.findByRole('checkbox', { name: 'Select Patient.id' })).toBeDisabled();
+    expect(screen.queryByText(/Add from source is unavailable here:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Adding fields from related resources is unavailable here:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/INVALID_RECIPE/)).not.toBeInTheDocument();
   });
 
   it('explains pending source selection and re-enables fields when the draft settles', async () => {

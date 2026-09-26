@@ -150,6 +150,24 @@ const diagnosticsFromError = (
     },
   ];
 };
+const isUnsupportedUnknownSourceProjectionDiagnostic = (
+  diagnostic: ExplorerAuthoringDiagnostic,
+): boolean =>
+  diagnostic.code === 'DOCUMENT_COMPILE_FAILED' &&
+  diagnostic.message.includes('source projection[') &&
+  diagnostic.message.includes('].type "unknown" is unsupported');
+
+const unsupportedSavedSourceColumns = (tables: BuilderAuthoringState['tables']) =>
+  tables.flatMap((table) =>
+    table.document.columns
+      .filter((column) => column.source.kind === 'field' && column.logicalType === 'unknown')
+      .map((column) => ({
+        outputId: table.outputId,
+        tableTitle: table.document.output.title,
+        column: column.column,
+        label: column.label,
+      })),
+  );
 const isStaleSnapshot = (code: string | undefined) =>
   [
     'STALE_CATALOG_SNAPSHOT',
@@ -611,11 +629,13 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  const unsupportedColumns = unsupportedSavedSourceColumns(state.tables);
+  const hasUnsupportedSavedSourceColumns = unsupportedColumns.length > 0;
   const construction = table?.document.construction;
   const editingConstructionStep = construction?.steps.find(
     (step) => step.id === editingConstructionStepId,
   );
-  const capabilitiesRequest = table?.document.rootResourceType &&
+  const capabilitiesRequest = !hasUnsupportedSavedSourceColumns && table?.document.rootResourceType &&
     state.catalog.snapshotToken &&
     state.draftVersion > 0 &&
     state.draftDigest
@@ -1194,6 +1214,10 @@ const BuilderWorkspaceContent = ({
   const blockingDiagnostics = state.diagnostics.some(
     (diagnostic) => diagnostic.severity === 'error',
   );
+  const unsupportedSourceProjectionDiagnostic = state.diagnostics.find(
+    isUnsupportedUnknownSourceProjectionDiagnostic,
+  );
+  const primaryDiagnostic = state.diagnostics[0];
   const hasVisibleSelectedColumn = Boolean(
     table?.document.columns.some(
       (column) => column.table?.visible ?? Boolean(column.table),
@@ -1904,7 +1928,9 @@ const BuilderWorkspaceContent = ({
   const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages
     : undefined;
-  const sourceAvailability = constructionLifecycle.capabilities.status === 'error'
+  const sourceAvailability = hasUnsupportedSavedSourceColumns
+    ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
+    : constructionLifecycle.capabilities.status === 'error'
     ? { available: false, reason: constructionLifecycle.capabilities.message }
     : sourceProjectionAvailability(sourceStageDescriptors);
   const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
@@ -1921,8 +1947,10 @@ const BuilderWorkspaceContent = ({
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
     );
-  const relatedSourceUnavailableReason = editingConstructionStep
-    ? 'Close the saved-step editor before adding related fields; proposals follow the current final step.'
+  const relatedSourceUnavailableReason = hasUnsupportedSavedSourceColumns
+    ? 'Remove unsupported saved source fields before adding related fields.'
+    : editingConstructionStep
+      ? 'Close the saved-step editor before adding related fields; proposals follow the current final step.'
     : constructionLifecycle.capabilities.status === 'ready' && !capabilityIsForAppendStage
       ? 'Related fields can only be added after the current final step.'
       : undefined;
@@ -2055,6 +2083,7 @@ const BuilderWorkspaceContent = ({
               catalog={state.catalog}
               sourceProjectionAvailability={sourceAvailability}
               relatedSourceAvailability={relatedSourceAvailability}
+              suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
               onAddSelected={addSelectedFeatures}
@@ -2300,6 +2329,7 @@ const BuilderWorkspaceContent = ({
       <div className="mx-auto max-w-[1920px] space-y-3">
         {(message ||
           blockingDiagnostics ||
+          hasUnsupportedSavedSourceColumns ||
           state.reconciliation === 'stale') && (
           <section
             className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900"
@@ -2312,10 +2342,67 @@ const BuilderWorkspaceContent = ({
                   ? 'Catalog or receipt changed'
                   : 'Builder needs attention'}
             </div>
-            <p>{state.diagnostics[0]?.message ?? message}</p>
-            {state.diagnostics[0]?.code ? (
+            <p>
+              {hasUnsupportedSavedSourceColumns &&
+              (!primaryDiagnostic || isUnsupportedUnknownSourceProjectionDiagnostic(primaryDiagnostic))
+                ? 'Some saved source fields have an unsupported type. Remove them to restore Preview and field selection.'
+                : primaryDiagnostic?.message ?? message}
+            </p>
+            {hasUnsupportedSavedSourceColumns ? (
+              <ul className="mt-2 space-y-2">
+                {unsupportedColumns.map((column) => (
+                  <li
+                    key={`${column.outputId}:${column.column}`}
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-white/70 px-2 py-2"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="font-semibold">{column.tableTitle}</span>
+                      <span className="mx-1" aria-hidden="true">·</span>
+                      <span className="font-mono">{column.label}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                      aria-label={`Open ${column.tableTitle} table to review ${column.label}`}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      onClick={() => dispatch({ type: 'selectTable', outputId: column.outputId })}
+                    >
+                      Open {column.tableTitle}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-red-300 bg-white px-2.5 py-1 font-semibold text-red-800 hover:bg-red-50 disabled:opacity-50"
+                      aria-label={`Remove ${column.label} from ${column.tableTitle}`}
+                      disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                      onClick={() => void applyCommands([{
+                        type: 'REMOVE_COLUMN',
+                        outputId: column.outputId,
+                        column: column.column,
+                      }])}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {unsupportedSourceProjectionDiagnostic ? (
+              <details className="mt-2 rounded border border-red-200 bg-white/70 px-2 py-1.5">
+                <summary className="cursor-pointer font-medium">
+                  Technical details · Code: {unsupportedSourceProjectionDiagnostic.code}
+                </summary>
+                <p className="mt-1 break-words font-mono text-[11px]">
+                  {unsupportedSourceProjectionDiagnostic.message}
+                </p>
+                {unsupportedSourceProjectionDiagnostic.requestId ? (
+                  <p className="mt-1 font-mono text-[11px]">
+                    Request ID: {unsupportedSourceProjectionDiagnostic.requestId}
+                  </p>
+                ) : null}
+              </details>
+            ) : primaryDiagnostic?.code ? (
               <p className="mt-1">
-                Technical details · Code: {state.diagnostics[0].code}
+                Technical details · Code: {primaryDiagnostic.code}
               </p>
             ) : null}
             {(state.reconciliation === 'stale' ||
@@ -2585,6 +2672,7 @@ const BuilderWorkspaceContent = ({
                   catalog={state.catalog}
                   sourceProjectionAvailability={sourceAvailability}
                   relatedSourceAvailability={relatedSourceAvailability}
+                  suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
                   disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                   onAddSelected={addSelectedFeatures}
@@ -2849,6 +2937,7 @@ const BuilderWorkspaceContent = ({
                       catalog={state.catalog}
                       sourceProjectionAvailability={sourceAvailability}
                       relatedSourceAvailability={relatedSourceAvailability}
+                      suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
                       disabledReason={sourceSelectionDisabledReason}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}

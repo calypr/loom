@@ -480,6 +480,7 @@ export const ConceptCatalog = ({
   disabledReason,
   sourceProjectionAvailability,
   relatedSourceAvailability,
+  suppressUnavailableNotices = false,
   onAddSelected,
 }: {
   readonly project: string;
@@ -497,6 +498,7 @@ export const ConceptCatalog = ({
   readonly disabledReason?: string;
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
+  readonly suppressUnavailableNotices?: boolean;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<void>;
@@ -945,21 +947,26 @@ export const ConceptCatalog = ({
           {warning}
         </div>
       ) : null}
+      {suppressUnavailableNotices && relatedSourceAvailability?.supported === false ? (
+        <span id={relatedSourceAvailabilityId} className="sr-only">
+          Related fields are unavailable until the saved source fields are repaired.
+        </span>
+      ) : null}
       {response?.state === 'complete' && response.sourceAvailability === 'verified' ? (
         <p className="mx-4 mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950 sm:mx-5" role="status">
           Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.
         </p>
       ) : null}
-      {relatedSourceAvailability?.supported === false ? (
+      {relatedSourceAvailability?.supported === false && !suppressUnavailableNotices ? (
         <p id={relatedSourceAvailabilityId} className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
           Adding fields from related resources is unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
         </p>
       ) : null}
-      {sourceProjectionAvailability && !sourceProjectionAvailability.available ? (
+      {sourceProjectionAvailability && !sourceProjectionAvailability.available && !suppressUnavailableNotices ? (
         <p className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
           Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
         </p>
-      ) : sourceProjectionAvailability?.available ? (
+      ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
         <p className="mx-4 mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950 sm:mx-5" role="status">
           This stage retains source row identity. Selections here become source-projection columns and flow through the saved row-preserving steps.
         </p>
