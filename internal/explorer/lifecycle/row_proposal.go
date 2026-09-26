@@ -325,11 +325,16 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := command.ResolveRowDefinitionProposal(rows); err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, s.config.Capability.Catalog(snapshot, request.ExplorerID), "row-definition-preview", []authoringv2.Command{command})
+	catalog := s.config.Capability.Catalog(snapshot, request.ExplorerID)
+	comparisonBase, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", nil)
 	if err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
-	if _, err := rowDefinitionWorkspaceChange(workspace, candidateWorkspace, request.OutputID); err != nil {
+	candidateWorkspace, _, err := authoringv2.ApplyCommands(workspace, catalog, "row-definition-preview", []authoringv2.Command{command})
+	if err != nil {
+		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
+	}
+	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidateWorkspace, request.OutputID); err != nil {
 		return RowDefinitionProposal{}, unprocessable("row-definition-proposal", "INVALID_ROW_DEFINITION", err.Error(), err)
 	}
 	candidateDigest, err := candidateWorkspace.Digest()
@@ -596,7 +601,20 @@ func (s *Service) prepareRowDefinitionProposal(ctx context.Context, project, exp
 	if candidateDocument == nil {
 		return nil, nil, conflict("commands", "INVALID_ROW_DEFINITION_PROPOSAL", "the candidate receipt does not contain the requested output", nil, nil)
 	}
-	if _, err := rowDefinitionWorkspaceChange(current, candidate, command.OutputID); err != nil {
+	catalog := s.config.Capability.Catalog(snapshot, explorerID)
+	comparisonBase, _, err := authoringv2.ApplyCommands(current, catalog, "row-definition-proposal-apply", nil)
+	if err != nil {
+		return nil, nil, conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be normalized for the proposal", nil, err)
+	}
+	canonicalBase, err := comparisonBase.CanonicalJSON()
+	if err != nil {
+		return nil, nil, conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
+	}
+	comparisonBase, err = authoringv2.DecodeWorkspace(canonicalBase)
+	if err != nil {
+		return nil, nil, conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the saved draft can no longer be canonicalized for the proposal", nil, err)
+	}
+	if _, err := rowDefinitionWorkspaceChange(comparisonBase, candidate, command.OutputID); err != nil {
 		return nil, nil, conflict("commands", "STALE_ROW_DEFINITION_PROPOSAL", "the candidate receipt no longer changes only the requested table rows", nil, err)
 	}
 	if _, err := s.resolveExplicitGroupRevisionForRows(ctx, project, explorerID, command.OutputID, snapshot, *candidateDocument, candidateDocument.Rows, receipt); err != nil {

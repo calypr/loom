@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
@@ -154,6 +155,7 @@ try {
   } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Verify bounded BodyStructure row definition') {
     const resourceType = action.includes('BodyStructure') ? 'BodyStructure' : 'Patient';
     const tableName = `${resourceType} row choice QA ${Date.now()}`;
+    const journeyStarted = Date.now();
     let created = false;
     try {
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
@@ -167,24 +169,74 @@ try {
       await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows');if(!button)throw new Error('Configure rows missing');button.click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
       const state = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText,options:[...document.querySelector('select[aria-label="New row shape"]').options].map(option=>({value:option.value,label:option.textContent})),tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
+      state.timingsMs = { rowChoices: Date.now() - journeyStarted };
       if (action === 'Verify bounded BodyStructure row definition') {
+        const oracleOutput = execFileSync('rtk', [
+          'docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh',
+          '--server.database', 'loom_dev', '--javascript.execute-string',
+          'var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.map(d=>({id:d.id,includedCount:(d.payload.includedStructure||[]).length}))))',
+        ], { encoding: 'utf8', maxBuffer: 2_000_000 });
+        const rawBodyStructures = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
+        const rawIDs = new Set(rawBodyStructures.map(row => row.id));
+        state.rawOracle = { sourceRecords: rawBodyStructures.length, maximumIncludedValues: Math.max(...rawBodyStructures.map(row => row.includedCount)) };
         const expanded = state.options.find(option => option.label.includes('Included anatomic location(s)') && option.label.includes('Keep records with no values'));
         assert(expanded, 'BodyStructure included locations row shape is missing');
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(expanded.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        const expandedProposalStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
+        state.timingsMs.expandedProposal = Date.now() - expandedProposalStarted;
         state.expandedProposal = await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText,apply:[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition')?.disabled};`);
         await mkdir(evidenceDirectory,{recursive:true});
         await writeFile(join(evidenceDirectory,'bounded-bodystructure-row-proposal.json'),JSON.stringify({pageURL,state,responses},null,2));
         assert.equal(state.expandedProposal.apply, false, 'Row definition proposal is not applicable');
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition').click();return true;`);
-        await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"]')`, 60000);
+        await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"]') || document.body.innerText.includes('candidate receipt no longer changes only the requested table rows')`, 30000);
+        state.afterApply = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,2000),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText),body:document.body.innerText.slice(0,500)};`);
+        await writeFile(join(evidenceDirectory,'bounded-bodystructure-row-proposal.json'),JSON.stringify({pageURL,state,responses},null,2));
+        assert.equal(state.afterApply.dialog, undefined, 'Row definition Apply left the editor open');
         await navigate(browser.cdp,pageURL);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        const expandedPreviewStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+        state.timingsMs.expandedPreview = Date.now() - expandedPreviewStarted;
         state.expandedPreview = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,4000),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,26).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowSetting:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,350)};`);
+        assert(state.expandedPreview.rows.length > 0 && state.expandedPreview.rows.every(row => rawIDs.has(row[0])), 'Expanded row IDs do not match raw CDA BodyStructure records');
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
+        state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,350);`);
+        assert(state.expandedRowSetting?.includes('Current rows: One row per value in includedStructure[]'), 'Expanded row meaning was not restored after reload');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
+        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value='records';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        const restorationProposalStarted = Date.now();
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition'&&!button.disabled)) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
+        state.timingsMs.restorationProposal = Date.now() - restorationProposalStarted;
+        state.restorationProposal = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"]')?.innerText.slice(0,2200);`);
+        await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition'&&!button.disabled);if(!button)throw new Error('Restore rows Apply unavailable');button.click();return true;`);
+        await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"]')`, 30000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        const restoredPreviewStarted = Date.now();
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+        state.timingsMs.restoredPreview = Date.now() - restoredPreviewStarted;
+        state.restoredPreview = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,1000),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,26).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowSetting:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,350)};`);
+        const commonVisibleRows = Math.min(state.restoredPreview.rows.length, state.expandedPreview.rows.length);
+        assert(commonVisibleRows > 0, 'No shared CDA rows were rendered after restoration');
+        assert.deepEqual(state.restoredPreview.rows.slice(0, commonVisibleRows), state.expandedPreview.rows.slice(0, commonVisibleRows), 'Restoring source-record rows changed the common visible CDA sample');
+        assert(state.restoredPreview.rows.every(row => rawIDs.has(row[0])), 'Restored row IDs do not match raw CDA BodyStructure records');
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
+        state.restoredRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,350);`);
+        assert(state.restoredRowSetting?.includes('Current rows: One row per source record'), 'Source-record row meaning was not restored after reload');
+        state.clicks = 19;
+        state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
+        state.errors = responses.filter(response => response.status >= 400);
       }
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,`bounded-${resourceType.toLowerCase()}-row-choices.json`),JSON.stringify({pageURL,state,responses},null,2));

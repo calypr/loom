@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -244,6 +245,71 @@ func TestProposeRowDefinitionBindsCandidateReceiptWithoutSavingDraft(t *testing.
 	}
 	if store.saveDraftCalls != 0 || store.created.DraftVersion != beforeVersion || store.created.DraftDigest != beforeDigest || string(store.created.DraftConfig) != string(beforeConfig) {
 		t.Fatalf("proposal mutated the saved draft: saves=%d owner=%#v", store.saveDraftCalls, store.created)
+	}
+}
+
+func TestProposeRowDefinitionAllowsMetadataNormalization(t *testing.T) {
+	service, store, snapshot, workspace := rowProposalService(t)
+	workspace.SemanticsVersion = authoringv2.CurrentSemanticsVersion - 2
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = draft
+	store.created.DraftDigest = digest
+
+	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	if err != nil {
+		t.Fatalf("row-definition proposal rejected the command's metadata normalization: %v", err)
+	}
+	if proposal.CandidateWorkspaceDigest == "" {
+		t.Fatal("row-definition proposal omitted the normalized candidate workspace digest")
+	}
+	candidate, err := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.SemanticsVersion != authoringv2.CurrentSemanticsVersion || candidate.Documents[0].Rows.Kind != authoringv2.RowDefinitionExpanded {
+		t.Fatalf("candidate did not preserve metadata normalization and the requested rows: %#v", candidate)
+	}
+	request := rowProposalApplyRequest(store.created, snapshot, proposal.ProposalID, "apply-normalized-row-definition")
+	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err != nil {
+		t.Fatalf("apply rejected a row-definition proposal after metadata normalization: %v", err)
+	}
+}
+
+func TestApplyRowDefinitionProposalAllowsCanonicalSourceMetadata(t *testing.T) {
+	service, store, snapshot, workspace := rowProposalService(t)
+	workspace.Documents[0].Columns[0].Source.Field.ProjectionMode = ""
+	draft, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.created.DraftConfig = draft
+	store.created.DraftDigest = digest
+
+	proposal, err := service.ProposeRowDefinition(context.Background(), rowProposalRequest(store.created, snapshot))
+	if err != nil {
+		t.Fatalf("row-definition proposal rejected canonical source metadata: %v", err)
+	}
+	candidate, err := authoringv2.DecodeWorkspace(store.receipt.NormalizedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := candidate.Documents[0].Columns[0].Source.Field.ProjectionMode; got != "FIRST" {
+		t.Fatalf("candidate receipt projection mode = %q, want canonical FIRST", got)
+	}
+	request := rowProposalApplyRequest(store.created, snapshot, proposal.ProposalID, "apply-canonical-row-definition")
+	if _, err := service.ApplyCommands(context.Background(), "project-a", "patients", request, "alice"); err != nil {
+		t.Fatalf("apply rejected canonical source metadata in the candidate receipt: %v", err)
 	}
 }
 
