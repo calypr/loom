@@ -13,6 +13,7 @@ if (action === 'Verify related source chooser' || action === 'Inspect selected P
 }
 const responses = [];
 const requests = [];
+const proposalRequests = [];
 const chooseRelatedSource = async (resourceType) => {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
   const sources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),key:button.getAttribute('data-source-key'),kind:button.getAttribute('data-source-kind'),selected:button.getAttribute('aria-pressed')==='true',visible:button.offsetParent!==null}));`);
@@ -24,6 +25,7 @@ const chooseRelatedSource = async (resourceType) => {
 };
 browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
+  if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
 browser.cdp.on('Network.responseReceived', (event) => {
   if (event.response.url.includes('/authoring/v2/')) {
@@ -520,6 +522,306 @@ try {
     }
     await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Verify direct Observation COUNT many and zero') {
+    const targetExplorer = 'cda-builder-full-qa-1790440983382';
+    const manyPatientId = '02f8e963-73b8-50ea-b840-c4a80719a06a';
+    const zeroPatientId = '54b50ad3-aa10-5483-85e2-5382aac7d374';
+    const rawOracle = {
+      source: 'Arango loom_dev, project loom_dev_cda_fhir, generation cda-fhir-v1, direct subject_Patient edges',
+      evidencePath: '.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-oracle.json',
+      manyPatientId,
+      manyObservationEdges: 38,
+      zeroPatientId,
+      zeroObservationEdges: 0,
+    };
+    assert.equal(explorerId, targetExplorer);
+    const startedAt = Date.now();
+    const clicks = [];
+    const timings = {};
+    const results = {};
+    let temporaryTableTitle;
+    let temporaryTableCreated = false;
+    let scenarioError;
+    let cleanupError;
+    const clickDOM = async (selector, label) => {
+      const started = Date.now();
+      clicks.push({ sequence: clicks.length + 1, label, selector, method: 'DOM click()' });
+      await browserEval(browser.cdp,
+        'const target=document.querySelector(' + JSON.stringify(selector) + ');' +
+        'if(!target)throw new Error(' + JSON.stringify('Missing DOM target: ' + selector) + ');' +
+        'target.click();return true;');
+      timings[label] = Date.now() - started;
+    };
+    const clickButtonText = async (text, label) => {
+      const started = Date.now();
+      clicks.push({ sequence: clicks.length + 1, label, text, method: 'DOM button text click()' });
+      await browserEval(browser.cdp,
+        'const target=[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()===' + JSON.stringify(text) + ');' +
+        'if(!target)throw new Error(' + JSON.stringify('Missing button text: ' + text) + ');' +
+        'target.click();return true;');
+      timings[label] = Date.now() - started;
+    };
+    const setInputValue = async (selector, value, label) => {
+      const started = Date.now();
+      clicks.push({ sequence: clicks.length + 1, label, selector, method: 'DOM input event' });
+      await browserEval(browser.cdp,
+        'const input=document.querySelector(' + JSON.stringify(selector) + ');' +
+        'if(!input)throw new Error(' + JSON.stringify('Missing input: ' + selector) + ');' +
+        'Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set.call(input,' + JSON.stringify(value) + ');' +
+        'input.dispatchEvent(new Event("input",{bubbles:true}));' +
+        'input.dispatchEvent(new Event("change",{bubbles:true}));return true;');
+      timings[label] = Date.now() - started;
+    };
+    const selectTemporaryTable = async () => {
+      await waitForBrowser(browser.cdp,
+        '[...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith(' + JSON.stringify(temporaryTableTitle) + '))', 90000);
+      await browserEval(browser.cdp,
+        'const button=[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith(' + JSON.stringify(temporaryTableTitle) + '));button.click();return true;');
+      await waitForBrowser(browser.cdp,
+        'document.body.innerText.includes("DATASET WORKSPACE\\n\\n' + temporaryTableTitle + '")', 30000);
+    };
+    const previewFor = async (patientId) => {
+      const previous = responses.filter(response => response.path.endsWith('/preview')).length;
+      const previewStartedAt = Date.now();
+      await clickButtonText('Preview', 'Preview table');
+      await waitForBrowser(browser.cdp,
+        'Boolean(document.querySelector(\'[data-testid="preview-table-scroll"] [role="table"]\')) && document.querySelector(\'[data-testid="preview-table-scroll"]\')?.innerText.includes(' + JSON.stringify(patientId) + ')',
+        120000);
+      const visible = await browserEval(browser.cdp,
+        'return {headers:[...document.querySelectorAll("[data-testid=\\"preview-table-scroll\\"] [role=\\"columnheader\\"]")].map(cell=>cell.innerText),rows:[...document.querySelectorAll("[data-testid=\\"preview-table-scroll\\"] [role=\\"row\\"]")].slice(1,4).map(row=>[...row.querySelectorAll("[role=\\"cell\\"]")].map(cell=>cell.innerText))};');
+      const deadline = Date.now() + 120000;
+      while (responses.filter(response => response.path.endsWith('/preview')).length <= previous && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      const response = responses.filter(item => item.path.endsWith('/preview')).at(-1);
+      assert(response, 'Preview request did not return');
+      assert.equal(response.status, 200);
+      const body = await browser.cdp.send('Network.getResponseBody', { requestId: response.requestId });
+      const payload = JSON.parse(body.body);
+      const row = payload.rows?.find(candidate => Object.values(candidate ?? {}).includes(patientId));
+      assert(row, 'Preview did not return Patient.id ' + patientId);
+      const outputName = results.relatedOutput?.name;
+      const countColumn = payload.columns?.find(column =>
+        column.column === outputName || column.name === outputName || column.id === results.relatedOutput?.id);
+      const countKey = countColumn?.column ?? countColumn?.name ?? outputName;
+      const visibleRow = visible.rows.find(cells => cells.includes(patientId));
+      assert(visibleRow, 'Rendered preview did not show Patient.id ' + patientId);
+      assert(visibleRow.includes(String(row[countKey])), 'Rendered preview did not show related COUNT ' + row[countKey]);
+      return {
+        patientId,
+        rowCount: payload.rowCount,
+        countKey,
+        count: row[countKey],
+        row,
+        columns: payload.columns,
+        visible,
+        previewElapsedMs: Date.now() - previewStartedAt,
+        responsePath: response.path,
+      };
+    };
+    try {
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
+      const baseline = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("button")].filter(button=>button.innerText.trim().startsWith("▤")).map(button=>button.innerText.trim());');
+      results.baselineTables = baseline;
+      await clickButtonText('New table', 'Open new table picker');
+      await waitForBrowser(browser.cdp,
+        'Boolean(document.querySelector("button[aria-label=\\"Choose Patient rows\\"]:not(:disabled)"))', 30000);
+      temporaryTableTitle = 'Patient match QA ' + Date.now();
+      await setInputValue('#first-table-name', temporaryTableTitle, 'Name temporary Patient table');
+      await clickDOM('button[aria-label="Choose Patient rows"]', 'Create Patient row table');
+      temporaryTableCreated = true;
+      await selectTemporaryTable();
+      results.temporaryTableTitle = temporaryTableTitle;
+
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]:not(:disabled)')) && !document.body.innerText.includes('Loading the preview…')`, 120000);
+      await clickDOM('button[aria-label^="Filter rows:"]', 'Open Patient ID filter');
+      results.filterStart = await browserEval(browser.cdp,
+        'return {text:document.body.innerText.slice(0,6500),controls:[...document.querySelectorAll("select,input,button")].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute("aria-label"),text:element.innerText.slice(0,70),disabled:element.disabled,value:element.value})).filter(item=>item.label||item.text.includes("Filter")||item.text.includes("Column")).slice(0,80),editors:[...document.querySelectorAll("[data-testid]")].map(element=>element.getAttribute("data-testid")).filter(value=>value.includes("filter")||value.includes("construction"))};');
+      const filterOptions = await browserEval(browser.cdp,
+        'return {columns:[...document.querySelector("select[aria-label=\\"Column\\"]")?.options??[]].map(option=>({label:option.textContent.trim(),value:option.value})),conditions:[...document.querySelector("select[aria-label=\\"Condition\\"]")?.options??[]].map(option=>({label:option.textContent.trim(),value:option.value}))};');
+      const idOption = filterOptions.columns.find(option => /^Patient ID\b/i.test(option.label));
+      assert(idOption, 'Patient.id is not available in the row filter');
+      await browserEval(browser.cdp,
+        'const select=document.querySelector("select[aria-label=\\"Column\\"]");' +
+        'select.value=' + JSON.stringify(idOption.value) + ';select.dispatchEvent(new Event("change",{bubbles:true}));return true;');
+      const equalsOption = filterOptions.conditions.find(option => /equal/i.test(option.label));
+      if (equalsOption) {
+        await browserEval(browser.cdp,
+          'const select=document.querySelector("select[aria-label=\\"Condition\\"]");' +
+          'select.value=' + JSON.stringify(equalsOption.value) + ';select.dispatchEvent(new Event("change",{bubbles:true}));return true;');
+      }
+      await setInputValue('[data-testid="construction-filter-editor"] input[aria-label="Value"]', manyPatientId, 'Set many Patient ID');
+      await waitForBrowser(browser.cdp,
+        'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"',
+        120000);
+      results.manyFilterProposal = await browserEval(browser.cdp,
+        'return document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText;');
+      assert(results.manyFilterProposal?.includes(manyPatientId), 'Many Patient ID is absent from filter proposal');
+      await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply many Patient filter');
+      await waitForBrowser(browser.cdp,
+        'document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length>=1', 60000);
+      await navigate(browser.cdp, pageURL);
+      await selectTemporaryTable();
+      await waitForBrowser(browser.cdp,
+        'document.body.innerText.includes("DATASET WORKSPACE") && document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length>=1',
+        60000);
+
+      await clickDOM('button[aria-label^="Add columns:"]', 'Open related columns');
+      const relatedSource = await chooseRelatedSource('Observation');
+      clicks.push({ sequence: clicks.length + 1, label: 'Select Observation related source', source: relatedSource.source });
+      await waitForBrowser(browser.cdp,
+        'Boolean(document.querySelector("input[aria-label=\\"Select Observation.id\\"]:not(:disabled)"))', 60000);
+      await clickDOM('input[aria-label="Select Observation.id"]', 'Select Observation.id');
+      await waitForBrowser(browser.cdp,
+        '[...document.querySelectorAll("button")].some(button=>button.textContent?.trim()==="Add 1 selected feature"&&!button.disabled)',
+        30000);
+      await clickButtonText('Add 1 selected feature', 'Open Observation.id form choices');
+      await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+      const radios = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map((input,index)=>({index,label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??input.parentElement?.innerText??"",disabled:input.disabled}));');
+      results.routeDialog = await browserEval(browser.cdp,
+        'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText.slice(0,6500),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText,disabled:button.disabled})),radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled}))};');
+      const directSubject = radios.find(radio => /Direct relationship: Patient to Observation via Subject/i.test(radio.label ?? ''));
+      assert(directSubject, 'Direct Observation subject relationship is missing');
+      await browserEval(browser.cdp,
+        'document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")[' + directSubject.index + '].click();return true;');
+      await waitForBrowser(browser.cdp,
+        '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
+      const formRadios = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map((input,index)=>({index,label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",disabled:input.disabled}));');
+      const countChoice = formRadios.find(radio => /count matching records/i.test((radio.label ?? '') + ' ' + radio.text));
+      assert(countChoice, 'Observation.id COUNT choice is missing');
+      await browserEval(browser.cdp,
+        'const input=document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")[' + countChoice.index + '];' +
+        'if(!input)throw new Error("Observation.id COUNT radio is missing");input.click();return true;');
+      const addChoiceButton = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[role=\\"dialog\\"] button")].map((button,index)=>({index,text:button.textContent.trim(),disabled:button.disabled})).find(button=>/^Add 1 (column|selected feature)$/i.test(button.text)&&!button.disabled)??null;');
+      assert(addChoiceButton, 'Add Observation.id COUNT button is missing');
+      const relatedPreviewStartedAt = Date.now();
+      await browserEval(browser.cdp,
+        'const button=document.querySelectorAll("[role=\\"dialog\\"] button")[' + addChoiceButton.index + '];button.click();return true;');
+      await waitForBrowser(browser.cdp,
+        'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"',
+        180000);
+      results.relatedProposalPreviewMs = Date.now() - relatedPreviewStartedAt;
+      results.relatedProposalVisible = await browserEval(browser.cdp,
+        'return document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText;');
+      const proposalRequest = proposalRequests.filter(request => request.postData).at(-1);
+      assert(proposalRequest, 'Related source proposal request was not captured');
+      const proposal = JSON.parse(proposalRequest.postData);
+      const relatedStep = proposal.candidateConstruction?.steps?.find(step =>
+        step.operation?.kind === 'RELATED_SOURCE' &&
+        step.operation.relatedSource?.source?.resourceType === 'Observation' &&
+        step.operation.relatedSource?.source?.path === 'id');
+      assert(relatedStep, 'Proposal does not contain the Observation.id related source step');
+      const related = relatedStep.operation.relatedSource;
+      assert.equal(related.form, 'COUNT');
+      assert.equal(related.route?.length, 1, 'Observation source route is not a single direct edge');
+      assert(/subject/i.test(JSON.stringify(related.route)), 'Observation source route does not use subject');
+      results.relatedSource = relatedSource.source;
+      results.relatedRoute = related.route;
+      results.relatedOutput = relatedStep.outputs?.find(output => output.id === related.outputColumnId);
+      assert(results.relatedOutput, 'Related COUNT output is missing from the proposal step');
+      results.relatedProposal = proposal;
+      await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply Observation.id COUNT');
+      await navigate(browser.cdp, pageURL);
+      await selectTemporaryTable();
+      await waitForBrowser(browser.cdp,
+        'document.body.innerText.includes("DATASET WORKSPACE") && document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length>=2',
+        90000);
+      results.many = await previewFor(manyPatientId);
+      assert.equal(results.many.rowCount, 1);
+      assert.equal(results.many.count, rawOracle.manyObservationEdges, 'many Patient COUNT differs from raw CDA Oracle');
+
+      const filterStep = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map((element,index)=>({index,testId:element.getAttribute("data-testid"),text:element.innerText})).find(step=>/Filter rows|Keep rows/i.test(step.text))??null;');
+      assert(filterStep, 'Saved Patient ID filter step is missing');
+      await clickDOM('[data-testid=' + JSON.stringify(filterStep.testId) + ']', 'Select Patient ID filter step');
+      await waitForBrowser(browser.cdp,
+        'Boolean(document.querySelector("[data-testid^=\\"construction-edit-step-\\"]"))', 30000);
+      await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit Patient ID filter');
+      await waitForBrowser(browser.cdp,
+        'Boolean(document.querySelector("[data-testid=\\"construction-filter-editor\\"] input[aria-label=\\"Value\\"]:not(:disabled)"))',
+        60000);
+      await setInputValue('[data-testid="construction-filter-editor"] input[aria-label="Value"]', zeroPatientId, 'Set zero Patient ID');
+      await waitForBrowser(browser.cdp,
+        'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"',
+        120000);
+      results.zeroFilterProposal = await browserEval(browser.cdp,
+        'return document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText;');
+      assert(results.zeroFilterProposal?.includes(zeroPatientId), 'Zero Patient ID is absent from filter proposal');
+      await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply zero Patient filter');
+      await navigate(browser.cdp, pageURL);
+      await selectTemporaryTable();
+      await waitForBrowser(browser.cdp,
+        'document.body.innerText.includes("DATASET WORKSPACE") && document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length>=2',
+        90000);
+      results.zero = await previewFor(zeroPatientId);
+      assert.equal(results.zero.rowCount, 1);
+      assert.equal(results.zero.count, rawOracle.zeroObservationEdges, 'zero Patient COUNT differs from raw CDA Oracle');
+
+      results.assertions = [
+        'Created and selected a temporary Patient root through Builder DOM controls.',
+        'Selected the Observation related source and the Observation.id COUNT form through Builder DOM controls.',
+        'Proposal route contains exactly one direct subject edge from Patient to Observation.',
+        'Applied and reloaded the related COUNT construction before preview.',
+        'Filtered to the known many Patient and matched the independent raw count of 38.',
+        'Edited the saved Patient.id filter to the known zero Patient and matched the independent raw count of 0.',
+        'No publication action was invoked.',
+      ];
+    } catch (error) {
+      scenarioError = { message: error.message, stack: error.stack };
+    }
+    if (temporaryTableCreated) {
+      try {
+        await navigate(browser.cdp, pageURL);
+        await selectTemporaryTable();
+        await browserEval(browser.cdp, 'window.confirm=()=>true;return true;');
+        await clickDOM('button[aria-label="Delete table"]', 'Delete temporary Patient table');
+        await waitForBrowser(browser.cdp,
+          '![...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith(' + JSON.stringify(temporaryTableTitle) + '))', 60000);
+        await navigate(browser.cdp, pageURL);
+        await waitForBrowser(browser.cdp,
+          '[...document.querySelectorAll("button")].filter(button=>button.innerText.trim().startsWith("▤")).length===' + results.baselineTables.length,
+          60000);
+        results.cleaned = true;
+        results.finalTables = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("button")].filter(button=>button.innerText.trim().startsWith("▤")).map(button=>button.innerText.trim());');
+        assert.deepEqual(results.finalTables, results.baselineTables);
+      } catch (error) {
+        cleanupError = { message: error.message, stack: error.stack };
+        results.cleaned = false;
+      }
+    } else {
+      results.cleaned = true;
+      results.cleanup = 'No temporary table was created.';
+    }
+    results.rawOracle = rawOracle;
+    results.clicks = clicks;
+    results.timings = { ...timings, totalMs: Date.now() - startedAt };
+    results.responses = responses;
+    results.commandRequests = requests;
+    results.proposalRequests = proposalRequests;
+    results.pageURL = pageURL;
+    results.evidenceDirectory = evidenceDirectory;
+    results.error = scenarioError;
+    results.cleanupError = cleanupError;
+    await mkdir(evidenceDirectory, { recursive: true });
+    await writeFile(join(evidenceDirectory, 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
+    console.log(JSON.stringify({
+      evidenceDirectory,
+      many: results.many && { patientId: results.many.patientId, count: results.many.count },
+      zero: results.zero && { patientId: results.zero.patientId, count: results.zero.count },
+      relatedRoute: results.relatedRoute,
+      clicks: results.clicks,
+      timings: results.timings,
+      cleaned: results.cleaned,
+      error: scenarioError?.message,
+      cleanupError: cleanupError?.message,
+    }, null, 2));
+    if (scenarioError) throw new Error(scenarioError.message);
+    if (cleanupError) throw new Error(cleanupError.message);
   } else if (action === 'Inspect Observation concepts') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
     const { source: observation, sources } = await chooseRelatedSource('Observation');
@@ -579,6 +881,22 @@ try {
   } else if (action === 'Inspect tables') {
     const state=await browserEval(browser.cdp, `return {inputs:[...document.querySelectorAll('input')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),buttons:[...document.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),text:button.innerText.slice(0,50)})).filter(item=>item.text.includes('Specimen')||item.text.includes('copy')||item.text.includes('Delete')||item.label?.includes('table')),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText),text:document.body.innerText.slice(0,1200)};`);
     console.log(JSON.stringify({state,responses},null,2));
+  } else if (action === 'Cleanup orphan Patient table') {
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 30000);
+    const before = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().replace(/\s+/g,' '));`);
+    const patientTables = before.filter(text => text.endsWith('Patient'));
+    assert.equal(patientTables.length, 1, `Expected one orphan Patient table, found ${patientTables.length}`);
+    await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Patient'));if(!button)throw new Error('Orphan Patient table button is missing');button.click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Delete table"]'))`, 30000);
+    await browserEval(browser.cdp, `window.confirm=()=>true;document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 60000);
+    await navigate(browser.cdp, pageURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE') && ![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Patient'))`, 60000);
+    const after = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().replace(/\s+/g,' '));`);
+    assert(!after.some(text => text.endsWith('Patient')), 'Orphan Patient table remains after reload');
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'orphan-patient-cleanup.json'),JSON.stringify({pageURL,before,after,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,after,deleteResponses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
   } else if (action === 'Duplicate table') {
     assert(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label="Table name for Specimen copy"]'));`));
     await browserEval(browser.cdp, `document.querySelector('button[aria-label="Duplicate table"]').click();return true;`);
