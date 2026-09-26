@@ -455,7 +455,7 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 	}
 }
 
-func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
+func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T) {
 	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
 	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
 	value := authoringv2.StageColumn{ID: "value-id", Name: "value", Label: "Value", Type: "integer"}
@@ -512,16 +512,23 @@ func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string][]string{
-		"active_value":   {"group", "category", "value"},
-		"adjusted_value": {"active_value"},
-		"measure":        {"active_value", "adjusted_value"},
-		"measure_value":  {"active_value", "adjusted_value"},
+	final := columns["patients"]
+	if len(final) != 2 {
+		t.Fatalf("final constructed columns = %#v, want only measure and measure_value", final)
 	}
-	for name, inputColumns := range want {
-		got, exists := columns["patients"][name]
-		if !exists || !reflect.DeepEqual(got.InputColumns, inputColumns) {
-			t.Errorf("typed construction output %q = %#v, want inputs %#v", name, got, inputColumns)
+	emitted := map[string]explorer.EmittedColumn{
+		"group":    {AuthoredColumns: []string{"group"}},
+		"category": {AuthoredColumns: []string{"category"}},
+		"value":    {AuthoredColumns: []string{"value"}},
+	}
+	lineage, err := resolveAuthoredOutputLineage(final, emitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"category", "group", "value"}
+	for _, name := range []string{"measure", "measure_value"} {
+		if _, exists := final[name]; !exists || !reflect.DeepEqual(lineage[name], want) {
+			t.Errorf("final typed output %q lineage = %#v, want %#v", name, lineage[name], want)
 		}
 	}
 }
