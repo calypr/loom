@@ -290,6 +290,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/related-expand-contributors:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: searchExplorerRelatedExpandContributors
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RelatedExpandContributorChoiceSearchRequest'}
+      responses:
+        '200':
+          description: Compiler-proved contributor fields and catalog suggestions for one exact selected related-resource route.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RelatedExpandContributorChoiceSearchResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-definition-choices:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -4772,6 +4797,56 @@ components:
           type: array
           maxItems: 50
           items: {$ref: '#/components/schemas/RelatedFieldChoice'}
+    RelatedExpandContributorChoiceSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, routeChoiceId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        routeChoiceId: {type: string, minLength: 1}
+        query: {type: string, maxLength: 256}
+        limit: {type: integer, minimum: 1, maximum: 50}
+        cursor: {type: string, maxLength: 4096}
+    RelatedExpandContributorChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, source, label, operators, suggestedValues, suggestionsComplete, suggestionsTruncated, suggestionsSource]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/RelatedSourceField'}
+        label: {type: string, minLength: 1}
+        operators:
+          type: array
+          minItems: 1
+          items: {type: string, enum: [EXISTS, EQUALS]}
+        suggestedValues:
+          type: array
+          items: {type: string}
+        suggestionsComplete: {type: boolean}
+        suggestionsTruncated: {type: boolean}
+        suggestionsSource: {type: string, enum: [catalog]}
+    RelatedExpandContributorChoiceSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, routeChoiceId, complete, truncated, choices]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        routeChoiceId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string}
+        choices:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/RelatedExpandContributorChoice'}
     PopulationRoutesRequest:
       type: object
       additionalProperties: false

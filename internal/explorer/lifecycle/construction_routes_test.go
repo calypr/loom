@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -143,6 +144,180 @@ func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T
 		source.AnchorNodeID != "patient" || source.AnchorResourceType != "Patient" || source.NodeID != "observation" || source.ResourceType != "Observation" ||
 		identity.SnapshotToken != snapshot.Token || len(identity.Route) != 1 || identity.Route[0].EdgeID != "subject-patient" {
 		t.Fatalf("route choice did not bind the selected stage and exact route: source=%#v route=%#v", identity.Source, identity.Route)
+	}
+}
+
+func TestRelatedExpandContributorChoicesBindToSelectedRootAndActiveRoutes(t *testing.T) {
+	store, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	candidate.Observed = true
+	candidate.Populated = true
+	candidate.ObservedDocumentCount = 7
+	candidate.SuggestedValues = []string{"final", "preliminary"}
+	candidate.SuggestionsComplete = true
+	snapshot.Candidates[0] = candidate
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "observation-id", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "id", Label: "FHIR resource ID", LogicalType: "string", Cardinality: "required_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	})
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "observation-value", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "valueQuantity.value", Label: "Observation value", LogicalType: "decimal", Cardinality: "optional_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	})
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "specimen-id", NodeID: "specimen", ResourceType: "Specimen",
+		FieldPath: "id", Label: "FHIR resource ID", LogicalType: "string", Cardinality: "required_one",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+	})
+	snapshot.Nodes = append(snapshot.Nodes, capability.Node{ID: "specimen", ResourceType: "Specimen"})
+	snapshot.Edges = append(snapshot.Edges, capability.Edge{
+		ID: "observation-specimen", FromNodeID: "observation", ToNodeID: "specimen",
+		SourceResourceType: "Observation", TargetResourceType: "Specimen", Label: "specimen_Specimen", StorageDirection: "OUTBOUND",
+	})
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+	}
+	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+		receipt := lifecycleTableShapeReceipt(snapshot, request.Workspace)
+		root := explorer.ReceiptConstructionRelatedExpandAnchor{AnchorColumnID: "_key", Kind: "root", ResourceType: "Patient", Label: "Original Patient"}
+		active := explorer.ReceiptConstructionRelatedExpandAnchor{
+			AnchorColumnID: "__terminal_observation_id", Kind: "activeRelatedRecord", NodeID: "observation",
+			ResourceType: "Observation", Label: "Current related Observation",
+		}
+		activeRecord := &explorer.ReceiptConstructionActiveRelatedRecord{
+			TargetNodeID: "observation", TargetResourceType: "Observation", TerminalIdentityColumn: active.AnchorColumnID,
+		}
+		supported := []explorer.ReceiptConstructionOperationChoice{{Kind: "RELATED_EXPAND", Supported: true}}
+		sourceColumns := []explorer.ReceiptConstructionStageColumn{{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"}}
+		expandedColumns := append(append([]explorer.ReceiptConstructionStageColumn(nil), sourceColumns...), explorer.ReceiptConstructionStageColumn{
+			ID: "observation_id", Name: "observation_id", Label: "Observation ID", Type: "string",
+		})
+		patientObservationRoute := []recipe.ConstructionRelatedRouteStep{{
+			EdgeID: "subject-patient", FromNodeID: "patient", ToNodeID: "observation",
+			FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+			StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+		}}
+		relatedExpand := &explorer.ReceiptConstructionRelatedExpand{
+			AnchorColumnID: "_key", AnchorColumn: "_key", AnchorKind: "root", AnchorNodeID: "patient", AnchorResourceType: "Patient",
+			RelatedRecordColumnID: "observation_id", ParentIdentityColumnID: "__parent_identity", ParentIdentityColumn: "__parent_identity",
+			TerminalIdentityColumn: active.AnchorColumnID, TargetNodeID: "observation", TargetResourceType: "Observation", Route: patientObservationRoute,
+		}
+		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
+			{ID: recipe.ConstructionSourceProjectionID, Columns: sourceColumns, Capabilities: supported, RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{root}},
+			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
+				Columns: expandedColumns, Capabilities: supported, RelatedExpand: relatedExpand, ActiveRelatedRecord: activeRecord,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{root, active}},
+		}}
+		var err error
+		receipt.CompilationKey, err = explorer.CompilationKey(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		receipt.ID, err = explorer.ReceiptID(*receipt)
+		if err != nil {
+			return nil, err
+		}
+		store.receipt = receipt
+		return receipt, nil
+	}
+
+	searchRoute := func(stageID, anchorColumnID, targetResourceType string) RelatedExpandRouteChoice {
+		t.Helper()
+		result, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+			OutputID: "patients", StageID: stageID, AnchorColumnID: anchorColumnID, TargetResourceType: targetResourceType,
+		})
+		if err != nil || !result.Complete || len(result.Choices) != 1 {
+			t.Fatalf("route choice from stage %s anchor %s to %s = %#v, %v", stageID, anchorColumnID, targetResourceType, result, err)
+		}
+		return result.Choices[0]
+	}
+
+	searchContributors := func(stageID string, route RelatedExpandRouteChoice, query string, limit int, cursor string) RelatedExpandContributorChoiceSearchResponse {
+		t.Helper()
+		result, err := service.SearchRelatedExpandContributorChoices(context.Background(), RelatedExpandContributorChoiceSearchRequest{
+			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+			OutputID: "patients", StageID: stageID, RouteChoiceID: route.ChoiceID, Query: query, Limit: limit, Cursor: cursor,
+		})
+		if err != nil {
+			t.Fatalf("contributor search for route %s: %v", route.ChoiceID, err)
+		}
+		return result
+	}
+
+	rootRoute := searchRoute(recipe.ConstructionSourceProjectionID, "_key", "Observation")
+	rootResult := searchContributors(recipe.ConstructionSourceProjectionID, rootRoute, "status", 10, "")
+	if !rootResult.Complete || rootResult.Truncated || rootResult.RouteChoiceID != rootRoute.ChoiceID || len(rootResult.Choices) != 1 {
+		t.Fatalf("root-route contributors = %#v", rootResult)
+	}
+	rootChoice := rootResult.Choices[0]
+	if rootChoice.Source.CandidateID != candidate.ID || rootChoice.Source.NodeID != "observation" ||
+		rootChoice.Source.ResourceType != "Observation" || rootChoice.Source.Path != "status" ||
+		rootChoice.Source.LogicalType != "string" || rootChoice.Label != candidate.Label ||
+		len(rootChoice.Operators) != 2 || rootChoice.Operators[0] != "EXISTS" || rootChoice.Operators[1] != "EQUALS" ||
+		!rootChoice.SuggestionsComplete || rootChoice.SuggestionsTruncated || rootChoice.SuggestionsSource != "catalog" ||
+		len(rootChoice.SuggestedValues) != 2 || rootChoice.SuggestedValues[0] != "final" || rootChoice.SuggestedValues[1] != "preliminary" {
+		t.Fatalf("root-route catalog choice = %#v", rootChoice)
+	}
+	rootIdentity, err := capability.DecodeConstructionChoiceID(rootChoice.ChoiceID)
+	if err != nil || !reflect.DeepEqual(rootIdentity.Route, rootRoute.Route) {
+		t.Fatalf("contributor choice did not retain the selected route: identity=%#v err=%v", rootIdentity, err)
+	}
+	firstPage, err := service.SearchRelatedExpandContributorChoices(context.Background(), RelatedExpandContributorChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, RouteChoiceID: rootRoute.ChoiceID, Limit: 1,
+	})
+	if err != nil || firstPage.Complete || !firstPage.Truncated || firstPage.NextCursor == "" || len(firstPage.Choices) != 1 {
+		t.Fatalf("first contributor page = %#v, %v", firstPage, err)
+	}
+	secondPage, err := service.SearchRelatedExpandContributorChoices(context.Background(), RelatedExpandContributorChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: recipe.ConstructionSourceProjectionID, RouteChoiceID: rootRoute.ChoiceID,
+		Limit: 1, Cursor: firstPage.NextCursor,
+	})
+	if err != nil || secondPage.RouteChoiceID != rootRoute.ChoiceID || len(secondPage.Choices) != 1 {
+		t.Fatalf("second contributor page = %#v, %v", secondPage, err)
+	}
+	numericResult := searchContributors(recipe.ConstructionSourceProjectionID, rootRoute, "valueQuantity.value", 10, "")
+	if len(numericResult.Choices) != 1 || numericResult.Choices[0].Source.LogicalType != "decimal" ||
+		len(numericResult.Choices[0].Operators) != 1 || numericResult.Choices[0].Operators[0] != "EXISTS" {
+		t.Fatalf("numeric contributor operators = %#v", numericResult.Choices)
+	}
+
+	activeRoute := searchRoute("expand_observations", "__terminal_observation_id", "Specimen")
+	activeResult := searchContributors("expand_observations", activeRoute, "id", 10, "")
+	if !activeResult.Complete || activeResult.RouteChoiceID != activeRoute.ChoiceID || len(activeResult.Choices) != 1 {
+		t.Fatalf("active-route contributors = %#v", activeResult)
+	}
+	activeChoice := activeResult.Choices[0]
+	if activeChoice.Source.CandidateID != "specimen-id" || activeChoice.Source.NodeID != "specimen" ||
+		activeChoice.Source.ResourceType != "Specimen" || activeChoice.Source.LogicalType != "string" ||
+		len(activeChoice.Operators) != 2 || activeChoice.Operators[0] != "EXISTS" || activeChoice.Operators[1] != "EQUALS" {
+		t.Fatalf("active-route contributor = %#v", activeChoice)
+	}
+	activeIdentity, err := capability.DecodeConstructionChoiceID(activeChoice.ChoiceID)
+	if err != nil || !reflect.DeepEqual(activeIdentity.Route, activeRoute.Route) {
+		t.Fatalf("active contributor choice did not retain the selected route: identity=%#v err=%v", activeIdentity, err)
+	}
+	if _, err := service.SearchRelatedExpandContributorChoices(context.Background(), RelatedExpandContributorChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "expand_observations", RouteChoiceID: rootRoute.ChoiceID,
+	}); err == nil || lifecycleErrorCode(err) != "INVALID_CONSTRUCTION_CHOICE" {
+		t.Fatalf("route token retargeted to another stage: %v", err)
+	}
+	if _, err := service.SearchRelatedExpandContributorChoices(context.Background(), RelatedExpandContributorChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
+		OutputID: "patients", StageID: "expand_observations", RouteChoiceID: activeRoute.ChoiceID, Limit: 1, Cursor: firstPage.NextCursor,
+	}); err == nil || lifecycleErrorCode(err) != "STALE_OR_INVALID_CHOICE_CURSOR" {
+		t.Fatalf("contributor cursor retargeted to another route: %v", err)
 	}
 }
 

@@ -178,6 +178,12 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 		ID: "e_patient_observation", FromNodeID: "n_patient", ToNodeID: "n_observation",
 		SourceResourceType: "Patient", TargetResourceType: "Observation", Label: "subject_Patient", StorageDirection: "INBOUND",
 	})
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "c_observation_status", NodeID: "n_observation", ResourceType: "Observation",
+		FieldPath: "status", Label: "Observation status", LogicalType: "code", Cardinality: "OPTIONAL_ONE",
+		ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, SuggestedValues: []string{"final", "preliminary"},
+		SuggestionsComplete: true,
+	})
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
 	if err != nil {
 		t.Fatal(err)
@@ -273,6 +279,32 @@ func TestRelatedExpandChoiceHTTPReturnsExactStageBoundRoute(t *testing.T) {
 	if !ok || source.StageID != result.StageId || source.NodeID != choice.TargetNodeId || source.ResourceType != choice.TargetResourceType ||
 		len(choice.Route) != 1 || choice.Route[0].EdgeId != "e_patient_observation" {
 		t.Fatalf("related expansion choice did not bind its exact stage and route: %#v source=%#v", choice, identity.Source)
+	}
+	contributorsResponse := requestJSON(t, app, http.MethodPost, basePath+"/related-expand-contributors", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"source_projection","routeChoiceId":%q,"query":"status"}`,
+		snapshot.Token, digest, choice.ChoiceId,
+	))
+	if contributorsResponse.StatusCode != http.StatusOK {
+		t.Fatalf("related expansion contributor choices status=%d body=%s", contributorsResponse.StatusCode, contributorsResponse.Body)
+	}
+	var contributors loomapi.RelatedExpandContributorChoiceSearchResponse
+	if err := json.Unmarshal([]byte(contributorsResponse.Body), &contributors); err != nil {
+		t.Fatal(err)
+	}
+	if contributors.SnapshotToken != snapshot.Token || contributors.DraftVersion != 1 || contributors.DraftDigest != digest ||
+		contributors.OutputId != "patients" || contributors.StageId != "source_projection" || contributors.RouteChoiceId != choice.ChoiceId ||
+		!contributors.Complete || contributors.Truncated || len(contributors.Choices) != 1 {
+		t.Fatalf("related expansion contributor search envelope = %#v", contributors)
+	}
+	contributor := contributors.Choices[0]
+	if contributor.Source.Kind != loomapi.RelatedSourceFieldKindFIELD || contributor.Source.CandidateId != "c_observation_status" ||
+		contributor.Source.NodeId != "n_observation" || contributor.Source.ResourceType != "Observation" || contributor.Source.Path != "status" ||
+		contributor.Source.LogicalType != "string" || len(contributor.Operators) != 2 ||
+		contributor.Operators[0] != loomapi.RelatedExpandContributorChoiceOperators("EXISTS") ||
+		contributor.Operators[1] != loomapi.RelatedExpandContributorChoiceOperators("EQUALS") ||
+		!contributor.SuggestionsComplete || contributor.SuggestionsSource != loomapi.RelatedExpandContributorChoiceSuggestionsSource("catalog") ||
+		len(contributor.SuggestedValues) != 2 || contributor.SuggestedValues[0] != "final" || contributor.SuggestedValues[1] != "preliminary" {
+		t.Fatalf("related expansion contributor choice = %#v", contributor)
 	}
 	document, err := authoringv2.UpgradeDocumentToConstruction(workspace.Documents[0])
 	if err != nil {

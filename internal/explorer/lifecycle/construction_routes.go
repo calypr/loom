@@ -118,6 +118,56 @@ type RelatedFieldChoiceSearchResponse struct {
 	Choices       []RelatedFieldChoice `json:"choices"`
 }
 
+type RelatedExpandContributorChoiceSearchRequest struct {
+	Project              string
+	ExplorerID           string
+	SnapshotToken        string
+	ExpectedDraftVersion int64
+	ExpectedDraftDigest  string
+	OutputID             string
+	StageID              string
+	RouteChoiceID        string
+	Query                string
+	Limit                int
+	Cursor               string
+}
+
+type RelatedExpandContributorChoice struct {
+	ChoiceID             string                                     `json:"choiceId"`
+	Source               authoringv2.ConstructionRelatedFieldSource `json:"source"`
+	Label                string                                     `json:"label"`
+	Operators            []string                                   `json:"operators"`
+	SuggestedValues      []string                                   `json:"suggestedValues"`
+	SuggestionsComplete  bool                                       `json:"suggestionsComplete"`
+	SuggestionsTruncated bool                                       `json:"suggestionsTruncated"`
+	SuggestionsSource    string                                     `json:"suggestionsSource"`
+}
+
+type RelatedExpandContributorChoiceSearchResponse struct {
+	SnapshotToken string                           `json:"snapshotToken"`
+	DraftVersion  int64                            `json:"draftVersion"`
+	DraftDigest   string                           `json:"draftDigest"`
+	OutputID      string                           `json:"outputId"`
+	StageID       string                           `json:"stageId"`
+	RouteChoiceID string                           `json:"routeChoiceId"`
+	Complete      bool                             `json:"complete"`
+	Truncated     bool                             `json:"truncated"`
+	NextCursor    string                           `json:"nextCursor,omitempty"`
+	Choices       []RelatedExpandContributorChoice `json:"choices"`
+}
+
+type relatedExpandContributorChoiceCursor struct {
+	Version      int    `json:"version"`
+	Snapshot     string `json:"snapshot"`
+	DraftVersion int64  `json:"draftVersion"`
+	DraftDigest  string `json:"draftDigest"`
+	OutputID     string `json:"outputId"`
+	StageID      string `json:"stageId"`
+	RouteChoice  string `json:"routeChoice"`
+	Query        string `json:"query"`
+	Offset       int    `json:"offset"`
+}
+
 type relatedFieldChoiceCursor struct {
 	Version      int    `json:"version"`
 	Snapshot     string `json:"snapshot"`
@@ -249,6 +299,165 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 	return result, nil
 }
 
+// SearchRelatedExpandContributorChoices lists compiler-proved direct scalar
+// fields on the selected route's exact terminal resource. The route token and
+// catalog suggestions are bound to the current draft, snapshot, and stage.
+func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
+	result := RelatedExpandContributorChoiceSearchResponse{
+		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
+		RouteChoiceID: request.RouteChoiceID, Choices: []RelatedExpandContributorChoice{},
+	}
+	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" ||
+		strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" ||
+		strings.TrimSpace(request.StageID) == "" || strings.TrimSpace(request.RouteChoiceID) == "" ||
+		strings.TrimSpace(request.ExpectedDraftDigest) == "" || request.ExpectedDraftVersion < 1 ||
+		strings.TrimSpace(request.Query) != request.Query || len(request.Query) > 256 ||
+		strings.TrimSpace(request.Cursor) != request.Cursor || len(request.Cursor) > 4096 {
+		return result, malformed("related-expand-contributors", "project, explorer, snapshot, draft, output, stage, and exact route choice identities are required", nil)
+	}
+	if s.config.Capability.ForCompilation == nil || s.config.Capability.Catalog == nil {
+		return result, unavailable("related-expand-contributors", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
+	}
+	base, err := s.loadConstructionBase(ctx, request.Project, request.ExplorerID, request.SnapshotToken,
+		request.ExpectedDraftVersion, request.ExpectedDraftDigest, request.OutputID)
+	if err != nil {
+		return result, err
+	}
+	result.DraftVersion, result.DraftDigest = base.owner.DraftVersion, base.owner.DraftDigest
+	var stage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == request.StageID {
+			stage = &base.stages[index]
+			break
+		}
+	}
+	if stage == nil {
+		return result, conflict("related-expand-contributors", "STALE_STAGE_REFERENCE", "the selected stage is not in the current compiled output", nil, nil)
+	}
+	if !constructionStageSupportsRelatedExpand(*stage) {
+		return result, unprocessable("related-expand-contributors", "NO_SOURCE_ROW_ANCHOR", "the selected stage does not expose executable related expansion", nil)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(request.RouteChoiceID)
+	if err != nil {
+		return result, unprocessable("related-expand-contributors", "INVALID_CONSTRUCTION_CHOICE", "the selected route choice is invalid", err)
+	}
+	if identity.SnapshotToken != base.snapshot.Token {
+		return result, conflict("related-expand-contributors", "STALE_CONSTRUCTION_CHOICE", "reload the related expansion route for the current authorized snapshot", nil, nil)
+	}
+	selected, ok := identity.Source.(capability.RelatedResourceChoiceSource)
+	if !ok || selected.StageID != request.StageID {
+		return result, unprocessable("related-expand-contributors", "INVALID_CONSTRUCTION_CHOICE", "the selected route choice does not belong to this stage", nil)
+	}
+	anchor, err := resolveRelatedExpandAnchor(base.snapshot, *stage, base.document.RootResourceType, selected.AnchorColumnID)
+	if err != nil || selected.AnchorKind != anchor.Kind || selected.AnchorNodeID != anchor.NodeID || selected.AnchorResourceType != anchor.ResourceType {
+		return result, conflict("related-expand-contributors", "STALE_CONSTRUCTION_CHOICE", "the selected route no longer matches this stage's exact row anchor", nil, err)
+	}
+	resolvedRoute, err := reauthorizeConstructionRouteFromAnchor(base.snapshot, anchor.NodeID, selected.NodeID, identity.Route)
+	if err != nil || !reflect.DeepEqual(resolvedRoute, identity.Route) || len(resolvedRoute) == 0 ||
+		resolvedRoute[len(resolvedRoute)-1].ToResourceType != selected.ResourceType {
+		return result, conflict("related-expand-contributors", "STALE_CONSTRUCTION_CHOICE", "the selected route no longer resolves to its exact terminal resource", nil, err)
+	}
+	if err := validateAuthorizedReadScope(base.authorized.Scope, base.snapshot.Identity.AuthorizationScopeDigest); err != nil {
+		return result, conflict("related-expand-contributors", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
+	}
+	if !constructionRouteHasCompilerProof(ctx, base.authorized, resolvedRoute) {
+		return result, unprocessable("related-expand-contributors", "UNSUPPORTED_CONSTRUCTION_ROUTE", "the selected route is no longer supported by the compiler", nil)
+	}
+	if cursor := request.Cursor; cursor != "" {
+		decoded, decodeErr := decodeRelatedExpandContributorChoiceCursor(cursor)
+		if decodeErr != nil || decoded.Version != 1 || decoded.Snapshot != request.SnapshotToken ||
+			decoded.DraftVersion != base.owner.DraftVersion || decoded.DraftDigest != base.owner.DraftDigest ||
+			decoded.OutputID != request.OutputID || decoded.StageID != request.StageID ||
+			decoded.RouteChoice != request.RouteChoiceID || decoded.Query != request.Query || decoded.Offset < 0 {
+			return result, conflict("related-expand-contributors", "STALE_OR_INVALID_CHOICE_CURSOR", "restart contributor search for this route and stage", nil, decodeErr)
+		}
+	}
+	candidates := make([]capability.Candidate, 0)
+	query := strings.ToLower(request.Query)
+	for _, candidate := range base.snapshot.Candidates {
+		if candidate.NodeID != selected.NodeID || candidate.ResourceType != selected.ResourceType ||
+			!relatedContributorCandidateCardinality(candidate.Cardinality) ||
+			len(candidate.RepeatedBoundaries) != 0 || !containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) ||
+			!relatedFieldPathExecutable(candidate.FieldPath) || !relatedFieldLogicalTypeExecutable(candidate.LogicalType) {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(candidate.Label), query) && !strings.Contains(strings.ToLower(candidate.FieldPath), query) {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	offset := 0
+	if request.Cursor != "" {
+		decoded, _ := decodeRelatedExpandContributorChoiceCursor(request.Cursor)
+		offset = decoded.Offset
+	}
+	if offset > len(candidates) {
+		return result, conflict("related-expand-contributors", "STALE_OR_INVALID_CHOICE_CURSOR", "restart contributor search for this route and stage", nil, nil)
+	}
+	limit := request.Limit
+	if limit == 0 {
+		limit = 25
+	}
+	if limit < 1 || limit > 50 {
+		return result, malformed("related-expand-contributors", "limit must be between 1 and 50", nil)
+	}
+	end := offset + limit
+	if end > len(candidates) {
+		end = len(candidates)
+	}
+	for _, candidate := range candidates[offset:end] {
+		proved, proofErr := proveConstructionCandidate(ctx, base.authorized, anchor.ResourceType, candidate, resolvedRoute)
+		if proofErr != nil || proved.NodeID != selected.NodeID || proved.ResourceType != selected.ResourceType ||
+			(proved.Cardinality != "optional_one" && proved.Cardinality != "required_one") || len(proved.RepeatedBoundaries) != 0 ||
+			!relatedFieldPathExecutable(proved.FieldPath) || !relatedFieldLogicalTypeExecutable(proved.LogicalType) {
+			continue
+		}
+		choice, choiceErr := capability.NewFieldConstructionChoiceForRoute(base.snapshot.Token, resolvedRoute, proved)
+		if choiceErr != nil {
+			continue
+		}
+		operators := []string{"EXISTS"}
+		logicalType := strings.ToLower(strings.TrimSpace(proved.LogicalType))
+		if logicalType == "string" || logicalType == "code" {
+			operators = append(operators, "EQUALS")
+		}
+		result.Choices = append(result.Choices, RelatedExpandContributorChoice{
+			ChoiceID: choice.ChoiceID, Label: firstNonEmpty(proved.Label, proved.ResourceType+"."+proved.FieldPath),
+			Source: authoringv2.ConstructionRelatedFieldSource{
+				Kind: capability.ConstructionChoiceSourceField, CandidateID: proved.ID, NodeID: proved.NodeID,
+				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
+				LogicalType: proved.LogicalType,
+			},
+			Operators: operators, SuggestedValues: append([]string(nil), proved.SuggestedValues...),
+			SuggestionsComplete: proved.SuggestionsComplete, SuggestionsTruncated: proved.SuggestionsTruncated,
+			SuggestionsSource: "catalog",
+		})
+	}
+	result.Complete = end >= len(candidates)
+	result.Truncated = !result.Complete
+	if result.Truncated {
+		cursor, encodeErr := encodeRelatedExpandContributorChoiceCursor(relatedExpandContributorChoiceCursor{
+			Version: 1, Snapshot: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			OutputID: request.OutputID, StageID: request.StageID, RouteChoice: request.RouteChoiceID, Query: request.Query, Offset: end,
+		})
+		if encodeErr != nil {
+			return RelatedExpandContributorChoiceSearchResponse{}, fmt.Errorf("encode related expansion contributor cursor: %w", encodeErr)
+		}
+		result.NextCursor = cursor
+	}
+	return result, nil
+}
+
+func relatedContributorCandidateCardinality(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "optional_one", "required_one":
+		return true
+	default:
+		return false
+	}
+}
+
 func containsProjectionMode(modes []capability.ProjectionMode, want capability.ProjectionMode) bool {
 	for _, mode := range modes {
 		if mode == want {
@@ -282,6 +491,26 @@ func encodeRelatedFieldChoiceCursor(cursor relatedFieldChoiceCursor) (string, er
 
 func decodeRelatedFieldChoiceCursor(encoded string) (relatedFieldChoiceCursor, error) {
 	var cursor relatedFieldChoiceCursor
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return cursor, err
+	}
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return cursor, err
+	}
+	return cursor, nil
+}
+
+func encodeRelatedExpandContributorChoiceCursor(cursor relatedExpandContributorChoiceCursor) (string, error) {
+	raw, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeRelatedExpandContributorChoiceCursor(encoded string) (relatedExpandContributorChoiceCursor, error) {
+	var cursor relatedExpandContributorChoiceCursor
 	raw, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {
 		return cursor, err
