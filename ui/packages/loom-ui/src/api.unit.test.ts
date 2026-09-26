@@ -555,6 +555,37 @@ describe('Loom project paths', () => {
     expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
   });
 
+  it('searches contributor fields bound to the selected related-record route', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', routeChoiceId: 'signed-route-choice',
+      complete: true, truncated: false,
+      choices: [{
+        choiceId: 'signed-status-choice', label: 'Status',
+        source: { kind: 'FIELD', candidateId: 'status-candidate', nodeId: 'observation-node',
+          resourceType: 'Observation', path: 'Observation.status', cardinality: 'optional_one', logicalType: 'string' },
+        operators: ['EXISTS', 'EQUALS'], suggestedValues: ['final'], suggestionsComplete: true,
+        suggestionsSource: 'catalog',
+      }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    const client = createLoomClient({ fetch });
+    await expect(client.searchRelatedExpandContributors({
+      project: 'NCPI_ACCEPTANCE', explorerId: 'default', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', routeChoiceId: 'signed-route-choice', query: 'status', limit: 20,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/related-expand-contributors',
+      expect.objectContaining({ body: JSON.stringify({
+        snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
+        outputId: 'patients', stageId: 'source_projection', routeChoiceId: 'signed-route-choice', query: 'status', limit: 20,
+      }) }),
+    );
+  });
+
   it('searches fields bound to the exact current related-record stage', async () => {
     const response = {
       snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',

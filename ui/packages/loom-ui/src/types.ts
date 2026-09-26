@@ -1843,6 +1843,35 @@ export const relatedExpandChoiceSearchResponseSchema = z.object({
 });
 export type RelatedExpandChoiceSearchResponse = z.infer<typeof relatedExpandChoiceSearchResponseSchema>;
 
+export const relatedExpandContributorSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  routeChoiceId: z.string().min(1),
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    source: relatedSourceSchema.shape.source,
+    label: z.string().min(1),
+    operators: z.array(z.enum(['EXISTS', 'EQUALS'])).min(1),
+    suggestedValues: z.array(z.string()),
+    suggestionsComplete: z.boolean(),
+    suggestionsSource: z.literal('catalog'),
+  }).strict()).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related contributor search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete contributor search cannot have a continuation cursor.' });
+  }
+});
+export type RelatedExpandContributorSearchResponse = z.infer<typeof relatedExpandContributorSearchResponseSchema>;
+
 export const relatedFieldChoiceSearchResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),

@@ -2,11 +2,16 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog } from '../../../types';
+import type { ConstructionCapabilitiesResponse, ExplorerBuilderCatalog, RelatedExpandContributorSearchResponse } from '../../../types';
 import { RelatedExpandEditor } from './RelatedExpandEditor';
 
 const searchRelatedExpandChoices = vi.fn();
-const client = { searchRelatedExpandChoices };
+const searchRelatedExpandContributors = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string; outputId: string; stageId: string; routeChoiceId: string }): Promise<RelatedExpandContributorSearchResponse> => ({
+  snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
+  outputId: args.outputId, stageId: args.stageId, routeChoiceId: args.routeChoiceId,
+  complete: true, truncated: false, choices: [],
+}));
+const client = { searchRelatedExpandChoices, searchRelatedExpandContributors };
 vi.mock('../../../react', () => ({
   useLoomClient: () => client,
 }));
@@ -145,6 +150,53 @@ describe('RelatedExpandEditor', () => {
         targetResourceType: 'Encounter', route, emptyPolicy: 'PRESERVE_PARENT',
       },
     });
+  });
+
+  it('authors a route-bound scalar contributor condition and can edit its exact value', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    searchRelatedExpandContributors.mockImplementation(async (args) => ({
+      snapshotToken: args.snapshotToken, draftVersion: args.expectedDraftVersion, draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId, stageId: args.stageId, routeChoiceId: args.routeChoiceId,
+      complete: true, truncated: false,
+      choices: [{ choiceId: 'signed-status-choice', label: 'Status',
+        source: { kind: 'FIELD', candidateId: 'encounter-status', nodeId: 'encounter-node',
+          resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one', logicalType: 'string' },
+        operators: ['EXISTS', 'EQUALS'], suggestedValues: ['finished'], suggestionsComplete: true,
+        suggestionsSource: 'catalog' }],
+    }));
+    const onCandidateChange = vi.fn();
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={onCandidateChange}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    fireEvent.click(await screen.findByRole('radio', { name: 'Encounter via subject_Patient' }));
+    fireEvent.change(screen.getByLabelText('When a parent has no matching record'), { target: { value: 'EXCLUDE' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Only records meeting a condition' }));
+    await waitFor(() => expect(searchRelatedExpandContributors).toHaveBeenCalledWith(
+      expect.objectContaining({ stageId: 'source_projection', routeChoiceId: 'signed-choice' }), expect.any(AbortSignal),
+    ));
+    fireEvent.click(await screen.findByRole('button', { name: /Status/ }));
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand)
+      .toMatchObject({ contributorRule: { predicate: { candidateId: 'encounter-status', operator: 'EXISTS' } },
+        contributorChoiceId: 'signed-status-choice', contributorSource: { path: 'Encounter.status' } });
+
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'EQUALS' } });
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    fireEvent.change(screen.getByLabelText('Exact value'), { target: { value: 'finished' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.contributorRule)
+      .toEqual({ policy: 'ALL_MATCHES', predicate: { candidateId: 'encounter-status', operator: 'EQUALS',
+        value: { kind: 'STRING', string: 'finished' } } });
+    fireEvent.click(screen.getByRole('radio', { name: 'All matching records' }));
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand)
+      .toMatchObject({ contributorRule: { policy: 'ALL_MATCHES' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.relatedExpand.contributorSource)
+      .toBeUndefined();
   });
 
   it('edits the saved step without replacing its identity or contributor condition', async () => {

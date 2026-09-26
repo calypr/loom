@@ -10,6 +10,7 @@ import type {
   RelatedExpandChoiceSearchResponse,
 } from '../../../types';
 import { constructionSchema } from '../../../types';
+import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };
@@ -45,13 +46,16 @@ const candidateFor = (
   outputColumnId: string,
   choice: RouteChoice | undefined,
   anchorColumnId: string,
+  condition: ContributorCondition,
   emptyPolicy: EmptyPolicy | undefined,
   outputName: string,
   outputLabel: string,
 ): CandidateIntent | undefined => {
   const name = outputName.trim();
   const label = outputLabel.trim();
-  if (!anchorColumnId || !choice || choice.anchorColumnId !== anchorColumnId || !emptyPolicy || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
+  if (!anchorColumnId || !choice || choice.anchorColumnId !== anchorColumnId || !emptyPolicy ||
+      condition.kind === 'CHOOSE' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
+  if (condition.kind === 'EQUALS' && !condition.value.trim()) return undefined;
   if (stage.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) return undefined;
   const priorOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const outputs = step
@@ -65,6 +69,14 @@ const candidateFor = (
       { id: outputColumnId, name, label, type: 'string' },
     ];
   if (step && !priorOutput) return undefined;
+  const contributorRule = condition.kind === 'ALL'
+    ? { policy: 'ALL_MATCHES' as const }
+    : { policy: 'ALL_MATCHES' as const, predicate: condition.kind === 'EXISTS'
+      ? { candidateId: condition.choice.source.candidateId, operator: 'EXISTS' as const }
+      : { candidateId: condition.choice.source.candidateId, operator: 'EQUALS' as const,
+        value: condition.choice.source.logicalType === 'code'
+          ? { kind: 'CODE' as const, code: { code: condition.value.trim() } }
+          : { kind: 'STRING' as const, string: condition.value.trim() } } };
   const nextStep: RelatedExpandStep = {
     id: stepId,
     inputs: [stage.id === 'source_projection'
@@ -78,13 +90,11 @@ const candidateFor = (
         targetNodeId: choice.targetNodeId,
         targetResourceType: choice.targetResourceType,
         route: choice.route,
-        contributorRule: step?.operation.relatedExpand.contributorRule ?? { policy: 'ALL_MATCHES' },
-        ...(step?.operation.relatedExpand.contributorSource
-          ? { contributorSource: step.operation.relatedExpand.contributorSource }
-          : {}),
-        ...(step?.operation.relatedExpand.contributorChoiceId
-          ? { contributorChoiceId: step.operation.relatedExpand.contributorChoiceId }
-          : {}),
+        contributorRule,
+        ...(condition.kind === 'ALL' ? {} : {
+          contributorSource: condition.choice.source,
+          contributorChoiceId: condition.choice.choiceId,
+        }),
         emptyPolicy,
         relatedRecordColumnId: outputColumnId,
       },
@@ -151,6 +161,22 @@ export const RelatedExpandEditor = ({
     targetResourceType: saved.targetResourceType,
     route: saved.route,
   } : undefined);
+  const [condition, setCondition] = useState<ContributorCondition>(() => {
+    const predicate = saved?.contributorRule.predicate;
+    const source = saved?.contributorSource;
+    if (!predicate || !source || !saved?.contributorChoiceId) return { kind: 'ALL' };
+    const savedChoice: ContributorChoice = {
+      choiceId: saved.contributorChoiceId, source, label: source.path,
+      operators: source.logicalType === 'string' || source.logicalType === 'code' ? ['EXISTS', 'EQUALS'] : ['EXISTS'],
+      suggestedValues: [], suggestionsComplete: false, suggestionsSource: 'catalog',
+    };
+    if (predicate.operator === 'EXISTS') return { kind: 'EXISTS', choice: savedChoice };
+    if (predicate.operator === 'EQUALS' && predicate.value) {
+      return { kind: 'EQUALS', choice: savedChoice,
+        value: predicate.value.kind === 'CODE' ? predicate.value.code.code : predicate.value.kind === 'STRING' ? predicate.value.string : '' };
+    }
+    return { kind: 'ALL' };
+  });
   const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const moreController = useRef<AbortController | undefined>(undefined);
@@ -198,9 +224,10 @@ export const RelatedExpandEditor = ({
     nextEmptyPolicy = emptyPolicy,
     nextName = outputName,
     nextLabel = outputLabel,
+    nextCondition = condition,
   ) => onCandidateChange(candidateFor(
     construction, stage, step, stepId, outputColumnId,
-    nextChoice, anchorColumnId, nextEmptyPolicy, nextName, nextLabel,
+    nextChoice, anchorColumnId, nextCondition, nextEmptyPolicy, nextName, nextLabel,
   ));
 
   const loadMore = async () => {
@@ -249,6 +276,7 @@ export const RelatedExpandEditor = ({
           moreController.current?.abort();
           setAnchorColumnId(event.target.value);
           setChoice(undefined);
+          setCondition({ kind: 'ALL' });
           setChoices([]);
           setCursor(undefined);
           onCandidateChange(undefined);
@@ -264,6 +292,7 @@ export const RelatedExpandEditor = ({
           moreController.current?.abort();
           setTargetResourceType(target);
           setChoice(undefined);
+          setCondition({ kind: 'ALL' });
           setChoices([]);
           setCursor(undefined);
           const suggested = `related_${target.toLowerCase()}_id`;
@@ -286,13 +315,22 @@ export const RelatedExpandEditor = ({
           {[...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])].map((item) => (
             <label key={item.choiceId} className="flex gap-2 rounded border border-slate-200 bg-white p-2">
               <input type="radio" name={`related-expand-route-${stepId}`} checked={choice?.choiceId === item.choiceId}
-                disabled={disabled} onChange={() => { setChoice(item); emit(item); }} />
+                disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
               <span>{routeLabel(item)}</span>
             </label>
           ))}
           {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">Load more paths</button> : null}
         </fieldset>
       ) : null}
+      {choice ? <RelatedExpandContributorEditor
+        key={choice.choiceId}
+        project={project} explorerId={explorerId} authResourcePath={authResourcePath}
+        snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
+        outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
+        targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
+        condition={condition} disabled={disabled}
+        onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
+      /> : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         When a parent has no matching record
         <select value={emptyPolicy ?? ''} disabled={disabled} onChange={(event) => {
