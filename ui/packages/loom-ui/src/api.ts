@@ -1153,13 +1153,19 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       signal,
     );
   const applyCommands = async (args: ApplyExplorerBuilderCommandsArgs, signal?: AbortSignal) => {
+    const commands = args.commands.map((command) => {
+      if (command.type !== 'UPDATE_COLUMN' || !command.columnValue) return command;
+      const columnValue = { ...command.columnValue };
+      delete columnValue.columnId;
+      return { ...command, columnValue };
+    });
     const value = explorerBuilderCommandsResultSchema.parse(await request(durableAuthoringPath(args, '/commands'), withJson({
       commandId: args.commandId,
       semanticsVersion: EXPLORER_AUTHORING_SEMANTICS_VERSION,
       snapshotToken: args.snapshotToken,
       expectedDraftVersion: args.expectedDraftVersion,
       ...(args.expectedDraftDigest ? { expectedDraftDigest: args.expectedDraftDigest } : {}),
-      commands: args.commands,
+      commands,
     }, signal, args.requestId)));
     evictCached(`builder:${canonicalProject(args.project)}:${args.authResourcePath?.trim() ?? ''}:${args.explorerId}`);
     return value;

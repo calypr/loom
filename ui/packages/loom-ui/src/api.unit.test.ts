@@ -360,6 +360,45 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('omits compiler-only column identity from UPDATE_COLUMN requests', async () => {
+    const workspace = {
+      apiVersion: 'loom.calypr.org/explorer-authoring/v2',
+      kind: 'ExplorerBuilderWorkspace',
+      explorer: { title: 'Patients' },
+      documents: [{
+        kind: 'ExplorerBuilderDocument',
+        output: { id: 'patients', title: 'Patients' },
+        rootResourceType: 'Patient',
+        route: { occurrenceId: 'base', resourceType: 'Patient' },
+        rows: { kind: 'RECORDS', records: {} },
+        columns: [],
+      }],
+      tabs: [{ id: 'patients-tab', title: 'Patients', outputId: 'patients', order: 0 }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+      commandId: 'command-1', workspace, draftVersion: 2, draftDigest: 'digest-2', results: [], diagnostics: [],
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = createLoomClient({ fetch });
+    await client.applyCommands({
+      project: 'project-a', explorerId: 'explorer-a', commandId: 'command-1',
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'digest-1',
+      commands: [{
+        type: 'UPDATE_COLUMN', outputId: 'patients', column: 'patient_id',
+        columnValue: {
+          columnId: 'source_patient_id', column: 'patient_id', label: 'Patient ID',
+          occurrenceId: 'base', source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: false, order: 0 },
+        },
+      }],
+    });
+    const body = JSON.parse((fetch.mock.calls[0]?.[1]?.body ?? '') as string);
+    expect(body.commands[0].columnValue).toEqual({
+      column: 'patient_id', label: 'Patient ID', occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+      table: { visible: false, order: 0 },
+    });
+  });
+
   it('browses a validated semantic inventory page with exact search context', async () => {
     const response = {
       contextToken: 'context-1',
