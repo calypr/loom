@@ -454,6 +454,13 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		return constructionStageResult{}, fmt.Errorf("operation did not produce a row identity")
 	}
 	if base.Kind != ir.PhysicalStageRelatedExpandOp && preservesActiveRelatedRecord(base.Kind) {
+		if rootAnchor, ok := retainedRootResourceAnchor(inputSchema); ok && rootAnchor.Name != outputIdentity {
+			rootAnchor.Identity = false
+			outputSchema = append(outputSchema, rootAnchor)
+			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
+				Name: rootAnchor.Name, Hidden: true, Value: ir.PhysicalValue{Variable: inputRow, Path: []string{rootAnchor.Name}},
+			})
+		}
 		if anchor, ok := activeRelatedRecordColumn(inputSchema); ok {
 			outputSchema = append(outputSchema, anchor)
 			base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
@@ -960,15 +967,11 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 
 func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string) []CompiledRelatedExpandAnchor {
 	anchors := make([]CompiledRelatedExpandAnchor, 0, 2)
-	for _, column := range schema {
-		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) &&
-			column.Cardinality == string(expression.RequiredOne) && rootResourceType != "" {
-			anchors = append(anchors, CompiledRelatedExpandAnchor{
-				AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
-				Label: "Original " + rootResourceType,
-			})
-			break
-		}
+	if _, retained := retainedRootResourceAnchor(schema); retained && rootResourceType != "" {
+		anchors = append(anchors, CompiledRelatedExpandAnchor{
+			AnchorColumnID: "_key", Kind: "root", ResourceType: rootResourceType,
+			Label: "Original " + rootResourceType,
+		})
 	}
 	if active, ok := activeRelatedRecordColumn(schema); ok {
 		anchors = append(anchors, CompiledRelatedExpandAnchor{
@@ -978,6 +981,16 @@ func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string
 		})
 	}
 	return anchors
+}
+
+func retainedRootResourceAnchor(schema []CompiledOutputColumn) (CompiledOutputColumn, bool) {
+	for _, column := range schema {
+		if column.Internal && column.Name == "_key" && column.Kind == string(expression.KindString) &&
+			column.Cardinality == string(expression.RequiredOne) {
+			return column, true
+		}
+	}
+	return CompiledOutputColumn{}, false
 }
 
 func activeRelatedRecordColumn(schema []CompiledOutputColumn) (CompiledOutputColumn, bool) {

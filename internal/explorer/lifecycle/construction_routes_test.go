@@ -223,6 +223,12 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 		expandedColumns := append(append([]explorer.ReceiptConstructionStageColumn(nil), columns...), explorer.ReceiptConstructionStageColumn{
 			ID: "observation_id", Name: "observation_id", Label: "Observation ID",
 		})
+		fieldColumns := append(append([]explorer.ReceiptConstructionStageColumn(nil), expandedColumns...), explorer.ReceiptConstructionStageColumn{
+			ID: "observation_status", Name: "observation_status", Label: "Observation Status",
+		})
+		fieldCapabilities := []explorer.ReceiptConstructionOperationChoice{
+			{Kind: "RELATED_EXPAND", Supported: true}, {Kind: "RELATED_FIELD", Supported: true},
+		}
 		receipt.ConstructionStages = map[string][]explorer.ReceiptConstructionStage{"patients": {
 			{ID: recipe.ConstructionSourceProjectionID, Columns: columns, Capabilities: capabilities, RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor}},
 			{ID: "expand_observations", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "RELATED_EXPAND",
@@ -230,6 +236,9 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
 			{ID: "keep_observations", InputStageID: "expand_observations", Operation: "FILTER",
 				Columns: expandedColumns, Capabilities: capabilities, ActiveRelatedRecord: active,
+				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
+			{ID: "add_observation_status", InputStageID: "keep_observations", Operation: "RELATED_FIELD",
+				Columns: fieldColumns, Capabilities: fieldCapabilities, ActiveRelatedRecord: active,
 				RelatedExpandAnchors: []explorer.ReceiptConstructionRelatedExpandAnchor{rootAnchor, activeAnchor}},
 		}}
 		var err error
@@ -249,7 +258,7 @@ func TestRelatedExpandChoicesCanStartAtRootOrCurrentRelatedRecord(t *testing.T) 
 		result, err := service.SearchRelatedExpandChoices(context.Background(), RelatedExpandChoiceSearchRequest{
 			Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token,
 			ExpectedDraftVersion: store.created.DraftVersion, ExpectedDraftDigest: store.created.DraftDigest,
-			OutputID: "patients", StageID: "keep_observations", AnchorColumnID: anchorColumnID,
+			OutputID: "patients", StageID: "add_observation_status", AnchorColumnID: anchorColumnID,
 			TargetResourceType: targetResourceType,
 		})
 		if err != nil || !result.Complete || len(result.Choices) != 1 {

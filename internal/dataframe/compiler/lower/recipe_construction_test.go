@@ -76,6 +76,9 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if reshapedRelatedExpandCapability == nil || reshapedRelatedExpandCapability.Supported || reshapedRelatedExpandCapability.ReasonCode != "NO_SOURCE_ROW_ANCHOR" {
 		t.Fatalf("reshaped stage must not advertise related expansion without root key: %#v", reshapedRelatedExpandCapability)
 	}
+	if len(compiled.Stages[1].RelatedExpandAnchors) != 0 {
+		t.Fatalf("reshape must not fabricate related-resource anchors: %#v", compiled.Stages[1].RelatedExpandAnchors)
+	}
 
 	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
 	if err != nil {
@@ -256,6 +259,14 @@ func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStag
 					descriptor.ActiveRelatedRecord.TargetNodeID != "observation-node" || descriptor.ActiveRelatedRecord.TargetResourceType != "Observation" {
 					t.Fatalf("stage %q descriptor lost exact active terminal record: %#v", stage.ID, descriptor.ActiveRelatedRecord)
 				}
+				hasRoot, hasActive := false, false
+				for _, anchor := range descriptor.RelatedExpandAnchors {
+					hasRoot = hasRoot || (anchor.AnchorColumnID == "_key" && anchor.Kind == "root" && anchor.ResourceType == "Patient")
+					hasActive = hasActive || (anchor.AnchorColumnID == terminalColumn && anchor.Kind == "activeRelatedRecord" && anchor.NodeID == "observation-node")
+				}
+				if !hasRoot || !hasActive {
+					t.Fatalf("row-preserving stage %q lost a compiler-proven expansion anchor: %#v", stage.ID, descriptor.RelatedExpandAnchors)
+				}
 			}
 			rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
 			if err != nil {
@@ -273,6 +284,48 @@ func TestCompileRelatedFieldCarriesExactTerminalIdentityThroughRowPreservingStag
 				}
 			}
 		})
+	}
+}
+
+func TestFilterDoesNotDuplicateRootAnchorWhenItIsTheRowIdentity(t *testing.T) {
+	output := constructionTestOutput()
+	output.Construction = &recipe.Construction{
+		Version: 1,
+		SourceColumns: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "category_id", Name: "category", Label: "Category"},
+			{ID: "amount_id", Name: "amount", Label: "Amount"},
+		},
+		Steps: []recipe.ConstructionStep{{
+			ID: "filter_source", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+				ColumnID: "group_id", Operator: recipe.FilterExists,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group", Label: "Group"},
+				{ID: "category_id", Name: "category", Label: "Category"},
+				{ID: "amount_id", Name: "amount", Label: "Amount"},
+			},
+		}},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[0]
+	keyColumns, keyProjections := 0, 0
+	for _, column := range stage.OutputColumns {
+		if column.Name == "_key" {
+			keyColumns++
+			if !column.Identity {
+				t.Fatalf("source _key ceased to be the row identity through FILTER: %#v", column)
+			}
+		}
+	}
+	for _, projection := range stage.OutputProjections {
+		if projection.Name == "_key" {
+			keyProjections++
+		}
+	}
+	if keyColumns != 1 || keyProjections != 1 {
+		t.Fatalf("FILTER must carry the row-identity root key once: columns=%d projections=%d", keyColumns, keyProjections)
 	}
 }
 
