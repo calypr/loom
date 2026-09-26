@@ -8,7 +8,7 @@ The browser driver is [`scripts/verify-cda-builder.mjs`](../../../scripts/verify
 | --- | --- | --- | --- | --- |
 | Choose a populated row type | Pass | Pass | Partial | Specimen starts with 742,505 authorized records. Rerun create, edit, and restore from a fresh Explorer. |
 | Choose a row type without a safe ID | Unrun | Unrun | Unrun | Find a CDA row type without one safe string ID, then test the recovery flow. |
-| Change the row definition | Fail | Unrun | Unrun | The editor exposes `EXPANDED` and raw empty collection policy names. Test each CDA result before revising this control. |
+| Change the row definition | Partial | Unrun | Unrun | Row and empty-record choices now use plain language; 8 focused UI tests pass. A fresh CDA browser preview, Apply, reload, and restoration are still required. |
 | Attach or clear a starting collection | Partial | Unrun | Unrun | The panel is visible, but no CDA selection path has been completed. |
 | Manage tables | Pass | Pass | Pass | New, rename, duplicate, reorder, delete, undo, and reload passed on CDA drafts. |
 | Add a direct scalar field | Pass | Pass | Partial | Visible values match CDA Specimen source records. Edit and remove of that field need one fresh-page rerun. |

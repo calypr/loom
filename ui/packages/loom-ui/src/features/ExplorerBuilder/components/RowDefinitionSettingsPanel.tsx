@@ -17,6 +17,24 @@ type SelectionOption = {
   readonly selection: RowDefinitionSelection;
 };
 
+const emptyCollectionLabel = (policy: string): string => {
+  switch (policy) {
+    case 'EXCLUDE': return 'Leave out records with no values';
+    case 'PRESERVE_PARENT': return 'Keep records with no values as one empty row';
+    case 'ERROR': return 'Require at least one value for every record';
+    default: return policy;
+  }
+};
+
+const unassignedMemberLabel = (policy: string): string => {
+  switch (policy) {
+    case 'EXCLUDE': return 'Leave out records without a group';
+    case 'GROUP_AS_UNASSIGNED': return 'Put records without a group in their own group';
+    case 'ERROR': return 'Require every record to belong to a group';
+    default: return policy;
+  }
+};
+
 type SettingsState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'loading' }
@@ -42,7 +60,7 @@ type ProposalState =
 const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
   const options: SelectionOption[] = [{
     value: 'records',
-    label: 'RECORDS · one row per source record',
+    label: 'One row per source record',
     selection: { kind: 'RECORDS' },
   }];
   for (const choice of choices.choices) {
@@ -52,7 +70,7 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
       for (const emptyCollectionPolicy of policy.options) {
         options.push({
           value: `expanded:${choice.choiceId}:${emptyCollectionPolicy}`,
-          label: `EXPANDED · ${choice.label} · ${emptyCollectionPolicy}`,
+          label: `One row per value in ${choice.label} · ${emptyCollectionLabel(emptyCollectionPolicy)}`,
           selection: { kind: 'EXPANDED', expanded: { rowChoiceId: choice.choiceId, emptyCollectionPolicy } },
         });
       }
@@ -62,7 +80,7 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
     for (const unassignedMemberPolicy of group.unassignedMemberPolicies) {
       options.push({
         value: `explicit:${group.revisionId}:${unassignedMemberPolicy}`,
-        label: `Explicit group · ${group.revisionId.slice(0, 12)} · ${group.groupCount} groups, ${group.memberCount} members · ${unassignedMemberPolicy}`,
+        label: `One row per saved group (${group.revisionId.slice(0, 12)}) · ${group.groupCount} groups, ${group.memberCount} members · ${unassignedMemberLabel(unassignedMemberPolicy)}`,
         selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: group.revisionId, unassignedMemberPolicy } },
       });
     }
@@ -73,20 +91,20 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
 const describeCurrentRows = (rows: ExplorerRowDefinition): string => {
   switch (rows.kind) {
     case 'RECORDS':
-      return 'RECORDS · one row per source record';
+      return 'One row per source record';
     case 'GROUPS':
       switch (rows.groups.source.kind) {
         case 'FIELD':
-          return `FIELD_GROUP · ${rows.groups.source.field.occurrenceId} · ${rows.groups.source.field.fieldPath}`;
+          return `One row per value of ${rows.groups.source.field.fieldPath}`;
         case 'EXPLICIT':
-          return `EXPLICIT_GROUP · ${rows.groups.source.explicit.revisionId} · ${rows.groups.source.explicit.unassignedMemberPolicy}`;
+          return `One row per saved group · ${unassignedMemberLabel(rows.groups.source.explicit.unassignedMemberPolicy)}`;
         default: {
           const _exhaustive: never = rows.groups.source;
           return _exhaustive;
         }
       }
     case 'EXPANDED':
-      return `EXPANDED · ${rows.expanded.occurrenceId} · ${rows.expanded.scopePath} · ${rows.expanded.emptyCollectionPolicy}`;
+      return `One row per value in ${rows.expanded.scopePath} · ${emptyCollectionLabel(rows.expanded.emptyCollectionPolicy)}`;
     default: {
       const _exhaustive: never = rows;
       return _exhaustive;
@@ -235,7 +253,7 @@ export const RowDefinitionSettingsPanel = ({
     <section aria-label="Row definition settings" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold text-slate-900">Row definition settings</h2>
+          <h2 className="font-semibold text-slate-900">What does one row represent?</h2>
           <p className="mt-1 text-xs text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
         </div>
         <button
@@ -250,7 +268,7 @@ export const RowDefinitionSettingsPanel = ({
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
           <div role="dialog" aria-modal="true" aria-labelledby="row-definition-dialog-title" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
-            <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Configure row definition</h3>
+            <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Choose what one row represents</h3>
             <p className="mt-1 text-sm text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
             {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
             {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
@@ -262,9 +280,9 @@ export const RowDefinitionSettingsPanel = ({
             {settings.kind === 'editing' ? (
               <>
                 <label className="mt-4 block text-sm font-medium text-slate-800">
-                  <span>New row definition</span>
+                  <span>New row shape</span>
                   <select
-                    aria-label="New row definition"
+                    aria-label="New row shape"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
                     value={settings.selectionId}
                     disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
