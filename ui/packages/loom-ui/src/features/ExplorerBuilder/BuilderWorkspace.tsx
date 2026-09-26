@@ -1047,7 +1047,9 @@ const BuilderWorkspaceContent = ({
               ? `Count of related ${source.resourceType} records`
               : form === 'PRESENCE'
                 ? `Has related ${source.resourceType} record`
-                : candidate.label.trim() || candidate.fieldPath,
+                : candidate.fieldPath === 'id'
+                  ? `${source.resourceType} IDs`
+                  : `${source.resourceType} ${candidate.label.trim() || candidate.fieldPath}`,
             type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
           },
         ],

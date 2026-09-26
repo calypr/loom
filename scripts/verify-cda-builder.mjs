@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 
@@ -522,7 +522,8 @@ try {
     }
     await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
-  } else if (action === 'Verify direct Observation COUNT many and zero') {
+  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero') {
+    const includeAllAndPresence = action === 'Verify direct Observation forms many and zero';
     const targetExplorer = 'cda-builder-full-qa-1790440983382';
     const manyPatientId = '02f8e963-73b8-50ea-b840-c4a80719a06a';
     const zeroPatientId = '54b50ad3-aa10-5483-85e2-5382aac7d374';
@@ -534,6 +535,9 @@ try {
       zeroPatientId,
       zeroObservationEdges: 0,
     };
+    const rawValues = includeAllAndPresence
+      ? JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json', 'utf8'))
+      : undefined;
     assert.equal(explorerId, targetExplorer);
     const startedAt = Date.now();
     const clicks = [];
@@ -618,6 +622,45 @@ try {
         previewElapsedMs: Date.now() - previewStartedAt,
         responsePath: response.path,
       };
+    };
+    const addRelatedForm = async (form, labelPattern) => {
+      await clickDOM('button[aria-label^="Add columns:"]', `Open related columns for ${form}`);
+      await chooseRelatedSource('Observation');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))`, 60000);
+      await clickDOM('input[aria-label="Select Observation.id"]', `Select Observation.id for ${form}`);
+      await clickButtonText('Add 1 selected feature', `Open Observation.id ${form} choices`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
+      await browserEval(browser.cdp,
+        'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Direct relationship: Patient to Observation via Subject/i.test(input.getAttribute("aria-label")??""));if(!input)throw new Error("Direct subject route missing");input.click();return true;');
+      await waitForBrowser(browser.cdp,
+        '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>(input.getAttribute("aria-label")??"").includes("matching"))', 30000);
+      const formChoices = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),disabled:input.disabled}));');
+      results.formDialogs ??= [];
+      results.formDialogs.push({ form, formChoices });
+      const choice = formChoices.find(option => labelPattern.test(option.label ?? ''));
+      assert(choice && !choice.disabled, `${form} is unavailable for Observation.id`);
+      await browserEval(browser.cdp,
+        'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.getAttribute("aria-label")===' + JSON.stringify(choice.label) + ');input.click();return true;');
+      const proposalStartedAt = Date.now();
+      await browserEval(browser.cdp,
+        'const button=[...document.querySelectorAll("[role=\\"dialog\\"] button")].find(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled);if(!button)throw new Error("Add form button unavailable");button.click();return true;');
+      await waitForBrowser(browser.cdp,
+        'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"', 180000);
+      const proposalPreviewMs = Date.now() - proposalStartedAt;
+      const proposalPreview = await browserEval(browser.cdp,
+        'return document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText;');
+      const request = proposalRequests.filter(item => item.postData).at(-1);
+      assert(request, `${form} proposal request missing`);
+      const proposal = JSON.parse(request.postData);
+      const step = proposal.candidateConstruction?.steps?.filter(item => item.operation?.kind === 'RELATED_SOURCE').at(-1);
+      assert.equal(step?.operation?.relatedSource?.form, form);
+      const output = step.outputs?.find(item => item.id === step.operation.relatedSource.outputColumnId);
+      assert(output, `${form} output missing from proposal`);
+      await clickDOM('[data-testid="construction-apply-proposal"]', `Apply Observation.id ${form}`);
+      await navigate(browser.cdp, pageURL);
+      await selectTemporaryTable();
+      return { output, proposalPreview, proposalPreviewMs };
     };
     try {
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
@@ -733,6 +776,14 @@ try {
       results.many = await previewFor(manyPatientId);
       assert.equal(results.many.rowCount, 1);
       assert.equal(results.many.count, rawOracle.manyObservationEdges, 'many Patient COUNT differs from raw CDA Oracle');
+      if (includeAllAndPresence) {
+        results.allForm = await addRelatedForm('ALL', /Keep all matching values/i);
+        results.presenceForm = await addRelatedForm('PRESENCE', /Show whether a match exists/i);
+        results.manyForms = await previewFor(manyPatientId);
+        const expectedIDs = rawValues.patients.find(patient => patient.patientId === manyPatientId).subjectObservations.map(observation => observation.id).sort();
+        assert.deepEqual([...results.manyForms.row[results.allForm.output.name]].sort(), expectedIDs);
+        assert.equal(results.manyForms.row[results.presenceForm.output.name], true);
+      }
 
       const filterStep = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map((element,index)=>({index,testId:element.getAttribute("data-testid"),text:element.innerText})).find(step=>/Filter rows|Keep rows/i.test(step.text))??null;');
@@ -760,6 +811,10 @@ try {
       results.zero = await previewFor(zeroPatientId);
       assert.equal(results.zero.rowCount, 1);
       assert.equal(results.zero.count, rawOracle.zeroObservationEdges, 'zero Patient COUNT differs from raw CDA Oracle');
+      if (includeAllAndPresence) {
+        assert.deepEqual(results.zero.row[results.allForm.output.name], []);
+        assert.equal(results.zero.row[results.presenceForm.output.name], false);
+      }
 
       results.assertions = [
         'Created and selected a temporary Patient root through Builder DOM controls.',
@@ -770,6 +825,12 @@ try {
         'Edited the saved Patient.id filter to the known zero Patient and matched the independent raw count of 0.',
         'No publication action was invoked.',
       ];
+      if (includeAllAndPresence) {
+        results.assertions.push(
+          'ALL matched every raw CDA Observation ID for the many Patient and returned an empty list for the zero Patient.',
+          'PRESENCE returned true for the many Patient and false for the zero Patient.',
+        );
+      }
     } catch (error) {
       scenarioError = { message: error.message, stack: error.stack };
     }
@@ -808,11 +869,13 @@ try {
     results.error = scenarioError;
     results.cleanupError = cleanupError;
     await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
+    await writeFile(join(evidenceDirectory, includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
     console.log(JSON.stringify({
       evidenceDirectory,
       many: results.many && { patientId: results.many.patientId, count: results.many.count },
       zero: results.zero && { patientId: results.zero.patientId, count: results.zero.count },
+      all: results.allForm && { output: results.allForm.output.name, manyValues: results.manyForms?.row[results.allForm.output.name]?.length, zeroValues: results.zero?.row[results.allForm.output.name]?.length },
+      presence: results.presenceForm && { output: results.presenceForm.output.name, many: results.manyForms?.row[results.presenceForm.output.name], zero: results.zero?.row[results.presenceForm.output.name] },
       relatedRoute: results.relatedRoute,
       clicks: results.clicks,
       timings: results.timings,
