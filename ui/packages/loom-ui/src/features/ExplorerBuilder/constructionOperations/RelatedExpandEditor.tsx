@@ -52,7 +52,7 @@ const candidateFor = (
 ): CandidateIntent | undefined => {
   const name = outputName.trim();
   const label = outputLabel.trim();
-  if (!choice || !emptyPolicy || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
+  if (!anchorColumnId || !choice || !emptyPolicy || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
   if (stage.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) return undefined;
   const priorOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const outputs = step
@@ -131,16 +131,17 @@ export const RelatedExpandEditor = ({
   const client = useLoomClient();
   const stage = capabilities.selectedStage;
   const saved = step?.operation.relatedExpand;
-  const anchors = stage.relatedExpandAnchors ?? [{
+  const anchors = stage.relatedExpandAnchors ?? (stage.activeRelatedRecord ? [] : [{
     anchorColumnId: '_key', kind: 'root' as const, resourceType: '', label: 'Original table record',
-  }];
-  const [anchorColumnId, setAnchorColumnId] = useState(() => saved?.anchorColumnId
+  }]);
+  const savedAnchorAvailable = anchors.some((anchor) => anchor.anchorColumnId === saved?.anchorColumnId);
+  const [anchorColumnId, setAnchorColumnId] = useState(() => anchors.find((anchor) => anchor.anchorColumnId === saved?.anchorColumnId)?.anchorColumnId
     ?? anchors.find((anchor) => anchor.kind === 'activeRelatedRecord')?.anchorColumnId
-    ?? anchors[0]?.anchorColumnId ?? '_key');
+    ?? anchors[0]?.anchorColumnId ?? '');
   const [stepId] = useState(() => step?.id ?? newId('related_expand'));
   const [outputColumnId] = useState(() => saved?.relatedRecordColumnId ?? newId('related_record'));
   const [targetResourceType, setTargetResourceType] = useState(saved?.targetResourceType ?? '');
-  const [choice, setChoice] = useState<RouteChoice | undefined>(() => saved ? {
+  const [choice, setChoice] = useState<RouteChoice | undefined>(() => saved && savedAnchorAvailable ? {
     choiceId: saved.choiceId,
     targetNodeId: saved.targetNodeId,
     targetResourceType: saved.targetResourceType,
@@ -161,7 +162,7 @@ export const RelatedExpandEditor = ({
   useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
 
   useEffect(() => {
-    if (!targetResourceType) return;
+    if (!targetResourceType || !anchorColumnId) return;
     const controller = new AbortController();
     const version = ++requestVersion.current;
     setLoading(true);
@@ -199,7 +200,7 @@ export const RelatedExpandEditor = ({
   ));
 
   const loadMore = async () => {
-    if (!cursor || !targetResourceType || loading) return;
+    if (!cursor || !targetResourceType || !anchorColumnId || loading) return;
     moreController.current?.abort();
     const controller = new AbortController();
     moreController.current = controller;
@@ -234,6 +235,9 @@ export const RelatedExpandEditor = ({
         <h4 className="font-semibold text-slate-900">One row per related record</h4>
         <p className="mt-1 text-sm text-slate-600">Choose a related record type and path. Each matching source record becomes one row with its parent retained.</p>
       </div>
+      {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
+        Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
+      </p> : null}
       {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">
         Start from
         <select value={anchorColumnId} disabled={disabled} onChange={(event) => {
@@ -250,7 +254,7 @@ export const RelatedExpandEditor = ({
       </label> : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         Related record type
-        <select value={targetResourceType} disabled={disabled} onChange={(event) => {
+        <select value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
           const target = event.target.value;
           requestVersion.current += 1;
           moreController.current?.abort();

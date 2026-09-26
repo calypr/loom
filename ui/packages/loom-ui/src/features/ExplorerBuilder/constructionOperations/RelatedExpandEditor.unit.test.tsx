@@ -47,6 +47,28 @@ const capabilities: ConstructionCapabilitiesResponse = {
 };
 
 describe('RelatedExpandEditor', () => {
+  it('does not offer a guessed root anchor when an active record lacks anchor metadata', () => {
+    searchRelatedExpandChoices.mockReset();
+    const unknown = {
+      ...capabilities,
+      selectedStage: {
+        ...capabilities.selectedStage,
+        activeRelatedRecord: {
+          targetNodeId: 'encounter-node', targetResourceType: 'Encounter',
+          terminalIdentityColumn: '__loom_encounter_id',
+        },
+      },
+    } satisfies ConstructionCapabilitiesResponse;
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={unknown}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+    expect(screen.getByText(/has not confirmed a starting record/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Related record type')).toBeDisabled();
+    expect(searchRelatedExpandChoices).not.toHaveBeenCalled();
+  });
+
   it('rejects paths issued for a different draft', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2',
