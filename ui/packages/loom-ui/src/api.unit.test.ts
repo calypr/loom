@@ -520,7 +520,8 @@ describe('Loom project paths', () => {
   it('searches related-record expansion paths for the exact stage and accepts only server-issued routes', async () => {
     const response = {
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
-      outputId: 'patients', stageId: 'source_projection',
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
+      anchorKind: 'root', anchorNodeId: 'patient-node', anchorResourceType: 'Patient', anchorLabel: 'Original Patient record',
       complete: true, truncated: false,
       choices: [{
         choiceId: 'signed-route-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter',
@@ -538,7 +539,7 @@ describe('Loom project paths', () => {
     await expect(client.searchRelatedExpandChoices({
       project: 'NCPI_ACCEPTANCE', explorerId: 'default', snapshotToken: 'snapshot-1',
       expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
-      outputId: 'patients', stageId: 'source_projection', targetResourceType: 'Encounter', limit: 10,
+      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key', targetResourceType: 'Encounter', limit: 10,
     })).resolves.toEqual(response);
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/related-expand-choices',
@@ -546,7 +547,7 @@ describe('Loom project paths', () => {
         method: 'POST',
         body: JSON.stringify({
           snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-1',
-          outputId: 'patients', stageId: 'source_projection',
+          outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
           targetResourceType: 'Encounter', limit: 10,
         }),
       }),

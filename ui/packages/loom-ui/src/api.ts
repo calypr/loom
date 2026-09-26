@@ -320,6 +320,7 @@ export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateAr
   readonly expectedDraftDigest: string;
   readonly outputId: string;
   readonly stageId: string;
+  readonly anchorColumnId: string;
   readonly targetResourceType: string;
   readonly limit?: number;
   readonly cursor?: string;
@@ -1176,6 +1177,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       expectedDraftDigest: args.expectedDraftDigest,
       outputId: args.outputId,
       stageId: args.stageId,
+      anchorColumnId: args.anchorColumnId,
       targetResourceType: args.targetResourceType,
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(args.cursor ? { cursor: args.cursor } : {}),

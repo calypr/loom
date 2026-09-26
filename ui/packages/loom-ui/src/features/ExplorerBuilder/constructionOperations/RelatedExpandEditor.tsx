@@ -29,11 +29,13 @@ const choicesMatchRequest = (
   draftDigest: string,
   outputId: string,
   stageId: string,
+  anchorColumnId: string,
   targetResourceType: string,
 ): boolean => result.snapshotToken === snapshotToken
   && result.draftVersion === draftVersion && result.draftDigest === draftDigest
   && result.outputId === outputId
   && result.stageId === stageId
+  && result.anchorColumnId === anchorColumnId
   && result.choices.every((item) => item.targetResourceType === targetResourceType);
 
 const candidateFor = (
@@ -43,6 +45,7 @@ const candidateFor = (
   stepId: string,
   outputColumnId: string,
   choice: RouteChoice | undefined,
+  anchorColumnId: string,
   emptyPolicy: EmptyPolicy | undefined,
   outputName: string,
   outputLabel: string,
@@ -71,7 +74,7 @@ const candidateFor = (
     operation: {
       kind: 'RELATED_EXPAND',
       relatedExpand: {
-        anchorColumnId: '_key',
+        anchorColumnId,
         choiceId: choice.choiceId,
         targetNodeId: choice.targetNodeId,
         targetResourceType: choice.targetResourceType,
@@ -128,6 +131,12 @@ export const RelatedExpandEditor = ({
   const client = useLoomClient();
   const stage = capabilities.selectedStage;
   const saved = step?.operation.relatedExpand;
+  const anchors = stage.relatedExpandAnchors ?? [{
+    anchorColumnId: '_key', kind: 'root' as const, resourceType: '', label: 'Original table record',
+  }];
+  const [anchorColumnId, setAnchorColumnId] = useState(() => saved?.anchorColumnId
+    ?? anchors.find((anchor) => anchor.kind === 'activeRelatedRecord')?.anchorColumnId
+    ?? anchors[0]?.anchorColumnId ?? '_key');
   const [stepId] = useState(() => step?.id ?? newId('related_expand'));
   const [outputColumnId] = useState(() => saved?.relatedRecordColumnId ?? newId('related_record'));
   const [targetResourceType, setTargetResourceType] = useState(saved?.targetResourceType ?? '');
@@ -149,7 +158,7 @@ export const RelatedExpandEditor = ({
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
 
-  useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id]);
+  useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
 
   useEffect(() => {
     if (!targetResourceType) return;
@@ -161,10 +170,10 @@ export const RelatedExpandEditor = ({
       project, explorerId, authResourcePath, snapshotToken, outputId,
       expectedDraftVersion: capabilities.draftVersion,
       expectedDraftDigest: capabilities.draftDigest,
-      stageId: stage.id, targetResourceType, limit: 10,
+      stageId: stage.id, anchorColumnId, targetResourceType, limit: 10,
     }, controller.signal).then((result) => {
       if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, targetResourceType)) {
+      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices(result.choices);
@@ -177,7 +186,7 @@ export const RelatedExpandEditor = ({
       if (!controller.signal.aborted && version === requestVersion.current) setLoading(false);
     });
     return () => controller.abort();
-  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, targetResourceType]);
+  }, [client, project, explorerId, authResourcePath, snapshotToken, outputId, capabilities.draftVersion, capabilities.draftDigest, stage.id, anchorColumnId, targetResourceType]);
 
   const emit = (
     nextChoice = choice,
@@ -186,7 +195,7 @@ export const RelatedExpandEditor = ({
     nextLabel = outputLabel,
   ) => onCandidateChange(candidateFor(
     construction, stage, step, stepId, outputColumnId,
-    nextChoice, nextEmptyPolicy, nextName, nextLabel,
+    nextChoice, anchorColumnId, nextEmptyPolicy, nextName, nextLabel,
   ));
 
   const loadMore = async () => {
@@ -202,10 +211,10 @@ export const RelatedExpandEditor = ({
         project, explorerId, authResourcePath, snapshotToken, outputId,
         expectedDraftVersion: capabilities.draftVersion,
         expectedDraftDigest: capabilities.draftDigest,
-        stageId: stage.id, targetResourceType, limit: 10, cursor,
+        stageId: stage.id, anchorColumnId, targetResourceType, limit: 10, cursor,
       }, controller.signal);
       if (controller.signal.aborted || version !== requestVersion.current) return;
-      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, targetResourceType)) {
+      if (!choicesMatchRequest(result, snapshotToken, capabilities.draftVersion, capabilities.draftDigest, outputId, stage.id, anchorColumnId, targetResourceType)) {
         throw new Error('The available paths changed. Reload this table before expanding records.');
       }
       setChoices((current) => [...current, ...result.choices]);
@@ -225,6 +234,20 @@ export const RelatedExpandEditor = ({
         <h4 className="font-semibold text-slate-900">One row per related record</h4>
         <p className="mt-1 text-sm text-slate-600">Choose a related record type and path. Each matching source record becomes one row with its parent retained.</p>
       </div>
+      {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">
+        Start from
+        <select value={anchorColumnId} disabled={disabled} onChange={(event) => {
+          requestVersion.current += 1;
+          moreController.current?.abort();
+          setAnchorColumnId(event.target.value);
+          setChoice(undefined);
+          setChoices([]);
+          setCursor(undefined);
+          onCandidateChange(undefined);
+        }} className="rounded border border-slate-300 bg-white px-3 py-2">
+          {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
+        </select>
+      </label> : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         Related record type
         <select value={targetResourceType} disabled={disabled} onChange={(event) => {

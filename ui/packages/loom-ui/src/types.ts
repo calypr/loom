@@ -1374,6 +1374,13 @@ const constructionActiveRelatedRecordSchema = z.object({
   targetResourceType: opaqueIdSchema,
   terminalIdentityColumn: opaqueIdSchema,
 }).strict();
+const constructionRelatedExpandAnchorSchema = z.object({
+  anchorColumnId: opaqueIdSchema,
+  kind: z.enum(['root', 'activeRelatedRecord']),
+  nodeId: opaqueIdSchema.optional(),
+  resourceType: opaqueIdSchema,
+  label: z.string().min(1),
+}).strict();
 const constructionStageDescriptorSchema = z.object({
   id: opaqueIdSchema,
   inputStageId: z.string(),
@@ -1383,6 +1390,7 @@ const constructionStageDescriptorSchema = z.object({
   capabilities: z.array(constructionOperationCapabilitySchema),
   relatedExpand: constructionRelatedExpandStageDescriptorSchema.optional(),
   activeRelatedRecord: constructionActiveRelatedRecordSchema.optional(),
+  relatedExpandAnchors: z.array(constructionRelatedExpandAnchorSchema).optional(),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
 
@@ -1808,6 +1816,11 @@ export const relatedExpandChoiceSearchResponseSchema = z.object({
   draftDigest: z.string().min(1),
   outputId: opaqueIdSchema,
   stageId: opaqueIdSchema,
+  anchorColumnId: opaqueIdSchema,
+  anchorKind: z.enum(['root', 'activeRelatedRecord']),
+  anchorNodeId: opaqueIdSchema,
+  anchorResourceType: opaqueIdSchema,
+  anchorLabel: z.string().min(1),
   complete: z.boolean(),
   truncated: z.boolean(),
   nextCursor: opaqueIdSchema.optional(),
