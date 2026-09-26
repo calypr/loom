@@ -463,6 +463,24 @@ func TestReceiptContractSupportedForExecutionOnlyCurrentAndPrevious(t *testing.T
 	if !ReceiptContractSupportedForExecution(r) {
 		t.Fatal("current receipt was not executable")
 	}
+	r.CompilerContractVersion = legacyCompilationReceiptV17CompilerContractVersion
+	r.CompilationKey, _ = CompilationKey(r)
+	r.ID, _ = ReceiptID(r)
+	if err := r.Validate(); err != nil {
+		t.Fatalf("v17 receipt must remain readable for recompile: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("v17 receipt with stale list schema was executable")
+	}
+	r.CompilerContractVersion = legacyCompilationReceiptV16CompilerContractVersion
+	r.CompilationKey, _ = CompilationKey(r)
+	r.ID, _ = ReceiptID(r)
+	if err := r.Validate(); err != nil {
+		t.Fatalf("v16 receipt must remain readable for recompile: %v", err)
+	}
+	if ReceiptContractSupportedForExecution(r) {
+		t.Fatal("v16 receipt with stale list schema was executable")
+	}
 	r.ReceiptFormatVersion = previousCompilationReceiptFormatVersion
 	r.CompilerContractVersion = previousCompilationReceiptCompilerContractVersion
 	if !ReceiptContractSupportedForExecution(r) {

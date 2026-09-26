@@ -105,12 +105,17 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 			if kind == "" {
 				kind = expression.KindString
 			}
+			cardinality := expression.RequiredOne
+			switch strings.ToUpper(strings.TrimSpace(pivot.ProjectionMode)) {
+			case "ALL", "DISTINCT":
+				cardinality = expression.Many
+			}
 			for _, column := range pivot.Columns {
 				name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
 				if alias, ok := pivot.ColumnAliases[column]; ok {
 					name = prefix + alias
 				}
-				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(expression.RequiredOne), true, pivot.Discovered, nil)
+				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
 			}
 		}
 		for _, ownerRecords := range node.OwnerRecords {
@@ -142,7 +147,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				column = CompiledOutputColumn{Name: projection.Name, SemanticPath: "recipe:" + output.Name + "/" + projection.Name, Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Nullable: true}
 			}
 			if projection.Expression != nil {
-				if column.Cardinality == string(expression.RequiredOne) && projection.Expression.Cardinality == ir.PhysicalArrayCardinality {
+				if projection.Expression.Cardinality == ir.PhysicalArrayCardinality && column.Cardinality != string(expression.Many) {
 					column.Cardinality = string(expression.Many)
 					column.Nullable = true
 				}
