@@ -395,6 +395,14 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 		prior[column.ColumnID] = column.Column
 	}
 	for stepIndex, step := range document.Construction.Steps {
+		nextAuthored := make(map[string]authoredOutputColumn, len(step.Outputs))
+		for _, output := range step.Outputs {
+			if prior[output.ID] == output.Name {
+				if metadata, exists := authored[output.Name]; exists {
+					nextAuthored[output.Name] = metadata
+				}
+			}
+		}
 		addOutput := func(outputColumnID, constructionID string, inputIDs []string, quality constructedOutputQuality) error {
 			if strings.TrimSpace(constructionID) == "" {
 				return fmt.Errorf("steps[%d] has no construction identity", stepIndex)
@@ -413,20 +421,60 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if _, exists := prior[outputColumnID]; exists {
 				return fmt.Errorf("step %q reuses existing output column ID %q", step.ID, outputColumnID)
 			}
-			if _, duplicate := authored[output.Name]; duplicate {
+			if _, duplicate := nextAuthored[output.Name]; duplicate {
 				return fmt.Errorf("construction output %q is duplicated for document %q", output.Name, document.Output.ID)
 			}
 			inputColumns, err := constructionInputNames(prior, inputIDs)
 			if err != nil {
 				return fmt.Errorf("step %q output %q: %w", step.ID, output.Name, err)
 			}
-			authored[output.Name] = authoredOutputColumn{
+			nextAuthored[output.Name] = authoredOutputColumn{
 				ConstructionID: constructionID, Label: output.Label,
 				InputColumns: inputColumns, Quality: quality,
 			}
 			return nil
 		}
 		switch step.Operation.Kind {
+		case authoringv2.ConstructionOperationGroup:
+			if step.Operation.Group == nil {
+				return fmt.Errorf("group step %q has no operation payload", step.ID)
+			}
+			group := step.Operation.Group
+			quality := constructedOutputQuality{
+				StructuralSuitability: "requires-review",
+				LossReasons:           []string{"TABLE_SHAPE_GROUP_CHANGES_ROW_GRAIN"},
+			}
+			for _, key := range group.Keys {
+				if err := addOutput(key.OutputColumnID, group.ConstructionID, []string{key.InputColumnID}, quality); err != nil {
+					return err
+				}
+			}
+			for _, aggregate := range group.Aggregates {
+				inputs := []string(nil)
+				if aggregate.Operation != authoringv2.ConstructionGroupCountRows {
+					inputs = []string{aggregate.InputColumnID}
+				}
+				if err := addOutput(aggregate.OutputColumnID, group.ConstructionID, inputs, quality); err != nil {
+					return err
+				}
+			}
+		case authoringv2.ConstructionOperationExpand:
+			if step.Operation.Expand == nil {
+				return fmt.Errorf("expand step %q has no operation payload", step.ID)
+			}
+			expand := step.Operation.Expand
+			quality := constructedOutputQuality{
+				StructuralSuitability: "requires-review",
+				LossReasons:           []string{"TABLE_SHAPE_EXPAND_CHANGES_ROW_GRAIN"},
+			}
+			if err := addOutput(expand.OutputColumnID, expand.ConstructionID, []string{expand.InputColumnID}, quality); err != nil {
+				return err
+			}
+			if expand.OrdinalColumnID != "" {
+				if err := addOutput(expand.OrdinalColumnID, expand.ConstructionID, []string{expand.InputColumnID}, quality); err != nil {
+					return err
+				}
+			}
 		case authoringv2.ConstructionOperationDerive:
 			if step.Operation.Derive == nil {
 				return fmt.Errorf("derive step %q has no operation payload", step.ID)
@@ -511,13 +559,13 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			}
 			for _, output := range step.Outputs {
 				if output.ID == related.OutputColumnID {
-					metadata := authored[output.Name]
+					metadata := nextAuthored[output.Name]
 					metadata.NodeID = related.Source.NodeID
 					metadata.CandidateID = related.Source.CandidateID
 					metadata.OccurrenceID = related.SourceOccurrenceID
 					metadata.SourceResourceType = related.Source.ResourceType
 					metadata.SourcePath = related.Source.Path
-					authored[output.Name] = metadata
+					nextAuthored[output.Name] = metadata
 					break
 				}
 			}
@@ -535,11 +583,11 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			}
 			for _, output := range step.Outputs {
 				if output.ID == related.RelatedRecordColumnID {
-					metadata := authored[output.Name]
+					metadata := nextAuthored[output.Name]
 					metadata.NodeID = related.TargetNodeID
 					metadata.SourceResourceType = related.TargetResourceType
 					metadata.SourcePath = "id"
-					authored[output.Name] = metadata
+					nextAuthored[output.Name] = metadata
 					break
 				}
 			}
@@ -557,12 +605,12 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			}
 			for _, output := range step.Outputs {
 				if output.ID == related.OutputColumnID {
-					metadata := authored[output.Name]
+					metadata := nextAuthored[output.Name]
 					metadata.NodeID = related.Source.NodeID
 					metadata.CandidateID = related.Source.CandidateID
 					metadata.SourceResourceType = related.Source.ResourceType
 					metadata.SourcePath = related.Source.Path
-					authored[output.Name] = metadata
+					nextAuthored[output.Name] = metadata
 					break
 				}
 			}
@@ -578,6 +626,10 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 				return fmt.Errorf("step %q output schema duplicates column ID %q", step.ID, output.ID)
 			}
 			next[output.ID] = output.Name
+		}
+		clear(authored)
+		for name, metadata := range nextAuthored {
+			authored[name] = metadata
 		}
 		prior = next
 	}

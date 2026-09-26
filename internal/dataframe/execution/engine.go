@@ -491,11 +491,20 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 			bindings: resolved.Semantic.SemanticPlan.Bindings.Clone(),
 			stageID:  compiledFinalStageID(output.Plan), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema),
 		}
-		// Group rows are a terminal source rather than a root scan; their query
-		// limit bounds output directly and cannot use root-key paging.
-		terminalGroupRows := len(output.Plan.Operations) == 1 &&
+		// Aggregation must see the full input before the output row limit applies.
+		wholeInput := len(output.Plan.Operations) == 1 &&
 			output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
-		if e.rootPageRows > 0 && !terminalGroupRows {
+		for _, operation := range output.Plan.Operations {
+			if operation.Kind == ir.PhysicalGroupedPivotOp {
+				wholeInput = true
+			}
+		}
+		for _, stage := range output.Stages {
+			if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) {
+				wholeInput = true
+			}
+		}
+		if e.rootPageRows > 0 && !wholeInput {
 			page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, e.rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 			if pageErr != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)

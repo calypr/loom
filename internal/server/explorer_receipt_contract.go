@@ -451,10 +451,9 @@ func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[strin
 func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescriptor) (explorer.ReceiptConstructionStage, error) {
 	stage := explorer.ReceiptConstructionStage{
 		ID: descriptor.ID, InputStageID: descriptor.InputStageID, Operation: descriptor.Operation,
-		RowIdentityColumn:    descriptor.RowIdentityColumn,
-		Columns:              make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
-		Capabilities:         make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
-		RelatedExpandAnchors: make([]explorer.ReceiptConstructionRelatedExpandAnchor, 0, len(descriptor.RelatedExpandAnchors)),
+		RowIdentityColumn: descriptor.RowIdentityColumn,
+		Columns:           make([]explorer.ReceiptConstructionStageColumn, 0, len(descriptor.Columns)),
+		Capabilities:      make([]explorer.ReceiptConstructionOperationChoice, 0, len(descriptor.Capabilities)),
 	}
 	for _, anchor := range descriptor.RelatedExpandAnchors {
 		stage.RelatedExpandAnchors = append(stage.RelatedExpandAnchors, explorer.ReceiptConstructionRelatedExpandAnchor{

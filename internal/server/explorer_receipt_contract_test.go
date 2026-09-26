@@ -186,6 +186,24 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 }
 
+func TestConstructionStageWithoutRelatedAnchorsSurvivesReceiptJSON(t *testing.T) {
+	stage, err := receiptConstructionStageFromDescriptor(lower.CompiledStageDescriptor{ID: "group", Operation: "GROUP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored explorer.ReceiptConstructionStage
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(stage, stored) {
+		t.Fatalf("stage changed across receipt JSON: before=%#v after=%#v", stage, stored)
+	}
+}
+
 func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
