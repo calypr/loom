@@ -371,6 +371,7 @@ const BuilderWorkspaceContent = ({
   const [populationVariantPending, setPopulationVariantPending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
+  const [tableCreatorOpen, setTableCreatorOpen] = useState(false);
   const [firstTableProgress, setFirstTableProgress] =
     useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
@@ -1185,6 +1186,7 @@ const BuilderWorkspaceContent = ({
     pendingCommands > 0 ||
     reconcileStatus.isLoading ||
     previewStatus.isLoading ||
+    firstTableProgress.kind === 'running' ||
     constructionProposalBusy ||
     publishing ||
     createStatus.isLoading ||
@@ -1210,30 +1212,13 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.proposal.status !== 'idle' ||
     state.tables.some((candidate) => candidate.document.columns.length === 0);
 
-  const addTableNamed = (value: string) => {
-    const title = value.trim();
-    if (!title) return;
-    const outputId = opaqueId('output');
-    dispatch({
-      type: 'addTable',
-      table: {
-        outputId,
-        tabId: opaqueId('tab'),
-        title,
-        document: {
-          kind: 'ExplorerBuilderDocument',
-          output: { id: outputId, title },
-          rootResourceType: '',
-          route: { occurrenceId: 'base', resourceType: '' },
-          rows: { kind: 'RECORDS', records: {} },
-          columns: [],
-        },
-      },
-    });
-  };
   const addTable = () => {
-    const title = window.prompt('Table name')?.trim();
-    if (title) addTableNamed(title);
+    if (
+      firstTableActionPending.current ||
+      latestState.current.tables.length === 0
+    ) return;
+    if (!tableCreatorOpen) setFirstTableName('');
+    setTableCreatorOpen(true);
   };
   const duplicateTable = () => {
     if (!table) return;
@@ -1578,6 +1563,7 @@ const BuilderWorkspaceContent = ({
     const root = current.catalog.nodes.find((node) => node.nodeId === nodeId);
     if (!root || !current.catalog.snapshotToken) return;
 
+    let tableCreated = false;
     firstTableActionPending.current = true;
     setFirstTableProgress({
       kind: 'running',
@@ -1630,6 +1616,8 @@ const BuilderWorkspaceContent = ({
         setMessage(`Loom could not create a ${root.resourceType} table.`);
         return;
       }
+      tableCreated = true;
+      setFirstTableName('');
 
       if (plan.kind === 'root-only') {
         const reason = plan.reason === 'CATALOG_UNAVAILABLE'
@@ -1679,8 +1667,8 @@ const BuilderWorkspaceContent = ({
         limit: previewLimit,
         receiptRefreshes: 0,
       }, receipt.receiptId);
-      setFirstTableName('');
     } finally {
+      if (tableCreated) setTableCreatorOpen(false);
       firstTableActionPending.current = false;
       setFirstTableProgress({ kind: 'idle' });
     }
@@ -2232,6 +2220,67 @@ const BuilderWorkspaceContent = ({
           ? 'error'
           : currentPreviewStatus;
   const workspacePreviewProposalId = candidatePreview?.receiptId ?? proposalResponse?.proposalId;
+  const tableCreatorPanel = (
+    <section className="rounded-xl border border-blue-200 bg-white px-6 py-8 shadow-sm">
+      <h2 className="text-xl font-semibold text-slate-900">
+        {state.tables.length === 0 ? 'Build your first table' : 'Build another table'}
+      </h2>
+      <p className="mt-2 max-w-xl text-sm text-slate-600">
+        Choose a populated record type. Loom will add its direct ID column and
+        load a preview. The table name is optional.
+      </p>
+      <div className="mt-5 max-w-sm">
+        <label className="block text-sm font-medium text-slate-800" htmlFor="first-table-name">
+          Table name (optional)
+        </label>
+        <input
+          id="first-table-name"
+          value={firstTableName}
+          onChange={(event) => setFirstTableName(event.currentTarget.value)}
+          placeholder="Defaults to the record type"
+          disabled={firstTableProgress.kind === 'running'}
+          className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500 disabled:bg-slate-100"
+        />
+      </div>
+      <div className="mt-5 max-w-3xl">
+        <RowRootPicker
+          catalog={state.catalog}
+          disabled={
+            pendingCommands > 0 ||
+            state.reconciliation === 'pending' ||
+            firstTableProgress.kind === 'running'
+          }
+          onChoose={(nodeId) => void createFirstTableFromRoot(nodeId)}
+        />
+      </div>
+      {firstTableProgress.kind === 'running' ? (
+        <p role="status" className="mt-4 text-sm text-blue-800">
+          {firstTableProgress.phase === 'checking'
+            ? `Checking ${firstTableProgress.resourceType} fields…`
+            : firstTableProgress.phase === 'creating'
+              ? `Creating ${firstTableProgress.resourceType} table…`
+              : firstTableProgress.phase === 'adding-id'
+                ? 'Adding the ID column…'
+                : 'Loading the preview…'}
+        </p>
+      ) : null}
+      {state.tables.length > 0 ? (
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            disabled={firstTableProgress.kind === 'running'}
+            onClick={() => {
+              setTableCreatorOpen(false);
+              setFirstTableName('');
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
 
   return (
     <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
@@ -2293,56 +2342,10 @@ const BuilderWorkspaceContent = ({
             onCancel={() => setPendingRowChange(undefined)}
           />
         ) : null}
-        {state.tables.length === 0 ? (
-          <section className="rounded-xl border border-blue-200 bg-white px-6 py-12 text-center shadow-sm">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Build your first table
-            </h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm text-slate-600">
-              Choose a populated record type. Loom will add its direct ID column
-              and load a preview. You can rename the table later.
-            </p>
-            <div className="mx-auto mt-5 max-w-sm text-left">
-              <label className="block text-sm font-medium text-slate-800" htmlFor="first-table-name">
-                Table name (optional)
-              </label>
-              <input
-                id="first-table-name"
-                value={firstTableName}
-                onChange={(event) =>
-                  setFirstTableName(event.currentTarget.value)
-                }
-                placeholder="Defaults to the record type"
-                disabled={firstTableProgress.kind === 'running'}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500 disabled:bg-slate-100"
-              />
-            </div>
-            <div className="mx-auto mt-6 max-w-3xl text-left">
-              <RowRootPicker
-                catalog={state.catalog}
-                disabled={
-                  pendingCommands > 0 ||
-                  state.reconciliation === 'pending' ||
-                  firstTableProgress.kind === 'running'
-                }
-                onChoose={(nodeId) => void createFirstTableFromRoot(nodeId)}
-              />
-            </div>
-            {firstTableProgress.kind === 'running' ? (
-              <p role="status" className="mt-4 text-sm text-blue-800">
-                {firstTableProgress.phase === 'checking'
-                  ? `Checking ${firstTableProgress.resourceType} fields…`
-                  : firstTableProgress.phase === 'creating'
-                    ? `Creating ${firstTableProgress.resourceType} table…`
-                    : firstTableProgress.phase === 'adding-id'
-                      ? 'Adding the ID column…'
-                      : 'Loading the first preview…'}
-              </p>
-            ) : null}
-          </section>
-        ) : (
+        {state.tables.length === 0 ? tableCreatorPanel : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
+            {tableCreatorOpen ? tableCreatorPanel : null}
             {table ? (
               <ConstructionWorkspace
                 tables={state.tables.map((candidate) => ({
@@ -2350,7 +2353,12 @@ const BuilderWorkspaceContent = ({
                   title: candidate.title,
                 }))}
                 selectedOutputId={table.outputId}
-                tableActionsDisabled={pendingCommands > 0 || publishing || constructionLifecycle.proposal.status === 'applying'}
+                tableActionsDisabled={
+                  pendingCommands > 0 ||
+                  publishing ||
+                  firstTableProgress.kind === 'running' ||
+                  constructionLifecycle.proposal.status === 'applying'
+                }
                 onSelectTable={(outputId) => {
                   selectConstructionHistory({ kind: 'source' });
                   dispatch({ type: 'selectTable', outputId });

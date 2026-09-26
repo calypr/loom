@@ -1145,4 +1145,210 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(reconcile).not.toHaveBeenCalled();
     expect(previewBuilder).not.toHaveBeenCalled();
   });
+
+  it('creates a new table from the inline row picker and previews its verified ID', async () => {
+    const patientIdColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
+      column: 'id',
+      label: 'Patient id',
+      logicalType: 'string',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+      table: { visible: true },
+    };
+    const specimenIdColumn: ExplorerBuilderWorkspace['documents'][number]['columns'][number] = {
+      column: 'specimen_id',
+      label: 'Specimen id',
+      logicalType: 'string',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+      table: { visible: true },
+    };
+    const existingWorkspace = initialPatientWorkspace('Patients', [patientIdColumn]);
+    const specimenCatalog: ExplorerBuilderCatalog = {
+      ...catalog,
+      nodes: [
+        ...catalog.nodes,
+        {
+          nodeId: 'specimen-node',
+          resourceType: 'Specimen',
+          rowRootEligible: true,
+          populated: true,
+          documentCount: 12,
+        },
+      ],
+      candidates: [fieldCandidate('patient-id', 'patient-node', 'Patient', 'id')],
+    };
+    const workspaceWithNewTable: ExplorerBuilderWorkspace = {
+      ...existingWorkspace,
+      documents: [
+        ...existingWorkspace.documents,
+        {
+          ...existingWorkspace.documents[0]!,
+          output: { id: 'specimens', title: 'Specimen review' },
+          rootResourceType: 'Specimen',
+          route: { occurrenceId: 'base', resourceType: 'Specimen' },
+          columns: [],
+        },
+      ],
+      tabs: [
+        ...existingWorkspace.tabs,
+        {
+          id: 'specimens-tab',
+          title: 'Specimen review',
+          outputId: 'specimens',
+          order: 1,
+          visible: true,
+        },
+      ],
+    };
+    const workspaceWithSpecimenId: ExplorerBuilderWorkspace = {
+      ...workspaceWithNewTable,
+      documents: workspaceWithNewTable.documents.map((document) =>
+        document.output.id === 'specimens'
+          ? { ...document, columns: [specimenIdColumn] }
+          : document,
+      ),
+    };
+    const suggestion = fieldCandidate('specimen-id', 'specimen-node', 'Specimen', 'id');
+    const getSuggestions = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue({
+        apiVersion,
+        kind: 'ExplorerBuilderCandidateSuggestions',
+        snapshotToken: 'snapshot-1',
+        nodeId: 'specimen-node',
+        candidates: [suggestion],
+        diagnostics: [],
+      }),
+    });
+    (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue([
+      getSuggestions,
+      { isLoading: false },
+    ]);
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: {
+        ...builderState,
+        workspace: existingWorkspace,
+        catalog: specimenCatalog,
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+
+    applyExplorerCommands.mockImplementation((request: {
+      readonly commands: ReadonlyArray<ExplorerBuilderCommand>;
+    }) => ({
+      unwrap: vi.fn().mockImplementation(async () => {
+        const command = request.commands[0];
+        if (command?.type === 'CREATE_TABLE') {
+          return {
+            commandId: 'create-specimen-table',
+            workspace: workspaceWithNewTable,
+            draftVersion: 2,
+            draftDigest: 'sha256:draft-2',
+            results: [{ type: 'TABLE_CREATED', outputId: 'specimens', occurrenceId: 'base' }],
+            diagnostics: [],
+          };
+        }
+        return {
+          commandId: 'add-specimen-id',
+          workspace: workspaceWithSpecimenId,
+          draftVersion: 3,
+          draftDigest: 'sha256:draft-3',
+          results: [{ type: 'COLUMN_ADDED', outputId: 'specimens', occurrenceId: 'base', column: 'specimen_id' }],
+          diagnostics: [],
+        };
+      }),
+    }));
+
+    const preview: ExplorerBuilderPreviewResult = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      receiptId: 'specimen-receipt',
+      outputId: 'specimens',
+      columns: [{
+        column: 'specimen_id',
+        label: 'Specimen id',
+        logicalType: 'string',
+        filterable: true,
+        chartable: false,
+      }],
+      rows: [{ specimen_id: 'specimen-1' }],
+      rowCount: 1,
+      diagnostics: [],
+    };
+    const reconcile = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue({
+        apiVersion,
+        kind: 'ExplorerBuilderReceipt',
+        receiptId: 'specimen-receipt',
+        snapshotToken: 'snapshot-1',
+        builder: workspaceWithSpecimenId,
+        outputs: [{ outputId: 'specimens', columns: preview.columns }],
+        diagnostics: [],
+      } satisfies ExplorerBuilderCompileResult),
+    });
+    (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+      reconcile,
+      { isLoading: false },
+    ]);
+    const previewBuilder = vi.fn().mockReturnValue({
+      unwrap: vi.fn().mockResolvedValue(preview),
+    });
+    (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+      previewBuilder,
+      { isLoading: false },
+    ]);
+    const browserPrompt = vi.spyOn(window, 'prompt').mockReturnValue('Unexpected prompt');
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('construction-new-table'));
+    fireEvent.click(screen.getByTestId('construction-new-table'));
+    expect(screen.getAllByRole('region', { name: 'Choose row type' })).toHaveLength(1);
+    expect(applyExplorerCommands).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Table name (optional)' }), {
+      target: { value: 'Specimen review' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Specimen rows' }));
+
+    await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
+    expect(browserPrompt).not.toHaveBeenCalled();
+    browserPrompt.mockRestore();
+    expect(getSuggestions).toHaveBeenCalledWith(expect.objectContaining({
+      snapshotToken: 'snapshot-1',
+      nodeId: 'specimen-node',
+    }));
+    expect(applyExplorerCommands.mock.calls.map(([request]) =>
+      (request as { readonly commands: ReadonlyArray<ExplorerBuilderCommand> }).commands[0]?.type,
+    )).toEqual(['CREATE_TABLE', 'ADD_COLUMN']);
+    expect(applyExplorerCommands.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      commands: [{ type: 'CREATE_TABLE', title: 'Specimen review', rootNodeId: 'specimen-node' }],
+    }));
+    expect(applyExplorerCommands.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      commands: [{
+        type: 'ADD_COLUMN',
+        outputId: 'specimens',
+        occurrenceId: 'base',
+        candidateId: 'specimen-id',
+        projectionMode: 'VALUE',
+        initialPresentation: 'TABLE',
+        title: 'Specimen ID',
+      }],
+    }));
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(previewBuilder).toHaveBeenCalledWith(expect.objectContaining({
+      receiptId: 'specimen-receipt',
+      outputId: 'specimens',
+      limit: 25,
+    }));
+    expect(screen.getByTestId('construction-table-patients')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-table-specimens')).toBeInTheDocument();
+    expect(await screen.findByText('specimen-1')).toBeInTheDocument();
+  });
 });
