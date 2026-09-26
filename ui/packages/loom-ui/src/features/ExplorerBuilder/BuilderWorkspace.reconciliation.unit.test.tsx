@@ -604,11 +604,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Table name'), {
+    fireEvent.change(screen.getByLabelText('Table name (optional)'), {
       target: { value: 'Patient features' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Create table' }));
-
     expect(await screen.findByText('What should one row represent?')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Change rows' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
