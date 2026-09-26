@@ -53,9 +53,14 @@ columns source now uses stage-bound scalar choices. A saved Observation
 ClickHouse; another field proposed from that result retained the row count.
 The browser showed the exact-record source, applicable preview, and editable
 saved step. The Arango oracle covered FILTER-preserved terminal identity and
-scoped lookup. Onward traversal from the terminal record, contributor trace,
-expansion predicates in the UI, repeated-field policies, and same-proposal
-predecessor creation remain open; small-fixture timings do not close P08.
+scoped lookup. Onward traversal now offers compiler-proven original and active
+record anchors. Observation → Specimen preview returned three rows in 150 ms;
+Patient → Observation sibling preview returned five in 120 ms. The browser
+previewed the onward route and reopened its saved anchor, route, policy, and
+column. ClickHouse publication returned the same three onward rows and distinct
+row IDs, and `make verify-fast` passed. Contributor trace, expansion predicates
+in the UI, repeated-field policies, and same-proposal predecessor creation
+remain open; small-fixture timings do not close P08.
 
 - [ ] Close the [full plan audit](PLAN_AUDIT.md) against the current source, not the earlier `arch/integration` inventory. No listed failure case can remain only as prose without an owner and an executable or browser check.
 - [x] Checkpoint A: stage-local related source, sparse contributor evidence, exact preview, save, ClickHouse publication, and editable reopening on one real path.
