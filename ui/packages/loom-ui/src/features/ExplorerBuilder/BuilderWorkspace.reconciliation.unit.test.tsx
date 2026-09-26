@@ -55,6 +55,7 @@ vi.mock('../../react', () => ({
 vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({
     onPreview,
+    onReview,
     onPublish,
     onSelectTable,
     tables,
@@ -64,6 +65,7 @@ vi.mock('./components/BuilderToolbar', () => ({
     busy,
   }: {
     readonly onPreview: () => void;
+    readonly onReview: () => void;
     readonly onPublish: () => void;
     readonly onSelectTable: (outputId: string) => void;
     readonly tables: ReadonlyArray<{ readonly outputId: string }>;
@@ -79,6 +81,9 @@ vi.mock('./components/BuilderToolbar', () => ({
         onClick={onPreview}
       >
         Preview
+      </button>
+      <button type="button" onClick={onReview}>
+        Review dataset
       </button>
       <button
         type="button"
@@ -886,7 +891,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  it('does not reconcile a hydrated draft until Preview requests a receipt', async () => {
+  it('opens Review on a hydrated draft with a compile receipt and sample without clicking Preview', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -895,10 +900,10 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    const previewButton = await screen.findByRole('button', {
-      name: 'Preview',
+    const reviewButton = await screen.findByRole('button', {
+      name: 'Review dataset',
     });
-    await waitFor(() => expect(previewButton).toBeEnabled());
+    await waitFor(() => expect(reviewButton).toBeEnabled());
     await waitFor(() => expect(resolveContext).toHaveBeenCalledTimes(1));
     expect(resolveContext).toHaveBeenCalledWith({
       project: 'HTAN_INT/BForePC',
@@ -910,10 +915,30 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     }, expect.any(AbortSignal));
     expect(reconcile).not.toHaveBeenCalled();
 
-    fireEvent.click(previewButton);
+    preview.mockReturnValueOnce(
+      resolvedRequest({
+        apiVersion,
+        kind: 'ExplorerBuilderPreview',
+        receiptId: 'receipt-1',
+        outputId: 'specimens',
+        columns: receipt.outputs[0].columns,
+        rows: [{ specimen_identifier: 'SP-1' }],
+        rowCount: 1,
+        diagnostics: [],
+      }),
+    );
+    fireEvent.click(reviewButton);
 
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Compiler result matches the saved draft.')).toBeTruthy();
+    expect(await screen.findByText(/Preview returned 1 sample rows/)).toBeTruthy();
+
+    fireEvent.click(reviewButton);
+    await waitFor(() => expect(screen.queryByText('Compiler result matches the saved draft.')).toBeNull());
+    fireEvent.click(reviewButton);
+    expect(await screen.findByText('Compiler result matches the saved draft.')).toBeTruthy();
+    expect(preview).toHaveBeenCalledTimes(1);
   });
 
   it('clears an interrupted attached-selection load when switching tables', async () => {

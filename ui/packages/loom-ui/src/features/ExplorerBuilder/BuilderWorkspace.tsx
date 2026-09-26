@@ -1890,7 +1890,11 @@ const BuilderWorkspaceContent = ({
       onDeleteTable={deleteSelectedTable}
       onReorderTable={reorderTable}
       onPreview={() => void preview()}
-      onReview={() => setReviewOpen((open) => !open)}
+      onReview={() => {
+        const open = !reviewOpen;
+        setReviewOpen(open);
+        if (open && !previewIsCurrent) void preview();
+      }}
       reviewExpanded={reviewOpen}
       onPublish={() => void publish()}
       previewDisabled={previewDisabled}
