@@ -58,6 +58,11 @@ import {
 } from './authoring/model';
 import { builderAuthoringReducer } from './authoring/reducer';
 import {
+  planInitialTable,
+  type InitialTableCandidateEvidence,
+  type InitialTablePlan,
+} from './authoring/initialTablePlan';
+import {
   isPreviewResponseSizeError,
   previewRecoveryAction,
   type PreviewLimit,
@@ -220,6 +225,14 @@ type InterpretationContextLoad =
   | { readonly key: string; readonly status: 'ready'; readonly response: ConfiguredColumnContextResponse }
   | { readonly key: string; readonly status: 'error'; readonly message: string };
 
+type FirstTableProgress =
+  | { readonly kind: 'idle' }
+  | {
+      readonly kind: 'running';
+      readonly resourceType: string;
+      readonly phase: 'checking' | 'creating' | 'adding-id' | 'previewing';
+    };
+
 const builderDataKeyFor = (
   ownerKey: string,
   value: {
@@ -358,6 +371,8 @@ const BuilderWorkspaceContent = ({
   const [populationVariantPending, setPopulationVariantPending] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [firstTableName, setFirstTableName] = useState('');
+  const [firstTableProgress, setFirstTableProgress] =
+    useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [activeConstructionFamily, setActiveConstructionFamily] =
@@ -387,6 +402,7 @@ const BuilderWorkspaceContent = ({
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
+  const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
@@ -504,7 +520,7 @@ const BuilderWorkspaceContent = ({
     (table) => !table.document.rootResourceType,
   );
 
-  const applyCommands = useCallback(
+  const applyCommandsWithResult = useCallback(
     (commands: ReadonlyArray<ExplorerBuilderCommand>) => {
       compileGeneration.current += 1;
       previewGeneration.current += 1;
@@ -535,9 +551,14 @@ const BuilderWorkspaceContent = ({
             revisionId: value.previousDraftRevisionId,
           });
           serverDraftKey.current = builderDataKey;
-          dispatch({ type: 'commandsApplied', value });
+          const next = builderAuthoringReducer(latestState.current, {
+            type: 'commandsApplied',
+            value,
+          });
+          latestState.current = next;
+          setLocalState({ key: builderDataKey, value: next });
           setMessage(undefined);
-          return true;
+          return value;
         } catch (error) {
           const apiError = error as ExplorerAuthoringApiError;
           if (
@@ -554,7 +575,7 @@ const BuilderWorkspaceContent = ({
                 diagnostics: diagnosticsFromError(apiError),
               });
             }
-            return false;
+            return undefined;
           }
           if (apiError.code !== 'CLIENT_CANCELLED') {
             dispatch({
@@ -562,7 +583,7 @@ const BuilderWorkspaceContent = ({
               diagnostics: diagnosticsFromError(apiError),
             });
           }
-          return false;
+          return undefined;
         } finally {
           setPendingCommands((value) => Math.max(0, value - 1));
         }
@@ -579,6 +600,11 @@ const BuilderWorkspaceContent = ({
       refetchBuilder,
       syncBuilderData,
     ],
+  );
+  const applyCommands = useCallback(
+    (commands: ReadonlyArray<ExplorerBuilderCommand>) =>
+      applyCommandsWithResult(commands).then(Boolean),
+    [applyCommandsWithResult],
   );
 
   useDirtyBeforeUnload(state.dirty);
@@ -1546,6 +1572,120 @@ const BuilderWorkspaceContent = ({
     ],
   );
 
+  const createFirstTableFromRoot = async (nodeId: string) => {
+    if (firstTableActionPending.current) return;
+    const current = latestState.current;
+    const root = current.catalog.nodes.find((node) => node.nodeId === nodeId);
+    if (!root || !current.catalog.snapshotToken) return;
+
+    firstTableActionPending.current = true;
+    setFirstTableProgress({
+      kind: 'running',
+      resourceType: root.resourceType,
+      phase: 'checking',
+    });
+    try {
+      let evidence: InitialTableCandidateEvidence = { kind: 'unavailable' };
+      try {
+        const value = await getSuggestions({
+          project: projectId,
+          explorerId: current.explorerId,
+          authResourcePath,
+          snapshotToken: current.catalog.snapshotToken,
+          nodeId: root.nodeId,
+          requestId: `first-table-suggestions-${window.crypto.randomUUID()}`,
+        }).unwrap();
+        if (
+          value.snapshotToken === current.catalog.snapshotToken &&
+          value.nodeId === root.nodeId
+        ) {
+          evidence = { kind: 'available', candidates: value.candidates };
+        }
+      } catch {
+        // A root table is still useful when Loom cannot prove an identity field.
+      }
+
+      const plan: InitialTablePlan = planInitialTable(
+        root,
+        firstTableName,
+        evidence,
+      );
+      setFirstTableProgress({
+        kind: 'running',
+        resourceType: root.resourceType,
+        phase: 'creating',
+      });
+      const created = await applyCommandsWithResult([{
+        type: 'CREATE_TABLE',
+        title: plan.title,
+        rootNodeId: plan.root.nodeId,
+      }]);
+      const createdTable = created?.results.find(
+        (result) =>
+          result.type === 'TABLE_CREATED' &&
+          Boolean(result.outputId) &&
+          Boolean(result.occurrenceId),
+      );
+      if (!createdTable?.outputId || !createdTable.occurrenceId) {
+        setMessage(`Loom could not create a ${root.resourceType} table.`);
+        return;
+      }
+
+      if (plan.kind === 'root-only') {
+        const reason = plan.reason === 'CATALOG_UNAVAILABLE'
+          ? 'Loom could not verify a safe identity column from the current catalog.'
+          : plan.reason === 'AMBIGUOUS_DIRECT_ID'
+            ? 'Loom found more than one executable direct ID field.'
+            : 'Loom did not find a direct scalar string ID field.';
+        setMessage(
+          `${plan.title} was created with ${root.resourceType} rows. ${reason} Add a column to preview the table.`,
+        );
+        return;
+      }
+
+      setFirstTableProgress({
+        kind: 'running',
+        resourceType: root.resourceType,
+        phase: 'adding-id',
+      });
+      const added = await applyCommandsWithResult([{
+        type: 'ADD_COLUMN',
+        outputId: createdTable.outputId,
+        occurrenceId: createdTable.occurrenceId,
+        candidateId: plan.candidate.candidateId,
+        projectionMode: 'VALUE',
+        initialPresentation: 'TABLE',
+        title: `${root.resourceType} ID`,
+      }]);
+      if (!added) {
+        setMessage(
+          `${plan.title} was created, but Loom could not add the catalog-verified ID column. Review the Builder diagnostics and try again.`,
+        );
+        return;
+      }
+
+      setFirstTableProgress({
+        kind: 'running',
+        resourceType: root.resourceType,
+        phase: 'previewing',
+      });
+      const receipt = await reconcileCurrent();
+      if (!receipt) {
+        setMessage(`${plan.title} was created, but Loom could not compile its first preview.`);
+        return;
+      }
+      await executePreview({
+        outputId: createdTable.outputId,
+        limit: previewLimit,
+        receiptRefreshes: 0,
+      }, receipt.receiptId);
+      setFirstTableName('');
+    } finally {
+      firstTableActionPending.current = false;
+      setFirstTableProgress({ kind: 'idle' });
+    }
+  };
+
   const preview = async (limit: PreviewLimit = previewLimit) => {
     if (!table || previewDisabled) return;
     const request = {
@@ -2171,23 +2311,15 @@ const BuilderWorkspaceContent = ({
         {state.tables.length === 0 ? (
           <section className="rounded-xl border border-blue-200 bg-white px-6 py-12 text-center shadow-sm">
             <h2 className="text-xl font-semibold text-slate-900">
-              Create your first table
+              Build your first table
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm text-slate-600">
-              Name the table, choose its starting resource in the dataset graph,
-              then select the columns you want to publish.
+              Choose a populated record type. Loom will add its direct ID column
+              and load a preview. You can rename the table later.
             </p>
-            <form
-              className="mx-auto mt-6 flex max-w-lg flex-col gap-2 sm:flex-row"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!firstTableName.trim()) return;
-                addTableNamed(firstTableName);
-                setFirstTableName('');
-              }}
-            >
-              <label className="sr-only" htmlFor="first-table-name">
-                Table name
+            <div className="mx-auto mt-5 max-w-sm text-left">
+              <label className="block text-sm font-medium text-slate-800" htmlFor="first-table-name">
+                Table name (optional)
               </label>
               <input
                 id="first-table-name"
@@ -2195,18 +2327,33 @@ const BuilderWorkspaceContent = ({
                 onChange={(event) =>
                   setFirstTableName(event.currentTarget.value)
                 }
-                placeholder="Table name, e.g. Patients"
-                autoFocus
-                className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500"
+                placeholder="Defaults to the record type"
+                disabled={firstTableProgress.kind === 'running'}
+                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-blue-500 focus:border-blue-500 disabled:bg-slate-100"
               />
-              <button
-                type="submit"
-                disabled={!firstTableName.trim()}
-                className="rounded-md bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Create table
-              </button>
-            </form>
+            </div>
+            <div className="mx-auto mt-6 max-w-3xl text-left">
+              <RowRootPicker
+                catalog={state.catalog}
+                disabled={
+                  pendingCommands > 0 ||
+                  state.reconciliation === 'pending' ||
+                  firstTableProgress.kind === 'running'
+                }
+                onChoose={(nodeId) => void createFirstTableFromRoot(nodeId)}
+              />
+            </div>
+            {firstTableProgress.kind === 'running' ? (
+              <p role="status" className="mt-4 text-sm text-blue-800">
+                {firstTableProgress.phase === 'checking'
+                  ? `Checking ${firstTableProgress.resourceType} fields…`
+                  : firstTableProgress.phase === 'creating'
+                    ? `Creating ${firstTableProgress.resourceType} table…`
+                    : firstTableProgress.phase === 'adding-id'
+                      ? 'Adding the ID column…'
+                      : 'Loading the first preview…'}
+              </p>
+            ) : null}
           </section>
         ) : (
           <>

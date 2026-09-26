@@ -22,6 +22,9 @@ import type {
   ConstructionProposalResponse,
   ExplorerBuilderCandidate,
   ExplorerBuilderCatalog,
+  ExplorerBuilderCommand,
+  ExplorerBuilderCompileResult,
+  ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
 } from '../../types';
@@ -69,10 +72,6 @@ vi.mock('./components/GuidedGraphWorkspace', () => ({
   ),
 }));
 vi.mock('./components/ColumnSelector', () => ({ ColumnSelector: () => null }));
-vi.mock('./components/PreviewTable', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./components/PreviewTable')>();
-  return { ...actual, PreviewTable: () => null };
-});
 vi.mock('./components/DataframeContractPanel', () => ({ DataframeContractPanel: () => null }));
 vi.mock('./components/PopulationPanel', () => ({ PopulationPanel: () => null }));
 vi.mock('./components/RowChangeRepairPanel', () => ({ RowChangeRepairPanel: () => null }));
@@ -272,6 +271,139 @@ const mutationResult = () => [
   vi.fn().mockReturnValue({ unwrap: vi.fn().mockResolvedValue({}) }),
   { isLoading: false },
 ];
+
+const initialPatientWorkspace = (
+  title: string,
+  columns: ExplorerBuilderWorkspace['documents'][number]['columns'] = [],
+): ExplorerBuilderWorkspace => ({
+  ...workspace,
+  documents: [{
+    ...workspace.documents[0]!,
+    output: { id: 'patients', title },
+    rootResourceType: 'Patient',
+    route: { occurrenceId: 'base', resourceType: 'Patient' },
+    columns,
+  }],
+  tabs: [{ id: 'patients-tab', title, outputId: 'patients', order: 0, visible: true }],
+});
+
+const configureInitialTableFlow = (
+  applyExplorerCommands: Mock,
+  candidates: ReadonlyArray<ExplorerBuilderCandidate>,
+) => {
+  (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+    data: {
+      ...builderState,
+      lifecycleState: 'NEW',
+      draftVersion: 0,
+      draftDigest: '',
+      workspace: null,
+      catalog: { ...catalog, candidates: [] },
+    },
+    isLoading: false,
+    refetch: vi.fn(),
+  });
+
+  applyExplorerCommands.mockImplementation((request: {
+    readonly commands: ReadonlyArray<ExplorerBuilderCommand>;
+  }) => ({
+    unwrap: vi.fn().mockImplementation(async () => {
+      const command = request.commands[0];
+      if (command?.type === 'CREATE_TABLE') {
+        return {
+          commandId: 'create-patient-table',
+          workspace: initialPatientWorkspace(command.title ?? 'Patient'),
+          draftVersion: 1,
+          draftDigest: 'sha256:draft-1',
+          results: [{ type: 'TABLE_CREATED', outputId: 'patients', occurrenceId: 'base' }],
+          diagnostics: [],
+        };
+      }
+      return {
+        commandId: 'add-patient-id',
+        workspace: initialPatientWorkspace('CDA Patients', [{
+          column: 'id',
+          label: 'Patient id',
+          logicalType: 'string',
+          occurrenceId: 'base',
+          source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+          table: { visible: true },
+        }]),
+        draftVersion: 2,
+        draftDigest: 'sha256:draft-2',
+        results: [{ type: 'COLUMN_ADDED', outputId: 'patients', occurrenceId: 'base', column: 'id' }],
+        diagnostics: [],
+      };
+    }),
+  }));
+
+  const getSuggestions = vi.fn().mockReturnValue({
+    unwrap: vi.fn().mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderCandidateSuggestions',
+      snapshotToken: 'snapshot-1',
+      nodeId: 'patient-node',
+      candidates,
+      diagnostics: [],
+    }),
+  });
+  (useGetExplorerCandidateSuggestionsV2Mutation as Mock).mockReturnValue([
+    getSuggestions,
+    { isLoading: false },
+  ]);
+
+  const preview: ExplorerBuilderPreviewResult = {
+    apiVersion,
+    kind: 'ExplorerBuilderPreview',
+    receiptId: 'receipt-1',
+    outputId: 'patients',
+    columns: [{
+      column: 'id',
+      label: 'Patient id',
+      logicalType: 'string',
+      filterable: true,
+      chartable: false,
+    }],
+    rows: [{ id: 'patient-1' }],
+    rowCount: 1,
+    diagnostics: [],
+  };
+  const compile: ExplorerBuilderCompileResult = {
+    apiVersion,
+    kind: 'ExplorerBuilderReceipt',
+    receiptId: 'receipt-1',
+    snapshotToken: 'snapshot-1',
+    builder: initialPatientWorkspace('CDA Patients', [{
+      column: 'id',
+      label: 'Patient id',
+      logicalType: 'string',
+      occurrenceId: 'base',
+      source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+      table: { visible: true },
+    }]),
+    outputs: [{
+      outputId: 'patients',
+      columns: preview.columns,
+    }],
+    diagnostics: [],
+  };
+  const reconcile = vi.fn().mockReturnValue({
+    unwrap: vi.fn().mockResolvedValue(compile),
+  });
+  (useReconcileExplorerBuilderV2Mutation as Mock).mockReturnValue([
+    reconcile,
+    { isLoading: false },
+  ]);
+  const previewBuilder = vi.fn().mockReturnValue({
+    unwrap: vi.fn().mockResolvedValue(preview),
+  });
+  (usePreviewExplorerAuthoringV2Mutation as Mock).mockReturnValue([
+    previewBuilder,
+    { isLoading: false },
+  ]);
+
+  return { getSuggestions, reconcile, previewBuilder };
+};
 
 describe('BuilderWorkspace Add columns source selection', () => {
   let applyExplorerCommands: Mock;
@@ -939,5 +1071,78 @@ describe('BuilderWorkspace Add columns source selection', () => {
         proposalId: 'edit-related-proposal',
       }],
     })));
+  });
+
+  it('creates a populated row type with its direct ID and renders the first preview', async () => {
+    const { getSuggestions, reconcile, previewBuilder } = configureInitialTableFlow(
+      applyExplorerCommands,
+      [fieldCandidate('patient-id', 'patient-node', 'Patient', 'id')],
+    );
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox', { name: 'Table name (optional)' }), {
+      target: { value: 'CDA Patients' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
+
+    await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
+    expect(getSuggestions).toHaveBeenCalledWith(expect.objectContaining({
+      snapshotToken: 'snapshot-1',
+      nodeId: 'patient-node',
+    }));
+    expect(applyExplorerCommands.mock.calls.map(([request]) =>
+      (request as { readonly commands: ReadonlyArray<ExplorerBuilderCommand> }).commands[0]?.type,
+    )).toEqual(['CREATE_TABLE', 'ADD_COLUMN']);
+    expect(applyExplorerCommands.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      commands: [{ type: 'CREATE_TABLE', title: 'CDA Patients', rootNodeId: 'patient-node' }],
+    }));
+    expect(applyExplorerCommands.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      commands: [{
+        type: 'ADD_COLUMN',
+        outputId: 'patients',
+        occurrenceId: 'base',
+        candidateId: 'patient-id',
+        projectionMode: 'VALUE',
+        initialPresentation: 'TABLE',
+        title: 'Patient ID',
+      }],
+    }));
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(previewBuilder).toHaveBeenCalledWith(expect.objectContaining({
+      receiptId: 'receipt-1',
+      outputId: 'patients',
+      limit: 25,
+    }));
+    expect(await screen.findByText('patient-1')).toBeInTheDocument();
+  });
+
+  it('creates a root table and explains when the catalog has no executable direct ID', async () => {
+    const { reconcile, previewBuilder } = configureInitialTableFlow(
+      applyExplorerCommands,
+      [fieldCandidate('patient-name', 'patient-node', 'Patient', 'name')],
+    );
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
+
+    expect(await screen.findByText(/Patient was created with Patient rows/)).toBeInTheDocument();
+    expect(applyExplorerCommands).toHaveBeenCalledOnce();
+    expect(applyExplorerCommands.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      commands: [{ type: 'CREATE_TABLE', title: 'Patient', rootNodeId: 'patient-node' }],
+    }));
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(previewBuilder).not.toHaveBeenCalled();
   });
 });
