@@ -14,6 +14,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	if sequence == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("physical construction stage sequence is required")
 	}
+	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
 	source, err := RenderPhysicalPlan(sourcePlan)
@@ -45,7 +46,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	}
 	lines = append(lines, ")")
 	priorRows := constructionSourceVariable
-	for index, stage := range sequence.Stages {
+	for index, stage := range stages {
 		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
 		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
 		if stage.Kind == ir.PhysicalStageGroupOp {
@@ -177,6 +178,111 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+}
+
+// pruneUnusedRelatedOutputsForCountRows keeps row-changing stages intact and
+// drops only related values that later supported stages cannot read.
+func pruneUnusedRelatedOutputsForCountRows(sequence *ir.PhysicalStageSequence) []ir.PhysicalConstructionStage {
+	stages := append([]ir.PhysicalConstructionStage(nil), sequence.Stages...)
+	if sequence.CellTraceReturn != nil || len(stages) < 2 {
+		return stages
+	}
+	terminal := stages[len(stages)-1]
+	if terminal.ID != sequence.FinalStageID || terminal.Kind != ir.PhysicalStageGroupOp || terminal.Group == nil ||
+		len(terminal.Group.Keys) != 0 || !constructionGroupCountsOnlyRows(terminal.Group) {
+		return stages
+	}
+
+	for index := 0; index < len(stages)-1; index++ {
+		columnID := ""
+		switch stages[index].Kind {
+		case ir.PhysicalStageRelatedSourceOp:
+			if stages[index].RelatedSource != nil {
+				columnID = stages[index].RelatedSource.OutputColumnID
+			}
+		case ir.PhysicalStageRelatedFieldOp:
+			if stages[index].RelatedField != nil {
+				columnID = stages[index].RelatedField.OutputColumnID
+			}
+		}
+		if columnID == "" {
+			continue
+		}
+
+		sawRelatedExpand := false
+		unused := true
+		for downstream := index + 1; downstream < len(stages)-1; downstream++ {
+			stage := stages[downstream]
+			switch stage.Kind {
+			case ir.PhysicalStageRelatedSourceOp:
+				if stage.RelatedSource == nil || columnID == stage.RelatedSource.AnchorColumnID {
+					unused = false
+				}
+			case ir.PhysicalStageRelatedFieldOp:
+				activeRecordID := ""
+				if stage.RelatedField != nil {
+					activeRecordID = stageInputColumnID(stage, stage.RelatedField.ActiveRecordColumn)
+				}
+				if stage.RelatedField == nil || activeRecordID == "" || columnID == activeRecordID {
+					unused = false
+				}
+			case ir.PhysicalStageRelatedExpandOp:
+				if stage.RelatedExpand == nil {
+					unused = false
+				} else {
+					sawRelatedExpand = true
+					if columnID == stage.RelatedExpand.AnchorColumnID || columnID == stage.RelatedExpand.ParentIdentityColumnID {
+						unused = false
+					}
+				}
+			default:
+				unused = false
+			}
+			if !unused {
+				break
+			}
+		}
+		if !unused || !sawRelatedExpand {
+			continue
+		}
+
+		for downstream := index; downstream < len(stages)-1; downstream++ {
+			stage := &stages[downstream]
+			outputIDs := make(map[string]string, len(stage.OutputColumns))
+			for _, column := range stage.OutputColumns {
+				outputIDs[column.Name] = column.ID
+			}
+			projections := make([]ir.PhysicalProjection, 0, len(stage.OutputProjections))
+			for _, projection := range stage.OutputProjections {
+				if outputIDs[projection.Name] != columnID {
+					projections = append(projections, projection)
+				}
+			}
+			stage.OutputProjections = projections
+		}
+	}
+	return stages
+}
+
+func stageInputColumnID(stage ir.PhysicalConstructionStage, name string) string {
+	for _, column := range stage.InputColumns {
+		if column.Name == name {
+			return column.ID
+		}
+	}
+	return ""
+}
+
+func constructionGroupCountsOnlyRows(group *ir.PhysicalStageGroup) bool {
+	if len(group.Aggregates) == 0 {
+		return false
+	}
+	for _, aggregate := range group.Aggregates {
+		if aggregate.Operation != "COUNT_ROWS" {
+			return false
+		}
+	}
+	return true
 }
 
 func appendIndented(target, rendered []string) []string {
