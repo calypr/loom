@@ -36,7 +36,7 @@ export const familyPresentation = (family: ConstructionOperationFamily): {
     case 'ADD_COLUMNS':
       return { title: 'Add columns', introduction: 'Bring more information into each row.' };
     case 'KEEP_ROWS':
-      return { title: 'Keep rows', introduction: 'Choose which records belong in this table.' };
+      return { title: 'Filter rows', introduction: 'Choose which rows appear in the table output.' };
     case 'CALCULATE':
       return { title: 'Calculate', introduction: 'Create new values using columns in this table.' };
     case 'RESHAPE':

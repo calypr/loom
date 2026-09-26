@@ -22,7 +22,7 @@ describe('ConstructionWorkspace', () => {
 
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
-      ['KEEP_ROWS', 'Keep rows'],
+      ['KEEP_ROWS', 'Filter rows'],
       ['RESHAPE', 'Reshape'],
     ] as const;
     for (const [family, label] of actions) {
@@ -159,7 +159,7 @@ describe('ConstructionWorkspace', () => {
       { id: 'height', name: 'height', label: 'Height', type: 'decimal' },
     ])).toEqual([
       { id: 'derive_bmi', title: 'Calculate', summary: 'BMI = Weight ÷ Height.', editable: true },
-      { id: 'filter_bmi', title: 'Keep rows', summary: 'Keep rows where BMI is at least 25.', editable: true },
+      { id: 'filter_bmi', title: 'Filter rows', summary: 'Filter output rows where BMI is at least 25.', editable: true },
     ]);
   });
 

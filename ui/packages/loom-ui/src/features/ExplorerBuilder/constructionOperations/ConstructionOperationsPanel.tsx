@@ -130,25 +130,25 @@ const intentionsFor = (args: {
         {
           value: { family, intent: 'MATCH_CONDITIONS' },
           label: 'Match conditions',
-          description: 'Keep rows that satisfy rules about their values.',
-          availability: unavailable('Rows in this table cannot be filtered by their values here yet.'),
+          description: 'Filter output rows by rules about their values.',
+          availability: unavailable('Filtering output rows by their values is not available in this panel yet.'),
         },
         {
           value: { family, intent: 'MATCH_RELATED' },
           label: 'Match related records',
-          description: 'Keep rows based on the presence or contents of related records.',
-          availability: unavailable('This table cannot yet keep rows based on matching related records.'),
+          description: 'Filter output rows based on matching related records.',
+          availability: unavailable('This table cannot yet filter output rows based on matching related records.'),
         },
         {
           value: { family, intent: 'REMOVE_DUPLICATES' },
           label: 'Remove duplicates',
-          description: 'Keep one row for each chosen combination of values.',
-          availability: unavailable('This table cannot yet keep one row per chosen combination of values.'),
+          description: 'Filter duplicate output rows, keeping one row for each chosen combination of values.',
+          availability: unavailable('This table cannot yet filter duplicate output rows.'),
         },
         {
           value: { family, intent: 'KEEP_RANKED' },
-          label: 'Keep ranked rows',
-          description: 'Keep a chosen number of rows, overall or within each group.',
+          label: 'Filter ranked rows',
+          description: 'Choose how many output rows to keep, overall or within each group.',
           availability: unavailable('This table cannot yet rank rows or choose what to do with ties.'),
         },
       ];

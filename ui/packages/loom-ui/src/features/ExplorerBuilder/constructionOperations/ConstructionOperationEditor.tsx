@@ -713,9 +713,10 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   }
 
   return (
-    <section aria-label="Keep rows by condition" data-testid="construction-filter-editor" className="grid gap-4">
+    <section aria-label="Filter output rows by condition" data-testid="construction-filter-editor" className="grid gap-4">
       <header>
-        <h3 className="font-semibold text-slate-900">Keep rows that match</h3>
+        <h3 className="font-semibold text-slate-900">Filter output rows</h3>
+        <p className="mt-1 text-sm text-slate-600">These conditions filter which rows appear in the table output. Contributor rules still determine which source records supply values to each row.</p>
         <p className="mt-1 text-sm text-slate-600">Add one typed condition at a time. Saved conditions are applied in order, so every condition must match.</p>
       </header>
 

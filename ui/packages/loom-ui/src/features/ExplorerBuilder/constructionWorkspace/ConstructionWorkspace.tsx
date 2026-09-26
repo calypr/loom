@@ -40,8 +40,8 @@ const allOperationFamilies = [
   },
   {
     family: 'KEEP_ROWS',
-    label: 'Keep rows',
-    description: 'Keep records that meet conditions.',
+    label: 'Filter rows',
+    description: 'Choose which rows appear in the table output.',
   },
   {
     family: 'CALCULATE',

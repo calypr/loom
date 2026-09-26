@@ -65,7 +65,7 @@ export const ConstructionColumnSelection = ({
               onClick={() => onOpenFamily('KEEP_ROWS')}
               className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              Keep rows
+              Filter rows
             </button>
             <button
               type="button"

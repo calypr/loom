@@ -1455,6 +1455,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(screen.getByTestId('construction-source-setup')).not.toHaveAttribute('open');
     expect(screen.getByTestId('construction-action-add-columns')).toBeInTheDocument();
     expect(screen.getByTestId('construction-action-keep-rows')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-action-keep-rows')).toHaveTextContent('Filter rows');
     expect(screen.getByTestId('construction-action-reshape')).toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
@@ -1467,6 +1468,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     expect(selectedColumn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByTestId('construction-selection-calculate')).not.toBeInTheDocument();
     const keepRowsShortcut = screen.getByTestId('construction-selection-keep-rows');
+    expect(keepRowsShortcut).toHaveTextContent('Filter rows');
     expect(keepRowsShortcut.tagName).toBe('BUTTON');
     keepRowsShortcut.focus();
     expect(document.activeElement).toBe(keepRowsShortcut);

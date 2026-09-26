@@ -159,6 +159,10 @@ describe('construction operation families', () => {
       expect(presentation.title.trim()).not.toBe('');
       expect(presentation.introduction.trim()).not.toBe('');
     }
+    expect(familyPresentation('KEEP_ROWS')).toEqual({
+      title: 'Filter rows',
+      introduction: 'Choose which rows appear in the table output.',
+    });
   });
 
   it('states why stage-level row operations are unavailable and retains selected input context', () => {
@@ -169,7 +173,8 @@ describe('construction operation families', () => {
     fireEvent.click(within(moreOptions).getByText('See more options'));
     const unavailable = within(screen.getByTestId('construction-operation-unavailable'));
     expect(unavailable.getByText('Match conditions')).toBeDisabled();
-    expect(unavailable.getByText(/cannot be filtered by their values/)).toBeInTheDocument();
+    expect(unavailable.getByText('Filter output rows by rules about their values.')).toBeInTheDocument();
+    expect(unavailable.getByText(/filtering output rows by their values is not available/i)).toBeInTheDocument();
     expect(unavailable.getByText(/cannot yet rank rows or choose what to do with ties/)).toBeInTheDocument();
 
     const inputs = within(screen.getByTestId('construction-operation-selected-inputs'));

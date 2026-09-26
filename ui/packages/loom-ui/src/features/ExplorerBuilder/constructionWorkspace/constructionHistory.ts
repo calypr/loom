@@ -95,8 +95,8 @@ const formatStep = (
       const suffix = values.length > 0 ? ` ${values.join(', ')}` : '';
       return {
         id: step.id,
-        title: 'Keep rows',
-        summary: `Keep rows where ${columnLabel(filter.columnId)} ${operators[filter.operator]}${suffix}.`,
+        title: 'Filter rows',
+        summary: `Filter output rows where ${columnLabel(filter.columnId)} ${operators[filter.operator]}${suffix}.`,
         editable: true,
       };
     }

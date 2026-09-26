@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLoomClient } from '../../../api';
 import {
@@ -109,6 +109,12 @@ describe('ConstructionOperationEditor', () => {
   it('builds a typed equals filter from a compiler-returned column and clears preview intent when incomplete', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ family: 'KEEP_ROWS', onCandidateChange });
+
+    const editor = screen.getByTestId('construction-filter-editor');
+    expect(editor).toHaveAttribute('aria-label', 'Filter output rows by condition');
+    expect(within(editor).getByRole('heading', { name: 'Filter output rows' })).toBeInTheDocument();
+    expect(editor).toHaveTextContent(/filter which rows appear in the table output/i);
+    expect(editor).toHaveTextContent(/contributor rules still determine which source records supply values to each row/i);
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Value' }), { target: { value: '21' } });
     const complete = onCandidateChange.mock.lastCall?.[0];
