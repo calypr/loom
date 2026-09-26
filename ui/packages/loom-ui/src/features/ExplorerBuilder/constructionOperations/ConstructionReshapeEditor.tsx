@@ -1037,11 +1037,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotSupport = capabilityFor(stage, 'PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
   const expandColumns = listColumnsFor(stage);
-  const expandReason = !expandSupport.supported
-    ? expandSupport.reason
-    : expandColumns.length === 0
-      ? 'No field with multiple values is available at this stage.'
-      : '';
+  const expandReason = expandColumns.length === 0
+    ? 'Add a column with multiple values before expanding it.'
+    : expandSupport.supported ? '' : expandSupport.reason;
   const newPivotSupport = props.onDiscoverCategories
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
@@ -1100,7 +1098,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-4">
       <header>
         <h3 className="font-semibold text-slate-900">Change the table shape</h3>
-        <p className="mt-1 text-sm text-slate-600">Choose what each new row represents, then set the columns to keep.</p>
+        <p className="mt-1 text-sm text-slate-600">Choose a change below. Each option shows what happens to rows and columns.</p>
       </header>
 
       {savedSteps.length > 0 ? (
@@ -1134,11 +1132,12 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
       {!editingStep && form.kind !== 'unsupported' ? (
         <fieldset className="grid gap-2">
-          <legend className="mb-1 text-sm font-semibold text-slate-800">Choose a reshape</legend>
+          <legend className="mb-1 text-sm font-semibold text-slate-800">Choose how rows and columns change</legend>
           <ReshapeChoice
             testId="construction-reshape-choice-group"
             title="Summarize into groups"
-            description="Make one row for each selected group and calculate summaries. With no group fields, make one summary row for the whole table."
+            rows="One row per group, or one row for the whole table."
+            columns="Keep the group fields and add counts or summaries of selected fields."
             supported={groupSupport.supported}
             reason={groupSupport.reason}
             selected={form.kind === 'group'}
@@ -1148,7 +1147,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
             title="Expand a repeated value"
-            description="Make a separate row for each item in a list. Choose what happens to rows with empty lists."
+            rows="One row per item in a selected list. Choose how empty lists behave."
+            columns="Replace the list with its item; optionally add the item's position."
             supported={expandSupport.supported}
             reason={expandReason}
             selected={form.kind === 'expand'}
@@ -1158,7 +1158,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-related-expand"
             title="Expand related records"
-            description="Make one row per distinct record on a supported relationship path."
+            rows="One row per related record found for each current row. Choose how no matches behave."
+            columns="Keep current columns and add the related record ID."
             supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
             reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
             selected={form.kind === 'related-expand'}
@@ -1168,7 +1169,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-pivot"
             title="Turn categories into columns"
-            description="Choose group fields, a category field, and values to fill one column per category."
+            rows="Combine rows that share the selected group fields."
+            columns="Add one column for each accepted category, filled from a selected value field."
             supported={newPivotSupport.supported}
             reason={newPivotSupport.reason}
             selected={form.kind === 'pivot'}
@@ -1178,7 +1180,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-unpivot"
             title="Turn columns into rows"
-            description="Choose columns with the same meaning and give each column a key in the new rows."
+            rows="Make one row for each selected column's value."
+            columns="Replace those columns with a source-name column and a value column."
             supported={unpivotSupport.supported}
             reason={unpivotSupport.reason}
             selected={form.kind === 'unpivot'}
@@ -1260,7 +1263,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 const ReshapeChoice = (props: {
   readonly testId: string;
   readonly title: string;
-  readonly description: string;
+  readonly rows: string;
+  readonly columns: string;
   readonly supported: boolean;
   readonly reason: string;
   readonly selected: boolean;
@@ -1273,10 +1277,11 @@ const ReshapeChoice = (props: {
     aria-pressed={props.selected}
     disabled={props.disabled || !props.supported}
     onClick={props.onChoose}
-    className="grid gap-1 rounded-lg border border-slate-200 p-3 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50"
+    className={`grid gap-1 rounded-lg border p-3 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${props.selected ? 'border-blue-700 bg-blue-50' : 'border-slate-200'}`}
   >
     <span className="text-sm font-semibold text-slate-900">{props.title}</span>
-    <span className="text-sm text-slate-600">{props.description}</span>
+    <span className="text-sm text-slate-600"><strong className="font-medium text-slate-800">Rows:</strong> {props.rows}</span>
+    <span className="text-sm text-slate-600"><strong className="font-medium text-slate-800">Columns:</strong> {props.columns}</span>
     {!props.supported || props.reason ? <span className="text-xs text-amber-900">{props.reason}</span> : null}
   </button>
 );

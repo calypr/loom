@@ -117,7 +117,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.getByText(/With no group fields, make one summary row for the whole table/)).toBeInTheDocument();
+    expect(screen.getByText(/One row per group, or one row for the whole table/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'COUNT_ROWS' } });
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'participant_count' } });

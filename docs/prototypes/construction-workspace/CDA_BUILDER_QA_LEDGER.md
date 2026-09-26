@@ -8,7 +8,7 @@ The browser driver is [`scripts/verify-cda-builder.mjs`](../../../scripts/verify
 | --- | --- | --- | --- | --- |
 | Choose a populated row type | Pass | Pass | Partial | Specimen starts with 742,505 authorized records. Rerun create, edit, and restore from a fresh Explorer. |
 | Choose a row type without a safe ID | Unrun | Unrun | Unrun | Find a CDA row type without one safe string ID, then test the recovery flow. |
-| Change the row definition | Partial | Unrun | Unrun | Row and empty-record choices now use plain language; 8 focused UI tests pass. A fresh CDA browser preview, Apply, reload, and restoration are still required. |
+| Change the row definition | Fail | Unrun | Unrun | The live BodyStructure chooser exposes six expansion variants on 135 CDA records, but its `includedStructure[]` proposal returned HTTP 422 `INVALID_ROW_DEFINITION: candidate changes authoring fields outside Document.Rows`. The UI shows the error instead of an applicable preview; Apply, reload, and restoration remain. [Row choices](../../../.artifacts/cda-builder/2026-09-26T23-16-06.524Z/bounded-bodystructure-row-choices.json), [error capture](../../../.artifacts/cda-builder/2026-09-26T23-22-58.507Z/bounded-bodystructure-row-proposal.json). |
 | Attach or clear a starting collection | Partial | Unrun | Unrun | The panel is visible, but no CDA selection path has been completed. |
 | Manage tables | Pass | Pass | Pass | New, rename, duplicate, reorder, delete, undo, and reload passed on CDA drafts. |
 | Add a direct scalar field | Pass | Pass | Partial | Visible values match CDA Specimen source records. Edit and remove of that field need one fresh-page rerun. |
@@ -32,7 +32,7 @@ The browser driver is [`scripts/verify-cda-builder.mjs`](../../../scripts/verify
 | Expand related records | Partial | Unrun | Unrun | The editor is exposed; no complete CDA browser path yet. |
 | Turn categories into columns | Partial | Unrun | Unrun | Pivot editor opens with enabled fields. Category discovery, values, Apply, reload, and removal remain. |
 | Turn columns into rows | Partial | Pass | Pass | Two Specimen fields matched source values through proposal, Apply, reload, remove, and restore. The Reshape entry menu remains difficult to understand. |
-| Choose a Reshape operation | Fail | N/A | N/A | Five operations have equal emphasis and technical descriptions. Explain each row and column effect before calling this usable. |
+| Choose a Reshape operation | Partial | N/A | N/A | The five choices now state their row and column effects; the disabled repeated-value choice explains that a list column must be added first. The live [DOM capture](../../../.artifacts/cda-builder/2026-09-26T23-22-29.790Z/reshape-options.json) confirms copy and enabled states. Choosing each operation and completing its own flow remain tracked in the operation rows above. |
 | Preview and diagnostics | Partial | Pass | N/A | Row limits returned expected counts; repair flow and user-perceived preview time need checks. |
 | Review a saved draft | Pass | Pass | N/A | Review now loads a current 25-row sample from a fresh page. |
 | Publish and inspect ClickHouse | Partial | Pass | Pass | The published Specimen table has 742,505 rows and matching sampled values. Browser publish request outlasted the driver; rerun on a bounded CDA output. |

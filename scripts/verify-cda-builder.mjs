@@ -151,6 +151,52 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'row-settings.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.includes('row-definition')||response.path.includes('population'))},null,2));
+  } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Verify bounded BodyStructure row definition') {
+    const resourceType = action.includes('BodyStructure') ? 'BodyStructure' : 'Patient';
+    const tableName = `${resourceType} row choice QA ${Date.now()}`;
+    let created = false;
+    try {
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label=${JSON.stringify(`Choose ${resourceType} rows`)}]:not(:disabled)'))`, 30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label=${JSON.stringify(`Choose ${resourceType} rows`)}]').click();return true;`);
+      created = true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)})`, 30000);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]:not(:disabled)')) && !document.body.innerText.includes('Loading the preview…')`, 120000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
+      await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows');if(!button)throw new Error('Configure rows missing');button.click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
+      const state = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText,options:[...document.querySelector('select[aria-label="New row shape"]').options].map(option=>({value:option.value,label:option.textContent})),tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
+      if (action === 'Verify bounded BodyStructure row definition') {
+        const expanded = state.options.find(option => option.label.includes('Included anatomic location(s)') && option.label.includes('Keep records with no values'));
+        assert(expanded, 'BodyStructure included locations row shape is missing');
+        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(expanded.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
+        state.expandedProposal = await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText,apply:[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition')?.disabled};`);
+        await mkdir(evidenceDirectory,{recursive:true});
+        await writeFile(join(evidenceDirectory,'bounded-bodystructure-row-proposal.json'),JSON.stringify({pageURL,state,responses},null,2));
+        assert.equal(state.expandedProposal.apply, false, 'Row definition proposal is not applicable');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition').click();return true;`);
+        await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"]')`, 60000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 60000);
+        state.expandedPreview = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,4000),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,26).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowSetting:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,350)};`);
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,`bounded-${resourceType.toLowerCase()}-row-choices.json`),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+    } finally {
+      if (created) {
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+      }
+    }
   } else if (action === 'Inspect source setup') {
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open === true`, 30000);
