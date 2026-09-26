@@ -429,7 +429,7 @@ func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, req
 				ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
 				LogicalType: proved.LogicalType,
 			},
-			Operators: operators, SuggestedValues: append([]string(nil), proved.SuggestedValues...),
+			Operators: operators, SuggestedValues: append([]string{}, proved.SuggestedValues...),
 			SuggestionsComplete: proved.SuggestionsComplete, SuggestionsTruncated: proved.SuggestionsTruncated,
 			SuggestionsSource: "catalog",
 		})

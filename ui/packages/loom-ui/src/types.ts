@@ -1860,6 +1860,7 @@ export const relatedExpandContributorSearchResponseSchema = z.object({
     operators: z.array(z.enum(['EXISTS', 'EQUALS'])).min(1),
     suggestedValues: z.array(z.string()),
     suggestionsComplete: z.boolean(),
+    suggestionsTruncated: z.boolean(),
     suggestionsSource: z.literal('catalog'),
   }).strict()).max(50),
 }).strict().superRefine((value, context) => {

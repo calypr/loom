@@ -23,6 +23,13 @@ const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomU
 const routeLabel = (choice: RouteChoice): string =>
   choice.route.map((hop) => `${hop.toResourceType} via ${hop.relationship}`).join(' → ');
 
+const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly name: string }>): string => {
+  const used = new Set(columns.map((column) => column.name.toLowerCase()));
+  let name = base;
+  for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
+  return name;
+};
+
 const choicesMatchRequest = (
   result: RelatedExpandChoiceSearchResponse,
   snapshotToken: string,
@@ -168,7 +175,7 @@ export const RelatedExpandEditor = ({
     const savedChoice: ContributorChoice = {
       choiceId: saved.contributorChoiceId, source, label: source.path,
       operators: source.logicalType === 'string' || source.logicalType === 'code' ? ['EXISTS', 'EQUALS'] : ['EXISTS'],
-      suggestedValues: [], suggestionsComplete: false, suggestionsSource: 'catalog',
+      suggestedValues: [], suggestionsComplete: false, suggestionsTruncated: false, suggestionsSource: 'catalog',
     };
     if (predicate.operator === 'EXISTS') return { kind: 'EXISTS', choice: savedChoice };
     if (predicate.operator === 'EQUALS' && predicate.value) {
@@ -295,7 +302,7 @@ export const RelatedExpandEditor = ({
           setCondition({ kind: 'ALL' });
           setChoices([]);
           setCursor(undefined);
-          const suggested = `related_${target.toLowerCase()}_id`;
+          const suggested = availableColumnName(`related_${target.toLowerCase()}_id`, stage.columns);
           setOutputName(suggested);
           setOutputLabel(`${target} FHIR resource ID`);
           emit(undefined, emptyPolicy, suggested, `${target} FHIR resource ID`);

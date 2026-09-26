@@ -565,6 +565,7 @@ describe('Loom project paths', () => {
         source: { kind: 'FIELD', candidateId: 'status-candidate', nodeId: 'observation-node',
           resourceType: 'Observation', path: 'Observation.status', cardinality: 'optional_one', logicalType: 'string' },
         operators: ['EXISTS', 'EQUALS'], suggestedValues: ['final'], suggestionsComplete: true,
+        suggestionsTruncated: false,
         suggestionsSource: 'catalog',
       }],
     };

@@ -60,6 +60,30 @@ const capabilities: ConstructionCapabilitiesResponse = {
 };
 
 describe('RelatedExpandEditor', () => {
+  it('suggests a unique related-record ID column when a related ID list already exists', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false, choices: [],
+    });
+    const withRelatedList = {
+      ...capabilities,
+      selectedStage: {
+        ...capabilities.selectedStage,
+        columns: [...capabilities.selectedStage.columns, {
+          id: 'related-ids', name: 'related_Encounter_id', label: 'Related Encounter IDs', type: 'string', cardinality: 'many' as const,
+        }],
+      },
+    } satisfies ConstructionCapabilitiesResponse;
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={withRelatedList}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    expect(screen.getByLabelText<HTMLInputElement>('Related FHIR resource ID column').value).toBe('related_encounter_id_2');
+    await screen.findByText('No supported path reaches this record type from these rows.');
+  });
+
   it('does not offer a guessed root anchor when an active record lacks anchor metadata', () => {
     searchRelatedExpandChoices.mockReset();
     const unknown = {
@@ -166,6 +190,7 @@ describe('RelatedExpandEditor', () => {
         source: { kind: 'FIELD', candidateId: 'encounter-status', nodeId: 'encounter-node',
           resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one', logicalType: 'string' },
         operators: ['EXISTS', 'EQUALS'], suggestedValues: ['finished'], suggestionsComplete: true,
+        suggestionsTruncated: false,
         suggestionsSource: 'catalog' }],
     }));
     const onCandidateChange = vi.fn();
