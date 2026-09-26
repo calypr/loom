@@ -503,7 +503,7 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 				LossReasons: []string{"RELATED_SOURCE_AUTHORIZED_MATCHES_ONLY"},
 			}
 			if related.Form != capability.ConstructionChoiceAll {
-				quality.Shape = "scalar"
+				quality.Shape = ""
 				quality.LossReasons = []string{"RELATED_SOURCE_DISTINCT_RECORD_REDUCTION"}
 			}
 			if err := addOutput(related.OutputColumnID, step.ID, nil, quality); err != nil {

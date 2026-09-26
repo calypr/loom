@@ -395,6 +395,48 @@ func TestConstructedOutputProfileRequiresArrayPolicyForManyCardinality(t *testin
 	}
 }
 
+func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		form        capability.ConstructionChoiceForm
+		kind        string
+		cardinality string
+		shape       string
+	}{
+		{name: "list", form: capability.ConstructionChoiceAll, kind: "string", cardinality: "many", shape: "array"},
+		{name: "count", form: capability.ConstructionChoiceCount, kind: "integer", cardinality: "required_one", shape: "scalar"},
+		{name: "presence", form: capability.ConstructionChoicePresence, kind: "boolean", cardinality: "required_one", shape: "scalar"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const columnName = "related_observation"
+			document := authoringv2.Document{
+				Output: authoringv2.Output{ID: "patients"},
+				Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+					ID: "observation-step",
+					Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedSource, RelatedSource: &authoringv2.ConstructionRelatedSource{
+						Form: test.form, OutputColumnID: "observation-column",
+						ContributorRule: authoringv2.ConstructionRelatedContributorRule{Policy: authoringv2.ConstructionRelatedAllMatches},
+					}},
+					Outputs: []authoringv2.StageColumn{{ID: "observation-column", Name: columnName, Label: "Related observation", Type: test.kind}},
+				}}},
+			}
+			authored := map[string]authoredOutputColumn{}
+			if err := authoredConstructionOutputs(document, authored); err != nil {
+				t.Fatal(err)
+			}
+			profile, err := constructedOutputProfileFor(authored[columnName].Quality, lower.CompiledOutputColumn{
+				Name: columnName, Kind: test.kind, Cardinality: test.cardinality,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if profile.Shape != test.shape {
+				t.Fatalf("profile shape = %q, want %q", profile.Shape, test.shape)
+			}
+		})
+	}
+}
+
 func TestAuthoredOutputColumnsRecognizesTypedConstructionOutputs(t *testing.T) {
 	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
 	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}
