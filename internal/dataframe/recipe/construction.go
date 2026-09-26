@@ -112,15 +112,15 @@ type ConstructionRelatedSource struct {
 }
 
 type ConstructionRelatedExpand struct {
-	AnchorColumnID       string
-	ChoiceID             string
-	TargetNodeID         string
-	TargetResourceType   string
-	Route                []ConstructionRelatedRouteStep
+	AnchorColumnID        string
+	ChoiceID              string
+	TargetNodeID          string
+	TargetResourceType    string
+	Route                 []ConstructionRelatedRouteStep
 	ContributorPolicy     string
-	ContributorPredicate *ConstructionRelatedPredicate
-	ContributorSource    *ConstructionRelatedFieldSource
-	ContributorChoiceID  string
+	ContributorPredicate  *ConstructionRelatedPredicate
+	ContributorSource     *ConstructionRelatedFieldSource
+	ContributorChoiceID   string
 	EmptyPolicy           ExpansionEmptyPolicy
 	RelatedRecordColumnID string
 }
@@ -916,6 +916,13 @@ func validConstructionLogicalType(value string) bool {
 	default:
 		return false
 	}
+}
+
+// IsValidConstructionLogicalType reports whether a construction stage can
+// declare this logical type. Explorer capability choices use the same rule so
+// they cannot advertise a type the persisted recipe validator will reject.
+func IsValidConstructionLogicalType(value string) bool {
+	return validConstructionLogicalType(value)
 }
 
 func stageColumnMap(columns []StageColumn) map[string]StageColumn {

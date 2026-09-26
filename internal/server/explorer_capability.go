@@ -574,7 +574,7 @@ func authoringV2Catalog(snapshot capability.Snapshot, explorerID string) authori
 		if err != nil {
 			code := "CONSTRUCTION_CHOICE_UNAVAILABLE"
 			message := "A catalog candidate was omitted because no compiler-proved construction output is available."
-			if !capability.IsSupportedConstructionScalarType(candidate.LogicalType) {
+			if !capability.IsSupportedConstructionSourceType(candidate.LogicalType) {
 				code = "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE"
 				if typeErr := capability.ValidateConstructionSourceType(candidate, snapshot.Candidates); typeErr != nil {
 					message = typeErr.Error()

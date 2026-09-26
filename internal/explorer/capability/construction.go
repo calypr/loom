@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 const ConstructionChoiceIDMaxLength = 16384
@@ -240,21 +242,16 @@ func NewFieldConstructionChoice(snapshotToken string, candidate Candidate) (Cons
 	return NewFieldConstructionChoiceForRoute(snapshotToken, nil, candidate)
 }
 
-// IsSupportedConstructionScalarType reports whether a logical type can be
-// emitted as a scalar construction projection by the recipe compiler.
-func IsSupportedConstructionScalarType(logicalType string) bool {
-	switch strings.ToLower(strings.TrimSpace(logicalType)) {
-	case "string", "integer", "int", "decimal", "float", "boolean", "bool", "date", "date_time", "datetime", "code", "uuid":
-		return true
-	default:
-		return false
-	}
+// IsSupportedConstructionSourceType reports whether the recipe compiler
+// accepts a declared logical type for a source projection.
+func IsSupportedConstructionSourceType(logicalType string) bool {
+	return recipe.IsValidConstructionLogicalType(logicalType)
 }
 
 // ValidateConstructionSourceType rejects values that the recipe compiler
 // cannot emit and, when available, points to the nearest typed child field.
 func ValidateConstructionSourceType(candidate Candidate, candidates []Candidate) error {
-	if IsSupportedConstructionScalarType(candidate.LogicalType) {
+	if IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return nil
 	}
 
@@ -265,7 +262,7 @@ func ValidateConstructionSourceType(candidate Candidate, candidates []Candidate)
 	for _, child := range candidates {
 		childFieldPath := strings.TrimPrefix(strings.TrimSpace(child.FieldPath), "root.")
 		if child.NodeID != candidate.NodeID || child.ResourceType != candidate.ResourceType ||
-			!strings.HasPrefix(childFieldPath, fieldPath+".") || !IsSupportedConstructionScalarType(child.LogicalType) {
+			!strings.HasPrefix(childFieldPath, fieldPath+".") || !IsSupportedConstructionSourceType(child.LogicalType) {
 			continue
 		}
 		if childPath == "" || len(childFieldPath) < len(childPath) || (len(childFieldPath) == len(childPath) && childFieldPath < childPath) {
@@ -413,7 +410,7 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	if err := ValidateConstructionSourceType(candidate, nil); err != nil {
 		return ConstructionChoice{}, err
 	}
-	if !IsSupportedConstructionScalarType(source.LogicalType) {
+	if !IsSupportedConstructionSourceType(source.LogicalType) {
 		return ConstructionChoice{}, fmt.Errorf("semantic source field %s.%s has unsupported logical type %q", source.ResourceType, source.FieldPath, strings.TrimSpace(source.LogicalType))
 	}
 	resolvedValuePath := canonicalPath(source.FieldPath)
@@ -713,7 +710,7 @@ func decodeChoiceJSON(raw []byte, target interface{}) error {
 }
 
 func constructionOptions(candidate Candidate) []ConstructionChoiceOption {
-	if !IsSupportedConstructionScalarType(candidate.LogicalType) {
+	if !IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return nil
 	}
 	options := make([]ConstructionChoiceOption, 0, 4)
@@ -753,7 +750,7 @@ func constructionOptions(candidate Candidate) []ConstructionChoiceOption {
 }
 
 func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteStep) []ConstructionChoiceOption {
-	if !IsSupportedConstructionScalarType(candidate.LogicalType) {
+	if !IsSupportedConstructionSourceType(candidate.LogicalType) {
 		return nil
 	}
 	options := constructionOptions(candidate)

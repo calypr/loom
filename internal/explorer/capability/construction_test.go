@@ -108,8 +108,24 @@ func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing
 	if _, err := NewFieldConstructionChoice("snapshot", candidate); err == nil || !strings.Contains(err.Error(), "Specimen.type.coding[]") {
 		t.Fatalf("unsupported object source was accepted or unexplained: %v", err)
 	}
-	if IsSupportedConstructionScalarType("unknown") || IsSupportedConstructionScalarType("object") || IsSupportedConstructionScalarType("") {
-		t.Fatal("unknown, object, and missing logical types must not be treated as scalar")
+	if IsSupportedConstructionSourceType("unknown") || IsSupportedConstructionSourceType("") ||
+		IsSupportedConstructionSourceType("int") || IsSupportedConstructionSourceType("float") || IsSupportedConstructionSourceType("bool") {
+		t.Fatal("unknown, missing, and unsupported aliases must not be accepted")
+	}
+	for _, logicalType := range []string{"date-time", "number", "object"} {
+		if !IsSupportedConstructionSourceType(logicalType) {
+			t.Errorf("recipe-supported logical type %q was rejected", logicalType)
+		}
+	}
+	objectCandidate := candidate
+	objectCandidate.ID = "explicit-object"
+	objectCandidate.FieldPath = "type.coding[]"
+	objectCandidate.LogicalType = "object"
+	objectCandidate.Cardinality = "optional_one"
+	objectCandidate.ProjectionModes = []ProjectionMode{ProjectionScalar}
+	objectChoice, err := NewFieldConstructionChoice("snapshot", objectCandidate)
+	if err != nil || constructionOption(t, objectChoice, ConstructionChoiceValue).Support != ConstructionChoiceSupported {
+		t.Fatalf("explicitly typed object source choice = %#v, %v", objectChoice, err)
 	}
 }
 
