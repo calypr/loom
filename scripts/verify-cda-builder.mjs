@@ -8,8 +8,20 @@ const explorerId = process.argv[3] ?? 'cda-builder-full-qa-1790439585678';
 const pageURL = `http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const browser = await launchBrowser('/private/tmp');
+if (action === 'Verify related source chooser' || action === 'Inspect selected Patient route') {
+  await browser.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+}
 const responses = [];
 const requests = [];
+const chooseRelatedSource = async (resourceType) => {
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
+  const sources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),key:button.getAttribute('data-source-key'),kind:button.getAttribute('data-source-kind'),selected:button.getAttribute('aria-pressed')==='true',visible:button.offsetParent!==null}));`);
+  const source = sources.find((item) => item.kind === 'RELATED' && item.label?.startsWith(`${resourceType},`));
+  assert(source, `${resourceType} is missing from the visible related source list`);
+  await browserEval(browser.cdp, `document.querySelector('[data-source-key=${JSON.stringify(source.key)}]').click();return true;`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-source-key=${JSON.stringify(source.key)}]')?.getAttribute('aria-pressed')==='true'`, 30000);
+  return { source, sources };
+};
 browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
 });
@@ -37,6 +49,53 @@ try {
     console.log(JSON.stringify({evidenceDirectory,before,after,published,responses:responses.filter(response=>response.path.endsWith('/publish')||response.path.endsWith('/preview'))},null,2));
     assert(published,'Publish did not return');
     assert.equal(published.status,200);
+  } else if (action === 'Edit and remove Patient related column') {
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Output column label"]:not(:disabled)'))`, 30000);
+    const originalLabel=await browserEval(browser.cdp, `return document.querySelector('input[aria-label="Output column label"]').value;`);
+    await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Output column label"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Patient ID QA');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
+    const editedProposal=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,600),disabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+    assert.equal(editedProposal.disabled,false);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='PATIENT ID QA')`, 30000);
+    const edited=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+    for (const row of edited.rows) assert.equal(row.at(-1),row[1]?.replace(/^Patient\//,''));
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
+    const removalProposal=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,600),disabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+    assert.equal(removalProposal.disabled,false);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 30000);
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0 && [...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Preview')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`, 30000);
+    const restored=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+    assert.equal(restored.rows.length,3);
+    assert.equal(restored.rows[0]?.[0],edited.rows[0]?.[0]);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'patient-related-edited-removed.json'),JSON.stringify({pageURL,originalLabel,editedProposal,edited,removalProposal,restored,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,originalLabel,editedProposal,edited,removalProposal,restored,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Inspect saved related step' || action === 'Inspect related edit') {
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+    if (action === 'Inspect related edit') {
+      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+    const state=await browserEval(browser.cdp, `return {text:document.body.innerText.slice(0,4500),controls:[...document.querySelectorAll('[data-testid^="construction-edit-step-"],[data-testid^="construction-remove-step-"],button[aria-label^="Edit"],button[aria-label^="Remove"]')].filter(button=>button.offsetParent!==null).map(button=>({testId:button.getAttribute('data-testid'),label:button.getAttribute('aria-label'),text:button.innerText,disabled:button.disabled}))};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,action === 'Inspect related edit' ? 'related-edit.json' : 'saved-related-step.json'),JSON.stringify({pageURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect published Viewer') {
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Viewer')?.click();return true;`);
     await new Promise(resolve=>setTimeout(resolve,2500));
@@ -398,13 +457,72 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'group-editor.json'),JSON.stringify({pageURL,groupOption,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,groupOption,state,responses},null,2));
+  } else if (action === 'Verify related source chooser') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
+    const before = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-add-columns-source"]');return {text:panel.innerText,buttons:[...panel.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),key:button.dataset.sourceKey,kind:button.dataset.sourceKind,selected:button.getAttribute('aria-pressed')==='true',disabled:button.disabled,visible:button.offsetParent!==null})),search:panel.querySelector('input[type="search"]')?.getAttribute('aria-label')};`);
+    assert(before.buttons.some(button=>button.kind==='ROOT' && button.selected));
+    assert.deepEqual(new Set(before.buttons.filter(button=>button.kind==='RELATED').map(button=>button.label.split(',')[0])), new Set(['Patient','ResearchStudy','Medication','ResearchSubject','Condition','BodyStructure','MedicationAdministration','Observation']));
+    await browserEval(browser.cdp, `const search=document.querySelector('input[aria-label="Search related resources"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'Obser');search.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-source-kind="RELATED"]')].filter(button=>button.offsetParent!==null).length===1`, 30000);
+    const filtered = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].filter(button=>button.offsetParent!==null).map(button=>button.getAttribute('aria-label'));`);
+    const { source } = await chooseRelatedSource('Observation');
+    const after = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-add-columns-source"]');return {selected:[...panel.querySelectorAll('button[aria-pressed="true"]')].map(button=>button.getAttribute('aria-label')),search:panel.querySelector('input[type="search"]')?.value,content:document.querySelector('[aria-label="Add columns editor"]')?.innerText.slice(0,1800)};`);
+    assert.equal(after.search,'');
+    assert(after.selected.some(label=>label.startsWith('Observation,')));
+    await mkdir(evidenceDirectory,{recursive:true});
+    const screenshot = await browser.cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+    await writeFile(join(evidenceDirectory,'related-source-chooser.png'),Buffer.from(screenshot.data,'base64'));
+    await writeFile(join(evidenceDirectory,'related-source-chooser.json'),JSON.stringify({pageURL,before,filtered,source,after,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,filtered,source,after,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Inspect Patient field choice' || action === 'Inspect selected Patient route' || action === 'Inspect Patient proposal' || action === 'Verify Patient related column') {
+    let baseline;
+    if (action === 'Verify Patient related column') {
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
+      baseline = await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+    }
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
+    const { source } = await chooseRelatedSource('Patient');
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select Patient.id"]').click();return true;`);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
+    if (action !== 'Inspect Patient field choice') {
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[type="radio"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id: Keep all matching values"]'))`, 30000);
+    }
+    if (action === 'Inspect Patient proposal' || action === 'Verify Patient related column') {
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="id: Keep all matching values"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[role="dialog"] button:last-child')?.disabled===false`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"] button:last-child').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 60000);
+    }
+    const dialog = await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"]');return dialog ? {text:dialog.innerText,controls:[...dialog.querySelectorAll('input,button')].map(element=>({tag:element.tagName,label:element.getAttribute('aria-label')??element.innerText,disabled:element.disabled,checked:element.checked,value:element.value}))} : null;`);
+    const proposal = action === 'Inspect Patient proposal' || action === 'Verify Patient related column' ? await browserEval(browser.cdp, `return {panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`) : undefined;
+    let saved;
+    if (action === 'Verify Patient related column') {
+      assert.equal(proposal?.applyDisabled,false);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+      await navigate(browser.cdp,pageURL);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='4'`, 30000);
+      saved = await browserEval(browser.cdp, `return {history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText,columns:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      assert.equal(saved.rows.length,3);
+      for (const row of saved.rows) assert.equal(row.at(-1),row[1]?.replace(/^Patient\//,''));
+    }
+    await mkdir(evidenceDirectory,{recursive:true});
+    if (action === 'Inspect selected Patient route') {
+      const screenshot = await browser.cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+      await writeFile(join(evidenceDirectory,'patient-selected-route.png'),Buffer.from(screenshot.data,'base64'));
+    }
+    await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect Observation concepts') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Add columns source"]'))`, 30000);
-    const sources = await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Add columns source"]').options].map(option=>({label:option.textContent,value:option.value}));`);
-    const observation = sources.find(source=>source.label?.startsWith('Observation'));
-    assert(observation);
-    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Add columns source"]');select.value=${JSON.stringify(observation.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    const { source: observation, sources } = await chooseRelatedSource('Observation');
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Concepts on Observation')`, 30000);
     await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading concepts…')`, 30000);
     const state=await browserEval(browser.cdp, `return {text:document.querySelector('[aria-label="Add columns editor"]')?.innerText.slice(-7000)??document.body.innerText.slice(-7000),concepts:[...document.querySelectorAll('input[aria-label^="Select "]')].filter(element=>element.closest('section')?.innerText.includes('Concepts on Observation')).slice(0,30).map(element=>({label:element.getAttribute('aria-label'),disabled:element.disabled}))};`);
@@ -417,10 +535,7 @@ try {
     console.log(JSON.stringify({evidenceDirectory,source:observation,state,responses:responses.filter(response=>response.path.endsWith('/semantic-inventory')),semanticResponseShape:semanticResponses.map(item=>({requestId:item.response.requestId,keys:Object.keys(item.body)}))},null,2));
   } else if (action === 'Apply Observation concept' || action === 'Add Observation concept') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Add columns source"]'))`, 30000);
-    const source=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Add columns source"]').options].find(option=>option.textContent.startsWith('Observation'))?.value;`);
-    assert(source);
-    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Add columns source"]');select.value=${JSON.stringify(source)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    const { source } = await chooseRelatedSource('Observation');
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select primary_disease_type"]:not(:disabled)'))`, 30000);
     await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select primary_disease_type"]').click();return true;`);
     await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='Add 1 selected feature'&&!button.disabled)`, 30000);
@@ -438,10 +553,7 @@ try {
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/construction-choices')||response.path.endsWith('/construction-proposals'))},null,2));
   } else if (action === 'Inspect Observation concept selection') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Add columns source"]'))`, 30000);
-    const source=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Add columns source"]').options].find(option=>option.textContent.startsWith('Observation'))?.value;`);
-    assert(source);
-    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Add columns source"]');select.value=${JSON.stringify(source)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    const { source } = await chooseRelatedSource('Observation');
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select primary_disease_type"]:not(:disabled)'))`, 30000);
     await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select primary_disease_type"]').click();return true;`);
     const state=await browserEval(browser.cdp, `const editor=document.querySelector('[aria-label="Add columns editor"]');return {text:editor?.innerText.slice(-4500),buttons:[...editor.querySelectorAll('button')].filter(button=>button.offsetParent!==null).map(button=>({text:button.innerText.slice(0,90),disabled:button.disabled})).slice(-25),selected:document.querySelector('input[aria-label="Select primary_disease_type"]')?.checked};`);

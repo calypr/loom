@@ -428,6 +428,10 @@ const BuilderWorkspaceContent = ({
     readonly context: string;
     readonly key: string;
   }>();
+  const [addSourceSearch, setAddSourceSearch] = useState<{
+    readonly context: string;
+    readonly query: string;
+  }>({ context: '', query: '' });
   const [constructionHistorySelection, setConstructionHistorySelection] =
     useState<ConstructionHistorySelection>({ kind: 'source' });
   const [editingConstructionStepId, setEditingConstructionStepId] =
@@ -890,6 +894,43 @@ const BuilderWorkspaceContent = ({
       : addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key ??
         addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
   ) ?? addSourceOptions[0];
+  const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
+    if (source.kind === 'RELATED') {
+      counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
+    }
+    return counts;
+  }, new Map<string, number>());
+  const addSourceOptionItems = addSourceOptions.map((source) => {
+    const isCurrentOccurrence = source.sourceNodeId === selectedRouteContext?.nodeId;
+    const label = source.resourceType ?? source.label;
+    const baseDescription = source.kind === 'ROOT'
+      ? 'Current table rows'
+      : source.kind === 'EXACT_RELATED'
+        ? 'Related record for this row'
+        : source.kind === 'SAVED_OCCURRENCE'
+          ? 'Selected occurrence'
+          : isCurrentOccurrence
+            ? 'Related resource, selected occurrence'
+            : 'Related resource';
+    const description = source.kind === 'RELATED' && (relatedSourceTypeCounts.get(source.resourceType) ?? 0) > 1
+      ? `${baseDescription} · source ${source.sourceNodeId}`
+      : baseDescription;
+    return {
+      source,
+      label,
+      description,
+      selected: source.key === selectedAddSource?.key,
+      isRoot: source.kind === 'ROOT',
+    };
+  });
+  const currentRowSourceOptions = addSourceOptionItems.filter((option) => option.isRoot);
+  const relatedSourceOptions = addSourceOptionItems.filter((option) => !option.isRoot);
+  const addSourceSearchQuery = addSourceSearch.context === addSourceContext
+    ? addSourceSearch.query.trim().toLowerCase()
+    : '';
+  const visibleRelatedSourceOptions = relatedSourceOptions.filter(({ source, label }) =>
+    `${label} ${source.label}`.toLowerCase().includes(addSourceSearchQuery),
+  );
   const addSourceRouteContext = selectedAddSource?.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
@@ -2096,26 +2137,91 @@ const BuilderWorkspaceContent = ({
       <div className="p-4">
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
-            <label className="grid gap-1 text-sm font-medium text-slate-800">
-              Source
-              <select
-                aria-label="Add columns source"
-                data-testid="construction-add-columns-source"
-                value={selectedAddSource?.key ?? ''}
-                onChange={(event) => setAddColumnsSource({
-                  context: addSourceContext,
-                  key: event.currentTarget.value,
-                })}
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900"
-              >
-                {addSourceOptions.map((source) => (
-                  <option key={source.key} value={source.key}>{source.label}</option>
-                ))}
-              </select>
-              <span className="font-normal text-slate-600">
-                Choose a source, then Loom checks its route and output forms before adding a column.
-              </span>
-            </label>
+            <fieldset
+              aria-label="Add columns source"
+              data-testid="construction-add-columns-source"
+              className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3"
+            >
+              <legend className="px-1 text-sm font-semibold text-slate-900">
+                Choose a source for columns
+              </legend>
+              <p className="text-xs text-slate-600">
+                Choose a resource type to search. Loom shows matching paths after selection.
+              </p>
+              <div role="group" aria-label="Current row source" className="grid gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Current row source
+                </h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {currentRowSourceOptions.map(({ source, label, description, selected }) => (
+                    <button
+                      key={source.key}
+                      type="button"
+                      aria-label={`${label}, ${description}`}
+                      aria-pressed={selected}
+                      data-testid="construction-add-columns-source-option"
+                      data-source-key={source.key}
+                      data-source-kind={source.kind}
+                      onClick={() => {
+                        setAddColumnsSource({ context: addSourceContext, key: source.key });
+                        setAddSourceSearch({ context: addSourceContext, query: '' });
+                      }}
+                      className={`grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                    >
+                      <span className="font-medium">{label}</span>
+                      <span className="text-xs text-slate-600">{description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {relatedSourceOptions.length > 0 ? (
+                <div role="group" aria-label="Related resources" className="grid gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Related resources
+                  </h3>
+                  {relatedSourceOptions.length >= 6 ? (
+                    <input
+                      type="search"
+                      aria-label="Search related resources"
+                      data-testid="construction-add-columns-source-search"
+                      value={addSourceSearch.context === addSourceContext ? addSourceSearch.query : ''}
+                      onChange={(event) => setAddSourceSearch({
+                        context: addSourceContext,
+                        query: event.currentTarget.value,
+                      })}
+                      placeholder="Search resource types"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    />
+                  ) : null}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {visibleRelatedSourceOptions.map(({ source, label, description, selected }) => (
+                      <button
+                        key={source.key}
+                        type="button"
+                        aria-label={`${label}, ${description}`}
+                        aria-pressed={selected}
+                        data-testid="construction-add-columns-source-option"
+                        data-source-key={source.key}
+                        data-source-kind={source.kind}
+                        onClick={() => {
+                          setAddColumnsSource({ context: addSourceContext, key: source.key });
+                          setAddSourceSearch({ context: addSourceContext, query: '' });
+                        }}
+                        className={`grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                      >
+                        <span className="font-medium">{label}</span>
+                        <span className="text-xs text-slate-600">{description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {visibleRelatedSourceOptions.length === 0 ? (
+                    <p role="status" className="text-sm text-slate-600">
+                      No related resources match this search.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </fieldset>
             {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
               <RelatedFieldEditor
                 key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}

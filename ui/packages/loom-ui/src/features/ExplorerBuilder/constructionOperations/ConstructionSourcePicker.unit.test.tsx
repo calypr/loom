@@ -179,8 +179,8 @@ const renderPanel = (
 describe('Add columns source selection', () => {
   it('drops a saved occurrence when switching to a related node and applies only a server route choice', async () => {
     const choices = [
-      routeChoice('report-via-subject', 'subject'),
-      routeChoice('report-via-encounter', 'encounter'),
+      routeChoice('report-via-subject', 'subject_Patient'),
+      routeChoice('report-via-encounter', 'encounter_DiagnosticReport'),
     ];
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
       const url = String(input);
@@ -212,11 +212,16 @@ describe('Add columns source selection', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select DiagnosticReport.id' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const confirm = within(dialog).getByRole('button', { name: 'Add 1 column' });
+    expect(confirm).toBeDisabled();
     fireEvent.click(within(dialog).getByRole('radio', {
-      name: 'Report identifier route 2: Report through encounter',
+      name: 'Report identifier: Direct relationship: Patient to DiagnosticReport via Encounter',
     }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 selected feature' }));
+    const technicalPath = within(dialog).getAllByText('Technical path details')[1]!;
+    fireEvent.click(technicalPath);
+    expect(within(dialog).getAllByText('This path permits rows with no matching related record.').length).toBeGreaterThan(0);
+    fireEvent.click(confirm);
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'report-via-encounter', form: 'VALUE' },

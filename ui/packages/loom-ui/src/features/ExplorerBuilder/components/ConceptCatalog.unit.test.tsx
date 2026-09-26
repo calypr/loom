@@ -262,7 +262,7 @@ const renderCatalogAtRoute = (
 };
 
 describe('ConceptCatalog', () => {
-  it('searches root fields and concepts, shows compiler forms, and submits only choice IDs and forms', async () => {
+  it('searches root fields and concepts, shows available forms, and submits only choice IDs and forms', async () => {
     const hemoglobin = item('4548-4', 'Hemoglobin A1c', 91);
     const offRoot = item('718-7', 'Off-root concept', 64, 'Observation');
     const multiOptionChoice = semanticChoice(
@@ -297,16 +297,16 @@ describe('ConceptCatalog', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
-    fireEvent.click(within(dialog).getAllByText('Source details')[1]!);
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(within(dialog).getAllByText('Technical path details')[1]!);
     expect(within(dialog).getByText('valueQuantity.value')).toBeInTheDocument();
-    const defaultForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: SCALAR · PRESERVING · VALUE' });
-    const listForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: LIST · PRESERVING · ALL' });
+    const defaultForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: Use the matching value' });
+    const listForm = screen.getByRole('radio', { name: 'Hemoglobin A1c: Keep all matching values' });
     expect(screen.getByRole('radio', { name: 'Hemoglobin A1c: Keep each matching record' })).toBeEnabled();
     expect(defaultForm).toHaveProperty('checked', true);
     expect(listForm).toHaveProperty('checked', false);
     fireEvent.click(listForm);
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 2 columns' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
@@ -319,6 +319,52 @@ describe('ConceptCatalog', () => {
       },
     ]));
     expect(onAddSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses plain form names and keeps technical details outside the radio label', async () => {
+    const entry = item('all-forms', 'All forms', 1);
+    const forms: ReadonlyArray<ConstructionChoice['options'][number]['form']> = [
+      'VALUE', 'FIRST', 'ALL', 'DISTINCT', 'COUNT', 'PRESENCE', 'OWNER_RECORDS',
+    ];
+    const options = forms.map((form, index): ConstructionChoice['options'][number] => ({
+      form,
+      shape: form === 'ALL' || form === 'DISTINCT' || form === 'OWNER_RECORDS' ? 'LIST' : 'SCALAR',
+      decision: index === 0 ? 'DEFAULT' : 'REQUIRES_DECISION',
+      preservation: form === 'COUNT' || form === 'PRESENCE' ? 'REDUCING' : 'PRESERVING',
+      rowEffect: 'PRESERVES_ROW_GRAIN',
+      support: 'SUPPORTED',
+      reason: `Loom supports the ${form} form for this field.`,
+    }));
+    const allForms = {
+      ...entry,
+      constructionChoice: semanticChoice('choice-all-forms', entry, options),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([allForms])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = renderCatalog(fetch);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select All forms' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const countRadio = within(dialog).getByRole('radio', { name: 'All forms: Count matching records' });
+    fireEvent.click(countRadio);
+    const countCard = countRadio.closest('.rounded-md') as HTMLElement | null;
+    expect(countCard).not.toBeNull();
+    if (!countCard) throw new Error('The count form card is missing.');
+    expect(within(countCard).getByText(/What to expect: Loom supports the COUNT form/)).toBeInTheDocument();
+    fireEvent.click(within(countCard).getByText('Technical form details'));
+    expect(countRadio).toHaveProperty('checked', true);
+    expect(within(countCard).getByText('COUNT')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: 'choice-all-forms', form: 'COUNT' },
+      title: 'All forms',
+    }]));
   });
 
   it('shows unsupported semantic entries with their reason and keeps them non-selectable', async () => {
@@ -475,7 +521,7 @@ describe('ConceptCatalog', () => {
       constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
       title: 'id',
     }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
   });
 
   it('sends the exact related field choice and candidate while keeping root projection simple', async () => {
@@ -574,12 +620,12 @@ describe('ConceptCatalog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select DiagnosticReport.amount' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', {
-      name: 'amount: LIST · PRESERVING · ALL',
+      name: 'amount: Keep all matching values',
     }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 2 selected features' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 2 columns' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
@@ -856,7 +902,7 @@ describe('ConceptCatalog', () => {
         toNodeId: 'observation-node',
         fromResourceType: 'Patient',
         toResourceType: 'Observation',
-        relationship: 'subject',
+        relationship: 'subject_Patient',
         storageDirection: 'INBOUND' as const,
         matchMode: 'OPTIONAL' as const,
       }],
@@ -873,7 +919,7 @@ describe('ConceptCatalog', () => {
         toNodeId: 'diagnostic-report-node',
         fromResourceType: 'Patient',
         toResourceType: 'DiagnosticReport',
-        relationship: 'subject',
+        relationship: 'subject_Patient',
         storageDirection: 'INBOUND' as const,
         matchMode: 'OPTIONAL' as const,
       }, {
@@ -882,7 +928,7 @@ describe('ConceptCatalog', () => {
         toNodeId: 'observation-node',
         fromResourceType: 'DiagnosticReport',
         toResourceType: 'Observation',
-        relationship: 'result',
+        relationship: 'result_Observation',
         storageDirection: 'OUTBOUND' as const,
         matchMode: 'OPTIONAL' as const,
       }],
@@ -920,16 +966,21 @@ describe('ConceptCatalog', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Hemoglobin' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
-    expect(await screen.findByRole('dialog', { name: 'Choose output forms' })).toBeInTheDocument();
-    expect(screen.getByText(/more valid routes are available/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Load more routes' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(screen.getByText(/more relationship paths are available/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', {
+      name: 'Hemoglobin: Direct relationship: Patient to Observation via Subject',
+    })).toHaveProperty('checked', false);
+    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Load more paths' }));
     expect(await screen.findByRole('radio', {
-      name: 'Hemoglobin route 2: Observation through DiagnosticReport result',
+      name: 'Hemoglobin: 2-relationship path: Patient to DiagnosticReport to Observation via Subject then Result',
     })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText('Other relationship paths (1)'));
     fireEvent.click(screen.getByRole('radio', {
-      name: 'Hemoglobin route 2: Observation through DiagnosticReport result',
+      name: 'Hemoglobin: 2-relationship path: Patient to DiagnosticReport to Observation via Subject then Result',
     }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'route-choice-b', form: 'VALUE' },
@@ -1014,7 +1065,7 @@ describe('ConceptCatalog', () => {
       constructionChoice: { choiceId: 'route-choice-subject', form: 'VALUE' },
       title: 'Hemoglobin',
     }]));
-    expect(screen.queryByRole('dialog', { name: 'Choose output forms' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
     const inventoryRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
     expect(inventoryRequest).toMatchObject({ resourceType: 'Observation', rowRoot: 'Patient' });
     const constructionRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
@@ -1104,9 +1155,9 @@ describe('ConceptCatalog', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.identifier' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Choose output forms' });
-    expect(within(dialog).getByText('No compiler-proved route and output form were provided.')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Add 1 selected feature' })).toBeDisabled();
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(within(dialog).getByText('No verified path or table value is available for this field.')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeDisabled();
     expect(onAddSelected).not.toHaveBeenCalled();
     const choiceRequest = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(choiceRequest).toMatchObject({
