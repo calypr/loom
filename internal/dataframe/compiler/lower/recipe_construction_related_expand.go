@@ -156,7 +156,7 @@ func lowerConstructionRelatedExpand(
 			return ir.PhysicalStageRelatedExpand{}, nil, nil, fmt.Errorf("related expansion contributor path: %w", err)
 		}
 		field := ir.PhysicalExpression{
-			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull,
 			Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: currentVariable, Path: []string{"payload"}},
 				ResourceType: source.ResourceType, Selector: selector, ExecutionMode: selectorExecutionMode(source.ResourceType, selector)},
 		}
