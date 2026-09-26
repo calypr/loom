@@ -61,7 +61,9 @@ export const ConstructionProposalPanel = ({
   const response = 'response' in state ? state.response : undefined;
   const isReady = state.status === 'ready';
   const missingInputCount = response?.dependencyImpact.missingInputs?.length ?? 0;
-  const affectedStepCount = response?.dependencyImpact.affectedStepIds.length ?? 0;
+  const affectedStepCount = response?.dependencyImpact.affectedStepIds.filter(
+    (stepId) => stepId !== response.changedStepId,
+  ).length ?? 0;
 
   return (
     <section

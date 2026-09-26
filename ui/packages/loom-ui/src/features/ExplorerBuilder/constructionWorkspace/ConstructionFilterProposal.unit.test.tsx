@@ -101,7 +101,7 @@ describe('construction filter proposal wiring', () => {
       candidateWorkspaceDigest: 'candidate-workspace-5',
       changedStepId: args.changedStepId ?? '',
       candidateConstruction: args.candidateConstruction,
-      dependencyImpact: { affectedStepIds: [] },
+      dependencyImpact: { affectedStepIds: [args.changedStepId ?? ''] },
       stages: [sourceStage],
       previewStatus: 'READY',
       previewDurationMs: 8,
@@ -140,6 +140,7 @@ describe('construction filter proposal wiring', () => {
     });
     const ready = await screen.findByTestId('construction-proposal-ready');
     expect(ready.textContent).toContain('Proposal preview');
+    expect(ready.textContent).not.toContain('later step');
     expect((screen.getByTestId('construction-apply-proposal') as HTMLButtonElement).disabled).toBe(false);
   });
 });
