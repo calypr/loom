@@ -198,6 +198,16 @@ const formatStep = (
         editable: true,
       };
     }
+    case 'RELATED_FIELD': {
+      const field = step.operation.relatedField;
+      const output = step.outputs.find((column) => column.id === field.outputColumnId)?.label ?? field.source.path;
+      return {
+        id: step.id,
+        title: 'Field from this row’s related record',
+        summary: `Add ${field.source.resourceType}.${field.source.path} as ${output}.`,
+        editable: true,
+      };
+    }
     default: {
       const exhaustive: never = step.operation;
       return exhaustive;

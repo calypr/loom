@@ -1327,6 +1327,14 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
       relatedRecordColumnId: opaqueIdSchema,
     }).strict(),
   }).strict(),
+  z.object({
+    kind: z.literal('RELATED_FIELD'),
+    relatedField: z.object({
+      choiceId: z.string().min(1),
+      source: relatedSourceSchema.shape.source,
+      outputColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
 ]);
 export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
@@ -1345,7 +1353,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1361,6 +1369,11 @@ const constructionRelatedExpandStageDescriptorSchema = z.object({
   targetResourceType: opaqueIdSchema,
   route: z.array(constructionRouteStepSchema).min(1),
 }).strict();
+const constructionActiveRelatedRecordSchema = z.object({
+  targetNodeId: opaqueIdSchema,
+  targetResourceType: opaqueIdSchema,
+  terminalIdentityColumn: opaqueIdSchema,
+}).strict();
 const constructionStageDescriptorSchema = z.object({
   id: opaqueIdSchema,
   inputStageId: z.string(),
@@ -1369,6 +1382,7 @@ const constructionStageDescriptorSchema = z.object({
   columns: z.array(constructionStageColumnDescriptorSchema),
   capabilities: z.array(constructionOperationCapabilitySchema),
   relatedExpand: constructionRelatedExpandStageDescriptorSchema.optional(),
+  activeRelatedRecord: constructionActiveRelatedRecordSchema.optional(),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
 
@@ -1812,6 +1826,30 @@ export const relatedExpandChoiceSearchResponseSchema = z.object({
   }
 });
 export type RelatedExpandChoiceSearchResponse = z.infer<typeof relatedExpandChoiceSearchResponseSchema>;
+
+export const relatedFieldChoiceSearchResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: opaqueIdSchema.optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    label: z.string().min(1),
+    source: relatedSourceSchema.shape.source,
+  }).strict()).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.complete === value.truncated) {
+    context.addIssue({ code: 'custom', message: 'Related field search must be complete or truncated.' });
+  }
+  if (value.nextCursor && !value.truncated) {
+    context.addIssue({ code: 'custom', path: ['nextCursor'], message: 'A complete field search cannot have a continuation cursor.' });
+  }
+});
+export type RelatedFieldChoiceSearchResponse = z.infer<typeof relatedFieldChoiceSearchResponseSchema>;
 
 export const populationRouteChoiceSchema = z
   .object({

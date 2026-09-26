@@ -11,6 +11,7 @@ import {
   explorerColumnSourceDescriptorSchema,
   constructionChoiceSearchResponseSchema,
   relatedExpandChoiceSearchResponseSchema,
+  relatedFieldChoiceSearchResponseSchema,
   constructionInputsRequestSchema,
   constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
@@ -42,6 +43,7 @@ import {
   type ConstructionChoiceSearchResponse,
   type ConstructionChoiceSearchSource,
   type RelatedExpandChoiceSearchResponse,
+  type RelatedFieldChoiceSearchResponse,
   type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalRequest,
@@ -324,6 +326,18 @@ export interface SearchRelatedExpandChoicesArgs extends ExplorerAuthoringStateAr
   readonly requestId?: string;
 }
 
+export interface SearchRelatedFieldChoicesArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly expectedDraftVersion: number;
+  readonly expectedDraftDigest: string;
+  readonly outputId: string;
+  readonly stageId: string;
+  readonly query?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly requestId?: string;
+}
+
 export interface SearchPopulationRoutesArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly outputId: string;
@@ -569,6 +583,10 @@ export interface LoomClient {
     args: SearchRelatedExpandChoicesArgs,
     signal?: AbortSignal,
   ) => Promise<RelatedExpandChoiceSearchResponse>;
+  readonly searchRelatedFieldChoices: (
+    args: SearchRelatedFieldChoicesArgs,
+    signal?: AbortSignal,
+  ) => Promise<RelatedFieldChoiceSearchResponse>;
   readonly searchPopulationRoutes: (
     args: SearchPopulationRoutesArgs,
     signal?: AbortSignal,
@@ -1162,6 +1180,17 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.limit === undefined ? {} : { limit: args.limit }),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     }, signal, args.requestId)).then((value) => relatedExpandChoiceSearchResponseSchema.parse(value));
+  const searchRelatedFieldChoices = (args: SearchRelatedFieldChoicesArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/related-field-choices'), withJson({
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      ...(args.query ? { query: args.query } : {}),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+    }, signal, args.requestId)).then((value) => relatedFieldChoiceSearchResponseSchema.parse(value));
   const searchPopulationRoutes = (args: SearchPopulationRoutesArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/population-routes'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1470,6 +1499,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     inspectColumnSource,
     searchConstructionChoices,
     searchRelatedExpandChoices,
+    searchRelatedFieldChoices,
     searchPopulationRoutes,
     listRowDefinitionChoices,
     proposeRowDefinition,

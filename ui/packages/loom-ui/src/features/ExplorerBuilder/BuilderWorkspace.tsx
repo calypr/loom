@@ -96,6 +96,10 @@ import {
   RelatedSourceStepEditor,
   type RelatedSourceStep,
 } from './constructionOperations/RelatedSourceStepEditor';
+import { RelatedFieldEditor, type RelatedFieldStep } from './constructionOperations/RelatedFieldEditor';
+
+const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
+  step.operation.kind === 'RELATED_FIELD';
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -182,6 +186,7 @@ const editableConstructionFamily = (
     case 'EXPAND':
     case 'RELATED_EXPAND': return 'RESHAPE';
     case 'RELATED_SOURCE': return undefined;
+    case 'RELATED_FIELD': return undefined;
     case 'COMBINE': return undefined;
     default: {
       const exhaustive: never = operation;
@@ -772,14 +777,26 @@ const BuilderWorkspaceContent = ({
       nodeId: occurrence.nodeId,
     };
   }, [occurrence]);
-  const addSourceOptions = useMemo(
-    () => catalogSourceOptions(
+  const addSourceOptions = useMemo(() => {
+    const sources = catalogSourceOptions(
       state.catalog,
       table?.document.rootResourceType ?? '',
       selectedRouteContext?.nodeId,
-    ),
-    [state.catalog, table?.document.rootResourceType, selectedRouteContext?.nodeId],
-  );
+    );
+    const current = constructionLifecycle.capabilities;
+    if (current.status !== 'ready' ||
+        current.response.selectedStage.id !== constructionAppendStageFor(current.response.baseConstruction) ||
+        !current.response.selectedStage.activeRelatedRecord ||
+        !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return sources;
+    const anchor = current.response.selectedStage.activeRelatedRecord;
+    return [{
+      kind: 'EXACT_RELATED' as const,
+      key: `exact:${current.response.selectedStage.id}:${anchor.targetNodeId}`,
+      label: `${anchor.targetResourceType} — this row’s related record`,
+      resourceType: anchor.targetResourceType,
+      sourceNodeId: undefined,
+    }, ...sources];
+  }, [state.catalog, table?.document.rootResourceType, selectedRouteContext?.nodeId, constructionLifecycle.capabilities]);
   const addSourceContext = JSON.stringify([
     state.explorerId,
     state.catalog.snapshotToken,
@@ -789,7 +806,8 @@ const BuilderWorkspaceContent = ({
   const selectedAddSource = addSourceOptions.find(
     (source) => source.key === (addColumnsSource?.context === addSourceContext
       ? addColumnsSource.key
-      : addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
+      : addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key ??
+        addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
   ) ?? addSourceOptions[0];
   const addSourceRouteContext = selectedAddSource?.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
@@ -1690,7 +1708,7 @@ const BuilderWorkspaceContent = ({
   const editConstructionStep = (stepId: string) => {
     const step = construction?.steps.find((candidate) => candidate.id === stepId);
     if (!step) return;
-    if (step.operation.kind === 'RELATED_SOURCE') {
+    if (step.operation.kind === 'RELATED_SOURCE' || step.operation.kind === 'RELATED_FIELD') {
       constructionLifecycle.cancel();
       setConstructionHistorySelection({ kind: 'step', stepId });
       setEditingConstructionStepId(stepId);
@@ -1751,6 +1769,9 @@ const BuilderWorkspaceContent = ({
   );
   const editingRelatedSourceStep: RelatedSourceStep | undefined = editingConstructionStep?.operation.kind === 'RELATED_SOURCE'
     ? editingConstructionStep as RelatedSourceStep
+    : undefined;
+  const editingRelatedFieldStep = editingConstructionStep && isRelatedFieldStep(editingConstructionStep)
+    ? editingConstructionStep
     : undefined;
   const sourceStageDescriptors = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.stages
@@ -1878,7 +1899,20 @@ const BuilderWorkspaceContent = ({
                 Choose a source, then Loom checks its route and output forms before adding a column.
               </span>
             </label>
-            <ConceptCatalog
+            {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (
+              <RelatedFieldEditor
+                key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}`}
+                project={projectId}
+                explorerId={state.explorerId}
+                authResourcePath={authResourcePath}
+                snapshotToken={state.catalog.snapshotToken}
+                outputId={table.outputId}
+                construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+                capabilities={constructionLifecycle.capabilities.response}
+                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                onCandidateChange={constructionLifecycle.onCandidateChange}
+              />
+            ) : <ConceptCatalog
               key={`${ownerKey}:${state.catalog.snapshotToken}:${table.outputId}:${selectedAddSource?.key ?? 'root'}:${addSourceRouteContext?.occurrenceId ?? 'unscoped'}`}
               project={projectId}
               explorerId={state.explorerId}
@@ -1896,7 +1930,7 @@ const BuilderWorkspaceContent = ({
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
               onAddSelected={addSelectedFeatures}
-            />
+            />}
           </div>
         ) : null}
         {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
@@ -2011,6 +2045,33 @@ const BuilderWorkspaceContent = ({
       ) : null}
     </section>
   ) : undefined;
+  const relatedFieldStepEditor = table && editingRelatedFieldStep ? (
+    <section aria-label="Related field editor" className="overflow-hidden rounded-xl border border-emerald-200 bg-white p-4 shadow-sm">
+      {constructionLifecycle.capabilities.status === 'loading' ? (
+        <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
+      ) : constructionLifecycle.capabilities.status === 'error' ? (
+        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+      ) : constructionLifecycle.capabilities.status === 'ready' ? (
+        <RelatedFieldEditor
+          key={`${ownerKey}:${editingRelatedFieldStep.id}`}
+          project={projectId}
+          explorerId={state.explorerId}
+          authResourcePath={authResourcePath}
+          snapshotToken={state.catalog.snapshotToken}
+          outputId={table.outputId}
+          construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+          capabilities={constructionLifecycle.capabilities.response}
+          step={editingRelatedFieldStep}
+          disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+          onCandidateChange={constructionLifecycle.onCandidateChange}
+          onCancel={() => {
+            constructionLifecycle.cancel();
+            setEditingConstructionStepId(undefined);
+          }}
+        />
+      ) : null}
+    </section>
+  ) : undefined;
   const proposalPanel = (
     <ConstructionProposalPanel
       state={constructionLifecycle.proposal}
@@ -2024,8 +2085,8 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const workspaceEditor = operationEditor || relatedSourceStepEditor || constructionLifecycle.proposal.status !== 'idle'
-    ? <>{operationEditor}{relatedSourceStepEditor}{proposalPanel}</>
+  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
+    ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
     : undefined;
   const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'

@@ -554,6 +554,36 @@ describe('Loom project paths', () => {
     expect(String(fetch.mock.calls[0]?.[1]?.body)).not.toContain('edgeId');
   });
 
+  it('searches fields bound to the exact current related-record stage', async () => {
+    const response = {
+      snapshotToken: 'snapshot-1', draftVersion: 4, draftDigest: 'draft-4',
+      outputId: 'patients', stageId: 'expand-encounters', complete: true, truncated: false,
+      choices: [{
+        choiceId: 'field-choice-1', label: 'Encounter status',
+        source: { kind: 'FIELD', candidateId: 'encounter-status', nodeId: 'encounter-node',
+          resourceType: 'Encounter', path: 'Encounter.status', cardinality: 'optional_one', logicalType: 'string' },
+      }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
+    const client = createLoomClient({ fetch });
+    await expect(client.searchRelatedFieldChoices({
+      project: 'NCPI_ACCEPTANCE', explorerId: 'default', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 4, expectedDraftDigest: 'draft-4', outputId: 'patients',
+      stageId: 'expand-encounters', query: 'status', limit: 20,
+    })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/related-field-choices',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ snapshotToken: 'snapshot-1', expectedDraftVersion: 4,
+          expectedDraftDigest: 'draft-4', outputId: 'patients', stageId: 'expand-encounters',
+          query: 'status', limit: 20 }),
+      }),
+    );
+  });
+
   it('searches server-proved population routes without sending browser-selected edges', async () => {
     const response = {
       snapshotToken: 'snapshot-1',
