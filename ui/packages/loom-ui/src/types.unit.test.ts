@@ -431,7 +431,8 @@ describe('staged construction contract', () => {
       columns: [{ id: 'encounter-id', name: 'encounter_id', label: 'Encounter ID', type: 'string' }],
       capabilities: [{ kind: 'RELATED_EXPAND', supported: true }],
       relatedExpand: {
-        anchorColumnId: '_key', anchorColumn: '_key', relatedRecordColumnId: 'encounter-id',
+        anchorColumnId: '_key', anchorColumn: '_key', anchorKind: 'root',
+        anchorNodeId: 'patient-node', anchorResourceType: 'Patient', relatedRecordColumnId: 'encounter-id',
         parentIdentityColumnId: 'parent-id', parentIdentityColumn: '_key',
         terminalIdentityColumn: 'terminal-id', targetNodeId: 'encounter-node',
         targetResourceType: 'Encounter',

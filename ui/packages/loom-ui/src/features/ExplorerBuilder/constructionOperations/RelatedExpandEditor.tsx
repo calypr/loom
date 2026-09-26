@@ -35,8 +35,7 @@ const choicesMatchRequest = (
   && result.draftVersion === draftVersion && result.draftDigest === draftDigest
   && result.outputId === outputId
   && result.stageId === stageId
-  && result.anchorColumnId === anchorColumnId
-  && result.choices.every((item) => item.targetResourceType === targetResourceType);
+  && result.choices.every((item) => item.anchorColumnId === anchorColumnId && item.targetResourceType === targetResourceType);
 
 const candidateFor = (
   construction: Construction,
@@ -52,7 +51,7 @@ const candidateFor = (
 ): CandidateIntent | undefined => {
   const name = outputName.trim();
   const label = outputLabel.trim();
-  if (!anchorColumnId || !choice || !emptyPolicy || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
+  if (!anchorColumnId || !choice || choice.anchorColumnId !== anchorColumnId || !emptyPolicy || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
   if (stage.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) return undefined;
   const priorOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const outputs = step
@@ -134,15 +133,20 @@ export const RelatedExpandEditor = ({
   const anchors = stage.relatedExpandAnchors ?? (stage.activeRelatedRecord ? [] : [{
     anchorColumnId: '_key', kind: 'root' as const, resourceType: '', label: 'Original table record',
   }]);
-  const savedAnchorAvailable = anchors.some((anchor) => anchor.anchorColumnId === saved?.anchorColumnId);
+  const savedAnchor = anchors.find((anchor) => anchor.anchorColumnId === saved?.anchorColumnId);
   const [anchorColumnId, setAnchorColumnId] = useState(() => anchors.find((anchor) => anchor.anchorColumnId === saved?.anchorColumnId)?.anchorColumnId
     ?? anchors.find((anchor) => anchor.kind === 'activeRelatedRecord')?.anchorColumnId
     ?? anchors[0]?.anchorColumnId ?? '');
   const [stepId] = useState(() => step?.id ?? newId('related_expand'));
   const [outputColumnId] = useState(() => saved?.relatedRecordColumnId ?? newId('related_record'));
   const [targetResourceType, setTargetResourceType] = useState(saved?.targetResourceType ?? '');
-  const [choice, setChoice] = useState<RouteChoice | undefined>(() => saved && savedAnchorAvailable ? {
+  const [choice, setChoice] = useState<RouteChoice | undefined>(() => saved && savedAnchor ? {
     choiceId: saved.choiceId,
+    anchorColumnId: savedAnchor.anchorColumnId,
+    kind: savedAnchor.kind,
+    nodeId: savedAnchor.nodeId ?? saved.route[0].fromNodeId,
+    resourceType: savedAnchor.resourceType || saved.route[0].fromResourceType,
+    label: savedAnchor.label,
     targetNodeId: saved.targetNodeId,
     targetResourceType: saved.targetResourceType,
     route: saved.route,

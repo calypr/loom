@@ -520,10 +520,10 @@ describe('Loom project paths', () => {
   it('searches related-record expansion paths for the exact stage and accepts only server-issued routes', async () => {
     const response = {
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
-      outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
-      anchorKind: 'root', anchorNodeId: 'patient-node', anchorResourceType: 'Patient', anchorLabel: 'Original Patient record',
+      outputId: 'patients', stageId: 'source_projection',
       complete: true, truncated: false,
       choices: [{
+        anchorColumnId: '_key', kind: 'root', nodeId: 'patient-node', resourceType: 'Patient', label: 'Original Patient record',
         choiceId: 'signed-route-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter',
         route: [{
           edgeId: 'patient-encounter', fromNodeId: 'patient-node', toNodeId: 'encounter-node',

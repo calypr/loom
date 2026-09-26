@@ -21,6 +21,14 @@ const route = [{
   storageDirection: 'INBOUND' as const,
   matchMode: 'OPTIONAL' as const,
 }];
+const rootAnchor = {
+  anchorColumnId: '_key', kind: 'root' as const, nodeId: 'patient-node',
+  resourceType: 'Patient', label: 'Original Patient record',
+};
+const encounterAnchor = {
+  anchorColumnId: '__loom_encounter_id', kind: 'activeRelatedRecord' as const,
+  nodeId: 'encounter-node', resourceType: 'Encounter', label: 'Current Encounter record',
+};
 
 const catalog: ExplorerBuilderCatalog = {
   snapshotToken: 'snapshot-1',
@@ -73,7 +81,7 @@ describe('RelatedExpandEditor', () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 2, draftDigest: 'draft-2',
       outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key', complete: true, truncated: false,
-      choices: [{ choiceId: 'stale-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      choices: [{ ...rootAnchor, choiceId: 'stale-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
     const onCandidateChange = vi.fn();
     render(<RelatedExpandEditor
@@ -88,11 +96,27 @@ describe('RelatedExpandEditor', () => {
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
   });
 
+  it('rejects a route issued for a different starting record', async () => {
+    searchRelatedExpandChoices.mockReset().mockResolvedValue({
+      snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1',
+      outputId: 'patients', stageId: 'source_projection', complete: true, truncated: false,
+      choices: [{ ...encounterAnchor, choiceId: 'wrong-anchor', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+    });
+    render(<RelatedExpandEditor
+      project="project" explorerId="explorer" snapshotToken="snapshot-1" outputId="patients"
+      catalog={catalog} construction={capabilities.baseConstruction} capabilities={capabilities}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+    fireEvent.change(screen.getByLabelText('Related record type'), { target: { value: 'Encounter' } });
+    expect(await screen.findByText('The available paths changed. Reload this table before expanding records.')).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Encounter via subject_Patient' })).not.toBeInTheDocument();
+  });
+
   it('uses a server-issued route, waits for an empty-match decision, and retains parent columns', async () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
       complete: true, truncated: false,
-      choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
     const onCandidateChange = vi.fn();
     render(<RelatedExpandEditor
@@ -127,7 +151,7 @@ describe('RelatedExpandEditor', () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
       complete: true, truncated: false,
-      choices: [{ choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      choices: [{ ...rootAnchor, choiceId: 'signed-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
     const saved = {
       id: 'expand-encounters',
@@ -186,7 +210,7 @@ describe('RelatedExpandEditor', () => {
       complete: Boolean(args.cursor), truncated: !args.cursor,
       ...(args.cursor ? {} : { nextCursor: 'next-route-page' }),
       choices: args.cursor
-        ? [{ choiceId: 'second-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }]
+        ? [{ ...rootAnchor, choiceId: 'second-page-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }]
         : [],
     }));
     const onCandidateChange = vi.fn();
@@ -212,7 +236,7 @@ describe('RelatedExpandEditor', () => {
     searchRelatedExpandChoices.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'keep-patients', anchorColumnId: '_key',
       complete: true, truncated: false,
-      choices: [{ choiceId: 'filtered-stage-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      choices: [{ ...rootAnchor, choiceId: 'filtered-stage-choice', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     });
     const onCandidateChange = vi.fn();
     const filtered = {
@@ -268,7 +292,7 @@ describe('RelatedExpandEditor', () => {
       stageId: 'expand-encounters', anchorColumnId: args.anchorColumnId,
       complete: true, truncated: false,
       choices: args.anchorColumnId === '__loom_encounter_id'
-        ? [{ choiceId: 'onward-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation', route: onwardRoute }]
+        ? [{ ...encounterAnchor, choiceId: 'onward-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation', route: onwardRoute }]
         : [],
     }));
     const onCandidateChange = vi.fn();
@@ -302,7 +326,7 @@ describe('RelatedExpandEditor', () => {
           snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
           complete: true, truncated: false,
           choices: [{
-            choiceId: 'observation-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation',
+            ...rootAnchor, choiceId: 'observation-choice', targetNodeId: 'observation-node', targetResourceType: 'Observation',
             route: [{ ...route[0], toNodeId: 'observation-node', toResourceType: 'Observation', relationship: 'subject_Observation' }],
           }],
         }),
@@ -319,7 +343,7 @@ describe('RelatedExpandEditor', () => {
     await act(async () => resolveEncounter?.({
       snapshotToken: 'snapshot-1', draftVersion: 1, draftDigest: 'draft-1', outputId: 'patients', stageId: 'source_projection', anchorColumnId: '_key',
       complete: true, truncated: false,
-      choices: [{ choiceId: 'late-encounter', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
+      choices: [{ ...rootAnchor, choiceId: 'late-encounter', targetNodeId: 'encounter-node', targetResourceType: 'Encounter', route }],
     }));
     expect(screen.queryByRole('radio', { name: 'Encounter via subject_Patient' })).not.toBeInTheDocument();
   });
