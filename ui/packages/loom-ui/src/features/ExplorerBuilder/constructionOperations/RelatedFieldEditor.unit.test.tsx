@@ -53,7 +53,7 @@ describe('RelatedFieldEditor', () => {
     });
     expect(step?.outputs).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'patient-id', name: 'patient_id' }),
-      expect.objectContaining({ name: 'related_encounter_status', label: 'Encounter status' }),
+      expect.objectContaining({ name: 'related_encounter_status', label: 'Encounter status', nullable: true }),
     ]));
   });
 

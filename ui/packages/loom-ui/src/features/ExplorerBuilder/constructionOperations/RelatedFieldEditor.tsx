@@ -48,7 +48,7 @@ const candidateFor = (
   if (choice.source.nodeId !== stage.activeRelatedRecord.targetNodeId ||
       choice.source.resourceType !== stage.activeRelatedRecord.targetResourceType ||
       stage.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) return undefined;
-  const output = { id: outputColumnId, name, label, type: choice.source.logicalType };
+  const output = { id: outputColumnId, name, label, type: choice.source.logicalType, nullable: true };
   const outputs = step
     ? step.outputs.map((column) => column.id === outputColumnId ? output : column)
     : [
