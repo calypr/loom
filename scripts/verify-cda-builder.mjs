@@ -44,6 +44,18 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'published-viewer.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Inspect export') {
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Viewer')?.click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Download dataset')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Download dataset')?.click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]')) || document.body.innerText.includes('Dataset download failed')`, 30000);
+    const state=await browserEval(browser.cdp, `return {text:document.body.innerText.slice(0,2500),dialogs:[...document.querySelectorAll('[role="dialog"]')].map(dialog=>dialog.innerText),buttons:[...document.querySelectorAll('button')].filter(button=>button.offsetParent!==null).map(button=>({text:button.innerText.trim(),disabled:button.disabled})).filter(button=>button.text).slice(0,25)};`);
+    const download=await browserEval(browser.cdp, `const link=document.querySelector('[role="dialog"] a[download]');if(!link)return null;const response=await fetch(link.href);const bytes=new Uint8Array(await response.arrayBuffer());return {status:response.status,contentType:response.headers.get('content-type'),bytes:bytes.length,signature:[...bytes.slice(0,4)]};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'export-options.json'),JSON.stringify({pageURL,state,download,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,dialogs:state.dialogs,download,responses:responses.filter(response=>response.status>=400)},null,2));
+    assert.equal(download?.status,200);
+    assert.deepEqual(download?.signature,[80,75,3,4]);
   } else if (action === 'Switch explorers') {
     const first=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"]')?.value,tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
     const target=explorerId==='cda-builder-full-qa-1790439585678'?'cda-builder-full-qa-1790440983382':'cda-builder-full-qa-1790439585678';
