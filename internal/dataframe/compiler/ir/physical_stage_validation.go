@@ -645,12 +645,12 @@ func validatePhysicalStageExpand(stage PhysicalConstructionStage, expand Physica
 	}
 	item, ok := outputByName[expand.OutputColumn]
 	itemKind, itemScalar := physicalStageScalarKind(item.Kind)
-	if !ok || item.Internal || !itemScalar || itemKind != expand.InputKind || item.Cardinality != "one" && item.Cardinality != "optional_one" {
+	if !ok || item.Internal || !itemScalar || itemKind != expand.InputKind || item.Cardinality != "required_one" && item.Cardinality != "optional_one" {
 		return fmt.Errorf("item output column %q does not match the array item type", expand.OutputColumn)
 	}
 	if expand.OrdinalColumn != "" {
 		ordinal, ok := outputByName[expand.OrdinalColumn]
-		if !ok || ordinal.Internal || ordinal.Kind != "integer" || ordinal.Cardinality != "one" && ordinal.Cardinality != "optional_one" {
+		if !ok || ordinal.Internal || ordinal.Kind != "integer" || ordinal.Cardinality != "required_one" && ordinal.Cardinality != "optional_one" {
 			return fmt.Errorf("ordinal output column %q must be an integer scalar", expand.OrdinalColumn)
 		}
 	}

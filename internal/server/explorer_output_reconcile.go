@@ -428,9 +428,17 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if err != nil {
 				return fmt.Errorf("step %q output %q: %w", step.ID, output.Name, err)
 			}
+			lineageInputs := make([]string, 0, len(inputColumns))
+			for _, name := range inputColumns {
+				if metadata, constructed := authored[name]; constructed {
+					lineageInputs = append(lineageInputs, metadata.InputColumns...)
+				} else {
+					lineageInputs = append(lineageInputs, name)
+				}
+			}
 			nextAuthored[output.Name] = authoredOutputColumn{
 				ConstructionID: constructionID, Label: output.Label,
-				InputColumns: inputColumns, Quality: quality,
+				InputColumns: lineageInputs, Quality: quality,
 			}
 			return nil
 		}

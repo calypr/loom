@@ -86,6 +86,40 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	}
 }
 
+func TestConstructionExpandExcludeUsesRequiredItemAndOrdinal(t *testing.T) {
+	output := recipe.Output{
+		Name: "construction_expand_exclude", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "tags_id", Name: "tags"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "expand_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
+					ConstructionID: "expand_tag_values", InputColumnID: "tags_id", OutputColumnID: "tag_id",
+					OrdinalColumnID: "ordinal_id", EmptyPolicy: recipe.ExpansionExclude,
+				}},
+				Outputs: []recipe.StageColumn{{ID: "tag_id", Name: "tag"}, {ID: "ordinal_id", Name: "ordinal"}},
+			}},
+		},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.Expand.EmptyPolicy != ir.PhysicalUnnestExclude {
+		t.Fatalf("empty policy = %q, want EXCLUDE", stage.Expand.EmptyPolicy)
+	}
+	for _, column := range stage.OutputColumns {
+		if column.Name == "tag" || column.Name == "ordinal" {
+			if column.Cardinality != string(expression.RequiredOne) {
+				t.Errorf("%s cardinality = %q, want required_one", column.Name, column.Cardinality)
+			}
+		}
+	}
+	if _, err := aql.RenderPhysicalPlan(compiled.Plan); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) {
 	output := recipe.Output{
 		Name: "construction_summary", RootResourceType: "Observation", RowGrain: "observation",
