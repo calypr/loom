@@ -130,9 +130,9 @@ export const RelatedFieldEditor = ({
     if (!stage.activeRelatedRecord) return;
     const controller = new AbortController();
     const version = ++requestVersion.current;
+    setLoading(true);
+    setError('');
     const timeout = globalThis.setTimeout(() => {
-      setLoading(true);
-      setError('');
       void client.searchRelatedFieldChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId,
         expectedDraftVersion: capabilities.draftVersion,
