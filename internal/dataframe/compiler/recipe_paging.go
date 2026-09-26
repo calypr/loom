@@ -170,6 +170,9 @@ func rootPageConstructionFilters(plan ir.PhysicalPlan) []ir.PhysicalOperation {
 					Variable: stage.InputRowVariable, Expression: ir.ClonePhysicalExpression(*projection.Expression),
 				},
 			})
+			// The reduced root query binds the projected value itself, not the
+			// stage's row object, so the stage column path must be dropped.
+			filter.Predicate.Left = ir.PhysicalValue{Variable: stage.InputRowVariable}
 		} else {
 			filter.Predicate.Left = projection.Value
 		}

@@ -173,26 +173,12 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 
 func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testing.T) {
 	id := "b7cad184-db67-5542-a975-10fffa3e89e7"
-	columns := []recipe.StageColumn{{ID: "specimen-id", Name: "specimen_id", Label: "Specimen ID"}}
+	output := constructionEqualsPageOutput(id)
 	bundle := recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
 		Name:                "construction-filter-root-page",
 		TranslationVersion:  "construction-filter-root-page",
-		Outputs: []recipe.Output{{
-			Name: "specimens", RootResourceType: "Specimen", RowGrain: "specimen",
-			Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen-id", Expr: recipe.Expression{Select: "root.id"}}},
-			Construction: &recipe.Construction{
-				Version: 1, SourceColumns: columns,
-				Steps: []recipe.ConstructionStep{{
-					ID: "keep_matching_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
-					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
-						ColumnID: "specimen-id", Operator: recipe.FilterEquals,
-						Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &id}},
-					}},
-					Outputs: columns,
-				}},
-			},
-		}},
+		Outputs:             []recipe.Output{output},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
 	semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
@@ -211,11 +197,19 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter := strings.Index(page.RootKeysQuery, "@construction_filter_value")
+	letSuffix := " = root.payload.id"
+	letValue := strings.Index(page.RootKeysQuery, letSuffix)
+	if letValue < 0 {
+		t.Fatalf("root-key query lost the source projection for the filtered ID:\n%s", page.RootKeysQuery)
+	}
+	letStart := strings.LastIndex(page.RootKeysQuery[:letValue], "\n") + 1
+	letVariable := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(page.RootKeysQuery[letStart:letValue]), "LET "))
+	filterText := "FILTER " + letVariable + " == @construction_filter_value"
+	filter := strings.Index(page.RootKeysQuery, filterText)
 	window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
 	limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
-	if filter < 0 || window < 0 || limit < 0 || filter > window || window > limit {
-		t.Fatalf("construction EQUALS filter must reduce roots before the keyset page window: filter=%d sort=%d limit=%d\n%s", filter, window, limit, page.RootKeysQuery)
+	if letVariable == "" || filter < 0 || window < 0 || limit < 0 || letValue > filter || filter > window || window > limit {
+		t.Fatalf("construction EQUALS filter must compare the source ID value and run before the keyset page window: let=%q filter=%d sort=%d limit=%d\n%s", letVariable, filter, window, limit, page.RootKeysQuery)
 	}
 	for name, bindVars := range map[string]map[string]any{"root keys": page.RootKeysBindVars, "selected rows": page.RowsBindVars} {
 		if got := bindVars["construction_filter_value"]; got != id {
@@ -224,5 +218,24 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 	}
 	if !strings.Contains(page.RowsQuery, "@construction_filter_value") {
 		t.Fatalf("selected-root execution lost the construction filter:\n%s", page.RowsQuery)
+	}
+}
+
+func constructionEqualsPageOutput(id string) recipe.Output {
+	columns := []recipe.StageColumn{{ID: "specimen-id", Name: "specimen_id", Label: "Specimen ID"}}
+	return recipe.Output{
+		Name: "specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen-id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: columns,
+			Steps: []recipe.ConstructionStep{{
+				ID: "keep_matching_specimens", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+					ColumnID: "specimen-id", Operator: recipe.FilterEquals,
+					Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &id}},
+				}},
+				Outputs: columns,
+			}},
+		},
 	}
 }

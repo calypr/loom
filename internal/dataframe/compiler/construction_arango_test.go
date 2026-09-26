@@ -547,6 +547,108 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	t.Fatal("EXISTS cell trace omitted p1")
 }
 
+func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Specimen"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_construction_equals_page_" + uuid.NewString()
+	generation := "generation-construction-equals-page"
+	targetID := "b7cad184-db67-5542-a975-10fffa3e89e7"
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			"FOR document IN Specimen FILTER document.project == @project REMOVE document IN Specimen",
+			map[string]any{"project": project},
+		); err != nil {
+			t.Errorf("remove construction EQUALS page fixtures: %v", err)
+		}
+	}()
+
+	documents := make([]json.RawMessage, 0, 2)
+	for index, id := range []string{targetID, "unmatched-specimen"} {
+		payload := map[string]any{"id": id, "resourceType": "Specimen"}
+		encoded, marshalErr := json.Marshal(map[string]any{
+			"_key": fmt.Sprintf("%s_specimen_%d", project, index+1), "id": id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Specimen", "payload": payload,
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		documents = append(documents, encoded)
+	}
+	if err := client.InsertBatchRaw(ctx, "Specimen", documents, false, "document"); err != nil {
+		t.Fatalf("insert construction EQUALS page fixtures: %v", err)
+	}
+
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "construction-filter-root-page",
+		TranslationVersion:  "construction-filter-root-page",
+		Outputs:             []recipe.Output{constructionEqualsPageOutput(targetID)},
+	}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootKeys := make([]string, 0, 1)
+	if err := client.QueryRows(ctx, page.RootKeysQuery, 100, page.RootKeysBindVars, func(row map[string]any) error {
+		key, ok := row["_key"].(string)
+		if !ok {
+			return fmt.Errorf("root-key query returned invalid _key %#v", row["_key"])
+		}
+		rootKeys = append(rootKeys, key)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute construction EQUALS root-key query:\n%s\n%v", page.RootKeysQuery, err)
+	}
+	wantKey := fmt.Sprintf("%s_specimen_1", project)
+	if len(rootKeys) != 1 || rootKeys[0] != wantKey {
+		t.Fatalf("construction EQUALS root keys = %#v, want only %q\n%s", rootKeys, wantKey, page.RootKeysQuery)
+	}
+
+	rowBindVars := make(map[string]any, len(page.RowsBindVars)+1)
+	for key, value := range page.RowsBindVars {
+		rowBindVars[key] = value
+	}
+	rowBindVars[RootPageKeysBind] = rootKeys
+	rows := make([]map[string]any, 0, 1)
+	if err := client.QueryRows(ctx, page.RowsQuery, 100, rowBindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute selected construction rows query:\n%s\n%v", page.RowsQuery, err)
+	}
+	if len(rows) != 1 || rows[0]["specimen_id"] != targetID {
+		t.Fatalf("construction EQUALS rows = %#v, want one row with Specimen ID %q", rows, targetID)
+	}
+}
+
 func constructionOracleOutput() recipe.Output {
 	stringAlpha, stringBeta := "alpha", "beta"
 	minimumTotal := 10.0
