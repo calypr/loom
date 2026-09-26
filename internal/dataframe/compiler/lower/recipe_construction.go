@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -371,9 +372,9 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		if err != nil {
 			return constructionStageResult{}, err
 		}
-		nameSchema, nameProjections := compiledSchemaByName(publicInput), stageProjectionMap(inputProjections)
+		nameProjections := stageProjectionMap(inputProjections)
 		identity := spec.RowIdentity{Grain: spec.RowGrainPatient, Fields: []string{inputIdentity}}
-		physicalUnpivot, projections, compiled, err := lowerRecipeUnpivot(plan, semanticUnpivot, &identity, inputProjections, nameSchema, nameProjections, usedVariables)
+		physicalUnpivot, projections, compiled, err := lowerRecipeUnpivot(plan, semanticUnpivot, &identity, inputProjections, compiledSchemaByName(inputSchema), nameProjections, usedVariables)
 		if err != nil {
 			return constructionStageResult{}, err
 		}
@@ -825,6 +826,11 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 		column.Internal, column.Identity = false, false
 		result = append(result, column)
 	}
+	for _, column := range computed {
+		if column.Internal && column.Name != constructionRowID {
+			result = append(result, column)
+		}
+	}
 	return result, nil
 }
 
@@ -839,6 +845,16 @@ func constructionUnpivotPreservedOutputs(operation recipe.ConstructionUnpivot, o
 		if exists && !prior.Internal && !selected[output.ID] {
 			result = append(result, ir.PhysicalUnpivotOutput{InputColumn: prior.Name, OutputColumn: output.Name})
 		}
+	}
+	internalNames := make([]string, 0)
+	for inputID, column := range input {
+		if column.Internal && !selected[inputID] && column.Name != constructionRowID {
+			internalNames = append(internalNames, column.Name)
+		}
+	}
+	sort.Strings(internalNames)
+	for _, name := range internalNames {
+		result = append(result, ir.PhysicalUnpivotOutput{InputColumn: name, OutputColumn: name})
 	}
 	return result
 }

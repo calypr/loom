@@ -94,6 +94,51 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	}
 }
 
+func TestConstructionUnpivotPreservesInternalSourceIdentity(t *testing.T) {
+	output := constructionTestOutput()
+	keyGroup, keyAmount := "category", "amount"
+	output.Construction.Steps = []recipe.ConstructionStep{{
+		ID: "unpivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{
+			ConstructionID: "unpivot_source_values",
+			Inputs: []recipe.ConstructionUnpivotInput{
+				{ColumnID: "category_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyGroup}},
+				{ColumnID: "amount_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyAmount}},
+			},
+			KeyOutputColumnID: "measure_id", ValueOutputColumnID: "measure_value_id", NullRowPolicy: recipe.UnpivotNullDrop,
+		}},
+		Outputs: []recipe.StageColumn{
+			{ID: "group_id", Name: "group", Label: "Group"},
+			{ID: "measure_id", Name: "measure", Label: "Measure"},
+			{ID: "measure_value_id", Name: "measure_value", Label: "Measure value"},
+		},
+	}}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if len(compiled.Plan.StageSequence.Stages) != 1 {
+		t.Fatalf("construction stages = %d, want one unpivot stage", len(compiled.Plan.StageSequence.Stages))
+	}
+	stage := compiled.Plan.StageSequence.Stages[0]
+	if stage.Unpivot == nil {
+		t.Fatal("construction stage has no unpivot payload")
+	}
+	if !hasConstructionUnpivotOutput(stage.Unpivot.PreservedOutputs, "_key", "_key") {
+		t.Fatalf("unpivot preserved outputs do not retain hidden source identity: %#v", stage.Unpivot.PreservedOutputs)
+	}
+	if !hasCompiledColumn(compiled.OutputSchema, "_key", true) {
+		t.Fatalf("final construction schema dropped hidden source identity: %#v", compiled.OutputSchema)
+	}
+}
+
+func hasConstructionUnpivotOutput(outputs []ir.PhysicalUnpivotOutput, input, output string) bool {
+	for _, candidate := range outputs {
+		if candidate.InputColumn == input && candidate.OutputColumn == output {
+			return true
+		}
+	}
+	return false
+}
+
 func TestCompileSourceOnlyConstructionKeepsSourcePlan(t *testing.T) {
 	output := constructionTestOutput()
 	output.Construction = &recipe.Construction{
