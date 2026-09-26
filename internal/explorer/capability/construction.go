@@ -240,6 +240,46 @@ func NewFieldConstructionChoice(snapshotToken string, candidate Candidate) (Cons
 	return NewFieldConstructionChoiceForRoute(snapshotToken, nil, candidate)
 }
 
+// IsSupportedConstructionScalarType reports whether a logical type can be
+// emitted as a scalar construction projection by the recipe compiler.
+func IsSupportedConstructionScalarType(logicalType string) bool {
+	switch strings.ToLower(strings.TrimSpace(logicalType)) {
+	case "string", "integer", "int", "decimal", "float", "boolean", "bool", "date", "date_time", "datetime", "code", "uuid":
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateConstructionSourceType rejects values that the recipe compiler
+// cannot emit and, when available, points to the nearest typed child field.
+func ValidateConstructionSourceType(candidate Candidate, candidates []Candidate) error {
+	if IsSupportedConstructionScalarType(candidate.LogicalType) {
+		return nil
+	}
+
+	fieldPath := strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.")
+	field := strings.TrimSpace(candidate.ResourceType + "." + fieldPath)
+	message := fmt.Sprintf("source field %s has unsupported logical type %q", field, strings.TrimSpace(candidate.LogicalType))
+	childPath := ""
+	for _, child := range candidates {
+		childFieldPath := strings.TrimPrefix(strings.TrimSpace(child.FieldPath), "root.")
+		if child.NodeID != candidate.NodeID || child.ResourceType != candidate.ResourceType ||
+			!strings.HasPrefix(childFieldPath, fieldPath+".") || !IsSupportedConstructionScalarType(child.LogicalType) {
+			continue
+		}
+		if childPath == "" || len(childFieldPath) < len(childPath) || (len(childFieldPath) == len(childPath) && childFieldPath < childPath) {
+			childPath = childFieldPath
+		}
+	}
+	if childPath != "" {
+		message += fmt.Sprintf("; choose a supported scalar child field such as %s.%s", candidate.ResourceType, childPath)
+	} else {
+		message += "; construction requires a supported scalar field"
+	}
+	return fmt.Errorf("%s", message)
+}
+
 // NewFieldConstructionChoiceForRoute exposes only projection modes already
 // proven by the compiler for this exact route. A nil or empty route represents
 // the zero-hop row-root choice.
@@ -248,6 +288,9 @@ func NewFieldConstructionChoiceForRoute(snapshotToken string, route []Constructi
 		return ConstructionChoice{}, fmt.Errorf("snapshot token and exact candidate identity are required")
 	}
 	if err := validateConstructionRoute(route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if err := ValidateConstructionSourceType(candidate, nil); err != nil {
 		return ConstructionChoice{}, err
 	}
 	source := FieldChoiceSource{
@@ -366,6 +409,12 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	}
 	if err := validateConstructionRoute(route); err != nil {
 		return ConstructionChoice{}, err
+	}
+	if err := ValidateConstructionSourceType(candidate, nil); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if !IsSupportedConstructionScalarType(source.LogicalType) {
+		return ConstructionChoice{}, fmt.Errorf("semantic source field %s.%s has unsupported logical type %q", source.ResourceType, source.FieldPath, strings.TrimSpace(source.LogicalType))
 	}
 	resolvedValuePath := canonicalPath(source.FieldPath)
 	selectorPath := canonicalOwnedSemanticPath(source.OwningScope, source.ValueSelector)
@@ -664,6 +713,9 @@ func decodeChoiceJSON(raw []byte, target interface{}) error {
 }
 
 func constructionOptions(candidate Candidate) []ConstructionChoiceOption {
+	if !IsSupportedConstructionScalarType(candidate.LogicalType) {
+		return nil
+	}
 	options := make([]ConstructionChoiceOption, 0, 4)
 	for _, projection := range []ProjectionMode{ProjectionScalar, ProjectionFirst, ProjectionArray, ProjectionDistinctArray} {
 		form, found := constructionForm(projection)
@@ -701,6 +753,9 @@ func constructionOptions(candidate Candidate) []ConstructionChoiceOption {
 }
 
 func constructionOptionsForRoute(candidate Candidate, route []ConstructionRouteStep) []ConstructionChoiceOption {
+	if !IsSupportedConstructionScalarType(candidate.LogicalType) {
+		return nil
+	}
 	options := constructionOptions(candidate)
 	if len(route) == 0 || IsRepeatedCardinality(candidate.Cardinality) || !containsProjection(candidate.ProjectionModes, ProjectionScalar) {
 		return options

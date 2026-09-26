@@ -103,6 +103,33 @@ func TestConstructionChoiceSearchAndApplyUseCompilerProvedInboundRoute(t *testin
 	}
 }
 
+func TestConstructionChoiceSearchExplainsUnsupportedObjectField(t *testing.T) {
+	_, service, snapshot, _, candidate := inboundPatientObservationRouteFixture(t)
+	unsupported := candidate
+	unsupported.NodeID = "patient"
+	unsupported.ResourceType = "Patient"
+	unsupported.FieldPath = "name[]"
+	unsupported.LogicalType = "unknown"
+	child := capability.Candidate{
+		ID: "patient-name-text", NodeID: "patient", ResourceType: "Patient",
+		FieldPath: "name[].text", LogicalType: "string", Cardinality: "optional_one",
+	}
+	snapshot.Candidates = []capability.Candidate{unsupported, child}
+	service.config.Capability.ForCompilation = func(context.Context, string, string) (AuthorizedCapability, error) {
+		return AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+	}
+
+	_, err := service.SearchConstructionChoices(context.Background(), ConstructionChoiceSearchRequest{
+		Project: "project-a", ExplorerID: "patients", SnapshotToken: snapshot.Token, OutputID: "patients",
+		Source: ConstructionChoiceSearchSource{Kind: capability.ConstructionChoiceSourceField, CandidateID: unsupported.ID},
+	})
+	apiErr, ok := err.(*Error)
+	if !ok || apiErr.Code != "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE" ||
+		!strings.Contains(apiErr.Message, "Patient.name[]") || !strings.Contains(apiErr.Message, "Patient.name[].text") {
+		t.Fatalf("unsupported field error = %#v, want field and typed child guidance", err)
+	}
+}
+
 func TestRelatedExpandChoiceSearchPinsRouteToCompilerSupportedStage(t *testing.T) {
 	store, service, snapshot, _, _ := inboundPatientObservationRouteFixture(t)
 	service.config.CompileReceipt = func(_ context.Context, request CompileReceiptRequest) (*explorer.CompilationReceipt, error) {

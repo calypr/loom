@@ -18,7 +18,7 @@ func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.
 	t.Run("scalar", func(t *testing.T) {
 		candidate := Candidate{
 			ID: "candidate_scalar", NodeID: "node_patient", ResourceType: "Patient",
-			FieldPath: "birthDate", Label: "Birth date", Cardinality: "optional_one",
+			FieldPath: "birthDate", Label: "Birth date", LogicalType: "date", Cardinality: "optional_one",
 			ProjectionModes: []ProjectionMode{ProjectionScalar, ProjectionFirst},
 		}
 		choice, err := NewFieldConstructionChoice("snapshot-a", candidate)
@@ -54,7 +54,7 @@ func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.
 	t.Run("repeated", func(t *testing.T) {
 		candidate := Candidate{
 			ID: "candidate_repeated", NodeID: "node_observation", ResourceType: "Observation",
-			FieldPath: "category[].coding[].code", Cardinality: "many",
+			FieldPath: "category[].coding[].code", LogicalType: "code", Cardinality: "many",
 			RepeatedBoundaries: []RepeatedBoundary{{Path: "category[]", MaxItems: 3}},
 			ProjectionModes:    []ProjectionMode{ProjectionIndexed, ProjectionFirst, ProjectionArray, ProjectionDistinctArray},
 		}
@@ -88,6 +88,29 @@ func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.
 			t.Fatal("a repeated field with only FIRST support must require an explicit decision")
 		}
 	})
+}
+
+func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing.T) {
+	t.Parallel()
+
+	candidate := Candidate{
+		ID: "specimen-coding", NodeID: "specimen", ResourceType: "Specimen",
+		FieldPath: "type.coding[]", LogicalType: "unknown", Cardinality: "many",
+		ProjectionModes: []ProjectionMode{ProjectionArray, ProjectionFirst, ProjectionDistinctArray},
+	}
+	child := Candidate{
+		ID: "specimen-coding-system", NodeID: "specimen", ResourceType: "Specimen",
+		FieldPath: "type.coding[].system", LogicalType: "string", Cardinality: "optional_one",
+	}
+	if err := ValidateConstructionSourceType(candidate, []Candidate{candidate, child}); err == nil || !strings.Contains(err.Error(), "Specimen.type.coding[].system") {
+		t.Fatalf("unsupported object type did not identify a usable scalar child: %v", err)
+	}
+	if _, err := NewFieldConstructionChoice("snapshot", candidate); err == nil || !strings.Contains(err.Error(), "Specimen.type.coding[]") {
+		t.Fatalf("unsupported object source was accepted or unexplained: %v", err)
+	}
+	if IsSupportedConstructionScalarType("unknown") || IsSupportedConstructionScalarType("object") || IsSupportedConstructionScalarType("") {
+		t.Fatal("unknown, object, and missing logical types must not be treated as scalar")
+	}
 }
 
 func TestRelatedRouteOptionsDeclareScalarContributorPredicateSupport(t *testing.T) {
@@ -139,7 +162,7 @@ func TestNewSemanticConstructionChoicePinsObservationAndCompilerSource(t *testin
 
 	candidate := Candidate{
 		ID: "candidate_observation_value", NodeID: "node_observation", ResourceType: "Observation",
-		FieldPath: "component[].valueQuantity.value", Cardinality: "many",
+		FieldPath: "component[].valueQuantity.value", LogicalType: "decimal", Cardinality: "many",
 		RepeatedBoundaries: []RepeatedBoundary{{Path: "component[]", MaxItems: 4}},
 		ProjectionModes:    []ProjectionMode{ProjectionFirst, ProjectionArray},
 	}
@@ -223,7 +246,7 @@ func TestNewSemanticConstructionChoicePinsObservationAndCompilerSource(t *testin
 func TestSemanticConstructionChoiceAdvertisesOwnerRecordsOnlyAfterExactProof(t *testing.T) {
 	candidate := Candidate{
 		ID: "component-value", NodeID: "observation", ResourceType: "Observation",
-		FieldPath: "component[].valueQuantity.value", Cardinality: "many",
+		FieldPath: "component[].valueQuantity.value", LogicalType: "decimal", Cardinality: "many",
 		RepeatedBoundaries: []RepeatedBoundary{{Path: "component[]", MaxItems: 8}},
 		ProjectionModes:    []ProjectionMode{ProjectionFirst, ProjectionArray},
 	}
@@ -273,7 +296,7 @@ func TestDecodeConstructionChoiceIDRejectsTamperedAndMalformedTokens(t *testing.
 
 	candidate := Candidate{
 		ID: "candidate", NodeID: "node", ResourceType: "Patient", FieldPath: "birthDate",
-		Cardinality: "optional_one", ProjectionModes: []ProjectionMode{ProjectionScalar},
+		LogicalType: "date", Cardinality: "optional_one", ProjectionModes: []ProjectionMode{ProjectionScalar},
 	}
 	choice, err := NewFieldConstructionChoice("snapshot", candidate)
 	if err != nil {

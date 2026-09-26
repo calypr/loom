@@ -1049,6 +1049,9 @@ func (s *Service) SearchConstructionChoices(ctx context.Context, request Constru
 		}
 		var choice capability.ConstructionChoice
 		if request.Source.Kind == capability.ConstructionChoiceSourceField {
+			if err = capability.ValidateConstructionSourceType(provenCandidate, snapshot.Candidates); err != nil {
+				return result, unprocessable("construction-choices", "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE", err.Error(), err)
+			}
 			choice, err = capability.NewFieldConstructionChoiceForRoute(snapshot.Token, resolvedRoute, provenCandidate)
 		} else {
 			ownerRecords := proveOwnerRecordsForRoute(ctx, authorized, document.RootResourceType, semanticEntry.Observation, resolvedRoute)

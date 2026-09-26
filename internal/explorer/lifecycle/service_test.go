@@ -257,7 +257,7 @@ func readySnapshot(project, generation, token string, scope authscope.ReadScope)
 func lifecycleTestFieldChoice(snapshotToken, candidateID, nodeID, resourceType, path, cardinality string, projection capability.ProjectionMode) *capability.ConstructionChoice {
 	choice, err := capability.NewFieldConstructionChoice(snapshotToken, capability.Candidate{
 		ID: candidateID, NodeID: nodeID, ResourceType: resourceType, FieldPath: path,
-		Cardinality: cardinality, ProjectionModes: []capability.ProjectionMode{projection},
+		LogicalType: "string", Cardinality: cardinality, ProjectionModes: []capability.ProjectionMode{projection},
 	})
 	if err != nil {
 		panic(err)

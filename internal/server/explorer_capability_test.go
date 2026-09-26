@@ -380,6 +380,28 @@ func TestAuthoringV2CatalogOmitsCandidateWithoutExecutableConstructionChoice(t *
 	}
 }
 
+func TestAuthoringV2CatalogBlocksObjectProjectionWithTypedChildHint(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a"},
+		capability.Policy{}, capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true}}, nil,
+		[]capability.Candidate{
+			{ID: "c_specimen_coding", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[]", LogicalType: "unknown", Cardinality: "many", ProjectionModes: []capability.ProjectionMode{capability.ProjectionArray}},
+			{ID: "c_specimen_coding_system", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].system", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}},
+		}, nil,
+	)
+
+	wire := authoringV2Catalog(snapshot, "default")
+	if len(wire.Candidates) != 1 || wire.Candidates[0].FieldPath != "type.coding[].system" {
+		t.Fatalf("catalog candidates = %#v, want only the typed child field", wire.Candidates)
+	}
+	if len(wire.Diagnostics) != 1 || wire.Diagnostics[0].Code != "UNSUPPORTED_CONSTRUCTION_SOURCE_TYPE" ||
+		!strings.Contains(wire.Diagnostics[0].Message, "Specimen.type.coding[]") ||
+		!strings.Contains(wire.Diagnostics[0].Message, "Specimen.type.coding[].system") {
+		t.Fatalf("catalog diagnostics = %#v, want unsupported field and typed child guidance", wire.Diagnostics)
+	}
+}
+
 func TestExplorerCapabilityResolverAuthorizedCompilationRequiresActiveGeneration(t *testing.T) {
 	manifest := testCapabilityManifest(t)
 	store := newTestCapabilityStore()

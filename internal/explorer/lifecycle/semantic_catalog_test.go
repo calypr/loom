@@ -24,7 +24,7 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}, {ResourceType: "Specimen", RowRootEligible: true}}
 			snapshot.Candidates = []capability.Candidate{{
 				ID: "observation-value", NodeID: "n_observation", ResourceType: "Observation",
-				FieldPath: "valueQuantity.value", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+				FieldPath: "valueQuantity.value", LogicalType: "decimal", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
 			}}
 			calls := 0
 			buildID := "build-a"
