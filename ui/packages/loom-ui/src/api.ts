@@ -17,6 +17,8 @@ import {
   constructionInputsResponseSchema,
   constructionCapabilitiesRequestSchema,
   constructionCapabilitiesResponseSchema,
+  constructionCategoryDiscoveryRequestSchema,
+  constructionCategoryDiscoveryResponseSchema,
   constructionProposalRequestSchema,
   constructionProposalResponseSchema,
   populationRoutesResponseSchema,
@@ -48,6 +50,7 @@ import {
   type RelatedFieldChoiceSearchResponse,
   type ConstructionInputsResponse,
   type ConstructionCapabilitiesResponse,
+  type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalRequest,
   type ConstructionProposalResponse,
   type PopulationRoutesResponse,
@@ -412,6 +415,12 @@ export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringSt
   readonly stageId: string;
 }
 
+export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthoringStateArgs {
+  readonly stageId: string;
+  readonly categoryColumnId: string;
+  readonly valueColumnId: string;
+}
+
 export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly expectedDraftVersion: number;
@@ -639,6 +648,10 @@ export interface LoomClient {
     args: GetConstructionCapabilitiesArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionCapabilitiesResponse>;
+  readonly discoverConstructionCategories: (
+    args: DiscoverConstructionCategoriesArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionCategoryDiscoveryResponse>;
   readonly getConstructionInputs: (
     args: GetConstructionInputsArgs,
     signal?: AbortSignal,
@@ -1287,6 +1300,18 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         stageId: args.stageId,
       }), signal, args.requestId,
     )).then((value) => constructionCapabilitiesResponseSchema.parse(value));
+  const discoverConstructionCategories = (args: DiscoverConstructionCategoriesArgs, signal?: AbortSignal) =>
+    request(durableAuthoringPath(args, '/construction-category-discoveries'), withJson(
+      constructionCategoryDiscoveryRequestSchema.parse({
+        expectedDraftDigest: args.expectedDraftDigest,
+        expectedDraftVersion: args.expectedDraftVersion,
+        outputId: args.outputId,
+        snapshotToken: args.snapshotToken,
+        stageId: args.stageId,
+        categoryColumnId: args.categoryColumnId,
+        valueColumnId: args.valueColumnId,
+      }), signal, args.requestId,
+    )).then((value) => constructionCategoryDiscoveryResponseSchema.parse(value));
   const getConstructionInputs = (args: GetConstructionInputsArgs, signal?: AbortSignal) => {
     const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId: _requestId, ...body } = args;
     return request(durableAuthoringPath(args, '/construction-inputs'), withJson(
@@ -1542,6 +1567,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     resolveTableShape,
     proposeTableShape,
     getConstructionCapabilities,
+    discoverConstructionCategories,
     getConstructionInputs,
     proposeConstruction,
     preview,

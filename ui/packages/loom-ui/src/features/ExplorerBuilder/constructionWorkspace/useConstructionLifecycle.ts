@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
   LoomClient,
   ProposeConstructionArgs,
 } from '../../../api';
 import type {
   ConstructionCapabilitiesResponse,
+  ConstructionCategoryDiscoveryResponse,
   ConstructionProposalRequest,
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
 } from '../../../types';
+import type {
+  ConstructionReshapePivotDiscovery,
+  ConstructionReshapePivotDiscoveryRequest,
+} from '../constructionOperations/ConstructionReshapeEditor';
 import {
   constructionProposalIsApplicable,
   type ConstructionProposalViewState,
@@ -17,7 +23,7 @@ import {
 
 export type ConstructionLifecycleClient = Pick<
   LoomClient,
-  'getConstructionCapabilities' | 'proposeConstruction' | 'preview'
+  'getConstructionCapabilities' | 'discoverConstructionCategories' | 'proposeConstruction' | 'preview'
 >;
 
 export type ConstructionCandidateIntent = Pick<
@@ -39,6 +45,11 @@ type CapabilitiesLoad = {
 type ProposalLoad = {
   readonly key: string;
   readonly state: ConstructionProposalViewState;
+};
+
+type PivotDiscoveryLoad = {
+  readonly key: string;
+  readonly state: ConstructionReshapePivotDiscovery | undefined;
 };
 
 const capabilitiesIdentity = (
@@ -87,15 +98,24 @@ export const useConstructionLifecycle = ({
     key: '',
     state: { status: 'idle' },
   });
+  const [pivotDiscoveryLoad, setPivotDiscoveryLoad] = useState<PivotDiscoveryLoad>({ key: '', state: undefined });
   const capabilitiesController = useRef<AbortController | undefined>(undefined);
   const proposalController = useRef<AbortController | undefined>(undefined);
+  const pivotDiscoveryController = useRef<AbortController | undefined>(undefined);
   const proposalTimer = useRef<number | undefined>(undefined);
   const proposalGeneration = useRef(0);
+  const pivotDiscoveryGeneration = useRef(0);
   const candidateIntent = useRef<ConstructionCandidateIntent | undefined>(undefined);
   const capabilitiesRequestRef = useRef(capabilitiesRequest);
   capabilitiesRequestRef.current = capabilitiesRequest;
 
   const requestKey = capabilitiesIdentity(capabilitiesRequest);
+
+  const invalidatePivotDiscovery = useCallback(() => {
+    pivotDiscoveryGeneration.current += 1;
+    pivotDiscoveryController.current?.abort();
+    pivotDiscoveryController.current = undefined;
+  }, []);
 
   useEffect(() => {
     capabilitiesController.current?.abort();
@@ -142,6 +162,12 @@ export const useConstructionLifecycle = ({
 
     return () => controller.abort();
   }, [client, requestKey]);
+
+  useEffect(() => {
+    invalidatePivotDiscovery();
+    setPivotDiscoveryLoad({ key: '', state: undefined });
+    return invalidatePivotDiscovery;
+  }, [invalidatePivotDiscovery, requestKey]);
 
   const invalidateProposalRequest = useCallback(() => {
     proposalGeneration.current += 1;
@@ -281,6 +307,76 @@ export const useConstructionLifecycle = ({
     setProposalLoad({ key: requestKey, state: { status: 'idle' } });
   }, [invalidateProposalRequest, requestKey]);
 
+  const onDiscoverCategories = useCallback((request: ConstructionReshapePivotDiscoveryRequest) => {
+    invalidatePivotDiscovery();
+    const args = capabilitiesRequestRef.current;
+    const discoveryKey = JSON.stringify([requestKey, request.stageId, request.categoryColumnId, request.valueColumnId]);
+    if (!args || request.stageId !== args.stageId) {
+      setPivotDiscoveryLoad({
+        key: discoveryKey,
+        state: { ...request, status: 'failed', reason: 'The selected stage changed. Reload its columns and find the category values again.' },
+      });
+      return;
+    }
+    const activeCapabilities = capabilitiesLoad.key === requestKey ? capabilitiesLoad.state : { status: 'loading' as const };
+    if (activeCapabilities.status !== 'ready' || activeCapabilities.response.selectedStage.id !== request.stageId) {
+      setPivotDiscoveryLoad({
+        key: discoveryKey,
+        state: { ...request, status: 'failed', reason: 'The current stage is still loading. Try finding category values again.' },
+      });
+      return;
+    }
+
+    const generation = pivotDiscoveryGeneration.current;
+    const controller = new AbortController();
+    pivotDiscoveryController.current = controller;
+    setPivotDiscoveryLoad({ key: discoveryKey, state: { ...request, status: 'loading' } });
+    const discoveryArgs: DiscoverConstructionCategoriesArgs = {
+      project: args.project,
+      explorerId: args.explorerId,
+      ...(args.authResourcePath ? { authResourcePath: args.authResourcePath } : {}),
+      snapshotToken: args.snapshotToken,
+      expectedDraftVersion: args.expectedDraftVersion,
+      expectedDraftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: request.stageId,
+      categoryColumnId: request.categoryColumnId,
+      valueColumnId: request.valueColumnId,
+      requestId: `construction-categories-${window.crypto.randomUUID()}`,
+    };
+    void client.discoverConstructionCategories(discoveryArgs, controller.signal).then(
+      (response: ConstructionCategoryDiscoveryResponse) => {
+        if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+        const matchesRequest =
+          response.snapshotToken === args.snapshotToken &&
+          response.draftVersion === args.expectedDraftVersion &&
+          response.draftDigest === args.expectedDraftDigest &&
+          response.outputId === args.outputId &&
+          response.stageId === request.stageId &&
+          response.categoryColumnId === request.categoryColumnId &&
+          response.valueColumnId === request.valueColumnId &&
+          response.complete === true &&
+          response.proofFingerprint.trim() !== '';
+        setPivotDiscoveryLoad({
+          key: discoveryKey,
+          state: matchesRequest
+            ? { ...request, status: 'complete', categories: response.categories }
+            : { ...request, status: 'failed', reason: 'Loom returned category values for a different stage or field pair.' },
+        });
+      },
+    ).catch((error: unknown) => {
+      if (controller.signal.aborted || pivotDiscoveryGeneration.current !== generation) return;
+      setPivotDiscoveryLoad({
+        key: discoveryKey,
+        state: {
+          ...request,
+          status: 'failed',
+          reason: errorMessage(error, 'Loom could not find category values for this pair.'),
+        },
+      });
+    });
+  }, [capabilitiesLoad, client, invalidatePivotDiscovery, requestKey]);
+
   const beginApply = useCallback(() => {
     const state = proposalLoad.key === requestKey ? proposalLoad.state : { status: 'idle' as const };
     if (!capabilitiesRequest || state.status !== 'ready') return undefined;
@@ -320,6 +416,17 @@ export const useConstructionLifecycle = ({
   const activeProposal = proposalLoad.key === requestKey
     ? proposalLoad.state
     : { status: 'idle' as const };
+  const activePivotDiscoveryKey = pivotDiscoveryLoad.state
+    ? JSON.stringify([
+        requestKey,
+        pivotDiscoveryLoad.state.stageId,
+        pivotDiscoveryLoad.state.categoryColumnId,
+        pivotDiscoveryLoad.state.valueColumnId,
+      ])
+    : '';
+  const activePivotDiscovery = pivotDiscoveryLoad.key === activePivotDiscoveryKey
+    ? pivotDiscoveryLoad.state
+    : undefined;
   const canApply = Boolean(
     capabilitiesRequest &&
     constructionProposalIsApplicable(activeProposal, {
@@ -339,5 +446,7 @@ export const useConstructionLifecycle = ({
     cancel,
     beginApply,
     finishApply,
+    pivotDiscovery: activePivotDiscovery,
+    onDiscoverCategories,
   };
 };

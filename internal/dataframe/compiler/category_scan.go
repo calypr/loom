@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 const MaxCategoryScanValues = 256
@@ -32,6 +33,7 @@ const (
 	CategoryScanColumnRepeated    CategoryScanRefusalCode = "CATEGORY_COLUMN_REPEATED"
 	CategoryScanColumnUnsupported CategoryScanRefusalCode = "CATEGORY_COLUMN_UNSUPPORTED"
 	CategoryScanInvalidLimit      CategoryScanRefusalCode = "CATEGORY_LIMIT_INVALID"
+	CategoryScanStageUnknown      CategoryScanRefusalCode = "CATEGORY_STAGE_UNKNOWN"
 )
 
 type CategoryScanRefusal struct {
@@ -60,6 +62,9 @@ func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
 type CategoryScanProof struct {
 	Version            int
 	Output             string
+	StageID            string `json:",omitempty"`
+	ColumnID           string `json:",omitempty"`
+	ValueColumnID      string `json:",omitempty"`
 	Column             string
 	Kind               string
 	Cardinality        string
@@ -85,8 +90,91 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 	if err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
+	return compileCategoryScan(output, output.OutputSchema, column, "", "", "", maxValues, policy)
+}
+
+// CompileCategoryScanStageWithPolicy compiles the exact prefix ending at a
+// compiler-owned construction stage and binds the proof to the selected
+// category and value columns. The value column is not read by the scan, but is
+// included in the proof so a result cannot be reused for another pivot pair.
+func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	stage, found := compiledStageByID(output.Stages, stageID)
+	if !found {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
+	}
+	category, err := categoryScanStageColumn(stage.Columns, categoryColumnID)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	value, err := categoryScanStageColumn(stage.Columns, valueColumnID)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	if category.ID == value.ID {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanColumnUnsupported, Column: categoryColumnID}
+	}
 	if maxValues < 1 || maxValues > MaxCategoryScanValues {
-		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: columnName}
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: category.Name}
+	}
+
+	stageOutput := output
+	stageOutput.OutputSchema = lower.CloneCompiledOutputSchema(stage.Columns)
+	stageOutput.OptimizedPlan = nil
+	stageOutput.Plan = ir.ClonePhysicalPlan(output.Plan)
+	if stageOutput.Plan.StageSequence != nil {
+		sequence := stageOutput.Plan.StageSequence
+		if stageID == sequence.SourceStageID {
+			stageOutput.Plan.StageSequence = nil
+		} else {
+			stageIndex := -1
+			for index := range sequence.Stages {
+				if sequence.Stages[index].ID == stageID {
+					stageIndex = index
+					break
+				}
+			}
+			if stageIndex < 0 {
+				return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
+			}
+			sequence.Stages = sequence.Stages[:stageIndex+1]
+			last := sequence.Stages[stageIndex]
+			sequence.FinalStageID = last.ID
+			sequence.FinalRowIdentity = last.RowIdentityColumn
+			sequence.FinalColumns = append(sequence.FinalColumns[:0], last.OutputColumns...)
+			sequence.PreviewLimitBindKey = ""
+			sequence.CellTraceReturn = nil
+		}
+	} else if stageID != recipe.ConstructionSourceProjectionID {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
+	}
+	return compileCategoryScan(stageOutput, stageOutput.OutputSchema, category, stageID, category.ID, value.ID, maxValues, policy)
+}
+
+func compiledStageByID(stages []lower.CompiledStageDescriptor, stageID string) (lower.CompiledStageDescriptor, bool) {
+	for _, stage := range stages {
+		if stage.ID == stageID {
+			return stage, true
+		}
+	}
+	return lower.CompiledStageDescriptor{}, false
+}
+
+func categoryScanStageColumn(columns []lower.CompiledOutputColumn, id string) (lower.CompiledOutputColumn, error) {
+	for _, column := range columns {
+		if column.ID != id {
+			continue
+		}
+		if _, err := categoryScanColumn([]lower.CompiledOutputColumn{column}, column.Name); err != nil {
+			return column, err
+		}
+		return column, nil
+	}
+	return lower.CompiledOutputColumn{}, &CategoryScanRefusal{Code: CategoryScanColumnUnknown, Column: id}
+}
+
+func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if maxValues < 1 || maxValues > MaxCategoryScanValues {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: column.Name}
 	}
 
 	physical, err := categoryScanPhysicalPlan(output, policy)
@@ -108,7 +196,7 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 		return CompiledCategoryScanQuery{}, fmt.Errorf("category scan bind %q is already defined", categoryLimitBind)
 	}
 	bindVars := cloneCategoryScanBinds(rendered.BindVars)
-	bindVars[categoryColumnBind] = columnName
+	bindVars[categoryColumnBind] = column.Name
 	bindVars[categoryLimitBind] = maxValues + 1
 	query := "LET __loom_category_rows = (\n" + rendered.Query + "\n)\n" +
 		"FOR __loom_category_row IN __loom_category_rows\n" +
@@ -120,7 +208,7 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 		"  RETURN { present: __loom_category_group_present, value: __loom_category_group_value }"
 
 	diagnostics := physicalPlanDiagnostics(physical)
-	schemaDigest, err := categoryHash(output.OutputSchema)
+	schemaDigest, err := categoryHash(schema)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan schema: %w", err)
 	}
@@ -133,6 +221,12 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 		Cardinality: column.Cardinality, MaxValues: maxValues,
 		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
 		QueryFingerprint: queryDigest,
+	}
+	if stageID != "" {
+		proof.Version = 2
+		proof.StageID = stageID
+		proof.ColumnID = categoryColumnID
+		proof.ValueColumnID = valueColumnID
 	}
 	proof.Fingerprint, err = categoryHash(proof)
 	if err != nil {

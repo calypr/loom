@@ -98,6 +98,7 @@ const makeClient = () => {
   }));
   const client = {
     getConstructionCapabilities: vi.fn(async () => capabilities),
+    discoverConstructionCategories: vi.fn(async () => { throw new Error('category discovery is not used by this test'); }),
     proposeConstruction,
     preview,
   } satisfies ConstructionLifecycleClient;

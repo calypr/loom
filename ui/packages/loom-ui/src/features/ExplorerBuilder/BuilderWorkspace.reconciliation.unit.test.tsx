@@ -31,6 +31,7 @@ const mockLoomClient = vi.hoisted(() => ({
   resolveTableShape: vi.fn(),
   proposeTableShape: vi.fn(),
   getConstructionCapabilities: vi.fn(),
+  discoverConstructionCategories: vi.fn(),
   proposeConstruction: vi.fn(),
   preview: vi.fn(),
 }));
@@ -195,14 +196,30 @@ vi.mock('./components/PreviewTable', () => ({
 vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
   ConstructionReshapeEditor: ({
     editingStep,
+    construction,
+    capabilities,
+    pivotDiscovery,
+    onDiscoverCategories,
   }: {
     readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
+    readonly construction: { readonly steps: ReadonlyArray<unknown> };
+    readonly capabilities: { readonly selectedStage: { readonly id: string } };
+    readonly pivotDiscovery?: { readonly status: string };
+    readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
   }) => (
     <div
       data-testid="construction-reshape-editor"
       data-editing-step-id={editingStep?.id ?? ''}
       data-editing-operation={editingStep?.operation.kind ?? ''}
-    />
+      data-construction-step-count={construction.steps.length}
+      data-discovery-status={pivotDiscovery?.status ?? 'none'}
+    >
+      {onDiscoverCategories ? <button type="button" onClick={() => onDiscoverCategories({
+        stageId: capabilities.selectedStage.id,
+        categoryColumnId: 'status-id',
+        valueColumnId: 'value-id',
+      })}>Find category values in construction editor</button> : null}
+    </div>
   ),
 }));
 
@@ -433,6 +450,26 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         selectedStage,
       };
     });
+    mockLoomClient.discoverConstructionCategories.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+      readonly categoryColumnId: string;
+      readonly valueColumnId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      categoryColumnId: args.categoryColumnId,
+      valueColumnId: args.valueColumnId,
+      complete: true,
+      proofFingerprint: 'proof-1',
+      categories: [{ key: { kind: 'STRING' as const, string: 'final' }, label: 'final' }],
+    }));
     applyCommands = vi.fn().mockReturnValue(
       resolvedRequest({
         commandId: 'command-1',
@@ -707,6 +744,57 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
       expect.any(AbortSignal),
     );
+  });
+
+  it('opens stage-scoped pivot discovery from a source-only Reshape editor', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [
+        { id: 'specimen-id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' },
+        { id: 'status-id', name: 'status', label: 'Status', type: 'string' },
+        { id: 'value-id', name: 'value', label: 'Value', type: 'decimal' },
+      ],
+      capabilities: [
+        { kind: 'PIVOT' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+    };
+    mockLoomClient.getConstructionCapabilities.mockResolvedValueOnce({
+      snapshotToken: 'snapshot-1',
+      draftVersion: 1,
+      draftDigest: 'sha256:draft-1',
+      outputId: 'specimens',
+      stageId: sourceStage.id,
+      baseConstruction: { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    });
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(await screen.findByTestId('construction-action-reshape'));
+
+    const editor = await screen.findByTestId('construction-reshape-editor');
+    expect(editor).toHaveAttribute('data-construction-step-count', '0');
+    expect(screen.queryByTestId('ui04-table-shape-settings')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Find category values in construction editor' }));
+    await waitFor(() => expect(mockLoomClient.discoverConstructionCategories).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outputId: 'specimens',
+        stageId: 'source_projection',
+        categoryColumnId: 'status-id',
+        valueColumnId: 'value-id',
+      }),
+      expect.any(AbortSignal),
+    ));
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-discovery-status', 'complete'));
   });
 
   it('keeps a gender filter proposal alive across BuilderWorkspace rerenders', async () => {

@@ -146,7 +146,7 @@ func TestTableShapeHTTPContractCatalogDiscoveryAndResolution(t *testing.T) {
 			}
 			return tableShapeRouteReceipt(t, service, receipt)
 		},
-		ScanTableShapeCategories: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		ScanCategories: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 			if request.Output != "patients" || request.Column != "status" || request.MaxValues < 2 {
 				t.Fatalf("unexpected category scan request: %#v", request)
 			}

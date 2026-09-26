@@ -77,10 +77,9 @@ type ConstructionSourceStageRequest struct {
 	SelectionMembersCollection string
 }
 
-// TableShapeCategoryScanner executes an exact compiler-owned category scan
-// for one already-validated base receipt. The result is persisted only after
-// lifecycle verifies its proof against the receipt and current snapshot.
-type TableShapeCategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
+// CategoryScanner executes an exact compiler-owned category scan for one
+// already-validated receipt without exposing query details to lifecycle.
+type CategoryScanner func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error)
 
 // ArtifactPublishedReader is the exact-output surface lifecycle needs when
 // materializing a durable artifact. Keeping this contract narrow makes it
@@ -162,7 +161,7 @@ type Config struct {
 	ConstructionSourceStage      ConstructionSourceStageCompiler
 	PreviewReceipt               ReceiptPreviewer
 	TableShapeCapabilities       tableshapecap.Repository
-	ScanTableShapeCategories     TableShapeCategoryScanner
+	ScanCategories               CategoryScanner
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor

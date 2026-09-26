@@ -126,7 +126,7 @@ func lifecycleTableShapeService(t *testing.T, saved *authoringv2.TableShape) (*S
 		t.Fatal(err)
 	}
 	service.config.TableShapeCapabilities = newLifecycleTableShapeRepository()
-	service.config.ScanTableShapeCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		values := []dataframeexecution.CategoryValue{{Present: true, Value: ""}, {Present: true, Value: "alpha"}, {Present: true, Value: nil}, {Present: false}}
 		switch request.Column {
 		case "category_number":
@@ -437,13 +437,13 @@ func TestTableShapeDiscoveryRejectsStaleAndIncompleteBindings(t *testing.T) {
 		t.Fatalf("stale draft request code=%s err=%v", lifecycleErrorCode(err), err)
 	}
 	store.created.DraftVersion = request.ExpectedDraftVersion
-	service.config.ScanTableShapeCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{Values: []dataframeexecution.CategoryValue{{Present: true, Value: "x"}}, Complete: false}, nil
 	}
 	if _, err := service.DiscoverTableShapeCategories(context.Background(), pair); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
 		t.Fatalf("incomplete scan code=%s err=%v", lifecycleErrorCode(err), err)
 	}
-	service.config.ScanTableShapeCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+	service.config.ScanCategories = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, _ dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{Values: []dataframeexecution.CategoryValue{{Present: true, Value: "x"}}, Complete: true, Overflow: true}, nil
 	}
 	if _, err := service.DiscoverTableShapeCategories(context.Background(), pair); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
@@ -534,7 +534,7 @@ func TestTableShapeCategoryDiscoveryCanRunBeforeFinalPivotChoices(t *testing.T) 
 
 func TestTableShapeNoScannerReturnsExactRoleRefusal(t *testing.T) {
 	service, store, snapshot, _, _ := lifecycleTableShapeService(t, nil)
-	service.config.ScanTableShapeCategories = nil
+	service.config.ScanCategories = nil
 	result, err := service.GetTableShapeCatalog(context.Background(), tableShapeCatalogRequest(store.created, snapshot))
 	if err != nil {
 		t.Fatal(err)

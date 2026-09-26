@@ -30,6 +30,26 @@ func (h *explorerHTTPHandlers) getConstructionCapabilitiesDirect(ctx context.Con
 	return directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](value)
 }
 
+func (h *explorerHTTPHandlers) discoverConstructionCategoriesDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionCategoryDiscoveryRequest) (loomapi.ConstructionCategoryDiscoveryResponse, error) {
+	var result loomapi.ConstructionCategoryDiscoveryResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("construction-category-discovery", nil)
+	}
+	value, err := h.application.DiscoverConstructionCategories(ctx, lifecycle.ConstructionCategoryDiscoveryRequest{
+		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
+		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
+		OutputID: body.OutputId, StageID: body.StageId,
+		CategoryColumnID: body.CategoryColumnId, ValueColumnID: body.ValueColumnId,
+	})
+	if err != nil {
+		return result, err
+	}
+	return directAuthoringJSON[loomapi.ConstructionCategoryDiscoveryResponse](value)
+}
+
 func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, project, explorerID string, body *loomapi.ConstructionProposalRequest) (loomapi.ConstructionProposalResponse, error) {
 	var result loomapi.ConstructionProposalResponse
 	if err := h.authoringReadDirect(ctx, project); err != nil {
@@ -121,6 +141,38 @@ func (r *HTTPRoutes) GetExplorerConstructionCapabilities(ctx context.Context, re
 		return loomapi.GetExplorerConstructionCapabilities503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("getExplorerConstructionCapabilities", status)
+	}
+}
+
+func (r *HTTPRoutes) DiscoverExplorerConstructionCategories(ctx context.Context, request loomapi.DiscoverExplorerConstructionCategoriesRequestObject) (loomapi.DiscoverExplorerConstructionCategoriesResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		_, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", explorerUnavailable("construction-category-discovery", "AUTHORING_UNAVAILABLE", "Explorer authoring is not configured"))
+		return loomapi.DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	}
+	value, err := r.explorer.discoverConstructionCategoriesDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.DiscoverExplorerConstructionCategories200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "discoverExplorerConstructionCategories", err)
+	switch status {
+	case http.StatusBadRequest:
+		return loomapi.DiscoverExplorerConstructionCategories400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusUnauthorized:
+		return loomapi.DiscoverExplorerConstructionCategories401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.DiscoverExplorerConstructionCategories403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.DiscoverExplorerConstructionCategories404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.DiscoverExplorerConstructionCategories409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.DiscoverExplorerConstructionCategories422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.DiscoverExplorerConstructionCategories500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.DiscoverExplorerConstructionCategories503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("discoverExplorerConstructionCategories", status)
 	}
 }
 

@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
@@ -99,5 +103,45 @@ func TestScanCategoriesReturnsTypedCompilerRefusalForUnsupportedColumn(t *testin
 	code, ok := compiler.CategoryScanRefusalCodeOf(err)
 	if !ok || code != compiler.CategoryScanColumnUnsupported {
 		t.Fatalf("refusal = %q/%t, error = %v", code, ok, err)
+	}
+}
+
+func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "construction-stage-category-scan",
+		TranslationVersion:  "test",
+		Outputs:             []recipe.Output{executionConstructionTraceOutput()},
+	}
+	bindings := recipe.RuntimeBindings{Project: "category-scan-project", DatasetGeneration: "generation-1"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedPlan, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolvedPlan, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var query string
+	engine := &Engine{queryRows: func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		query = queryText
+		return visit(map[string]any{"present": true, "value": "final"})
+	}}
+	result, err := engine.ScanCategories(context.Background(), Resolved{Compiled: compiled}, CategoryScanRequest{
+		Output: "construction_trace", StageID: "derive_total", ColumnID: "status_id", ValueColumnID: "total_id", MaxValues: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(query, "LET __loom_construction_stage_") != 1 || strings.Contains(query, "__loom_construction_stage_2") {
+		t.Fatalf("execution scan did not use the requested stage prefix:\n%s", query)
+	}
+	if !result.Complete || len(result.Values) != 1 || result.Values[0] != (CategoryValue{Present: true, Value: "final"}) ||
+		result.Proof.Version != 2 || result.Proof.StageID != "derive_total" || result.Proof.ColumnID != "status_id" || result.Proof.ValueColumnID != "total_id" {
+		t.Fatalf("stage category scan result = %#v", result)
 	}
 }

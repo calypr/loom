@@ -10,9 +10,12 @@ import (
 )
 
 type CategoryScanRequest struct {
-	Output    string
-	Column    string
-	MaxValues int
+	Output        string
+	Column        string
+	StageID       string
+	ColumnID      string
+	ValueColumnID string
+	MaxValues     int
 }
 
 type CategoryValue struct {
@@ -35,7 +38,13 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 		if output.Name != request.Output {
 			continue
 		}
-		compiled, err := compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		var compiled compiler.CompiledCategoryScanQuery
+		var err error
+		if request.StageID != "" {
+			compiled, err = compiler.CompileCategoryScanStageWithPolicy(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		} else {
+			compiled, err = compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		}
 		if err != nil {
 			return CategoryScanResult{}, err
 		}

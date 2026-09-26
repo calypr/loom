@@ -2,12 +2,14 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  DiscoverConstructionCategoriesArgs,
   GetConstructionCapabilitiesArgs,
   ProposeConstructionArgs,
 } from '../../../api';
 import {
   EXPLORER_AUTHORING_API_VERSION,
   type ConstructionCapabilitiesResponse,
+  type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalResponse,
   type ExplorerBuilderPreviewResult,
 } from '../../../types';
@@ -87,6 +89,19 @@ const request: GetConstructionCapabilitiesArgs = {
   stageId: 'source_projection',
 };
 
+const categoriesFor = (args: DiscoverConstructionCategoriesArgs): ConstructionCategoryDiscoveryResponse => ({
+  snapshotToken: args.snapshotToken,
+  draftVersion: args.expectedDraftVersion,
+  draftDigest: args.expectedDraftDigest,
+  outputId: args.outputId,
+  stageId: args.stageId,
+  categoryColumnId: args.categoryColumnId,
+  valueColumnId: args.valueColumnId,
+  complete: true,
+  proofFingerprint: 'category-proof',
+  categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'final' }],
+});
+
 afterEach(() => vi.useRealTimers());
 
 describe('useConstructionLifecycle', () => {
@@ -99,6 +114,7 @@ describe('useConstructionLifecycle', () => {
     const preview = vi.fn(async () => proposalPreview);
     const client = {
       getConstructionCapabilities: vi.fn(async (args) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
       proposeConstruction,
       preview,
     } satisfies ConstructionLifecycleClient;
@@ -171,6 +187,7 @@ describe('useConstructionLifecycle', () => {
     });
     const client = {
       getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
       proposeConstruction,
       preview: vi.fn(async (args) => ({ ...proposalPreview, receiptId: args.receiptId })),
     } satisfies ConstructionLifecycleClient;
@@ -213,6 +230,56 @@ describe('useConstructionLifecycle', () => {
       expect(result.current.proposal.response.proposalId).toBe('new-proposal');
     }
     expect(result.current.canApply).toBe(true);
+    unmount();
+  });
+
+  it('binds category results to the current stage pair and draft identity', async () => {
+    let resolveFirst: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    let resolveSecond: ((response: ConstructionCategoryDiscoveryResponse) => void) | undefined;
+    const first = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<ConstructionCategoryDiscoveryResponse>((resolve) => { resolveSecond = resolve; });
+    let discoveryCalls = 0;
+    const discoverConstructionCategories = vi.fn((_args: DiscoverConstructionCategoriesArgs, _signal?: AbortSignal) => {
+      discoveryCalls += 1;
+      return discoveryCalls === 1 ? first : second;
+    });
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories,
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, rerender, unmount } = renderHook(
+      ({ capabilitiesRequest }: { readonly capabilitiesRequest: GetConstructionCapabilitiesArgs }) =>
+        useConstructionLifecycle({ client, capabilitiesRequest }),
+      { initialProps: { capabilitiesRequest: request } },
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.capabilities.status).toBe('ready');
+
+    const firstPair = { stageId: request.stageId, categoryColumnId: 'status-id', valueColumnId: 'value-id' };
+    const secondPair = { stageId: request.stageId, categoryColumnId: 'kind-id', valueColumnId: 'value-id' };
+    act(() => result.current.onDiscoverCategories(firstPair));
+    expect(result.current.pivotDiscovery?.status).toBe('loading');
+    act(() => result.current.onDiscoverCategories(secondPair));
+    expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'loading' });
+
+    await act(async () => {
+      resolveFirst?.(categoriesFor({ ...request, ...firstPair }));
+      await Promise.resolve();
+    });
+    expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'loading' });
+    await act(async () => {
+      resolveSecond?.(categoriesFor({ ...request, ...secondPair }));
+      await Promise.resolve();
+    });
+    expect(result.current.pivotDiscovery).toMatchObject({ ...secondPair, status: 'complete' });
+
+    rerender({ capabilitiesRequest: { ...request, expectedDraftVersion: request.expectedDraftVersion + 1 } });
+    expect(result.current.pivotDiscovery).toBeUndefined();
     unmount();
   });
 });

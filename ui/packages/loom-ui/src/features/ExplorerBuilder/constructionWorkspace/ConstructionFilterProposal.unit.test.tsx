@@ -108,6 +108,7 @@ describe('construction filter proposal wiring', () => {
     }));
     const client = {
       getConstructionCapabilities: vi.fn(async () => capabilities),
+      discoverConstructionCategories: vi.fn(async () => { throw new Error('category discovery is not used by this test'); }),
       proposeConstruction,
       preview: vi.fn(async () => preview),
     } satisfies ConstructionLifecycleClient;

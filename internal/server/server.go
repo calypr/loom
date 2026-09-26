@@ -421,7 +421,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ExplicitGroupResolver:              explicitGroupResolver,
 		ExplicitGroupRepository:            explorerStore,
 		TableShapeCapabilities:             tableShapeCapabilities,
-		ScanTableShapeCategories: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+		ScanCategories: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 			if receipt == nil {
 				return dataframeexecution.CategoryScanResult{}, fmt.Errorf("compilation receipt is missing")
 			}

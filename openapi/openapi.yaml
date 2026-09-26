@@ -494,6 +494,31 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-category-discoveries:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: discoverExplorerConstructionCategories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionCategoryDiscoveryRequest'}
+      responses:
+        '200':
+          description: Complete typed category values scanned from the exact requested construction stage and pivot column pair.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionCategoryDiscoveryResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-inputs:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3576,6 +3601,42 @@ components:
         expectedDraftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+    ConstructionCategoryDiscoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, stageId, categoryColumnId, valueColumnId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        categoryColumnId: {type: string, minLength: 1}
+        valueColumnId: {type: string, minLength: 1}
+    ConstructionDiscoveredCategory:
+      type: object
+      additionalProperties: false
+      required: [key, label]
+      properties:
+        key: {$ref: '#/components/schemas/ConstructionTableScalar'}
+        label: {type: string}
+    ConstructionCategoryDiscoveryResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, categoryColumnId, valueColumnId, complete, proofFingerprint, categories]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        stageId: {type: string, minLength: 1}
+        categoryColumnId: {type: string, minLength: 1}
+        valueColumnId: {type: string, minLength: 1}
+        complete: {type: boolean, enum: [true]}
+        proofFingerprint: {type: string, minLength: 1}
+        categories:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionDiscoveredCategory'}
     ConstructionOperationCapability:
       type: object
       additionalProperties: false

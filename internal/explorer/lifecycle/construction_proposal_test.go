@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
@@ -45,7 +46,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 	columns := make([]explorer.ReceiptConstructionStageColumn, 0, len(document.Columns))
 	for _, column := range document.Columns {
 		columns = append(columns, explorer.ReceiptConstructionStageColumn{
-			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType,
+			ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: column.LogicalType, Cardinality: expression.OptionalOne,
 		})
 	}
 	allChoices := func() []explorer.ReceiptConstructionOperationChoice {
@@ -71,7 +72,7 @@ func testConstructionStageDescriptors(workspace authoringv2.Workspace, outputID 
 		stageColumns := make([]explorer.ReceiptConstructionStageColumn, 0, len(step.Outputs))
 		for _, column := range step.Outputs {
 			stageColumns = append(stageColumns, explorer.ReceiptConstructionStageColumn{
-				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type,
+				ID: column.ID, Name: column.Name, Label: column.Label, Type: column.Type, Cardinality: expression.OptionalOne,
 			})
 		}
 		inputStageID := recipe.ConstructionSourceProjectionID

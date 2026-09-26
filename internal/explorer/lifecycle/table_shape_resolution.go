@@ -516,7 +516,7 @@ func (s *Service) scanTableShapeCategoryPair(ctx context.Context, base tableShap
 	if column == nil {
 		return tableshapecap.CategoryScanReceipt{}, conflict("table-shape-category-discovery", "INVALID_TABLE_SHAPE_CAPABILITY", "the category choice has no compiler-owned output column", nil, nil)
 	}
-	if s.config.ScanTableShapeCategories == nil {
+	if s.config.ScanCategories == nil {
 		return tableshapecap.CategoryScanReceipt{}, unprocessable("table-shape-category-discovery", "CATEGORY_SCAN_UNAVAILABLE", "complete pivot categories cannot be discovered", nil)
 	}
 	bindings := recipe.RuntimeBindings{
@@ -525,7 +525,7 @@ func (s *Service) scanTableShapeCategoryPair(ctx context.Context, base tableShap
 		OutputNames: []string{catalog.Binding.OutputID},
 	}
 	applyAuthorizedScope(&bindings, base.authorized, false)
-	scan, err := s.config.ScanTableShapeCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{Output: catalog.Binding.OutputID, Column: column.Key, MaxValues: maxPivotCategories})
+	scan, err := s.config.ScanCategories(ctx, base.receipt, bindings, dataframeexecution.CategoryScanRequest{Output: catalog.Binding.OutputID, Column: column.Key, MaxValues: maxPivotCategories})
 	if err != nil {
 		code := "CATEGORY_SCAN_REFUSED"
 		if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {

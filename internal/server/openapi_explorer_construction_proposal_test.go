@@ -77,6 +77,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 		t.Fatal(err)
 	}
 	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	categoryScanCalls := 0
 	config := lifecycle.Config{
 		Capability: lifecycle.CapabilityResolver{
 			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
@@ -89,6 +90,10 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 		},
 		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+		},
+		ScanCategories: func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			categoryScanCalls++
+			return dataframeexecution.CategoryScanResult{}, nil
 		},
 		PreviewReceipt: func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
 			if receipt == nil || receipt.ConstructionProposal == nil || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != "patients" {
@@ -131,6 +136,14 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	if supported, exists := stageCapabilities[loomapi.ConstructionOperationCapabilityKindEXPAND]; !exists || supported {
 		t.Fatalf("scalar source stage should expose EXPAND as unsupported: %#v", capabilities.SelectedStage.Capabilities)
+	}
+
+	staleDiscoveryHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-category-discoveries", fmt.Sprintf(
+		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","stageId":"invented-stage","categoryColumnId":"category-id","valueColumnId":"value-id"}`,
+		snapshot.Token, digest,
+	))
+	if staleDiscoveryHTTP.StatusCode != http.StatusConflict || categoryScanCalls != 0 {
+		t.Fatalf("stale stage category discovery status=%d calls=%d body=%s", staleDiscoveryHTTP.StatusCode, categoryScanCalls, staleDiscoveryHTTP.Body)
 	}
 
 	proposalHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(

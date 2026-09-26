@@ -118,3 +118,43 @@ func TestCompileCategoryScanProofChangesWithSchemaAndSelectedColumn(t *testing.T
 		t.Fatalf("proof was not bound to exact schema: %#v %#v", left.Proof, right.Proof)
 	}
 }
+
+func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	scanned, err := CompileCategoryScanStageWithPolicy(output, "derive_total", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(scanned.Query, "LET __loom_construction_stage_") != 1 || strings.Contains(scanned.Query, "__loom_construction_stage_2") {
+		t.Fatalf("category scan did not stop at derive_total:\n%s", scanned.Query)
+	}
+	proof := scanned.Proof
+	if proof.Version != 2 || proof.Output != output.Name || proof.StageID != "derive_total" || proof.ColumnID != "status_id" || proof.ValueColumnID != "total_id" || proof.Column != "status" || proof.MaxValues != 256 {
+		t.Fatalf("proof is not bound to the requested stage and pair: %#v", proof)
+	}
+	if proof.OutputSchemaDigest == "" || proof.PlanFingerprint == "" || proof.QueryFingerprint == "" || proof.Fingerprint == "" {
+		t.Fatalf("incomplete stage scan proof: %#v", proof)
+	}
+	otherPair, err := CompileCategoryScanStageWithPolicy(output, "derive_total", "status_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherPair.Proof.Fingerprint == proof.Fingerprint {
+		t.Fatal("proof fingerprint did not change with the selected value column")
+	}
+
+	for _, test := range []struct {
+		stage, category, value string
+		want                   CategoryScanRefusalCode
+	}{
+		{stage: "stale_stage", category: "status_id", value: "total_id", want: CategoryScanStageUnknown},
+		{stage: "derive_total", category: "stale_category", value: "total_id", want: CategoryScanColumnUnknown},
+		{stage: "derive_total", category: "status_id", value: "stale_value", want: CategoryScanColumnUnknown},
+	} {
+		_, err := CompileCategoryScanStageWithPolicy(output, test.stage, test.category, test.value, 256, ir.DefaultPhysicalOptimizationPolicy())
+		var refusal *CategoryScanRefusal
+		if !errors.As(err, &refusal) || refusal.Code != test.want {
+			t.Errorf("stage scan (%q, %q, %q) error = %v, want refusal %s", test.stage, test.category, test.value, err, test.want)
+		}
+	}
+}

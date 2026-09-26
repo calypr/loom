@@ -1430,6 +1430,36 @@ export const constructionCapabilitiesResponseSchema = z.object({
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
 
+export const constructionCategoryDiscoveryRequestSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  categoryColumnId: opaqueIdSchema,
+  valueColumnId: opaqueIdSchema,
+}).strict();
+export type ConstructionCategoryDiscoveryRequest = z.infer<typeof constructionCategoryDiscoveryRequestSchema>;
+
+const constructionDiscoveredCategorySchema = z.object({
+  key: constructionTableScalarSchema,
+  label: z.string(),
+}).strict();
+
+export const constructionCategoryDiscoveryResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  stageId: opaqueIdSchema,
+  categoryColumnId: opaqueIdSchema,
+  valueColumnId: opaqueIdSchema,
+  complete: z.literal(true),
+  proofFingerprint: z.string().min(1),
+  categories: z.array(constructionDiscoveredCategorySchema),
+}).strict();
+export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
+
 export const constructionProposalRequestSchema = z.object({
   snapshotToken: opaqueIdSchema,
   expectedDraftVersion: z.number().int().positive(),

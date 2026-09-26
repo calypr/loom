@@ -2096,24 +2096,7 @@ const BuilderWorkspaceContent = ({
           ) : null
         ) : null}
         {activeOperation.family === 'RESHAPE' ? (
-          !construction ? (
-            <TableShapeSettingsPanel
-              client={loomClient}
-              project={projectId}
-              explorerId={state.explorerId}
-              authResourcePath={authResourcePath}
-              snapshotToken={state.catalog.snapshotToken}
-              draftVersion={state.draftVersion}
-              draftDigest={state.draftDigest}
-              table={table}
-              disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-              onApply={(proposalId) => applyCommands([{
-                type: 'APPLY_TABLE_SHAPE_PROPOSAL',
-                outputId: table.outputId,
-                proposalId,
-              }])}
-            />
-          ) : constructionLifecycle.capabilities.status === 'loading' ? (
+          constructionLifecycle.capabilities.status === 'loading' ? (
             <p role="status" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
               Loading the current table columns and reshape support…
             </p>
@@ -2127,6 +2110,8 @@ const BuilderWorkspaceContent = ({
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
               selectedColumns={selectedColumnIds}
+              pivotDiscovery={constructionLifecycle.pivotDiscovery}
+              onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
               relatedExpandContext={{
                 project: projectId,
                 explorerId: state.explorerId,

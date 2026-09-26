@@ -139,7 +139,7 @@ func (s *Service) GetTableShapeCatalog(ctx context.Context, request TableShapeCa
 	if err != nil {
 		return TableShapeCatalogResult{}, conflict("table-shape-capabilities", "INVALID_COMPILER_SCHEMA", "the compiler output schema is invalid for table-shape capabilities", nil, err)
 	}
-	availability, choices := buildTableShapeChoices(columns, facts, s.config.ScanTableShapeCategories != nil, base.document.TableShape)
+	availability, choices := buildTableShapeChoices(columns, facts, s.config.ScanCategories != nil, base.document.TableShape)
 	saved, err := savedTableShapeSummary(base.document.TableShape)
 	if err != nil {
 		return TableShapeCatalogResult{}, fmt.Errorf("summarize saved table shape: %w", err)
@@ -772,7 +772,7 @@ func (s *Service) reuseTableShapeCatalogBase(ctx context.Context, request TableS
 	if err != nil {
 		return tableShapeBase{}, false
 	}
-	availability, choices := buildTableShapeChoices(columns, facts, s.config.ScanTableShapeCategories != nil, current.document.TableShape)
+	availability, choices := buildTableShapeChoices(columns, facts, s.config.ScanCategories != nil, current.document.TableShape)
 	saved, err := savedTableShapeSummary(current.document.TableShape)
 	if err != nil {
 		return tableShapeBase{}, false

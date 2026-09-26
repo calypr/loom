@@ -55,8 +55,21 @@ describe('Loom project paths', () => {
       previewStatus: 'NEEDS_REPAIR',
       previewDurationMs: 0,
     } as const;
+    const categories = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      categoryColumnId: 'status-id',
+      valueColumnId: 'value-id',
+      complete: true,
+      proofFingerprint: 'proof-1',
+      categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'final' }],
+    } as const;
     const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify(capabilities), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(categories), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(proposal), { status: 200 }));
     const client = createLoomClient({ fetch });
 
@@ -64,6 +77,11 @@ describe('Loom project paths', () => {
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
     })).resolves.toEqual(capabilities);
+    await expect(client.discoverConstructionCategories({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+      categoryColumnId: 'status-id', valueColumnId: 'value-id',
+    })).resolves.toEqual(categories);
     await expect(client.proposeConstruction({
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', changedStepId: 'filter-1',
@@ -81,6 +99,16 @@ describe('Loom project paths', () => {
       }),
     );
     expect(fetch).toHaveBeenNthCalledWith(2,
+      '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-category-discoveries',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          snapshotToken: 'snapshot-1', expectedDraftVersion: 7, expectedDraftDigest: 'draft-7',
+          outputId: 'patients', stageId: 'source_projection', categoryColumnId: 'status-id', valueColumnId: 'value-id',
+        }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(3,
       '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
       expect.objectContaining({
         method: 'POST',
