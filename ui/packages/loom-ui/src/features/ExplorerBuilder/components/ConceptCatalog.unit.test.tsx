@@ -312,7 +312,7 @@ describe('ConceptCatalog', () => {
     );
 
     const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
-    expect(within(dialog).getByText('Days to collection')).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: /Days to collection/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Days to collection: Use the matching value' })).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: 'Days to collection: Keep all matching values' })).toBeInTheDocument();
     expect(onAddSelected).not.toHaveBeenCalled();

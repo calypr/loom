@@ -2739,7 +2739,7 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,action === 'Apply Observation concept'?'apply-observation-concept.json':'add-observation-concept.json'),JSON.stringify({pageURL,source,state,requests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/construction-choices')||response.path.endsWith('/construction-proposals'))},null,2));
-  } else if (action === 'Verify paired semantic days-to-collection lifecycle' || action === 'Verify paired semantic from Pivot lifecycle') {
+  } else if (action === 'Verify paired semantic days-to-collection lifecycle' || action === 'Verify paired semantic from Pivot lifecycle' || action === 'Verify ready paired column lifecycle') {
     // Paired semantic values are selected from the semantic catalog and resolved through a route and result form.
     const state = { clicks: [], duplicateCreated: false };
     const click = async (script, label) => { await browserEval(browser.cdp, script); state.clicks.push(label); };
@@ -2771,7 +2771,12 @@ try {
       await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Duplicate visible after reload');
       await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Select temporary duplicate');
       await wait('Boolean(document.querySelector(\'button[aria-label^="Add columns:"]\'))', 'Temporary table workspace ready');
-      if (action === 'Verify paired semantic from Pivot lifecycle') {
+      if (action === 'Verify ready paired column lifecycle') {
+        await wait('Boolean([...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.innerText.includes("days_to_collection")&&!button.disabled))', 'Ready paired days_to_collection column visible beside current columns', 30000);
+        state.readySuggestion = await browserEval(browser.cdp, 'const panel=document.querySelector("[data-testid=paired-column-suggestions]");return {text:panel?.innerText,currentColumns:[...document.querySelectorAll("[data-testid^=construction-column-]")].map(button=>button.innerText)};');
+        await click('[...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.innerText.includes("days_to_collection")).click();return true;', 'Choose ready paired days_to_collection column');
+        await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Existing route and result form dialog opened', 30000);
+      } else if (action === 'Verify paired semantic from Pivot lifecycle') {
         await click('document.querySelector(\'button[aria-label^="Reshape:"]\').click();return true;', 'Open Reshape');
         await wait('Boolean(document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\'))', 'Pivot choice visible');
         await click('document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\').click();return true;', 'Open Pivot');
@@ -2780,15 +2785,17 @@ try {
       } else {
         await click('document.querySelector(\'button[aria-label^="Add columns:"]\').click();return true;', 'Open Add columns');
       }
-      await wait('document.querySelector(\'[data-source-key="all"]\')?.getAttribute("aria-pressed")==="true"', 'Dataset-wide concept search selected');
-      state.searchScope = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[data-testid=construction-add-columns-source-option]")].map(button=>({key:button.getAttribute("data-source-key"),selected:button.getAttribute("aria-pressed")}));');
-      await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Dataset-wide paired concept loaded');
-      state.catalogOrder = await browserEval(browser.cdp, 'const concepts=document.querySelector("#feature-catalog-concepts-title");const fields=document.querySelector("#feature-catalog-fields-title");return {conceptsTop:concepts?.getBoundingClientRect().top,fieldsTop:fields?.getBoundingClientRect().top,concepts:concepts?.innerText,fields:fields?.innerText};');
-      assert(state.catalogOrder.conceptsTop < state.catalogOrder.fieldsTop, 'Paired coded concepts should appear before raw FHIR fields');
-      await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Semantic days_to_collection enabled');
-      await click('document.querySelector(\'input[aria-label="Select days_to_collection"]\').click();return true;', 'Select days_to_collection');
-      await wait('Boolean([...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature"&&!button.disabled))', 'One semantic feature selected');
-      await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature").click();return true;', 'Open route and result form choices');
+      if (action !== 'Verify ready paired column lifecycle') {
+        await wait('document.querySelector(\'[data-source-key="all"]\')?.getAttribute("aria-pressed")==="true"', 'Dataset-wide concept search selected');
+        state.searchScope = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[data-testid=construction-add-columns-source-option]")].map(button=>({key:button.getAttribute("data-source-key"),selected:button.getAttribute("aria-pressed")}));');
+        await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Dataset-wide paired concept loaded');
+        state.catalogOrder = await browserEval(browser.cdp, 'const concepts=document.querySelector("#feature-catalog-concepts-title");const fields=document.querySelector("#feature-catalog-fields-title");return {conceptsTop:concepts?.getBoundingClientRect().top,fieldsTop:fields?.getBoundingClientRect().top,concepts:concepts?.innerText,fields:fields?.innerText};');
+        assert(state.catalogOrder.conceptsTop < state.catalogOrder.fieldsTop, 'Paired coded concepts should appear before raw FHIR fields');
+        await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Semantic days_to_collection enabled');
+        await click('document.querySelector(\'input[aria-label="Select days_to_collection"]\').click();return true;', 'Select days_to_collection');
+        await wait('Boolean([...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature"&&!button.disabled))', 'One semantic feature selected');
+        await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature").click();return true;', 'Open route and result form choices');
+      }
       // Keep this a scalar predicate: returning the input node causes CDP to fail with “Object reference chain is too long”.
       await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Route choice radios rendered');
       state.dialogBeforeRoute = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[role=dialog]")].map(dialog=>({text:dialog.innerText,radios:[...dialog.querySelectorAll("input[type=radio]")].map(input=>({label:input.getAttribute("aria-label"),text:input.labels?.[0]?.innerText??input.closest("label")?.innerText??"",checked:input.checked}))}));');
@@ -2884,7 +2891,7 @@ try {
       assert(!state.removedPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), 'days_to_collection remains after removal');
       state.previewResponse = semanticPreviewResponse;
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,action === 'Verify paired semantic from Pivot lifecycle' ? 'paired-semantic-from-pivot.json' : 'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
+      await writeFile(join(evidenceDirectory,action === 'Verify ready paired column lifecycle' ? 'ready-paired-column-lifecycle.json' : action === 'Verify paired semantic from Pivot lifecycle' ? 'paired-semantic-from-pivot.json' : 'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks,choiceApplied:state.choiceApplied,preview:state.preview,reloadPreview:state.reloadPreview,removalProposal:state.removalProposal,removedPreview:state.removedPreview,previewResponse:state.previewResponse,responses:responses.filter(response=>response.status>=400)},null,2));
     } finally {
       if (state.duplicateCreated) {

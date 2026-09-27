@@ -21,6 +21,8 @@ Once an edit is valid and sufficiently specified, preview runs automatically aft
 
 The backend supplies typed choices and their applicability. The frontend owns these editor layouts and wording. Backend choice responses do not need to describe arbitrary UI widgets.
 
+The common path in a complex editor asks for the few choices needed to define the new rows or columns, then previews the result. When the backend offers a safe default, preselect it and explain its effect beside the control. Put alternate supported policies under **Advanced**; opening Advanced must preserve the primary selections. Do not default to dropping rows, collapsing multiple source records, or accepting an incomplete category set without making that effect visible. If no safe default exists, ask the required question in the primary path. Reopening a saved step restores every selected policy, including Advanced choices.
+
 Supported intentions appear first. **Unavailable here** lists relevant alternatives with specific reasons, such as “Requires two numeric columns.” Loading and unknown states have their own presentation. Lack of a loaded response does not mean an operation is unsupported.
 
 ## Add columns
