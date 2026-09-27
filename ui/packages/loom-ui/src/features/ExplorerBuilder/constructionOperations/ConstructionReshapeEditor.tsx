@@ -154,6 +154,7 @@ export interface ConstructionReshapeEditorProps {
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
   readonly onDiscoverCategories?: (request: ConstructionReshapePivotDiscoveryRequest) => void;
+  readonly onAddCodedValues?: () => void;
   readonly disabled: boolean;
   readonly onCandidateChange: (intent: CandidateIntent | undefined) => void;
   readonly onEditStep: (stepId: string) => void;
@@ -1139,6 +1140,15 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p className="mt-1 text-sm text-slate-600">Choose a change below. Each option shows what happens to rows and columns.</p>
       </header>
 
+      {props.onAddCodedValues ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
+          <span>Need a column from a FHIR code and its matching value? Add a coded concept first.</span>
+          <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
+            Add coded values
+          </button>
+        </div>
+      ) : null}
+
       {savedSteps.length > 0 ? (
         <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3" data-testid="construction-reshape-history">
           <legend className="px-1 text-sm font-semibold text-slate-800">Saved reshape steps</legend>
@@ -1781,7 +1791,7 @@ const PivotEditor = (props: {
     <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="grid gap-4 rounded-lg border border-slate-200 p-3">
       <header>
         <h4 className="text-sm font-semibold text-slate-900">Turn categories into columns</h4>
-        <p className="mt-1 text-sm text-slate-600">Each group becomes a row. Each chosen category becomes a value column.</p>
+        <p className="mt-1 text-sm text-slate-600">Each group becomes a row. Each chosen category becomes a value column from fields already in this table.</p>
       </header>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 ? (

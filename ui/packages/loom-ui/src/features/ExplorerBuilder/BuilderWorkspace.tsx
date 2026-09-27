@@ -2297,6 +2297,7 @@ const BuilderWorkspaceContent = ({
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
+              onAddCodedValues={() => selectConstructionFamily('ADD_COLUMNS')}
               relatedExpandContext={{
                 project: projectId,
                 explorerId: state.explorerId,

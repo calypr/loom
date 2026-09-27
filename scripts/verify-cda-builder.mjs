@@ -1696,6 +1696,21 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'reshape-options.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/construction-capabilities'))},null,2));
+  } else if (action === 'Open paired concepts from Reshape') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-editor"] button'))`, 30000);
+    const before=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');return {guidance:editor?.innerText.includes('a FHIR code and its matching value'),button:[...editor.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add coded values')?.disabled};`);
+    assert.equal(before.guidance,true,'Reshape does not explain the paired code/value path');
+    assert.equal(before.button,false,'The paired code/value action is disabled');
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.trim()==='Add coded values').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Add coded values or fields')&&document.body.innerText.includes('Choose a concept for a code and its matching value')`, 30000);
+    const after=await browserEval(browser.cdp, `return {addColumnsSelected:document.querySelector('[data-testid="construction-action-add-columns"]')?.getAttribute('aria-pressed'),pairedGuidance:document.body.innerText.includes('Choose a concept for a code and its matching value'),reshapeStillOpen:Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'))};`);
+    assert.equal(after.addColumnsSelected,'true');
+    assert.equal(after.pairedGuidance,true);
+    assert.equal(after.reshapeStillOpen,false);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'reshape-to-paired-concepts.json'),JSON.stringify({pageURL,before,after,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,after},null,2));
   } else if (action === 'Reproduce high-cardinality Pivot discovery') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.startsWith('Turn categories into columns')))`, 30000);
