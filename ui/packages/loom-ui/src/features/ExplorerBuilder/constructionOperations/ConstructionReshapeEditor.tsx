@@ -1454,45 +1454,13 @@ const GroupEditor = (props: {
       </fieldset>
 
       {props.form.keys.length > 0 ? (
-        <label className="grid gap-1 text-sm font-medium text-slate-800">
-          When a group key is absent or null
-          <select
-            aria-label="Missing group key policy"
-            value={props.form.missingKeyPolicy}
-            disabled={props.disabled || !props.supported}
-            onChange={(event) => {
-              const policy = event.currentTarget.value;
-              if (policy === 'GROUP' || policy === 'EXCLUDE' || policy === 'ERROR') {
-                props.onChange({ ...props.form, missingKeyPolicy: policy });
-              }
-            }}
-            className="rounded border border-slate-300 bg-white px-2 py-1.5"
-          >
-            <option value="GROUP">Keep one missing group (absent and null together)</option>
-            <option value="EXCLUDE">Exclude rows missing any group key</option>
-            <option value="ERROR">Stop if any group key is missing</option>
-          </select>
-          <span className="text-xs font-normal text-slate-500">The rule applies before summaries are calculated.</span>
-        </label>
-      ) : null}
-
-      {props.form.keys.length > 0 ? (
-        <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-800">Group column names</legend>
-          {props.form.keys.map((key, index) => (
-            <div key={key.outputColumnId} className="grid gap-2 sm:grid-cols-2">
-              <p className="sm:col-span-2 text-xs text-slate-500">Values from {groupKeyName(props.stage, key)} identify each group.</p>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Column name
-                <input aria-label={`Group output name ${index + 1}`} value={key.name} disabled={props.disabled || !props.supported} onChange={(event) => changeKey(index, { name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Column label
-                <input aria-label={`Group output label ${index + 1}`} value={key.label} disabled={props.disabled || !props.supported} onChange={(event) => changeKey(index, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-              </label>
-            </div>
-          ))}
-        </fieldset>
+        <p data-testid="construction-reshape-group-missing-key-effect" className="text-sm text-slate-600">
+          If a group key is absent or null, {props.form.missingKeyPolicy === 'GROUP'
+            ? 'those rows stay together in one missing-key group.'
+            : props.form.missingKeyPolicy === 'EXCLUDE'
+              ? 'rows with any missing key are excluded before summaries run.'
+              : 'the operation stops before summaries run.'}
+        </p>
       ) : null}
 
       <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
@@ -1549,14 +1517,6 @@ const GroupEditor = (props: {
                   {inputColumns.length === 0 ? <span role="status" className="text-xs text-amber-900">No compatible columns were returned for this summary.</span> : null}
                 </label>
               ) : <span className="self-end text-xs text-slate-500">Counts every input row in the group.</span>}
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Output column name
-                <input aria-label={`Summary output name ${index + 1}`} value={aggregate.name} onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-              </label>
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Output column label
-                <input aria-label={`Summary output label ${index + 1}`} value={aggregate.label} onChange={(event) => changeAggregate(index, { ...aggregate, label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-              </label>
               <button type="button" aria-label={`Remove summary ${index + 1}`} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="justify-self-start rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove summary</button>
             </div>
           );
@@ -1573,6 +1533,71 @@ const GroupEditor = (props: {
           Add summary
         </button>
       </fieldset>
+
+      <details data-testid="construction-reshape-group-advanced" className="rounded-lg border border-slate-200">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
+        <div className="grid gap-3 p-3 pt-0">
+          {props.form.keys.length > 0 ? (
+            <label className="grid gap-1 text-sm font-medium text-slate-800">
+              When a group key is absent or null
+              <select
+                aria-label="Missing group key policy"
+                value={props.form.missingKeyPolicy}
+                disabled={props.disabled || !props.supported}
+                onChange={(event) => {
+                  const policy = event.currentTarget.value;
+                  if (policy === 'GROUP' || policy === 'EXCLUDE' || policy === 'ERROR') {
+                    props.onChange({ ...props.form, missingKeyPolicy: policy });
+                  }
+                }}
+                className="rounded border border-slate-300 bg-white px-2 py-1.5"
+              >
+                <option value="GROUP">Keep one missing group (absent and null together)</option>
+                <option value="EXCLUDE">Exclude rows missing any group key</option>
+                <option value="ERROR">Stop if any group key is missing</option>
+              </select>
+              <span className="text-xs font-normal text-slate-500">The rule applies before summaries are calculated.</span>
+            </label>
+          ) : null}
+
+          {props.form.keys.length > 0 ? (
+            <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+              <legend className="px-1 text-sm font-semibold text-slate-800">Group column names</legend>
+              {props.form.keys.map((key, index) => (
+                <div key={key.outputColumnId} className="grid gap-2 sm:grid-cols-2">
+                  <p className="sm:col-span-2 text-xs text-slate-500">Values from {groupKeyName(props.stage, key)} identify each group.</p>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column name
+                    <input aria-label={`Group output name ${index + 1}`} value={key.name} onChange={(event) => changeKey(index, { name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column label
+                    <input aria-label={`Group output label ${index + 1}`} value={key.label} onChange={(event) => changeKey(index, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                </div>
+              ))}
+            </fieldset>
+          ) : null}
+
+          {props.form.aggregates.length > 0 ? (
+            <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
+              <legend className="px-1 text-sm font-semibold text-slate-800">Summary output names and labels</legend>
+              {props.form.aggregates.map((aggregate, index) => (
+                <div key={aggregate.outputColumnId} className="grid gap-2 sm:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column name
+                    <input aria-label={`Summary output name ${index + 1}`} value={aggregate.name} onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Column label
+                    <input aria-label={`Summary output label ${index + 1}`} value={aggregate.label} onChange={(event) => changeAggregate(index, { ...aggregate, label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                </div>
+              ))}
+            </fieldset>
+          ) : null}
+        </div>
+      </details>
       {!outputNamesAreValid(groupOutputColumns(props.form, props.stage)) ? (
         <p role="status" className="text-sm text-amber-900">Give every output a unique column name using letters, numbers, or underscores, and add a label.</p>
       ) : null}

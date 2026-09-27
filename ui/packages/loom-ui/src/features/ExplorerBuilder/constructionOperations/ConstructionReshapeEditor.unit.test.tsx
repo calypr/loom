@@ -51,6 +51,7 @@ const renderEditor = (args: {
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
   readonly onAddCodedValues?: ConstructionReshapeEditorProps['onAddCodedValues'];
+  readonly disabled?: boolean;
   readonly onEditStep?: ConstructionReshapeEditorProps['onEditStep'];
 }) => {
   const onCandidateChange = args.onCandidateChange ?? vi.fn();
@@ -63,7 +64,7 @@ const renderEditor = (args: {
       selectedColumns={args.selectedColumns}
       onDiscoverCategories={args.onDiscoverCategories}
       onAddCodedValues={args.onAddCodedValues}
-      disabled={false}
+      disabled={args.disabled ?? false}
       onCandidateChange={onCandidateChange}
       onEditStep={onEditStep}
     />,
@@ -149,7 +150,12 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
     expect(screen.getByText(/One row per group, or one row for the whole table/)).toBeInTheDocument();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'COUNT_ROWS' } });
+    expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
+    const advanced = screen.getByTestId('construction-reshape-group-advanced');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(screen.queryByLabelText('Summary output name 1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options'));
+    expect(advanced).toHaveAttribute('open');
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'participant_count' } });
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Participant count' } });
 
@@ -170,10 +176,24 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
 
     expect(controlChecked('Group by Site')).toBe(true);
+    expect(screen.getByLabelText('Summary 1')).toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
+      'those rows stay together in one missing-key group',
+    );
+    expect(screen.queryByLabelText('Missing group key policy')).not.toBeInTheDocument();
+    const advanced = screen.getByTestId('construction-reshape-group-advanced');
+    fireEvent.click(screen.getByText('Advanced options'));
     expect(controlValue('Missing group key policy')).toBe('GROUP');
     fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
+    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
+      'rows with any missing key are excluded before summaries run',
+    );
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary 1'), { target: { value: 'MEAN' } });
+    expect(advanced).not.toHaveAttribute('open');
+    expect(screen.getByLabelText('Summary field 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'mean_age' } });
     fireEvent.click(screen.getByTestId('construction-reshape-add-summary'));
     fireEvent.change(screen.getByLabelText('Summary 2'), { target: { value: 'SUM' } });
@@ -220,6 +240,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
+    fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Specimen rows' } });
     const firstIntent = onCandidateChange.mock.lastCall?.[0];
     expect(firstIntent).toBeDefined();
@@ -262,13 +283,14 @@ describe('ConstructionReshapeEditor', () => {
         kind: 'GROUP',
         group: {
           constructionId: 'saved-group',
+          missingKeyPolicy: 'EXCLUDE',
           keys: [{ inputColumnId: 'site-id', outputColumnId: 'site-group-id' }],
           aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'age-count-id' }],
         },
       },
       outputs: [
-        { id: 'site-group-id', name: 'site', label: 'Site' },
-        { id: 'age-count-id', name: 'age_count', label: 'Age count', type: 'integer' },
+        { id: 'site-group-id', name: 'study_site', label: 'Study site' },
+        { id: 'age-count-id', name: 'recorded_age_count', label: 'Recorded age count', type: 'integer' },
       ],
     };
     const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
@@ -280,9 +302,18 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(controlChecked('Group by Site')).toBe(true);
-    expect(controlValue('Missing group key policy')).toBe('GROUP');
+    expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
+      'rows with any missing key are excluded before summaries run',
+    );
+    expect(screen.queryByLabelText('Missing group key policy')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options'));
+    expect(controlValue('Missing group key policy')).toBe('EXCLUDE');
+    expect(controlValue('Group output name 1')).toBe('study_site');
+    expect(controlValue('Group output label 1')).toBe('Study site');
     expect(controlValue('Summary 1')).toBe('COUNT_NON_NULL');
     expect(controlValue('Summary field 1')).toBe('age-id');
+    expect(controlValue('Summary output name 1')).toBe('recorded_age_count');
+    expect(controlValue('Summary output label 1')).toBe('Recorded age count');
     fireEvent.change(screen.getByLabelText('Summary output label 1'), { target: { value: 'Populated ages' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
@@ -295,12 +326,49 @@ describe('ConstructionReshapeEditor', () => {
       kind: 'GROUP',
       group: {
         constructionId: groupStep.id,
-        missingKeyPolicy: 'GROUP',
+        missingKeyPolicy: 'EXCLUDE',
         keys: [{ inputColumnId: 'site-id', outputColumnId: 'site-group-id' }],
         aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'age-count-id' }],
       },
     });
-    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'age-count-id', label: 'Populated ages' }));
+    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'site-group-id', name: 'study_site', label: 'Study site' }));
+    expect(editedGroup?.outputs).toContainEqual(expect.objectContaining({ id: 'age-count-id', name: 'recorded_age_count', label: 'Populated ages' }));
+  });
+
+  it('disables primary and advanced group controls when editing is disabled', () => {
+    const groupStep: ConstructionReshapeStep = {
+      id: 'disabled-group',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: {
+        kind: 'GROUP',
+        group: {
+          constructionId: 'disabled-group',
+          missingKeyPolicy: 'ERROR',
+          keys: [{ inputColumnId: 'site-id', outputColumnId: 'disabled-site-id' }],
+          aggregates: [{ operation: 'COUNT_NON_NULL', inputColumnId: 'age-id', outputColumnId: 'disabled-age-count-id' }],
+        },
+      },
+      outputs: [
+        { id: 'disabled-site-id', name: 'site', label: 'Site' },
+        { id: 'disabled-age-count-id', name: 'age_count', label: 'Age count', type: 'integer' },
+      ],
+    };
+    renderEditor({
+      construction: { version: 1, steps: [groupStep] },
+      editingStep: groupStep,
+      disabled: true,
+    });
+
+    expect(screen.getByLabelText('Group by Site')).toBeDisabled();
+    expect(screen.getByLabelText('Summary 1')).toBeDisabled();
+    expect(screen.getByLabelText('Summary field 1')).toBeDisabled();
+    expect(screen.getByTestId('construction-reshape-add-summary')).toBeDisabled();
+    fireEvent.click(screen.getByText('Advanced options'));
+    expect(screen.getByLabelText('Missing group key policy')).toBeDisabled();
+    expect(screen.getByLabelText('Group output name 1')).toBeDisabled();
+    expect(screen.getByLabelText('Group output label 1')).toBeDisabled();
+    expect(screen.getByLabelText('Summary output name 1')).toBeDisabled();
+    expect(screen.getByLabelText('Summary output label 1')).toBeDisabled();
   });
 
   it('requires an explicit empty-list policy and offers a zero-based position column', () => {
