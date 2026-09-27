@@ -1326,6 +1326,26 @@ try {
     await writeFile(join(evidenceDirectory,'specimen-subject-group-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
     assert(elapsedMs<=5000,`Specimen subject group proposal took ${elapsedMs} ms`);
+  } else if (action === 'Expand Specimen Patient performance') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Expand related records')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')).click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"]'))`, 30000);
+    await browserEval(browser.cdp, `const select=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');select.value='Patient';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('input[type="radio"][name^="related-expand-route-"]')].find(input=>input.closest('label')?.innerText.trim()==='Patient via subject_Patient'))`, 30000);
+    const priorProposals=responses.filter(response=>response.path.endsWith('/construction-proposals')).length;
+    const started=Date.now();
+    await browserEval(browser.cdp, `const input=[...document.querySelectorAll('input[type="radio"][name^="related-expand-route-"]')].find(input=>input.closest('label')?.innerText.trim()==='Patient via subject_Patient');input.click();const policy=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('When a parent has no matching record'))?.querySelector('select');policy.value='PRESERVE_PARENT';policy.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    while (responses.filter(response=>response.path.endsWith('/construction-proposals')).length===priorProposals && Date.now()-started<60000) await new Promise(resolve=>setTimeout(resolve,25));
+    await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 60000);
+    const elapsedMs=Date.now()-started;
+    const state=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+    const proposal=responses.filter(response=>response.path.endsWith('/construction-proposals')).at(-1);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'specimen-patient-expand-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
+    assert.equal(state.status,'ready',state.panel);
+    assert(elapsedMs<=5000,`Specimen related expansion took ${elapsedMs} ms to render`);
   } else if (action === 'Group proposal') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Summarize into groups')`, 30000);
