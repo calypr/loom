@@ -867,7 +867,7 @@ const initialUnpivotForm = (
     valueOutputColumnId: createOpaqueId('unpivot-value'),
     valueOutputName: uniqueName('value', new Set(stage.columns.map((column) => column.name.toLowerCase()))),
     valueOutputLabel: 'Value',
-    nullRowPolicy: 'DROP',
+    nullRowPolicy: 'PRESERVE',
   };
 };
 
@@ -2159,12 +2159,18 @@ const UnpivotEditor = (props: {
       : props.form.inputs.filter((input) => input.columnId !== column.id);
     props.onChange({ ...props.form, inputs });
   };
+  const inputCount = props.form.inputs.length;
+  const rowEffect = inputCount === 0
+    ? 'Choose columns to see how many rows each original record will create. Rows with missing values stay in the table by default.'
+    : `${props.form.nullRowPolicy === 'PRESERVE' ? '' : 'Up to '}${inputCount} new ${inputCount === 1 ? 'row' : 'rows'} per original row. ${props.form.nullRowPolicy === 'PRESERVE'
+      ? 'Rows with missing values stay in the table.'
+      : 'Rows with missing values are left out.'}`;
 
   return (
     <section aria-label="Turn columns into rows" data-testid="construction-reshape-unpivot" className="grid gap-4 rounded-lg border border-slate-200 p-3">
       <header>
         <h4 className="text-sm font-semibold text-slate-900">Turn columns into rows</h4>
-        <p className="mt-1 text-sm text-slate-600">Selected columns become values in one column. Their keys identify which source column held each value.</p>
+        <p className="mt-1 text-sm text-slate-600">Choose the columns to stack. Each selected column makes a row with its field name and value.</p>
       </header>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
@@ -2172,35 +2178,49 @@ const UnpivotEditor = (props: {
         {scalarColumnsFor(props.stage).map((column) => {
           const input = props.form.inputs.find((candidate) => candidate.columnId === column.id);
           return (
-            <div key={column.id} className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <div key={column.id} className="rounded bg-slate-50 p-2">
               <label className="flex items-center gap-2 text-sm font-medium text-slate-800">
                 <input type="checkbox" aria-label={`Unpivot ${column.label}`} checked={Boolean(input)} disabled={props.disabled || !props.supported} onChange={(event) => toggleInput(column, event.currentTarget.checked)} />
                 {column.label}
               </label>
-              {input ? <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(column.id, key)} /> : null}
             </div>
           );
         })}
       </fieldset>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-800">New key column</legend>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot key output name" value={props.form.keyOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot key output label" value={props.form.keyOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-        </fieldset>
-        <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
-          <legend className="px-1 text-sm font-semibold text-slate-800">New value column</legend>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot value output name" value={props.form.valueOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-          <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot value output label" value={props.form.valueOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
-        </fieldset>
-      </div>
-      <label className="grid gap-1 text-sm font-medium text-slate-700">
-        If a selected value is missing
-        <select aria-label="Unpivot null row policy" value={props.form.nullRowPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = event.currentTarget.value; if (policy === 'DROP' || policy === 'PRESERVE') props.onChange({ ...props.form, nullRowPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-          <option value="DROP">Leave that row out</option>
-          <option value="PRESERVE">Keep the row with a missing value</option>
-        </select>
-      </label>
+      <p data-testid="construction-unpivot-effect" className="text-sm text-slate-600">
+        {rowEffect}
+      </p>
+      <details data-testid="construction-unpivot-advanced" className="rounded border border-slate-200 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-blue-800">Advanced options: field names and missing values</summary>
+        <div className="mt-3 grid gap-3">
+          {props.form.inputs.map((input) => {
+            const column = props.stage.columns.find((candidate) => candidate.id === input.columnId);
+            return <div key={input.columnId} className="grid gap-2 rounded bg-slate-50 p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <span className="text-sm font-medium text-slate-800">{column?.label ?? 'Selected field'}</span>
+              <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(input.columnId, key)} />
+            </div>;
+          })}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+              <legend className="px-1 text-sm font-semibold text-slate-800">New key column</legend>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot key output name" value={props.form.keyOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot key output label" value={props.form.keyOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, keyOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+            </fieldset>
+            <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
+              <legend className="px-1 text-sm font-semibold text-slate-800">New value column</legend>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">Column name<input aria-label="Unpivot value output name" value={props.form.valueOutputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+              <label className="grid gap-1 text-sm font-medium text-slate-700">Column label<input aria-label="Unpivot value output label" value={props.form.valueOutputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueOutputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" /></label>
+            </fieldset>
+          </div>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            If a selected value is missing
+            <select aria-label="Unpivot null row policy" value={props.form.nullRowPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = event.currentTarget.value; if (policy === 'DROP' || policy === 'PRESERVE') props.onChange({ ...props.form, nullRowPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <option value="DROP">Leave that row out</option>
+              <option value="PRESERVE">Keep the row with a missing value</option>
+            </select>
+          </label>
+        </div>
+      </details>
       {props.form.inputs.length === 0 ? <p role="status" className="text-sm text-amber-900">Choose at least one input column.</p> : null}
       {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give every output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}
     </section>

@@ -82,13 +82,34 @@ try {
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn columns into rows')))`, 30000);
   await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn columns into rows')).click();return true;`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-unpivot"]'))`, 30000);
-  const editor = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-reshape-unpivot"]');return {text:panel?.innerText,inputs:[...panel.querySelectorAll('input,select')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,checked:input.checked,disabled:input.disabled}))};`);
+  const editor = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-reshape-unpivot"]');return {text:panel?.innerText,advancedClosed:!panel.querySelector('[data-testid="construction-unpivot-advanced"]')?.open,effect:panel.querySelector('[data-testid="construction-unpivot-effect"]')?.innerText,inputs:[...panel.querySelectorAll('input,select')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,checked:input.checked,disabled:input.disabled}))};`);
   assert(editor.inputs.some(input=>input.label === 'Unpivot subject.reference'));
   assert(editor.inputs.some(input=>input.label === 'Unpivot collection.bodySite.reference.reference'));
+  assert(editor.advancedClosed && editor.effect?.includes('Rows with missing values stay in the table'), 'Unpivot must show a preserving default with Advanced options closed');
+  const defaultPreviewStarted = Date.now();
   for (const field of fields) await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(`input[aria-label="Unpivot ${field}"]`)});if(!input.checked)input.click();return true;`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+  const defaultPreviewMs = Date.now() - defaultPreviewStarted;
+  const defaultEffect = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-unpivot-effect"]')?.innerText;`);
+  assert(defaultEffect?.includes('2 new rows per original row. Rows with missing values stay in the table.'), 'Unpivot does not explain the default row effect after selecting columns');
+  const defaultProposalRequest = requests.filter(request=>request.path.endsWith('/construction-proposals')).at(-1);
+  const defaultOperation = JSON.parse(defaultProposalRequest.postData).candidateConstruction.steps.at(-1).operation.unpivot;
+  assert.equal(defaultOperation.inputs.length, 2, 'Default preview must include both selected columns');
+  assert.equal(defaultOperation.nullRowPolicy, 'PRESERVE');
+  const defaultResponse = responses.find(response=>response.requestId===defaultProposalRequest.requestId);
+  assert.equal(defaultResponse?.status, 200, 'Preserving Unpivot proposal did not succeed');
+  const defaultPreview = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId:defaultResponse.requestId })).body).preview;
+  assert(defaultPreview.rows.some(row=>row.variable==='collection.bodySite.reference.reference' && row.value===null), 'Preserving Unpivot preview omitted a missing CDA value');
+  for (const row of defaultPreview.rows) {
+    const record = sourceById.get(row['col_17edcedbd7920c717b54b398']);
+    assert(record, 'A preserving Unpivot row has no CDA source Specimen');
+    assert.equal(row.value, row.variable==='subject.reference'?record.subject:record.bodySite, 'Preserving Unpivot value differs from its CDA source field');
+  }
+  assert(defaultPreviewMs <= 5000, `Default Unpivot preview took ${defaultPreviewMs} ms`);
+  await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-unpivot-advanced"] summary').click();const policy=document.querySelector('select[aria-label="Unpivot null row policy"]');policy.value='DROP';policy.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
   for (const [label, value] of [['Unpivot key output name','qa_unpivot_key'],['Unpivot key output label','QA unpivot key'],['Unpivot value output name','qa_unpivot_value'],['Unpivot value output label','QA unpivot value']]) await browserEval(browser.cdp, `setInput(${JSON.stringify(label)},${JSON.stringify(value)});return true;`);
   const configured = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-reshape-unpivot"]');return {text:panel?.innerText,inputs:[...panel.querySelectorAll('input,select')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,checked:input.checked,disabled:input.disabled}))};`);
-  await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'&&document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.includes('QA unpivot key')`, 30000);
   const proposalDOM = await browserEval(browser.cdp, `const table=document.querySelector('[data-testid="construction-proposal-preview"]');return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,previewText:table?.innerText.slice(0,2500),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
   const proposalResponse = responses.filter(response=>response.path.endsWith('/construction-proposals')).at(-1);
   let proposalBody = null;
@@ -99,7 +120,7 @@ try {
   const proposal = { ...proposalDOM, response:proposalBody };
   const proposalSummary = { status:proposal.status, panel:proposal.panel, applyDisabled:proposal.applyDisabled, responseStatus:proposalResponse?.status, responseKeys:proposalBody ? Object.keys(proposalBody) : [] };
   await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'unpivot-proposal.json'), JSON.stringify({ pageURL, before, currentColumns, source, selected, added, sourcePreview, editor, configured, proposal, requests, responses }, null, 2));
+  await writeFile(join(evidenceDirectory, 'unpivot-proposal.json'), JSON.stringify({ pageURL, before, currentColumns, source, selected, added, sourcePreview, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest, defaultPreview, configured, proposal, requests, responses }, null, 2));
   console.log(JSON.stringify({ evidenceDirectory, sourcePreview:{rowCount:sourcePreview.rowCount,columns:sourcePreview.columns.map(column=>column.label),firstRows:sourcePreview.rows.slice(0,3)}, configured:configured.inputs.filter(input=>input.checked||input.label?.startsWith('Unpivot key output')||input.label?.startsWith('Unpivot value output')), proposal:proposalSummary, responses:responses.filter(response => response.path.endsWith('/construction-proposals') || response.path.endsWith('/preview') || response.path.endsWith('/commands')) }, null, 2));
   assert.equal(proposal.status, 'ready', `Unpivot proposal did not become ready: ${proposal.panel}`);
   assert.equal(proposal.applyDisabled, false, 'Apply should be enabled for a ready unpivot proposal');
@@ -170,7 +191,7 @@ try {
   const expectedRows = sourcePreview.rows.map(row=>({ id:row['col_17edcedbd7920c717b54b398'], subject:row['col_69ee827a3bd92ad6cb1c86c0'], bodySite:row['col_d9e50113230ca5d6c7600beb'] }));
   assert.deepEqual(restoredRows, expectedRows, 'Removing the unpivot should restore the original source rows exactly');
   await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourceRecords, sourcePreview: { outputId:sourcePreview.outputId, rowCount:sourcePreview.rowCount, columns:sourcePreview.columns, rows:expectedRows }, editor, configured, proposal, savedHistory, reloadedHistory, historyLabelsResolved, appliedPreview: { rowCount:appliedPreview.rowCount, columns:appliedPreview.columns, rows:appliedRows }, restoredEditor, removeProposalRequest:JSON.parse(removeProposalRequest.postData), removeProposal, removeProposalStatus:removeProposalResponse.status, removeApplyStatus:removeCommandResponse.status, restored: { outputId:restoredBody.outputId, rowCount:restoredBody.rowCount, columns:restoredBody.columns, rows:restoredRows }, requests, responses }, null, 2));
+  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourceRecords, sourcePreview: { outputId:sourcePreview.outputId, rowCount:sourcePreview.rowCount, columns:sourcePreview.columns, rows:expectedRows }, editor, defaultPreviewMs, defaultEffect, defaultProposalRequest, defaultPreview, configured, proposal, savedHistory, reloadedHistory, historyLabelsResolved, appliedPreview: { rowCount:appliedPreview.rowCount, columns:appliedPreview.columns, rows:appliedRows }, restoredEditor, removeProposalRequest:JSON.parse(removeProposalRequest.postData), removeProposal, removeProposalStatus:removeProposalResponse.status, removeApplyStatus:removeCommandResponse.status, restored: { outputId:restoredBody.outputId, rowCount:restoredBody.rowCount, columns:restoredBody.columns, rows:restoredRows }, requests, responses }, null, 2));
   console.log(JSON.stringify({ evidenceDirectory, sourcePreview:{rowCount:sourcePreview.rowCount,columns:sourcePreview.columns.map(column=>column.label),firstRows:expectedRows.slice(0,3)},proposal:proposalSummary,savedHistory,reloadedHistory,appliedPreview:{rowCount:appliedPreview.rowCount,rows:appliedRows.slice(0,3)},restoredEditor:restoredEditor.inputs.filter(input=>input.checked||input.label?.startsWith('Unpivot key output')||input.label?.startsWith('Unpivot value output')),removeProposal,removeProposalStatus:removeProposalResponse.status,removeApplyStatus:removeCommandResponse.status,restored:{rowCount:restoredBody.rowCount,columns:restoredBody.columns.map(column=>column.label),firstRows:restoredRows.slice(0,3)},publishRequests:requests.filter(request=>request.path.endsWith('/publish'))}, null, 2));
   assert.equal(restoredBody.rowCount, sourcePreview.rowCount, 'Restored preview row count differs from source');
   assert(historyLabelsResolved, 'Saved Unpivot history did not resolve the selected field labels');
