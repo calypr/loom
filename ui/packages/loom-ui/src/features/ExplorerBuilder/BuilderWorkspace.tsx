@@ -2807,7 +2807,7 @@ const BuilderWorkspaceContent = ({
                       onClear={() => setColumnSelection({ kind: 'empty' })}
                       onOpenFamily={selectConstructionFamily}
                     />
-                    {table.document.rootResourceType ? (
+                    {table.document.rootResourceType && sourceAvailability.available ? (
                       <PairedColumnSuggestions
                         project={projectId}
                         explorerId={state.explorerId}
