@@ -2769,6 +2769,13 @@ try {
       ).map(component => component.valueInteger));
       state.sourceComparison = { specimenId, displayed: Number(valuedRow[valueIndex]), sourceRecords, sourceValues };
       assert.deepEqual(sourceValues, [state.sourceComparison.displayed], 'The paired concept value differs from its raw CDA code/value component');
+      await click(`document.querySelector('button[aria-label^="Reshape:"]').click();return true;`, 'Inspect Reshape after paired concept');
+      await wait(`Boolean(document.querySelector('[data-testid="construction-reshape-choice-pivot"]'))`, 'Reshape choice rendered after paired concept');
+      await click(`document.querySelector('[data-testid="construction-reshape-choice-pivot"]').click();return true;`, 'Inspect Pivot fields after paired concept');
+      await wait(`Boolean(document.querySelector('select[aria-label="Pivot values field"]'))`, 'Pivot fields rendered after paired concept');
+      state.reshapeAfterConcept = await browserEval(browser.cdp, `return {categories:[...document.querySelector('select[aria-label="Pivot category field"]').options].map(option=>option.textContent),values:[...document.querySelector('select[aria-label="Pivot values field"]').options].map(option=>option.textContent)};`);
+      assert(state.reshapeAfterConcept.categories.includes('days_to_collection'), 'Paired concept is missing from Pivot category fields');
+      assert(state.reshapeAfterConcept.values.includes('days_to_collection (integer)'), 'Paired concept is missing from Pivot value fields');
       await navigate(browser.cdp, pageURL);
       await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Duplicate visible after reload');
       await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Reselect temporary duplicate after reload');
@@ -2777,6 +2784,12 @@ try {
       await wait('Boolean(document.querySelector("[data-testid=preview-table-scroll] [role=table]"))', 'Reloaded preview table rendered', 60000);
       state.reloadPreview = await browserEval(browser.cdp, 'const scroll=document.querySelector("[data-testid=preview-table-scroll]");return {headers:[...scroll.querySelectorAll("[role=columnheader]")].map(cell=>cell.innerText.trim()),rows:[...scroll.querySelectorAll("[role=row]")].slice(1,6).map(row=>[...row.querySelectorAll("[role=cell]")].map(cell=>cell.innerText.trim()))};');
       assert(state.reloadPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), `Semantic output column did not persist: ${state.reloadPreview.headers.join(', ')}`);
+      await click(`document.querySelector('button[aria-label^="Reshape:"]').click();return true;`, 'Inspect persisted Reshape inputs');
+      await wait(`Boolean(document.querySelector('[data-testid="construction-reshape-choice-pivot"]'))`, 'Persisted Reshape choice rendered');
+      await click(`document.querySelector('[data-testid="construction-reshape-choice-pivot"]').click();return true;`, 'Inspect persisted Pivot fields');
+      await wait(`Boolean(document.querySelector('select[aria-label="Pivot values field"]'))`, 'Persisted Pivot fields rendered');
+      state.reshapeAfterReload = await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Pivot values field"]').options].map(option=>option.textContent);`);
+      assert(state.reshapeAfterReload.includes('days_to_collection (integer)'), 'Paired concept is missing from Pivot after reload');
       state.removalControl = await browserEval(browser.cdp, 'let remove=[...document.querySelectorAll("button")].find(button=>button.getAttribute("aria-label")==="Remove days_to_collection");if(remove){remove.click();return "Remove days_to_collection";}const columns=[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Columns");if(columns){columns.click();return "Open Columns panel";}return "no remove control";');
       state.clicks.push(state.removalControl);
       if (state.removalControl === 'Open Columns panel') {
