@@ -16,6 +16,7 @@ if (action === 'Verify related source chooser' || action === 'Inspect selected P
 const responses = [];
 const requests = [];
 const proposalRequests = [];
+const rowDefinitionProposalRequests = [];
 const capabilityRequests = [];
 const categoryDiscoveryRequests = [];
 const requestStartedAt = new Map();
@@ -32,6 +33,7 @@ browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/')) requestStartedAt.set(event.requestId,Date.now());
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
+  if (event.request.url.includes('/authoring/v2/row-definition-proposals')) rowDefinitionProposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-capabilities')) capabilityRequests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-category-discoveries')) categoryDiscoveryRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
@@ -380,7 +382,7 @@ try {
           assert(response, `Timed out waiting for row proposal response ${requestId}`);
           return response;
         };
-        const firstRowProposalRequest = proposalRequests.at(-1);
+        const firstRowProposalRequest = rowDefinitionProposalRequests.at(-1);
         assert(firstRowProposalRequest, 'The row-definition proposal did not issue its API request');
         state.expandedProposal.firstApiElapsedMs = (await waitForProposalResponse(firstRowProposalRequest.requestId)).elapsedMs;
         state.expandedProposal.requestTemperature = 'first row-change proposal for this newly created temporary table';
