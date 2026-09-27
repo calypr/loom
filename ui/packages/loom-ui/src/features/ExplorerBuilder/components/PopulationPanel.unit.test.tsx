@@ -93,6 +93,75 @@ it('attaches a selected file collection through a server-issued route choice', a
   }), expect.any(AbortSignal));
 });
 
+it('prioritizes a direct same-resource route and distinguishes meaningful alternatives', async () => {
+  const directChoice: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'direct-population-route',
+    route: [],
+    presentation: { summary: 'Use selected Specimen records', facts: [] },
+  };
+  const duplicateDirectChoice = { ...directChoice, routeChoiceId: 'duplicate-direct-route' };
+  const requiredOutboundChoice: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'required-outbound-route',
+    route: [{
+      ...populationChoice.route[0]!,
+      fromResourceType: 'Specimen',
+      toResourceType: 'DocumentReference',
+      relationship: 'documentation',
+      storageDirection: 'OUTBOUND',
+      matchMode: 'REQUIRED',
+    }],
+    presentation: { summary: 'Use selected Specimen records', facts: [] },
+  };
+  const optionalInboundChoice: PopulationRouteChoice = {
+    ...requiredOutboundChoice,
+    routeChoiceId: 'optional-inbound-route',
+    route: [{
+      ...requiredOutboundChoice.route[0]!,
+      storageDirection: 'INBOUND',
+      matchMode: 'OPTIONAL',
+    }],
+  };
+  searchPopulationRoutes.mockImplementationOnce(async (request: { selectionRevisionId: string }) => ({
+    snapshotToken: 'snapshot',
+    outputId: table.outputId,
+    selectionRevisionId: request.selectionRevisionId,
+    complete: false,
+    truncated: true,
+    choices: [requiredOutboundChoice, optionalInboundChoice, duplicateDirectChoice, directChoice],
+  }));
+  const onAttach = vi.fn();
+  render(<PopulationPanel table={table} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
+
+  const options = await screen.findAllByRole('option');
+  expect(options).toHaveLength(3);
+  expect(options[0]).toHaveTextContent('Use selected Specimen records');
+  expect(options[1]?.textContent).not.toBe(options[2]?.textContent);
+  expect(options[1]).toHaveTextContent('documentation');
+  expect(options[2]).toHaveTextContent('documentation');
+  expect(options[1]?.textContent).toMatch(/outbound|required/i);
+  expect(options[2]?.textContent).toMatch(/inbound|optional/i);
+  expect(screen.queryByText(/automatic route-search limit/)).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
+  expect(onAttach).toHaveBeenCalledWith('direct-population-route');
+});
+
+it('keeps the route-search warning when no direct same-resource route is available', async () => {
+  searchPopulationRoutes.mockImplementationOnce(async (request: { selectionRevisionId: string }) => ({
+    snapshotToken: 'snapshot',
+    outputId: table.outputId,
+    selectionRevisionId: request.selectionRevisionId,
+    complete: false,
+    truncated: true,
+    choices: [populationChoice],
+  }));
+  render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+
+  expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
+});
+
 it('keeps an unselected table as an all-authorized-resource workflow', () => {
   render(<PopulationPanel table={table} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
   expect(screen.getByText(/uses every authorized Specimen resource/)).toBeTruthy();
