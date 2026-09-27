@@ -83,6 +83,15 @@ func TestMapDataframeErrorBackendIsRetryable(t *testing.T) {
 	}
 }
 
+func TestMapDataframeErrorUnlistedPivotCategoryIsActionable(t *testing.T) {
+	code := dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY")
+	mapped := MapDataframeError(dataframeerrors.NewError(code, "private"), "req-pivot")
+	wantMessage := "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
+	if mapped.Status != http.StatusUnprocessableEntity || mapped.Body.Error.Code != string(code) || mapped.Body.Error.Message != wantMessage || mapped.Body.Error.Retryable {
+		t.Fatalf("mapped = %#v, want non-retryable 422 %s with actionable message", mapped, code)
+	}
+}
+
 func TestMapDataframeErrorPreservesOrderedFieldPath(t *testing.T) {
 	err := dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithFieldPath("input", "outputs", "0", "columns", "2"))
 	mapped := MapDataframeError(err, "req-path")

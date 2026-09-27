@@ -104,6 +104,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
 		{"construction-expansion-empty", dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, ""), http.StatusUnprocessableEntity, "CONSTRUCTION_EXPANSION_EMPTY"},
+		{"pivot-unlisted-category", dataframeerrors.NewError(dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY"), ""), http.StatusUnprocessableEntity, "TABLE_PIVOT_UNLISTED_CATEGORY"},
 		{"temporal-anchor", dataframeerrors.NewError(dataframeerrors.CodeTemporalAnchorInvalid, "private"), http.StatusUnprocessableEntity, "TEMPORAL_ANCHOR_INVALID"},
 		{"temporal-precision", dataframeerrors.NewError(dataframeerrors.CodeTemporalPrecisionUnsupported, "private"), http.StatusUnprocessableEntity, "TEMPORAL_PRECISION_UNSUPPORTED"},
 		{"temporal-tie", dataframeerrors.NewError(dataframeerrors.CodeTemporalTieAmbiguous, "private"), http.StatusUnprocessableEntity, "TEMPORAL_TIE_AMBIGUOUS"},
@@ -132,6 +133,18 @@ func TestConstructionExpansionEmptyPreviewErrorIsActionable(t *testing.T) {
 	want := "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
 	if got.Status != http.StatusUnprocessableEntity || got.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) || got.Diagnostic.Message != want {
 		t.Fatalf("diagnostic = %#v, want 422 %s with actionable message", got.Diagnostic, dataframeerrors.CodeConstructionExpansionEmpty)
+	}
+}
+
+func TestUnlistedPivotCategoryPreviewErrorIsActionable(t *testing.T) {
+	var got *explorer.AuthoringError
+	err := dataframeerrors.NewError(dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY"), "private")
+	if !errors.As(previewRouteError(err), &got) {
+		t.Fatal("previewRouteError() did not return an authoring error")
+	}
+	want := "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
+	if got.Status != http.StatusUnprocessableEntity || got.Diagnostic.Code != "TABLE_PIVOT_UNLISTED_CATEGORY" || got.Diagnostic.Message != want {
+		t.Fatalf("diagnostic = %#v, want 422 TABLE_PIVOT_UNLISTED_CATEGORY with actionable message %q", got.Diagnostic, want)
 	}
 }
 

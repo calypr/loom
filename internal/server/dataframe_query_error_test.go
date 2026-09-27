@@ -77,6 +77,21 @@ func TestClassifyDataframeQueryErrorPreservesRelationshipCardinalityViolation(t 
 	}
 }
 
+func TestClassifyDataframeQueryErrorPreservesUnlistedPivotCategory(t *testing.T) {
+	driverErr := shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: TABLE_PIVOT_UNLISTED_CATEGORY (while executing)",
+	}
+	err := classifyDataframeQueryError(driverErr)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != "TABLE_PIVOT_UNLISTED_CATEGORY" || userErr.Retryable() {
+		t.Fatalf("classified error=%#v, want non-retryable TABLE_PIVOT_UNLISTED_CATEGORY", userErr)
+	}
+	if !errors.Is(err, driverErr) {
+		t.Fatal("classified error did not preserve the Arango cause")
+	}
+}
+
 func TestClassifyDataframeQueryErrorPreservesEmptyConstructionExpansion(t *testing.T) {
 	driverErr := shared.ArangoError{
 		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
