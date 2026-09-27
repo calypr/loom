@@ -65,8 +65,10 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 	}
 	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
-		rootIndexHint:         options.rootIndexHint,
-		pivotGroupTupleFilter: options.pivotGroupTupleFilter,
+		rootIndexHint:                   options.rootIndexHint,
+		pivotGroupTupleFilter:           options.pivotGroupTupleFilter,
+		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
+		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 	})
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
@@ -81,13 +83,25 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			return RenderedPhysicalPlan{}, err
 		}
 	}
+	presenceMarkerRows := make(map[string]struct{}, len(stages)+1)
+	if options.projectionPresenceMarkerColumn != "" {
+		for _, stage := range stages {
+			if stage.InputRowVariable != "" {
+				presenceMarkerRows[stage.InputRowVariable] = struct{}{}
+			}
+		}
+		presenceMarkerRows["__loom_construction_final_row"] = struct{}{}
+	}
 	renderer := physicalPlanRenderer{
-		bindVars:            bindVars,
-		collectionKeys:      collectionKeys,
-		setVariables:        map[string]string{},
-		reservedVars:        reservedVars,
-		internalPrefix:      "construction_",
-		dynamicPivotPreview: options.dynamicPivotPreview,
+		bindVars:                        bindVars,
+		collectionKeys:                  collectionKeys,
+		setVariables:                    map[string]string{},
+		reservedVars:                    reservedVars,
+		internalPrefix:                  "construction_",
+		dynamicPivotPreview:             options.dynamicPivotPreview,
+		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
+		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
+		projectionPresenceMarkerRows:    presenceMarkerRows,
 	}
 
 	lines := make([]string, 0, 16)
@@ -212,10 +226,16 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		if column.Name == "auth_resource_path" && sequence.OutputAuthResourcePathBindKey != "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("final stage already declares the reserved authorization path column")
 		}
-		projections = append(projections, ir.PhysicalProjection{
+		projection := ir.PhysicalProjection{
 			Name: column.Name, Hidden: column.Internal,
 			Value: ir.PhysicalValue{Variable: finalRow, Path: []string{column.Name}},
-		})
+		}
+		if options.terminalProjectionColumn != "" {
+			projection.Presence = &ir.PhysicalProjectionPresence{
+				Source: ir.PhysicalValue{Variable: finalRow}, Paths: [][]string{{column.Name}},
+			}
+		}
+		projections = append(projections, projection)
 	}
 	if sequence.OutputAuthResourcePathBindKey != "" && options.terminalProjectionColumn == "" {
 		projections = append(projections, ir.PhysicalProjection{

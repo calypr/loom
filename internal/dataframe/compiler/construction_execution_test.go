@@ -76,7 +76,7 @@ func TestConstructionPreviewBoundsProvenRootIDPivotBeforeSourceMaterialization(t
 	sourceQuery := query.Query[sourceStart:stageStart]
 	sortAt := strings.Index(sourceQuery, "SORT root.id ASC")
 	limitAt := strings.Index(sourceQuery, "LIMIT @limit")
-	returnAt := strings.Index(sourceQuery, "RETURN {")
+	returnAt := strings.Index(sourceQuery, "RETURN ")
 	if sortAt < 0 || limitAt <= sortAt || returnAt <= limitAt {
 		t.Fatalf("root-id sort/limit did not run before source projection materialization:\n%s", sourceQuery)
 	}
@@ -205,7 +205,7 @@ func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction
 	}
 	sourceQuery := preview.Query[sourceStart:stageStart]
 	groupFilterAt := strings.Index(sourceQuery, "FILTER root.payload.gender IN __loom_physical_construction_reshape_preview_selected_group_keys")
-	projectionAt := strings.Index(sourceQuery, "RETURN {")
+	projectionAt := strings.Index(sourceQuery, "RETURN ")
 	if !strings.Contains(sourceQuery, "root.payload.multipleBirthInteger") || groupFilterAt < 0 || projectionAt <= groupFilterAt {
 		t.Fatalf("second pass must filter raw source keys before materializing the full Pivot contributor projection:\n%s", sourceQuery)
 	}

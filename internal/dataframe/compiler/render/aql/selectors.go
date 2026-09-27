@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -300,9 +301,42 @@ func (r *physicalPlanRenderer) renderReturn(returnOp ir.PhysicalReturn) (string,
 		if err != nil {
 			return "", err
 		}
-		projections = append(projections, fmt.Sprintf("[@%s]: %s", nameBindKey, value))
+		entry := fmt.Sprintf("[@%s]: %s", nameBindKey, value)
+		if r.projectionPresenceMarkerColumn != "" {
+			if _, preserve := r.preserveProjectionPresenceNames[projection.Name]; preserve {
+				present := "true"
+				if projection.Presence != nil {
+					if marker, ok := r.passThroughPresenceMarker(projection); ok {
+						present = marker
+					} else {
+						present, err = r.renderProjectionPresence(*projection.Presence)
+						if err != nil {
+							return "", fmt.Errorf("render projection presence for %q: %w", projection.Name, err)
+						}
+					}
+				}
+				projections = append(projections, entry, fmt.Sprintf("%s: %s", strconv.Quote(r.projectionPresenceMarkerColumn), present))
+				continue
+			}
+		}
+		projections = append(projections, entry)
 	}
 	return "{ " + strings.Join(projections, ", ") + " }", nil
+}
+
+func (r *physicalPlanRenderer) passThroughPresenceMarker(projection ir.PhysicalProjection) (string, bool) {
+	if projection.Expression != nil || projection.Presence == nil || projection.Presence.Source.Variable == "" ||
+		projection.Value.Variable != projection.Presence.Source.Variable || len(projection.Value.Path) != 1 {
+		return "", false
+	}
+	if _, isStageRow := r.projectionPresenceMarkerRows[projection.Presence.Source.Variable]; !isStageRow {
+		return "", false
+	}
+	if len(projection.Presence.Paths) != 1 || len(projection.Presence.Paths[0]) != 1 ||
+		projection.Presence.Paths[0][0] != projection.Value.Path[0] {
+		return "", false
+	}
+	return projection.Presence.Source.Variable + "[" + strconv.Quote(r.projectionPresenceMarkerColumn) + "]", true
 }
 
 func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, error) {

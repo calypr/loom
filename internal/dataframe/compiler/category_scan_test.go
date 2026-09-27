@@ -33,7 +33,7 @@ func TestCompileCategoryScanWrapsCompleteFinalOutputWithBoundedDistinct(t *testi
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"LET __loom_category_rows = (", "HAS(__loom_category_row, @__loom_category_column)",
+		"LET __loom_category_rows = (", "__loom_category_row[\"__loom_category_scan_presence\"]",
 		"__loom_category_row[@__loom_category_column]", "COLLECT __loom_category_group_present",
 		"SORT __loom_category_group_present ASC", "LIMIT @__loom_category_limit",
 	} {
@@ -181,6 +181,12 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	if strings.Contains(terminal, "SORT __loom_construction_final_row.") {
 		t.Fatalf("category scan retained an unneeded terminal row sort:\n%s", terminal)
 	}
+	if strings.Contains(scanned.Query[:finalAt], "MERGE(") {
+		t.Fatalf("category scan merged projected objects before its stage filter:\n%s", scanned.Query[:finalAt])
+	}
+	if !strings.Contains(terminal, `"__loom_category_scan_presence": __loom_construction_final_row["__loom_category_scan_presence"]`) {
+		t.Fatalf("terminal category scan did not carry the presence marker through its stage prefix:\n%s", terminal)
+	}
 	categoryOutput := scanned.Query[categoryAt:]
 	for _, required := range []string{
 		"COLLECT __loom_category_group_present = __loom_category_present, __loom_category_group_value = __loom_category_value",
@@ -211,6 +217,66 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	}
 	if scanned.Proof.QueryFingerprint != wantQueryDigest {
 		t.Fatalf("category proof does not bind the unordered query: got %q, want %q", scanned.Proof.QueryFingerprint, wantQueryDigest)
+	}
+}
+
+func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterEquals))
+	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_active", "birth_date_id", "patient_id", 32, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootFilter := "FILTER root.payload.active == @construction_filter_value"
+	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
+	if strings.Count(scanned.Query, rootFilter) != 1 || !strings.Contains(scanned.Query, stageFilter) {
+		t.Fatalf("category scan must duplicate an eligible source equality and retain the stage predicate:\n%s", scanned.Query)
+	}
+	rootFilterAt := strings.Index(scanned.Query, rootFilter)
+	stageReturnAt := strings.Index(scanned.Query, "RETURN { [@__loom_physical_projection_")
+	if rootFilterAt < 0 || stageReturnAt < 0 || rootFilterAt > stageReturnAt ||
+		strings.Index(scanned.Query, "root.project == @project") > rootFilterAt ||
+		strings.Index(scanned.Query, "root.dataset_generation == @dataset_generation") > rootFilterAt ||
+		strings.Index(scanned.Query, "root_scope_allowed") > rootFilterAt {
+		t.Fatalf("source equality must follow project, generation, and authorization scope before source projection:\n%s", scanned.Query)
+	}
+
+	ineligibleOutput := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterExists))
+	ineligible, err := CompileCategoryScanStageWithPolicy(ineligibleOutput, "keep_active", "birth_date_id", "patient_id", 32, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ineligible.Query, "FILTER root.payload.active") || !strings.Contains(ineligible.Query, "FILTER __loom_construction_input_1.active != null") {
+		t.Fatalf("ineligible non-equality filter should remain on the staged path:\n%s", ineligible.Query)
+	}
+}
+
+func categoryScanFilterTestOutput(operator recipe.FilterOperator) recipe.Output {
+	trueValue := true
+	filter := &recipe.ConstructionFilter{ColumnID: "active_id", Operator: operator}
+	if operator == recipe.FilterEquals {
+		filter.Values = []recipe.FilterValue{{Kind: recipe.FilterBoolean, Boolean: &trueValue}}
+	}
+	columns := []recipe.StageColumn{
+		{ID: "patient_id", Name: "patient_id"},
+		{ID: "active_id", Name: "active"},
+		{ID: "birth_date_id", Name: "birth_date"},
+	}
+	return recipe.Output{
+		Name: "category_filter_test", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "active", ColumnID: "active_id", Expr: recipe.Expression{Select: "root.active"}},
+			{Name: "birth_date", ColumnID: "birth_date_id", Expr: recipe.Expression{Select: "root.birthDate"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: columns,
+			Steps: []recipe.ConstructionStep{{
+				ID: "keep_active", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: filter},
+				Outputs:   columns,
+			}},
+		},
 	}
 }
 

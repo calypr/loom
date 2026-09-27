@@ -51,6 +51,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 
 	calls := 0
 	incomplete := false
+	overflow := false
 	service.config.ScanCategories = func(_ context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, scan dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		calls++
 		if receipt == nil || bindings.Project != request.Project || len(bindings.OutputNames) != 1 || bindings.OutputNames[0] != request.OutputID {
@@ -75,7 +76,8 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		}
 		return dataframeexecution.CategoryScanResult{
 			Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "final"}, {Present: false}},
-			Complete: !incomplete,
+			Complete: !incomplete && !overflow,
+			Overflow: overflow,
 			Proof:    compilerCategoryScanProof(request, category),
 		}, nil
 	}
@@ -108,6 +110,11 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	incomplete = true
 	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {
 		t.Fatalf("incomplete scan error = %v", err)
+	}
+	incomplete = false
+	overflow = true
+	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_LIMIT_EXCEEDED" {
+		t.Fatalf("overflow scan error = %v", err)
 	}
 	service.config.ScanCategories = func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
 		return dataframeexecution.CategoryScanResult{}, context.DeadlineExceeded

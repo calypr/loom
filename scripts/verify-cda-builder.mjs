@@ -1696,6 +1696,36 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'reshape-options.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/construction-capabilities'))},null,2));
+  } else if (action === 'Reproduce high-cardinality Pivot discovery') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.startsWith('Turn categories into columns')))`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 30000);
+    const initial=await browserEval(browser.cdp, `return {category:document.querySelector('select[aria-label="Pivot category field"]')?.value,findDisabled:[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText.trim()==='Find category values')?.disabled};`);
+    assert.equal(initial.category,'','Pivot must not silently choose an identifier as its category');
+    assert.equal(initial.findDisabled,true,'Pivot category discovery must wait for an explicit category choice');
+    const choices=await browserEval(browser.cdp, `return Object.fromEntries(['Pivot category field','Pivot values field'].map(label=>{const select=document.querySelector('select[aria-label="'+label+'"]');return [label,[...select.options].map(option=>({text:option.textContent,value:option.value}))]}));`);
+    const category=choices['Pivot category field'].find(option=>option.text==='subject.reference');
+    assert(category,'The CDA Specimen table must expose subject.reference for this repro');
+    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot category field"]');select.value=${JSON.stringify(category.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelector('select[aria-label="Pivot values field"]').options].find(option=>option.textContent.startsWith('Specimen ID')))`, 30000);
+    const value=await browserEval(browser.cdp, `const option=[...document.querySelector('select[aria-label="Pivot values field"]').options].find(option=>option.textContent.startsWith('Specimen ID'));return {text:option.textContent,value:option.value};`);
+    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot values field"]');select.value=${JSON.stringify(value.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-reshape-pivot"] button')?.disabled`, 30000);
+    const started=Date.now();
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText.trim()==='Find category values').click();return true;`);
+    const deadline=Date.now()+30000;
+    while (!responses.some(item=>item.path.endsWith('/construction-category-discoveries')) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,100));
+    const request=categoryDiscoveryRequests.at(-1);
+    const response=responses.filter(item=>item.path.endsWith('/construction-category-discoveries')).at(-1);
+    const responseBody=response ? JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:response.requestId})).body) : undefined;
+    const state={initial,choices,selected:{category:category.text,value:value.text},elapsedMs:Date.now()-started,request:request?.postData?JSON.parse(request.postData):undefined,response,responseBody,visibleMessage:await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.slice(0,1800);`)};
+    assert.equal(response?.status,422);
+    assert.equal(responseBody?.error?.code,'CATEGORY_LIMIT_EXCEEDED');
+    assert(state.visibleMessage?.includes('more than 256 category values'));
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'subject-reference-pivot-discovery.json'),JSON.stringify({pageURL,state},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state},null,2));
   } else if (action === 'Group by Specimen subject performance') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Summarize into groups')`, 30000);
@@ -1754,11 +1784,14 @@ try {
       await waitForBrowser(browser.cdp,`!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding category values…')&&Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] fieldset input[aria-label^="Include category"]'))`,60000);
       state.timingsMs.clickToDOM=Date.now()-started;state.categories=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Include category"]')].map(i=>i.getAttribute('aria-label').replace(/^Include category /,''));`);state.categoryAPI=responses.filter(r=>r.path.endsWith('/construction-category-discoveries')).at(-1);state.timingsMs.api=state.categoryAPI?.elapsedMs;const categoryBody=await browser.cdp.send('Network.getResponseBody',{requestId:state.categoryAPI?.requestId});state.categoryResponse=JSON.parse(categoryBody.body);state.categoriesTyped=state.categoryResponse.categories.map(category=>category.key);assert.equal(state.categoryResponse.complete,true);assert.equal(state.categories.length,state.categoryResponse.categories.length);if(!selective)assert.equal(state.categories.length,136);else{
         assert(state.categories.length<136,`The saved subject filter was not selective: ${state.categories.length} categories`);
-        state.workloadKind='performance-only';
-        state.parityNote='The raw CDA leaf is MISSING for this selection, while the saved source projection returns NULL; this workload measures latency but does not prove typed category parity.';
+        assert(state.timingsMs.api<=5000,`Selective category scan took ${state.timingsMs.api} ms`);
+        state.rawPresenceOracle={field:'collection.bodySite.reference.reference',missingRecords:234,expectedCategoryKind:'MISSING'};
+        assert.equal(state.categoriesTyped.filter(key=>key?.kind==='MISSING').length,1,`The raw CDA oracle has ${state.rawPresenceOracle.missingRecords} matching records with an absent category field; discovery must retain one typed MISSING category, got ${JSON.stringify(state.categoriesTyped)}`);
+        state.workloadKind='correctness-and-performance';
       }
     }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;}finally{
-      if(created){await navigate(browser.cdp,pageURL);await selectTable();await browserEval(browser.cdp,`window.confirm=()=>true;document.querySelector('button[aria-label="Delete table"]').click();return true;`);await waitForBrowser(browser.cdp,`![...document.querySelectorAll('button')].some(b=>b.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,60000);await navigate(browser.cdp,pageURL);}
+      if(created){await navigate(browser.cdp,pageURL);await selectTable();await browserEval(browser.cdp,`window.confirm=()=>true;document.querySelector('button[aria-label="Delete table"]').click();return true;`);await waitForBrowser(browser.cdp,`![...document.querySelectorAll('button')].some(b=>b.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,60000);state.tempTableCleanup='deleted';await navigate(browser.cdp,pageURL);}
+      else state.tempTableCleanup='not-created';
       await mkdir(evidenceDirectory,{recursive:true});await writeFile(join(evidenceDirectory,selective?'specimen-selective-staged-pivot-performance.json':'specimen-staged-pivot-performance.json'),JSON.stringify({pageURL,state,categoryDiscoveryRequests,responses},null,2));console.log(JSON.stringify({evidenceDirectory,state},null,2));
     }
   } else if (action === 'Discover Specimen pivot categories performance' || action === 'Preview Specimen pivot performance' || action === 'Preview Specimen nonunique pivot performance' || action === 'Reject Specimen nonnumeric pivot policy') {
@@ -2645,6 +2678,125 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,action === 'Apply Observation concept'?'apply-observation-concept.json':'add-observation-concept.json'),JSON.stringify({pageURL,source,state,requests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/construction-choices')||response.path.endsWith('/construction-proposals'))},null,2));
+  } else if (action === 'Verify paired semantic days-to-collection lifecycle') {
+    // Paired semantic values are selected from the semantic catalog and resolved through a route and result form.
+    const state = { clicks: [], duplicateCreated: false };
+    const click = async (script, label) => { await browserEval(browser.cdp, script); state.clicks.push(label); };
+    const wait = async (condition, label, timeout = 30000) => {
+      await waitForBrowser(browser.cdp, condition, timeout);
+      state.lastWait = label;
+    };
+    const waitForCommand = async (type, timeout = 30000) => {
+      const deadline = Date.now() + timeout;
+      let request;
+      let response;
+      while (Date.now() < deadline) {
+        request = requests.find(candidate => JSON.parse(candidate.postData ?? '{}').commands?.some(command => command.type === type));
+        response = request && responses.find(candidate => candidate.requestId === request.requestId);
+        if (request && response) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert(request, `${type} command request was not sent`);
+      assert(response, `${type} command response was not received`);
+      assert.equal(response.status, 200, `${type} command failed with HTTP ${response.status}`);
+      return { request, response };
+    };
+    try {
+      await wait('Boolean(document.querySelector(\'button[aria-label="Duplicate table"]\'))', 'Duplicate button visible');
+      await click('document.querySelector(\'button[aria-label="Duplicate table"]\').click();return true;', 'Duplicate Specimen table');
+      await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Temporary duplicate visible');
+      state.duplicateCreated = true;
+      await navigate(browser.cdp, pageURL);
+      await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Duplicate visible after reload');
+      await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Select temporary duplicate');
+      await wait('Boolean(document.querySelector(\'button[aria-label^="Add columns:"]\'))', 'Temporary table workspace ready');
+      await click('document.querySelector(\'button[aria-label^="Add columns:"]\').click();return true;', 'Open Add columns');
+      const { source, sources } = await chooseRelatedSource('Observation');
+      state.source = source;
+      state.sources = sources;
+      state.catalogOrder = await browserEval(browser.cdp, 'const concepts=document.querySelector("#feature-catalog-concepts-title");const fields=document.querySelector("#feature-catalog-fields-title");return {conceptsTop:concepts?.getBoundingClientRect().top,fieldsTop:fields?.getBoundingClientRect().top,concepts:concepts?.innerText,fields:fields?.innerText};');
+      assert(state.catalogOrder.conceptsTop < state.catalogOrder.fieldsTop, 'Paired coded concepts should appear before raw FHIR fields');
+      await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Semantic days_to_collection enabled');
+      await click('document.querySelector(\'input[aria-label="Select days_to_collection"]\').click();return true;', 'Select days_to_collection');
+      await wait('Boolean([...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature"&&!button.disabled))', 'One semantic feature selected');
+      await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Add 1 selected feature").click();return true;', 'Open route and result form choices');
+      // Keep this a scalar predicate: returning the input node causes CDP to fail with “Object reference chain is too long”.
+      await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Route choice radios rendered');
+      state.dialogBeforeRoute = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[role=dialog]")].map(dialog=>({text:dialog.innerText,radios:[...dialog.querySelectorAll("input[type=radio]")].map(input=>({label:input.getAttribute("aria-label"),text:input.labels?.[0]?.innerText??input.closest("label")?.innerText??"",checked:input.checked}))}));');
+      await click('(()=>{const dialog=[...document.querySelectorAll("[role=dialog]")].find(item=>item.innerText.includes("days_to_collection"));const input=[...dialog.querySelectorAll("input[type=radio]")].find(item=>[...(item.labels??[])].some(label=>label.innerText.includes("via Specimen"))||item.closest("label")?.innerText.includes("via Specimen"));if(!input)throw new Error("Direct via Specimen route radio not found");input.click();return true;})()', 'Choose direct Specimen route');
+      await wait('Boolean([...document.querySelectorAll("[role=dialog] input[type=radio]")].some(input=>[...(input.labels??[])].some(label=>/first value/i.test(label.innerText))||/first value/i.test(input.closest("label")?.innerText??"")))', 'FIRST result form rendered');
+      await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>[...(item.labels??[])].some(label=>/first value/i.test(label.innerText))||/first value/i.test(item.closest("label")?.innerText??""));input.click();return true;})()', 'Choose FIRST result form');
+      await wait('Boolean([...document.querySelectorAll("[role=dialog] button")].find(button=>button.textContent?.trim()==="Add 1 column"&&!button.disabled))', 'Add column enabled');
+      await click('[...document.querySelectorAll("[role=dialog] button")].find(button=>button.textContent?.trim()==="Add 1 column").click();return true;', 'Add paired semantic column');
+      state.choiceApplied = await waitForCommand('APPLY_CONSTRUCTION_CHOICE');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      state.afterChoice = await browserEval(browser.cdp, 'return {body:document.body.innerText.slice(-6000),configuredColumns:[...document.querySelectorAll("[role=list][aria-label=\\\"Table columns\\\"] [role=listitem]")].map(item=>item.innerText.trim()),columnInputs:[...document.querySelectorAll("input[aria-label^=\\\"Display name for configured \\\"]")].map(input=>({label:input.getAttribute("aria-label"),value:input.value})),historyCount:document.querySelectorAll("[data-testid^=construction-history-step-]").length,buttons:[...document.querySelectorAll("button")].filter(button=>button.offsetParent!==null).map(button=>({text:button.textContent.trim(),label:button.getAttribute("aria-label"),disabled:button.disabled})).filter(button=>/close|preview|add selected|days_to_collection/i.test(`${button.text} ${button.label??""}`)),alerts:[...document.querySelectorAll("[role=alert]")].map(alert=>alert.innerText)};');
+      state.closePanel = await browserEval(browser.cdp, 'const close=[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Close"&&button.offsetParent!==null);if(close){close.click();return "Close button";}const toggle=[...document.querySelectorAll("button")].find(button=>(button.getAttribute("aria-label")??"").startsWith("Add columns:"));if(toggle){toggle.click();return "Add columns toggle";}return "no close control";');
+      state.clicks.push('Close Add columns panel');
+      await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Preview"&&!button.disabled).click();return true;', 'Preview paired semantic column');
+      await wait('Boolean(document.querySelector("[data-testid=preview-table-scroll] [role=table]"))', 'Preview table rendered', 60000);
+      state.preview = await browserEval(browser.cdp, 'const scroll=document.querySelector("[data-testid=preview-table-scroll]");const table=scroll?.querySelector("[role=table]");return {headers:[...scroll.querySelectorAll("[role=columnheader]")].map(cell=>cell.innerText.trim()),rows:[...scroll.querySelectorAll("[role=row]")].slice(1,6).map(row=>[...row.querySelectorAll("[role=cell]")].map(cell=>cell.innerText.trim())),columnCount:table?.getAttribute("aria-colcount"),alerts:[...document.querySelectorAll("[role=alert]")].map(alert=>alert.innerText)};');
+      const semanticPreviewResponse = responses.filter(response => response.path.endsWith('/preview')).at(-1);
+      if (semanticPreviewResponse) {
+        try { state.rawPreview = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: semanticPreviewResponse.requestId })).body); } catch (error) { state.rawPreviewError = error.message; }
+      }
+      assert(state.preview.headers.some(header => header.toLowerCase() === 'days_to_collection'), `Semantic output column missing from preview: ${state.preview.headers.join(', ')}`);
+      const valueIndex = state.preview.headers.findIndex(header => header.toLowerCase() === 'days_to_collection');
+      const valuedRow = state.preview.rows.find(row => row[valueIndex] && /^\d+$/.test(row[valueIndex]));
+      assert(valuedRow, 'No rendered CDA Specimen row has a days_to_collection value');
+      const specimenId = valuedRow[0];
+      const oracleQuery = `FOR d IN Observation FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.payload.specimen.reference == ${JSON.stringify(`Specimen/${specimenId}`)} LIMIT 10 RETURN {id:d.id,component:d.payload.component}`;
+      const oracleScript = `print(JSON.stringify(db._query(${JSON.stringify(oracleQuery)}).toArray()))`;
+      const oracleOutput = execFileSync('rtk', ['docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', oracleScript], { encoding: 'utf8', maxBuffer: 200000 });
+      const sourceRecords = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
+      const sourceValues = sourceRecords.flatMap(record => (record.component ?? []).filter(component =>
+        component.code?.coding?.some(coding => coding.system === 'https://cda.readthedocs.io' && coding.code === 'days_to_collection')
+      ).map(component => component.valueInteger));
+      state.sourceComparison = { specimenId, displayed: Number(valuedRow[valueIndex]), sourceRecords, sourceValues };
+      assert.deepEqual(sourceValues, [state.sourceComparison.displayed], 'The paired concept value differs from its raw CDA code/value component');
+      await navigate(browser.cdp, pageURL);
+      await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Duplicate visible after reload');
+      await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Reselect temporary duplicate after reload');
+      await wait('Boolean([...document.querySelectorAll("button")].find(button=>button.getAttribute("aria-label")==="Remove days_to_collection")) || Boolean(document.querySelector("[data-testid=preview-table-scroll]")) || document.body.innerText.includes("days_to_collection")', 'Paired semantic column persisted after reload');
+      await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Preview"&&!button.disabled).click();return true;', 'Preview persisted semantic column');
+      await wait('Boolean(document.querySelector("[data-testid=preview-table-scroll] [role=table]"))', 'Reloaded preview table rendered', 60000);
+      state.reloadPreview = await browserEval(browser.cdp, 'const scroll=document.querySelector("[data-testid=preview-table-scroll]");return {headers:[...scroll.querySelectorAll("[role=columnheader]")].map(cell=>cell.innerText.trim()),rows:[...scroll.querySelectorAll("[role=row]")].slice(1,6).map(row=>[...row.querySelectorAll("[role=cell]")].map(cell=>cell.innerText.trim()))};');
+      assert(state.reloadPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), `Semantic output column did not persist: ${state.reloadPreview.headers.join(', ')}`);
+      state.removalControl = await browserEval(browser.cdp, 'let remove=[...document.querySelectorAll("button")].find(button=>button.getAttribute("aria-label")==="Remove days_to_collection");if(remove){remove.click();return "Remove days_to_collection";}const columns=[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Columns");if(columns){columns.click();return "Open Columns panel";}return "no remove control";');
+      state.clicks.push(state.removalControl);
+      if (state.removalControl === 'Open Columns panel') {
+        await wait('Boolean(document.querySelector("button[aria-label=\\\"Remove days_to_collection\\\"]"))', 'Semantic column remove control rendered');
+        await click('document.querySelector("button[aria-label=\\\"Remove days_to_collection\\\"]").click();return true;', 'Remove semantic column');
+      }
+      assert.equal(state.removalControl === 'Remove days_to_collection' || state.removalControl === 'Open Columns panel', true, 'No semantic column removal control was available');
+      state.removalCommand = await waitForCommand('REMOVE_COLUMN');
+      await navigate(browser.cdp, pageURL);
+      await wait('document.body.innerText.includes("DATASET WORKSPACE")', 'Removed semantic column persisted after reload');
+      await click('[...document.querySelectorAll("button")].find(button=>button.textContent?.trim()==="Preview"&&!button.disabled).click();return true;', 'Preview after removal');
+      await wait('Boolean(document.querySelector("[data-testid=preview-table-scroll] [role=table]"))', 'Removed preview rendered', 60000);
+      state.removedPreview = await browserEval(browser.cdp, 'const scroll=document.querySelector("[data-testid=preview-table-scroll]");return {headers:[...scroll.querySelectorAll("[role=columnheader]")].map(cell=>cell.innerText.trim()),rows:[...scroll.querySelectorAll("[role=row]")].slice(1,6).map(row=>[...row.querySelectorAll("[role=cell]")].map(cell=>cell.innerText.trim()))};');
+      assert(!state.removedPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), 'days_to_collection remains after removal');
+      state.previewResponse = semanticPreviewResponse;
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks,choiceApplied:state.choiceApplied,preview:state.preview,reloadPreview:state.reloadPreview,removalProposal:state.removalProposal,removedPreview:state.removedPreview,previewResponse:state.previewResponse,responses:responses.filter(response=>response.status>=400)},null,2));
+    } finally {
+      if (state.duplicateCreated) {
+        try {
+          await navigate(browser.cdp, pageURL);
+          await waitForBrowser(browser.cdp, 'Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 30000);
+          await browserEval(browser.cdp, '[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;');
+          await waitForBrowser(browser.cdp, 'Boolean(document.querySelector(\'button[aria-label="Delete table"]\'))', 30000);
+          await browserEval(browser.cdp, 'window.confirm=()=>true;document.querySelector(\'button[aria-label="Delete table"]\').click();return true;');
+          await waitForBrowser(browser.cdp, '![...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy"))', 30000);
+          state.temporaryDuplicateDeleted = true;
+        } catch (cleanupError) {
+          state.cleanupError = cleanupError.message;
+        }
+        await mkdir(evidenceDirectory,{recursive:true});
+        await writeFile(join(evidenceDirectory,'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
+      }
+    }
   } else if (action === 'Inspect Observation concept selection') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
     const { source } = await chooseRelatedSource('Observation');
@@ -2934,6 +3086,13 @@ try {
       assert(result.rows.length>0,`${stage} rendered no visible CDA rows`);
       return result;
     };
+    const assertSharedRows= (actual, expected, message, compareHeaders=true) => {
+      if(compareHeaders)assert.deepEqual(actual.headers, expected.headers, `${message}: headers changed`);
+      const actualById=new Map(actual.rows.map(row=>[row[0],row]));
+      const shared=expected.rows.filter(row=>actualById.has(row[0]));
+      assert(shared.length>=Math.min(3,expected.rows.length),`${message}: too few common rendered rows after virtualization`);
+      for(const row of shared)assert.deepEqual(actualById.get(row[0]),row,`${message}: row ${row[0]} changed`);
+    };
     const openColumnControls=async()=>{
       await click('Open column controls','[data-testid="construction-source-setup"] summary');
       if(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label^="Display name for configured resourceType"]')?.offsetParent);`)){
@@ -2971,7 +3130,7 @@ try {
       assert(state.sourceComparison.every(row=>row.displayed===row.source),'A visible resourceType differs from the CDA source');
       await reload();
       const persisted=await preview('afterReload');
-      assert.deepEqual(persisted,added,'Added field changed after reload');
+      assertSharedRows(persisted,added,'Added field changed after reload');
       await openColumnControls();
       const label='input[aria-label="Display name for configured resourceType"]';
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(label)}))`,30000);
@@ -2983,12 +3142,12 @@ try {
       await reload();
       const edited=await preview('afterEdit');
       assert.deepEqual(edited.headers,[...original.headers,renamed.toUpperCase()]);
-      assert.deepEqual(edited.rows,added.rows);
+      assertSharedRows(edited,added,'Renamed field values changed',false);
       await openColumnControls();
       await click('Remove added field',`button[aria-label="Remove ${renamed}"]`);
       await reload();
       const restored=await preview('afterRemove');
-      assert.deepEqual(restored,original,'Original CDA preview was not restored');
+      assertSharedRows(restored,original,'Original CDA preview was not restored');
       assert(Object.values(state.previews).every(item=>item.elapsedMs<=5000),'A direct-field preview exceeded five seconds');
     }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
     }finally{

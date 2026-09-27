@@ -22,7 +22,7 @@ func (r *physicalPlanRenderer) renderTableShapeExclusionReturn(terminal ir.Physi
 	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil {
-		presence, presenceErr := r.renderGroupedPivotPresence(*pivot.CategoryPresence)
+		presence, presenceErr := r.renderProjectionPresence(*pivot.CategoryPresence)
 		if presenceErr != nil {
 			return nil, fmt.Errorf("render exclusion category presence: %w", presenceErr)
 		}

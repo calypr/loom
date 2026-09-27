@@ -611,6 +611,9 @@ describe('ConstructionReshapeEditor', () => {
     );
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    expect(controlValue('Pivot category field')).toBe('');
+    expect(screen.getByRole('button', { name: 'Find category values' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     fireEvent.click(screen.getByRole('button', { name: 'Find category values' }));
     expect(onDiscoverCategories).toHaveBeenCalledWith({ stageId: 'source_projection', categoryColumnId: 'site-id', valueColumnId: 'age-id' });
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
@@ -677,6 +680,7 @@ describe('ConstructionReshapeEditor', () => {
     );
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
     const search = screen.getByLabelText('Search category values');
     const status = screen.getByTestId('construction-reshape-pivot-category-status');
     expect(status).toHaveTextContent('0 selected · Showing 3 of 3 category values');

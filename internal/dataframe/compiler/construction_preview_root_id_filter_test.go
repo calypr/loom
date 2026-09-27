@@ -115,7 +115,7 @@ func assertConstructionRootIDFilter(t *testing.T, query, resourceType, id string
 	generation := strings.Index(query, "root.dataset_generation == @dataset_generation")
 	auth := strings.Index(query, "root_scope_allowed")
 	rootID := strings.Index(query, "root.id == @construction_filter_value")
-	projection := strings.Index(query, "RETURN {")
+	projection := strings.Index(query, "RETURN ")
 	if project < 0 || generation < 0 || auth < 0 || rootID < 0 || projection < 0 || project > generation || generation > auth || auth > rootID || rootID > projection {
 		t.Fatalf("root ID predicate must follow existing project/generation/auth scope and precede source projection (%s, %q):\n%s", resourceType, id, query)
 	}

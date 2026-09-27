@@ -787,14 +787,13 @@ const initialPivotForm = (
 
   const scalar = scalarColumnsFor(stage);
   const groups = selectedColumns.filter((columnId) => scalar.some((column) => column.id === columnId));
-  const category = scalar.find((column) => !groups.includes(column.id));
-  const value = numericColumnsFor(stage).find((column) => column.id !== category?.id && !groups.includes(column.id))
-    ?? scalar.find((column) => column.id !== category?.id && !groups.includes(column.id));
+  const value = numericColumnsFor(stage).find((column) => !groups.includes(column.id))
+    ?? scalar.find((column) => !groups.includes(column.id));
   return {
     kind: 'pivot',
     stepId: createOpaqueId('pivot'),
     groupKeyIds: groups,
-    categoryColumnId: category?.id ?? '',
+    categoryColumnId: '',
     valueColumnId: value?.id ?? '',
     categories: [],
     duplicatePolicy: 'ERROR',
@@ -1807,13 +1806,15 @@ const PivotEditor = (props: {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Category field
-              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, categoryColumnId: event.currentTarget.value, categories: [], categoriesPair: undefined })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, categoryColumnId: event.currentTarget.value, valueColumnId: props.form.valueColumnId === event.currentTarget.value ? '' : props.form.valueColumnId, categories: [], categoriesPair: undefined })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                <option value="">Choose a category field</option>
                 {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Values field
               <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueColumnId: event.currentTarget.value, categories: [], categoriesPair: undefined })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                <option value="">Choose a values field</option>
                 {columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
               </select>
             </label>

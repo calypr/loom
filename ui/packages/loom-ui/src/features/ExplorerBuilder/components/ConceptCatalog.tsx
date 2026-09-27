@@ -331,7 +331,7 @@ const CatalogItemRow = ({
               </span>
               {item.kind === 'FIELD' ? (
                 <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {item.constructionChoice.options.length} compiler-proved {item.constructionChoice.options.length === 1 ? 'form' : 'forms'}
+                  {item.constructionChoice.options.length} {item.constructionChoice.options.length === 1 ? 'result option' : 'result options'}
                 </span>
               ) : (
                 <>
@@ -358,7 +358,7 @@ const CatalogItemRow = ({
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
               <span>{choice.presentation.summary}</span>
               <span aria-hidden="true">·</span>
-              <span>Server-supported forms: {choice.options.map(constructionFormLabel).join(', ')}</span>
+              <span>Available results: {choice.options.map(constructionFormLabel).join(', ')}</span>
             </div>
           ) : choicesNeedTableContext ? (
             <p className="mt-1 text-xs text-slate-600">
@@ -915,11 +915,14 @@ export const ConceptCatalog = ({
       ) : null}
       <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Find features</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-950">Search fields and concepts</h2>
+        <h2 className="mt-1 text-xl font-semibold text-slate-950">Add coded values or fields</h2>
         <p className="mt-1 text-sm text-slate-600">
           {resourceType
             ? `Search fields and concepts on the selected ${resourceType} graph node.`
-            : `Search ${rowRoot} fields first, or search concepts and fields across the authorized dataset.`}
+            : `Search fields and coded concepts across the authorized dataset, starting from ${rowRoot} rows.`}
+        </p>
+        <p className="mt-1 text-sm text-slate-700">
+          Choose a concept for a code and its matching value. Choose a field to add a raw FHIR path.
         </p>
         <p className="mt-1 text-xs text-slate-500">
           Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.
@@ -971,7 +974,7 @@ export const ConceptCatalog = ({
         </p>
       ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
         <p className="mx-4 mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950 sm:mx-5" role="status">
-          This stage retains source row identity. Selections here become source-projection columns and flow through the saved row-preserving steps.
+          You can add columns while keeping the current rows. Preview the result to see which rows have values.
         </p>
       ) : null}
       {disabled && disabledReason?.trim() ? (
@@ -991,42 +994,7 @@ export const ConceptCatalog = ({
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 lg:border-b-0 lg:border-r sm:p-5'}>
-          <section aria-labelledby="feature-catalog-fields-title">
-          <div className="flex items-center justify-between gap-3">
-              <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>
-              <span className="text-xs text-slate-500">{fieldItems.length} available</span>
-            </div>
-            <div className="mt-3 divide-y divide-slate-200">
-              {fieldItems.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
-                  No fields match this search.
-            </p>
-              ) : fieldItems.map((item) => (
-                <CatalogItemRow
-                  key={catalogItemKey(item)}
-                  item={item}
-                  rowRoot={rowRoot}
-                  currentResourceType={resourceType}
-                  hasRouteContext={routeContext !== undefined}
-                  checked={selected.has(catalogItemKey(item))}
-                  disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
-                  selectionDisabled={!canAddCatalogItem(item)}
-                  disabledReasonId={visibleDisabledReasonId}
-                  selectionDisabledReasonId={
-                    relatedSourceAvailability?.supported === false &&
-                    isRelatedFieldCatalogItem(item, rowRoot)
-                      ? relatedSourceAvailabilityId
-                      : undefined
-                  }
-                  onToggle={() => toggleSelection(item)}
-                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
-                  onInspectChoices={() => inspectChoices(item)}
-                />
-              ))}
-          </div>
-          </section>
-
-          <section className="mt-6 border-t border-slate-200 pt-5" aria-labelledby="feature-catalog-concepts-title">
+          <section aria-labelledby="feature-catalog-concepts-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
                 {query ? `Concepts for “${query}”` : resourceType ? `Concepts on ${resourceType}` : 'Concepts across the dataset'}
@@ -1086,6 +1054,41 @@ export const ConceptCatalog = ({
               Next
             </button>
           </div>
+          </section>
+
+          <section className="mt-6 border-t border-slate-200 pt-5" aria-labelledby="feature-catalog-fields-title">
+            <div className="flex items-center justify-between gap-3">
+              <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>
+              <span className="text-xs text-slate-500">{fieldItems.length} available</span>
+            </div>
+            <div className="mt-3 divide-y divide-slate-200">
+              {fieldItems.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+                  No fields match this search.
+                </p>
+              ) : fieldItems.map((item) => (
+                <CatalogItemRow
+                  key={catalogItemKey(item)}
+                  item={item}
+                  rowRoot={rowRoot}
+                  currentResourceType={resourceType}
+                  hasRouteContext={routeContext !== undefined}
+                  checked={selected.has(catalogItemKey(item))}
+                  disabled={disabled || selected.size >= MAX_SELECTIONS && !selected.has(catalogItemKey(item))}
+                  selectionDisabled={!canAddCatalogItem(item)}
+                  disabledReasonId={visibleDisabledReasonId}
+                  selectionDisabledReasonId={
+                    relatedSourceAvailability?.supported === false &&
+                    isRelatedFieldCatalogItem(item, rowRoot)
+                      ? relatedSourceAvailabilityId
+                      : undefined
+                  }
+                  onToggle={() => toggleSelection(item)}
+                  choiceDetails={choiceDetails.get(choiceDetailsKey(item))}
+                  onInspectChoices={() => inspectChoices(item)}
+                />
+              ))}
+            </div>
           </section>
         </div>
 

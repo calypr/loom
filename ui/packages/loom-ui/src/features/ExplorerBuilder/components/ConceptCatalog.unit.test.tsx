@@ -291,6 +291,10 @@ describe('ConceptCatalog', () => {
     expect(await screen.findByRole('searchbox', { name: 'Search features by field name, concept, or code' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
     expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
+    expect(
+      screen.getByRole('heading', { name: 'Concepts across the dataset' })
+        .compareDocumentPosition(screen.getByRole('heading', { name: 'Fields on Patient' })) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByRole('checkbox', { name: 'Select Observation id' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select Off-root concept' })).toBeEnabled();
 
@@ -412,7 +416,7 @@ describe('ConceptCatalog', () => {
     const resultRow = screen.getByRole('checkbox', { name: 'Select Hemoglobin A1c' }).closest('article');
     expect(resultRow).not.toBeNull();
     if (!resultRow) throw new Error('The concept result row is missing.');
-    expect(within(resultRow).getByText(/Server-supported forms: One value/)).toBeInTheDocument();
+    expect(within(resultRow).getByText(/Available results: One value/)).toBeInTheDocument();
     fireEvent.click(within(resultRow).getByText('Inspect meaning, evidence, and construction choices'));
     expect(within(resultRow).getByText('Completeness: partial.')).toBeInTheDocument();
     expect(within(resultRow).getByText(/Observed units: g\/dL · additional units exist/)).toBeInTheDocument();

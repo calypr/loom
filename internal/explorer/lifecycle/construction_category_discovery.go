@@ -135,7 +135,10 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", code, "complete compiler-owned pivot categories are unavailable for this stage and pair", err)
 	}
 	proof := scan.Proof
-	if !scan.Complete || scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues ||
+	if scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues {
+		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_LIMIT_EXCEEDED", "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.", nil)
+	}
+	if !scan.Complete ||
 		proof.Version != 2 || proof.Output != request.OutputID || proof.StageID != request.StageID ||
 		proof.ColumnID != request.CategoryColumnID || proof.ValueColumnID != request.ValueColumnID ||
 		proof.Column != category.Name || proof.MaxValues != compiler.MaxCategoryScanValues ||

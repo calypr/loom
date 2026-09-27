@@ -39,7 +39,7 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	r.bindVars[valueColumnBind] = pivot.ValueColumn
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil {
-		presence, err := r.renderGroupedPivotPresence(*pivot.CategoryPresence)
+		presence, err := r.renderProjectionPresence(*pivot.CategoryPresence)
 		if err != nil {
 			return nil, fmt.Errorf("category presence: %w", err)
 		}
@@ -260,7 +260,7 @@ func groupedPivotCategoryMatchPredicate(category ir.PhysicalGroupedPivotCategory
 	}
 }
 
-func (r *physicalPlanRenderer) renderGroupedPivotPresence(presence ir.PhysicalProjectionPresence) (string, error) {
+func (r *physicalPlanRenderer) renderProjectionPresence(presence ir.PhysicalProjectionPresence) (string, error) {
 	source, err := r.renderValue(presence.Source)
 	if err != nil {
 		return "", err
@@ -447,7 +447,7 @@ func (r *physicalPlanRenderer) renderTraceSourceInput(input string, projections 
 		if projection.Presence == nil {
 			continue
 		}
-		present, err := r.renderGroupedPivotPresence(*projection.Presence)
+		present, err := r.renderProjectionPresence(*projection.Presence)
 		if err != nil {
 			return "", fmt.Errorf("render trace source presence for %q: %w", projection.Name, err)
 		}

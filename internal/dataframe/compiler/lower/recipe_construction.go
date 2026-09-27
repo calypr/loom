@@ -1147,7 +1147,12 @@ func stagePassThroughProjections(outputs []recipe.StageColumn, input map[string]
 	projections := make([]ir.PhysicalProjection, 0, len(outputs))
 	for _, output := range outputs {
 		prior := input[output.ID]
-		projections = append(projections, ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}}})
+		projections = append(projections, ir.PhysicalProjection{
+			Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}},
+			Presence: &ir.PhysicalProjectionPresence{
+				Source: ir.PhysicalValue{Variable: row}, Paths: [][]string{{prior.Name}},
+			},
+		})
 	}
 	return projections
 }
@@ -1161,7 +1166,12 @@ func stagePassThroughAndDerivedProjections(outputs []recipe.StageColumn, input m
 			continue
 		}
 		prior := input[output.ID]
-		projections = append(projections, ir.PhysicalProjection{Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}}})
+		projections = append(projections, ir.PhysicalProjection{
+			Name: output.Name, Value: ir.PhysicalValue{Variable: row, Path: []string{prior.Name}},
+			Presence: &ir.PhysicalProjectionPresence{
+				Source: ir.PhysicalValue{Variable: row}, Paths: [][]string{{prior.Name}},
+			},
+		})
 	}
 	return projections
 }

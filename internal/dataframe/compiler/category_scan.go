@@ -186,16 +186,19 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	previewCoveringIndex := categoryScanPreviewCoveringIndexSpec(physical, schema, stageID, categoryColumnID, valueColumnID)
 	if stageID == recipe.ConstructionSourceProjectionID {
 		physical = narrowSourceCategoryScanProjection(physical, column.Name)
+	} else {
+		physical = withCategoryScanSourceFilterPushdown(physical)
 	}
 	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 	}
 	var rendered aql.RenderedPhysicalPlan
+	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
 	if physical.StageSequence != nil {
-		rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjection(physical, column.Name)
+		rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjectionPresenceMarker(physical, column.Name, presenceMarkerColumn)
 	} else {
-		rendered, err = aql.RenderPhysicalPlan(physical)
+		rendered, err = aql.RenderPhysicalPlanWithCategoryScanPresenceMarker(physical, column.Name, presenceMarkerColumn)
 	}
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan output plan: %w", err)
@@ -211,7 +214,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	bindVars[categoryLimitBind] = maxValues + 1
 	query := "LET __loom_category_rows = (\n" + rendered.Query + "\n)\n" +
 		"FOR __loom_category_row IN __loom_category_rows\n" +
-		"  LET __loom_category_present = HAS(__loom_category_row, @" + categoryColumnBind + ")\n" +
+		fmt.Sprintf("  LET __loom_category_present = __loom_category_row[%q]\n", presenceMarkerColumn) +
 		"  LET __loom_category_value = __loom_category_present ? __loom_category_row[@" + categoryColumnBind + "] : null\n" +
 		"  COLLECT __loom_category_group_present = __loom_category_present, __loom_category_group_value = __loom_category_value\n" +
 		"  SORT __loom_category_group_present ASC, TYPENAME(__loom_category_group_value) ASC, __loom_category_group_value ASC\n" +
@@ -247,6 +250,39 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, PreviewCoveringIndex: previewCoveringIndex,
 	}, nil
+}
+
+func categoryScanPresenceMarkerColumn(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn) string {
+	used := make(map[string]struct{}, len(schema))
+	for _, column := range schema {
+		used[column.Name] = struct{}{}
+	}
+	if sequence := plan.StageSequence; sequence != nil {
+		for _, column := range sequence.SourceColumns {
+			used[column.Name] = struct{}{}
+		}
+		for _, column := range sequence.FinalColumns {
+			used[column.Name] = struct{}{}
+		}
+		for _, stage := range sequence.Stages {
+			for _, column := range stage.InputColumns {
+				used[column.Name] = struct{}{}
+			}
+			for _, column := range stage.OutputColumns {
+				used[column.Name] = struct{}{}
+			}
+		}
+	}
+	const markerPrefix = "__loom_category_scan_presence"
+	for suffix := 0; ; suffix++ {
+		candidate := markerPrefix
+		if suffix > 0 {
+			candidate = fmt.Sprintf("%s_%d", markerPrefix, suffix)
+		}
+		if _, collides := used[candidate]; !collides {
+			return candidate
+		}
+	}
 }
 
 func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, categoryColumn string) ir.PhysicalPlan {
