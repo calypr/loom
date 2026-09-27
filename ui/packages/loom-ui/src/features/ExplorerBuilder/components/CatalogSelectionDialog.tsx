@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
@@ -215,7 +216,7 @@ export const CatalogSelectionDialog = ({
     if (selections.length === groups.length) onConfirm(selections);
   };
 
-  return (
+  return createPortal((
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
       <section
         aria-labelledby="catalog-selection-dialog-title"
@@ -594,5 +595,5 @@ export const CatalogSelectionDialog = ({
         </div>
       </section>
     </div>
-  );
+  ), document.body);
 };

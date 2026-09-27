@@ -60,6 +60,7 @@ const createDialog = (
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
   withSavedCondition = true,
   onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>,
+  insideClosedDetails = false,
 ) => {
   const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', [countOption], routeMetadata);
   const focusChoice = routeChoice('focus-choice', 'focus_Patient', [{
@@ -112,7 +113,7 @@ const createDialog = (
   };
   const onConfirm = vi.fn();
 
-  render(
+  const dialog = (
     <CatalogSelectionDialog
       groups={[group]}
       rowRoot="Patient"
@@ -126,13 +127,21 @@ const createDialog = (
       onInspectRouteCoverage={onInspectRouteCoverage}
       onCancel={vi.fn()}
       onConfirm={onConfirm}
-    />,
+    />
   );
+  render(insideClosedDetails ? <details><summary>Source setup</summary>{dialog}</details> : dialog);
 
   return { focusChoice, onConfirm };
 };
 
 describe('CatalogSelectionDialog', () => {
+  it('keeps the dialog visible when opened from a collapsed source disclosure', () => {
+    createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, true);
+    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(dialog.closest('details')).toBeNull();
+    expect(dialog.parentElement).toBe(document.body.querySelector('[role="presentation"]'));
+  });
+
   it('compares matching records on the visible direct routes without selecting one', async () => {
     const inspect = vi.fn(async (selection: CatalogChoiceIntent): Promise<RouteMatchCoverage> =>
       selection.constructionChoice.choiceId === 'saved-subject-choice'
