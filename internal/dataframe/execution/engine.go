@@ -72,6 +72,9 @@ type PreviewSummary struct {
 	// population facts from a bounded result.
 	Complete  bool
 	Truncated bool
+	// PartialValidation marks compiler-bounded construction previews that
+	// validate only the displayed deterministic sample of complete groups.
+	PartialValidation bool
 }
 
 type Config struct {
@@ -665,7 +668,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
 		stream.stream = e.previewQueryRows
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true, PartialValidation: query.PartialValidation}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()

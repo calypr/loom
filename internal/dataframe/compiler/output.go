@@ -76,6 +76,12 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 			}
 			out.BindVars[genericPhysicalExecutionLimitBind] = limit
 			out.StageSequence.PreviewLimitBindKey = genericPhysicalExecutionLimitBind
+			if out.StageSequence.PreviewSourceWindowByRootID && !insertConstructionPreviewRootIDWindow(&out) {
+				// Optimizer rewrites may make the source shape ineligible. The
+				// canonical source path remains correct; only skip this preview
+				// optimization when its root-scan insertion point is unavailable.
+				out.StageSequence.PreviewSourceWindowByRootID = false
+			}
 		}
 		if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
 			return ir.PhysicalPlan{}, fmt.Errorf("validate construction physical execution scope: %w", err)
@@ -190,6 +196,54 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution window: %w", err)
 	}
 	return out, nil
+}
+
+func insertConstructionPreviewRootIDWindow(plan *ir.PhysicalPlan) bool {
+	if plan == nil || plan.StageSequence == nil || plan.StageSequence.PreviewLimitBindKey == "" ||
+		len(plan.Operations) < 2 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return false
+	}
+	root := plan.Operations[0].RootScan.Variable
+	insertAt := -1
+	for index, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 {
+				return false
+			}
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalReturnOp:
+			if insertAt >= 0 || index != len(plan.Operations)-1 {
+				return false
+			}
+			insertAt = index
+		default:
+			return false
+		}
+	}
+	if insertAt <= 1 {
+		return false
+	}
+	window := []ir.PhysicalOperation{
+		{
+			Kind:   ir.PhysicalSortOp,
+			Source: ir.PhysicalSource{SemanticNode: plan.Source.SemanticNode, ResourceType: plan.Source.ResourceType, SemanticField: "id"},
+			// Loom's FHIR ingest stores the validated logical resource id both
+			// at the document root and in payload. The root field is indexed.
+			Sort: &ir.PhysicalSort{Keys: []ir.PhysicalValue{{Variable: root, Path: []string{"id"}}}},
+		},
+		{
+			Kind:   ir.PhysicalLimitOp,
+			Source: ir.PhysicalSource{SemanticNode: plan.Source.SemanticNode, ResourceType: plan.Source.ResourceType},
+			Limit:  &ir.PhysicalLimit{BindKey: plan.StageSequence.PreviewLimitBindKey},
+		},
+	}
+	operations := make([]ir.PhysicalOperation, 0, len(plan.Operations)+len(window))
+	operations = append(operations, plan.Operations[:insertAt]...)
+	operations = append(operations, window...)
+	operations = append(operations, plan.Operations[insertAt:]...)
+	plan.Operations = operations
+	return true
 }
 
 func physicalTableReshapeOutput(operations []ir.PhysicalOperation) (int, string) {

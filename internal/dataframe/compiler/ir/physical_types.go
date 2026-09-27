@@ -20,6 +20,10 @@ type PhysicalPlan struct {
 	// rows. The ordinary operations form the source projection; stage execution
 	// remains part of this physical plan and shares its bind scope and renderer.
 	StageSequence *PhysicalStageSequence
+	// PreviewSourceWindowByRootID permits the one typed root-id sort used to
+	// bound a proven unique-id Pivot sample after its stage sequence is stripped
+	// for rendering the underlying source query.
+	PreviewSourceWindowByRootID bool
 	// DeferredExpressionLets are construction-time shared family bindings.
 	// Lowering appends them after all source sets exist and before RETURN;
 	// completed plans must have this list empty.

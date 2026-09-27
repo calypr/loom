@@ -11,6 +11,11 @@ type PhysicalStageSequence struct {
 	FinalRowIdentity    string
 	FinalColumns        []PhysicalStageColumn
 	PreviewLimitBindKey string
+	// PreviewSourceWindowByRootID is set only when lowering proves the terminal
+	// Pivot group key is the direct scalar root FHIR id and the source has root
+	// row identity. Preview compilation may then bound the root scan before the
+	// source projection is materialized. Full execution ignores this hint.
+	PreviewSourceWindowByRootID bool
 	// OutputAuthResourcePathBindKey adds the exact bound authorization path to
 	// the private prefix result as hidden row metadata. It is populated only by
 	// the typed composite Combine boundary.

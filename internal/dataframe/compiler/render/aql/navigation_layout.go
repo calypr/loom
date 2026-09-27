@@ -70,7 +70,7 @@ func buildNavigationRenderLayout(plan ir.PhysicalPlan) (physicalNavigationRender
 		index++
 	}
 	if index < last && plan.Operations[index].Kind == ir.PhysicalSortOp {
-		if err := validateGenericNavigationRootSort(plan.Operations[index], layout.root.Variable, layout.unnests); err != nil {
+		if err := validateGenericNavigationRootSort(plan.Operations[index], layout.root.Variable, layout.unnests, plan.PreviewSourceWindowByRootID); err != nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("root execution window at operation %d: %w", index, err)
 		}
 		layout.rootWindow = append(layout.rootWindow, plan.Operations[index])
@@ -252,9 +252,16 @@ func validateGenericNavigationTraversal(plan ir.PhysicalPlan, traversal ir.Physi
 	return nil
 }
 
-func validateGenericNavigationRootSort(operation ir.PhysicalOperation, rootVariable string, unnests []ir.PhysicalUnnest) error {
+func validateGenericNavigationRootSort(operation ir.PhysicalOperation, rootVariable string, unnests []ir.PhysicalUnnest, previewSourceWindowByRootID bool) error {
 	if operation.Sort == nil {
 		return fmt.Errorf("SORT requires typed keys")
+	}
+	if previewSourceWindowByRootID {
+		want := []ir.PhysicalValue{{Variable: rootVariable, Path: []string{"id"}}}
+		if len(unnests) != 0 || len(operation.Sort.Keys) != 1 || !sameRenderPhysicalValue(operation.Sort.Keys[0], want[0]) {
+			return fmt.Errorf("preview source SORT must use the proven root resource id")
+		}
+		return nil
 	}
 	want := []ir.PhysicalValue{{Variable: rootVariable, Path: []string{"_key"}}}
 	if len(unnests) > 1 {

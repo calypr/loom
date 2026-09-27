@@ -27,9 +27,12 @@ type CompiledQuery struct {
 	// physical RETURN projections. PublicColumns is the transport-safe view;
 	// Columns remains the legacy execution metadata used by generic runtime
 	// callers and may include the stable physical row identity.
-	OutputSchema    []lower.CompiledOutputColumn
-	PublicColumns   []string
-	PivotFields     []string
-	Limit           int
-	PlanDiagnostics ir.CompilerPlanDiagnostics
+	OutputSchema  []lower.CompiledOutputColumn
+	PublicColumns []string
+	PivotFields   []string
+	Limit         int
+	// PartialValidation is true when a preview-only source window bounds
+	// validation to a deterministic subset of complete construction groups.
+	PartialValidation bool
+	PlanDiagnostics   ir.CompilerPlanDiagnostics
 }

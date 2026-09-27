@@ -59,7 +59,9 @@ export const ConstructionProposalPreview = ({
       </table>
     )}
     <p className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
-      {preview.sampled === false
+      {preview.partialValidation
+        ? 'Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.'
+        : preview.sampled === false
         ? `Showing all ${preview.rowCount} rows in this proposal.`
         : `Showing ${preview.rows?.length ?? 0} preview rows. Full-output coverage is unavailable before publication.`}
     </p>

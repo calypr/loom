@@ -157,11 +157,104 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	sequence.FinalStageID = priorStageID
 	sequence.FinalRowIdentity = priorIdentity
 	sequence.FinalColumns = toPhysicalStageColumns(priorSchema)
+	sequence.PreviewSourceWindowByRootID = constructionPreviewRootIDWindowEligible(plan, sequence, descriptors, rootResourceType)
 	plan.StageSequence = sequence
 	if err := plan.Validate(); err != nil {
 		return nil, nil, "", fmt.Errorf("validate typed construction sequence: %w", err)
 	}
 	return priorSchema, descriptors, priorIdentity, nil
+}
+
+func constructionPreviewRootIDWindowEligible(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, descriptors []CompiledStageDescriptor, rootResourceType string) bool {
+	if plan == nil || sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || len(descriptors) != 2 {
+		return false
+	}
+	stage := sequence.Stages[0]
+	if stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil || len(stage.GroupedPivot.GroupKeys) == 0 {
+		return false
+	}
+	if !constructionPreviewSourceCanWindowRootScan(plan, rootResourceType) {
+		return false
+	}
+
+	for _, key := range stage.GroupedPivot.GroupKeys {
+		column, ok := schemaColumn(descriptors[0].Columns, key.Column)
+		if !ok || column.Internal || column.Kind != string(expression.KindString) || column.Cardinality == string(expression.Many) {
+			continue
+		}
+		// The lowered source projection is the authority here. Catalog fieldRef
+		// values may give this same direct FHIR id an opaque semantic identity.
+		if constructionPreviewProjectionIsRootID(plan, column.Name, rootResourceType) {
+			return true
+		}
+	}
+	return false
+}
+
+func constructionPreviewSourceCanWindowRootScan(plan *ir.PhysicalPlan, rootResourceType string) bool {
+	if len(plan.Operations) < 2 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return false
+	}
+	if plan.Source.ResourceType != rootResourceType || plan.Operations[0].Source.ResourceType != rootResourceType {
+		return false
+	}
+	returns := 0
+	for index, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 {
+				return false
+			}
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalReturnOp:
+			returns++
+			if index != len(plan.Operations)-1 {
+				return false
+			}
+		default:
+			// Traversals, expansions, and other row-shaping operations must
+			// remain ahead of any source limit.
+			return false
+		}
+	}
+	return returns == 1
+}
+
+func constructionPreviewProjectionIsRootID(plan *ir.PhysicalPlan, columnName, rootResourceType string) bool {
+	found := false
+	root := plan.Operations[0].RootScan.Variable
+	for _, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name != columnName || found {
+				continue
+			}
+			if projection.Expression == nil {
+				if projection.Value.Variable != root || len(projection.Value.Path) != 2 || projection.Value.Path[0] != "payload" || projection.Value.Path[1] != "id" {
+					return false
+				}
+			} else {
+				physical := projection.Expression
+				if physical.Kind != ir.PhysicalExtractExpression || physical.Cardinality != ir.PhysicalScalarCardinality || physical.Extract == nil {
+					return false
+				}
+				extract := physical.Extract
+				if extract.ResourceType != rootResourceType || extract.Source.Variable != root ||
+					len(extract.Source.Path) != 1 || extract.Source.Path[0] != "payload" ||
+					len(extract.Selector.Steps) != 1 || extract.Selector.Filter != nil || len(extract.Fallbacks) != 0 || extract.Distinct {
+					return false
+				}
+				step := extract.Selector.Steps[0]
+				if step.Field != "id" || step.Iterate || step.Index != nil {
+					return false
+				}
+			}
+			found = true
+		}
+	}
+	return found
 }
 
 func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recipe.StageColumn, schema []CompiledOutputColumn, outputName string) ([]CompiledOutputColumn, error) {

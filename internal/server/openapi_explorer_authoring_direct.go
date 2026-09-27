@@ -432,6 +432,8 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 		return result, err
 	}
 	result.Sampled = !preview.Summary.Complete || preview.Summary.Truncated
+	partialValidation := preview.Summary.PartialValidation
+	result.PartialValidation = &partialValidation
 	return result, nil
 }
 

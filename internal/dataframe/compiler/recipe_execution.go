@@ -93,6 +93,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PublicColumns:      publicColumns,
 		PivotFields:        pivotFields,
 		Limit:              limit,
+		PartialValidation:  physical.StageSequence != nil && physical.StageSequence.PreviewSourceWindowByRootID && physical.StageSequence.PreviewLimitBindKey != "",
 		PlanDiagnostics:    physicalPlanDiagnostics(physical),
 	}, nil
 }

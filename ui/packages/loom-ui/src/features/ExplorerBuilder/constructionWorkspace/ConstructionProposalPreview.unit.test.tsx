@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExplorerBuilderPreviewResult } from '../../../types';
 import { ConstructionProposalPreview } from './ConstructionProposalPreview';
 
-const preview = (sampled: boolean): ExplorerBuilderPreviewResult => ({
+const preview = (sampled: boolean, partialValidation = false): ExplorerBuilderPreviewResult => ({
   apiVersion: 'loom.calypr.org/explorer-authoring/v2',
   kind: 'ExplorerBuilderPreview',
   receiptId: 'receipt-1',
@@ -15,6 +15,7 @@ const preview = (sampled: boolean): ExplorerBuilderPreviewResult => ({
   rows: [{ id: 'patient-1' }],
   rowCount: 1,
   sampled,
+  partialValidation,
   diagnostics: [],
 });
 
@@ -27,5 +28,10 @@ describe('ConstructionProposalPreview', () => {
   it('identifies a preview that exhausted the output', () => {
     render(<ConstructionProposalPreview preview={preview(false)} />);
     expect(screen.getByText('Showing all 1 rows in this proposal.')).toBeInTheDocument();
+  });
+
+  it('explains when only displayed construction groups were validated', () => {
+    render(<ConstructionProposalPreview preview={preview(false, true)} />);
+    expect(screen.getByText('Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.')).toBeInTheDocument();
   });
 });

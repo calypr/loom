@@ -17,6 +17,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
+	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
 	pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	source, err := RenderPhysicalPlan(sourcePlan)
 	if err != nil {

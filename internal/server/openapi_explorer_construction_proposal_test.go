@@ -102,7 +102,7 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err
 			}
-			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, Complete: true}, nil
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, Complete: true, PartialValidation: true}, nil
 		},
 	}
 	app := fiber.New()
@@ -162,6 +162,9 @@ func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testin
 	}
 	if proposal.Preview.ReceiptId != *proposal.ProposalId || proposal.Preview.OutputId != "patients" {
 		t.Fatalf("preview is not bound to the proposal receipt/output: %#v", proposal.Preview)
+	}
+	if proposal.Preview.PartialValidation == nil || !*proposal.Preview.PartialValidation {
+		t.Fatalf("proposal preview lost the compiler partial-validation marker: %#v", proposal.Preview)
 	}
 
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(

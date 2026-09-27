@@ -5167,6 +5167,9 @@ components:
         sampled:
           type: boolean
           description: True when the preview did not prove that it exhausted the full output.
+        partialValidation:
+          type: boolean
+          description: True when this preview checks only a deterministic sample of complete construction groups; full validation runs during publication.
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}

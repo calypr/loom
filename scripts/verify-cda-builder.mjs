@@ -1404,10 +1404,15 @@ try {
         proposalWaitError=String(error);
       }
       const proposalMs=Date.now()-proposalStarted;
-      const proposal=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,categoryStatus:editor?.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,editorTail:editor?.innerText.slice(-1200)};`);
-      await writeFile(join(evidenceDirectory,'specimen-pivot-proposal-performance.json'),JSON.stringify({pageURL,discoveryMs:elapsedMs,proposalMs,gateMs:5000,initial,subset,proposalWaitError,proposal,responses},null,2));
+      const proposal=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),previewNotice:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(-300),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,categoryStatus:editor?.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,editorTail:editor?.innerText.slice(-1200)};`);
+      const proposalResponse=responses.filter(response=>response.path.endsWith('/construction-proposals')).at(-1);
+      const proposalBody=proposalResponse?.status===200 ? JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:proposalResponse.requestId})).body) : undefined;
+      const previewResponse=responses.filter(response=>response.path.endsWith('/preview')).at(-1);
+      const previewBody=previewResponse?.status===200 ? JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:previewResponse.requestId})).body) : undefined;
+      await writeFile(join(evidenceDirectory,'specimen-pivot-proposal-performance.json'),JSON.stringify({pageURL,discoveryMs:elapsedMs,proposalMs,gateMs:5000,initial,subset,proposalWaitError,proposal,proposalResponse,proposalBody,previewBody,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,discoveryMs:elapsedMs,proposalMs,gateMs:5000,proposal,responses:responses.filter(response=>response.path.endsWith('/construction-proposals'))},null,2));
       assert.equal(proposal.status,'ready',proposal.panel);
+      if (proposalBody?.preview?.partialValidation) assert(proposal.previewNotice?.includes('Only displayed groups were checked'), 'Pivot partial-validation notice is missing from the DOM');
       assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
       assert(proposalMs<=5000,`Specimen pivot proposal took ${proposalMs} ms`);
     }
