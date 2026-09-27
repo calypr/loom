@@ -2315,8 +2315,17 @@ try {
       await waitForBrowser(browser.cdp,
         '[...document.querySelectorAll("button")].some(button=>button.textContent?.trim()==="Add 1 selected feature"&&!button.disabled)',
         30000);
+      const routeCoverageStartedAt = Date.now();
       await clickButtonText('Add 1 selected feature', 'Open Observation.id form choices');
       await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+      await waitForBrowser(browser.cdp,
+        '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].filter(input=>/Direct relationship: Patient to Observation via (Subject|Focus)$/i.test(input.getAttribute("aria-label")??"")).every(input=>/In 1 displayed row:|Retry match check/i.test(input.closest("label")?.parentElement?.querySelector("[data-testid^=\\"catalog-route-coverage-\\"]")?.innerText??""))',
+        30000);
+      results.routeCoverageMs = Date.now() - routeCoverageStartedAt;
+      results.routeCoverage = await browserEval(browser.cdp,
+        'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].filter(input=>/Direct relationship: Patient to Observation via (Subject|Focus)$/i.test(input.getAttribute("aria-label")??"")).map(input=>({route:input.getAttribute("aria-label"),text:input.closest("label")?.parentElement?.querySelector("[data-testid^=\\"catalog-route-coverage-\\"]")?.innerText??""}));');
+      assert(results.routeCoverage.length === 2 && results.routeCoverage.every(route=>/with no match, .*with one, .*with two or more/i.test(route.text) && /displayed row/i.test(route.text)), 'Both related routes must show zero, one, and many match counts for displayed rows');
+      assert(results.routeCoverageMs <= 5000, `Related route match counts took ${results.routeCoverageMs}ms`);
       const radios = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map((input,index)=>({index,label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??input.parentElement?.innerText??"",disabled:input.disabled}));');
       results.routeDialog = await browserEval(browser.cdp,

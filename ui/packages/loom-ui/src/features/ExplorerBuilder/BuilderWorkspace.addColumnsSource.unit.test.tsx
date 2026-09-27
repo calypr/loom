@@ -873,8 +873,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
     }), { target: { value: 'registered' } });
     fireEvent.click(within(selectionDialog).getByRole('button', { name: 'Add 1 column' }));
 
-    await waitFor(() => expect(mockLoomClient.proposeConstruction).toHaveBeenCalledOnce());
-    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls[0]?.[0];
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.some(
+      ([request]) => !request.requestId.startsWith('construction-route-coverage-'),
+    )).toBe(true));
+    const proposalArgs = mockLoomClient.proposeConstruction.mock.calls.find(
+      ([request]) => !request.requestId.startsWith('construction-route-coverage-'),
+    )?.[0];
     expect(proposalArgs).toEqual(expect.objectContaining({
       outputId: 'patients',
       candidateConstruction: {
@@ -1206,7 +1210,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect((outputName as HTMLInputElement).value).toBe('related_observation_status');
     expect((outputLabel as HTMLInputElement).value).toBe('Observation status');
     expect(screen.getByText('Current source: Observation.status')).toBeInTheDocument();
-    expect(screen.getByText('Current route: Patient → Observation via observations')).toBeInTheDocument();
+    expect(screen.getByText('Current route: Patient → Observation via Observations')).toBeInTheDocument();
 
     const editor = within(screen.getByTestId('related-source-step-editor'));
     const relatedSourceSelector = editor.getByRole('combobox', { name: 'Related source to inspect' });

@@ -21,7 +21,7 @@ import {
   type CatalogChoiceIntent,
   type CatalogItem,
 } from '../catalogItems';
-import { CatalogSelectionDialog, type CatalogInitialSelection } from './CatalogSelectionDialog';
+import { CatalogSelectionDialog, type CatalogInitialSelection, type RouteMatchCoverage } from './CatalogSelectionDialog';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
@@ -486,6 +486,7 @@ export const ConceptCatalog = ({
   pairedColumnSuggestion,
   onPairedColumnSuggestionHandled,
   onAddSelected,
+  onInspectRouteCoverage,
 }: {
   readonly project: string;
   readonly explorerId: string;
@@ -509,6 +510,7 @@ export const ConceptCatalog = ({
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
+  readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>;
 }) => {
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
@@ -986,11 +988,13 @@ export const ConceptCatalog = ({
             rowRoot,
             relatedSourceAvailability,
           )}
+          rowRoot={rowRoot}
           initialSelection={initialSelection}
           busy={adding || loadingMoreRoutes !== undefined}
           loadingMoreRoutes={loadingMoreRoutes}
           routeLoadError={routeLoadError}
           onLoadMoreRoutes={(group) => void loadMoreChoices(group)}
+          onInspectRouteCoverage={onInspectRouteCoverage}
           onCancel={() => setPendingSelection(undefined)}
           onConfirm={(selections) => void commitSelections(selections)}
         />

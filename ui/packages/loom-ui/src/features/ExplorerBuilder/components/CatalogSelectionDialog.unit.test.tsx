@@ -7,8 +7,8 @@ import type {
   ExplorerBuilderCandidate,
   FieldChoiceSource,
 } from '../../../types';
-import type { CatalogChoiceGroup, CatalogItem } from '../catalogItems';
-import { CatalogSelectionDialog } from './CatalogSelectionDialog';
+import type { CatalogChoiceGroup, CatalogChoiceIntent, CatalogItem } from '../catalogItems';
+import { CatalogSelectionDialog, type RouteMatchCoverage } from './CatalogSelectionDialog';
 
 type FieldChoice = ConstructionChoice & { readonly source: FieldChoiceSource };
 
@@ -59,6 +59,7 @@ const createDialog = (
   focusOperators: ConstructionChoice['options'][number]['contributorPredicateOperators'],
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
   withSavedCondition = true,
+  onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>,
 ) => {
   const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', [countOption], routeMetadata);
   const focusChoice = routeChoice('focus-choice', 'focus_Patient', [{
@@ -114,6 +115,7 @@ const createDialog = (
   render(
     <CatalogSelectionDialog
       groups={[group]}
+      rowRoot="Patient"
       initialSelection={{
         choiceId: subjectChoice.choiceId,
         form: 'COUNT',
@@ -121,6 +123,7 @@ const createDialog = (
       }}
       busy={false}
       onLoadMoreRoutes={vi.fn()}
+      onInspectRouteCoverage={onInspectRouteCoverage}
       onCancel={vi.fn()}
       onConfirm={onConfirm}
     />,
@@ -130,6 +133,23 @@ const createDialog = (
 };
 
 describe('CatalogSelectionDialog', () => {
+  it('compares matching records on the visible direct routes without selecting one', async () => {
+    const inspect = vi.fn(async (selection: CatalogChoiceIntent): Promise<RouteMatchCoverage> =>
+      selection.constructionChoice.choiceId === 'saved-subject-choice'
+        ? { zero: 0, one: 0, many: 1, displayedRows: 1, sampled: true }
+        : { zero: 0, one: 1, many: 0, displayedRows: 1, sampled: true });
+    createDialog(['EXISTS', 'EQUALS'], {}, false, inspect);
+
+    await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('catalog-route-coverage-saved-subject-choice')).toHaveTextContent(
+      '1 displayed row: 0 with no match, 0 with one, 1 with two or more. This is a sample; full-table coverage has not been measured.',
+    );
+    expect(screen.getByTestId('catalog-route-coverage-focus-choice')).toHaveTextContent(
+      '1 displayed row: 0 with no match, 1 with one, 0 with two or more. This is a sample; full-table coverage has not been measured.',
+    );
+    expect(inspect.mock.calls.every(([selection]) => selection.constructionChoice.form === 'COUNT')).toBe(true);
+  });
+
   it('keeps a saved COUNT equality condition when the new route supports it', async () => {
     const { focusChoice, onConfirm } = createDialog(['EXISTS', 'EQUALS']);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });

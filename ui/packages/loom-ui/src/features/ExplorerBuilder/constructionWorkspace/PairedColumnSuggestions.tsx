@@ -179,9 +179,9 @@ export const PairedColumnSuggestions = ({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-xs font-semibold text-indigo-950">Paired coded concepts</h3>
+          <h3 className="text-sm font-semibold text-indigo-950">Add paired value columns</h3>
           <p className="mt-0.5 text-[11px] text-slate-600">
-            Code and value pairings supported for this table. Counts are observed source occurrences, not coverage of current rows.
+            Add the value stored with a code to each matching row. Choose a column to review its route and how missing or repeated matches are handled.
           </p>
         </div>
         <button
@@ -191,7 +191,7 @@ export const PairedColumnSuggestions = ({
           onClick={onBrowseAll}
           className="shrink-0 rounded border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Browse all concepts
+          Find another coded value
         </button>
       </div>
 
@@ -213,19 +213,19 @@ export const PairedColumnSuggestions = ({
                 <button
                   type="button"
                   data-testid={`paired-column-suggestion-${suggestion.item.conceptId}`}
-                  aria-label={`Review paired column choices for ${label}`}
+                  aria-label={`Add ${label} as a column`}
                   disabled={disabled}
                   onClick={() => onSelectSuggestion(suggestion)}
                   className="flex max-w-full flex-col items-start rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-left hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="max-w-full truncate text-xs font-semibold text-slate-900">{label}</span>
                   <span className="text-[10px] text-slate-600">
-                    {suggestion.item.resourceType} · {suggestion.item.valueType || 'value type not provided'} · {suggestion.item.occurrences.toLocaleString()} observed source {suggestion.item.occurrences === 1 ? 'occurrence' : 'occurrences'}
+                    Value from {suggestion.item.resourceType} · {suggestion.item.valueType || 'type unknown'}
                   </span>
                   <span className="mt-0.5 text-[10px] font-medium text-indigo-800">
                     {suggestion.item.readiness.status === 'READY_WITH_WARNING'
                       ? `Warning: ${suggestion.item.readiness.message}`
-                      : 'Server-supported route · review result form'}
+                      : 'Add column →'}
                   </span>
                 </button>
               </li>

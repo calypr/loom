@@ -968,6 +968,182 @@ const BuilderWorkspaceContent = ({
   const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
+  const buildRelatedSourceCandidate = (selection: CatalogChoiceIntent) => {
+    if (!table) throw new Error('Choose a table before adding features.');
+    const relatedSource = selection.relatedSource;
+    if (!relatedSource) throw new Error('Choose a related field first.');
+    const capabilities = constructionLifecycle.capabilities;
+    if (capabilities.status !== 'ready') {
+      throw new Error('Loom is still checking whether this stage can add a related field.');
+    }
+    const { selectedStage, baseConstruction } = capabilities.response;
+    if (
+      editingConstructionStep ||
+      selectedStage.id !== constructionAppendStageFor(baseConstruction)
+    ) {
+      throw new Error(
+        'Close the saved-step editor before adding a related field; proposals must follow the current final step.',
+      );
+    }
+    const support = selectedStage.capabilities.find(
+      (capability) => capability.kind === 'RELATED_SOURCE',
+    );
+    if (!support?.supported || !selectedStage.rowIdentityColumn) {
+      throw new Error(
+        support?.reason || 'Loom has not proved that this stage retains a source row anchor.',
+      );
+    }
+    const { choice, candidate } = relatedSource;
+    const source = choice.source;
+    const form = selection.constructionChoice.form;
+    const contributorPredicate = selection.contributorPredicate;
+    const supportedForm = choice.options.find((option) =>
+      option.form === form &&
+      option.support === 'SUPPORTED',
+    );
+    if (
+      source.kind !== 'FIELD' ||
+      source.candidateId !== candidate.candidateId ||
+      source.nodeId !== candidate.nodeId ||
+      source.path !== candidate.fieldPath ||
+      source.cardinality !== candidate.cardinality ||
+      (source.resourceType === table.document.rootResourceType && choice.route.length === 0) ||
+      !supportedForm ||
+      (form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') ||
+      (source.cardinality !== 'optional_one' && source.cardinality !== 'required_one')
+    ) {
+      throw new Error('Loom did not provide a supported scalar related field choice for this stage.');
+    }
+
+    const stepId = opaqueId('step');
+    const outputColumnId = `related-${window.crypto.randomUUID()}`;
+    const baseName = (form === 'COUNT'
+      ? `related_${source.resourceType}_count`
+      : form === 'PRESENCE'
+        ? `has_related_${source.resourceType}`
+        : `related_${source.resourceType}_${source.path}`)
+      .replace(/[^A-Za-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^([0-9])/, '_$1');
+    const usedNames = new Set(selectedStage.columns.map((column) => column.name.toLowerCase()));
+    let outputName = baseName;
+    for (let suffix = 2; usedNames.has(outputName.toLowerCase()); suffix += 1) {
+      outputName = `${baseName}_${suffix}`;
+    }
+    const step = {
+      id: stepId,
+      inputs: [selectedStage.operation
+        ? { kind: 'STEP_OUTPUT' as const, stepId: selectedStage.id }
+        : { kind: 'SOURCE_PROJECTION' as const }],
+      operation: {
+        kind: 'RELATED_SOURCE',
+        relatedSource: {
+          anchorColumnId: selectedStage.rowIdentityColumn,
+          choiceId: choice.choiceId,
+          sourceOccurrenceId: source.nodeId,
+          source: {
+            kind: 'FIELD',
+            candidateId: source.candidateId,
+            nodeId: source.nodeId,
+            resourceType: source.resourceType,
+            path: source.path,
+            cardinality: source.cardinality,
+            logicalType: candidate.logicalType,
+          },
+          route: choice.route,
+          contributorRule: {
+            policy: 'ALL_MATCHES',
+            ...(contributorPredicate
+              ? { predicate: contributorPredicate }
+              : {}),
+          },
+          form,
+          outputColumnId,
+        },
+      },
+      outputs: [
+        ...selectedStage.columns.map((column) => ({
+          id: column.id,
+          name: column.name,
+          label: column.label,
+          ...(column.type === undefined ? {} : { type: column.type }),
+        })),
+        {
+          id: outputColumnId,
+          name: outputName,
+          label: relatedSourceOutputLabel(
+            source.resourceType, candidate.fieldPath, candidate.label, form, contributorPredicate,
+          ),
+          type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
+        },
+      ],
+    } satisfies ConstructionStep;
+    return {
+      intent: {
+        candidateConstruction: {
+          ...baseConstruction,
+          steps: [...baseConstruction.steps, step],
+        },
+        changedStepId: step.id,
+      },
+      outputColumnName: outputName,
+    };
+  };
+  const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
+    if (selection.constructionChoice.form !== 'COUNT' || !selection.relatedSource) {
+      throw new Error('Match coverage is unavailable for this result form.');
+    }
+    const candidate = buildRelatedSourceCandidate(selection);
+    const current = latestState.current;
+    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
+      throw new Error('The current table is still loading.');
+    }
+    const response = await loomClient.proposeConstruction({
+      project: projectId,
+      explorerId: current.explorerId,
+      ...(authResourcePath ? { authResourcePath } : {}),
+      snapshotToken: current.catalog.snapshotToken,
+      expectedDraftVersion: current.draftVersion,
+      expectedDraftDigest: current.draftDigest,
+      outputId: table.outputId,
+      ...candidate.intent,
+      limit: 25,
+      requestId: `construction-route-coverage-${window.crypto.randomUUID()}`,
+    }, signal);
+    const latest = latestState.current;
+    if (
+      signal.aborted ||
+      response.snapshotToken !== current.catalog.snapshotToken ||
+      response.draftVersion !== current.draftVersion ||
+      response.draftDigest !== current.draftDigest ||
+      response.outputId !== table.outputId ||
+      latest.draftVersion !== current.draftVersion ||
+      latest.draftDigest !== current.draftDigest ||
+      selectedTable(latest)?.outputId !== table.outputId
+    ) throw new Error('The table changed while Loom checked matching records.');
+    const preview = response.preview;
+    const rows = preview?.rows;
+    if (response.previewStatus !== 'READY' || !preview || !rows ||
+      !preview.columns.some((column) => column.column === candidate.outputColumnName)) {
+      throw new Error('Loom could not measure matching records in this preview.');
+    }
+    let zero = 0;
+    let one = 0;
+    let many = 0;
+    for (const row of rows) {
+      const count = row[candidate.outputColumnName];
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+        throw new Error('Loom did not return valid match counts for this route.');
+      }
+      if (count === 0) zero += 1;
+      else if (count === 1) one += 1;
+      else many += 1;
+    }
+    return {
+      zero, one, many, displayedRows: rows.length,
+      sampled: preview.sampled !== false || preview.partialValidation === true,
+    };
+  };
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => {
@@ -977,121 +1153,8 @@ const BuilderWorkspaceContent = ({
       if (relatedSelections.length !== 1 || selections.length !== 1) {
         throw new Error('Add one related field at a time so Loom can preview its exact route.');
       }
-      const relatedSource = relatedSelections[0]?.relatedSource;
-      if (!relatedSource) return;
-      const capabilities = constructionLifecycle.capabilities;
-      if (capabilities.status !== 'ready') {
-        throw new Error('Loom is still checking whether this stage can add a related field.');
-      }
-      const { selectedStage, baseConstruction } = capabilities.response;
-      if (
-        editingConstructionStep ||
-        selectedStage.id !== constructionAppendStageFor(baseConstruction)
-      ) {
-        throw new Error(
-          'Close the saved-step editor before adding a related field; proposals must follow the current final step.',
-        );
-      }
-      const support = selectedStage.capabilities.find(
-        (capability) => capability.kind === 'RELATED_SOURCE',
-      );
-      if (!support?.supported || !selectedStage.rowIdentityColumn) {
-        throw new Error(
-          support?.reason || 'Loom has not proved that this stage retains a source row anchor.',
-        );
-      }
-      const { choice, candidate } = relatedSource;
-      const source = choice.source;
-      const form = relatedSelections[0]!.constructionChoice.form;
-      const contributorPredicate = relatedSelections[0]?.contributorPredicate;
-      const supportedForm = choice.options.find((option) =>
-        option.form === form &&
-        option.support === 'SUPPORTED',
-      );
-      if (
-        source.kind !== 'FIELD' ||
-        source.candidateId !== candidate.candidateId ||
-        source.nodeId !== candidate.nodeId ||
-        source.path !== candidate.fieldPath ||
-        source.cardinality !== candidate.cardinality ||
-        (source.resourceType === table.document.rootResourceType && choice.route.length === 0) ||
-        !supportedForm ||
-        (form !== 'ALL' && form !== 'COUNT' && form !== 'PRESENCE') ||
-        (source.cardinality !== 'optional_one' && source.cardinality !== 'required_one')
-      ) {
-        throw new Error('Loom did not provide a supported scalar related field choice for this stage.');
-      }
-
-      const stepId = opaqueId('step');
-      const outputColumnId = `related-${window.crypto.randomUUID()}`;
-      const baseName = (form === 'COUNT'
-        ? `related_${source.resourceType}_count`
-        : form === 'PRESENCE'
-          ? `has_related_${source.resourceType}`
-          : `related_${source.resourceType}_${source.path}`)
-        .replace(/[^A-Za-z0-9_]/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^([0-9])/, '_$1');
-      const usedNames = new Set(selectedStage.columns.map((column) => column.name.toLowerCase()));
-      let outputName = baseName;
-      for (let suffix = 2; usedNames.has(outputName.toLowerCase()); suffix += 1) {
-        outputName = `${baseName}_${suffix}`;
-      }
-      const step = {
-        id: stepId,
-        inputs: [selectedStage.operation
-          ? { kind: 'STEP_OUTPUT' as const, stepId: selectedStage.id }
-          : { kind: 'SOURCE_PROJECTION' as const }],
-        operation: {
-          kind: 'RELATED_SOURCE',
-          relatedSource: {
-            anchorColumnId: selectedStage.rowIdentityColumn,
-            choiceId: choice.choiceId,
-            sourceOccurrenceId: source.nodeId,
-            source: {
-              kind: 'FIELD',
-              candidateId: source.candidateId,
-              nodeId: source.nodeId,
-              resourceType: source.resourceType,
-              path: source.path,
-              cardinality: source.cardinality,
-              logicalType: candidate.logicalType,
-            },
-            route: choice.route,
-            contributorRule: {
-              policy: 'ALL_MATCHES',
-              ...(contributorPredicate
-                ? { predicate: contributorPredicate }
-                : {}),
-            },
-            form,
-            outputColumnId,
-          },
-        },
-        outputs: [
-          ...selectedStage.columns.map((column) => ({
-            id: column.id,
-            name: column.name,
-            label: column.label,
-            ...(column.type === undefined ? {} : { type: column.type }),
-          })),
-          {
-            id: outputColumnId,
-            name: outputName,
-            label: relatedSourceOutputLabel(
-              source.resourceType, candidate.fieldPath, candidate.label, form, contributorPredicate,
-            ),
-            type: form === 'COUNT' ? 'integer' : form === 'PRESENCE' ? 'boolean' : candidate.logicalType,
-          },
-        ],
-      } satisfies ConstructionStep;
-      constructionLifecycle.onCandidateChange({
-        candidateConstruction: {
-          ...baseConstruction,
-          steps: [...baseConstruction.steps, step],
-        },
-        changedStepId: step.id,
-      });
+      const candidate = buildRelatedSourceCandidate(relatedSelections[0]!);
+      constructionLifecycle.onCandidateChange(candidate.intent);
       return 'preview-pending' as const;
     }
     const current = latestState.current;
@@ -2323,6 +2386,7 @@ const BuilderWorkspaceContent = ({
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
               onAddSelected={addSelectedFeatures}
+              onInspectRouteCoverage={inspectRelatedRouteCoverage}
             />}
           </div>
         ) : null}
@@ -2976,6 +3040,7 @@ const BuilderWorkspaceContent = ({
                     )
                   }
                   onAddSelected={addSelectedFeatures}
+                  onInspectRouteCoverage={inspectRelatedRouteCoverage}
                   />
                 ) : (
                   <RowRootPicker
@@ -3225,6 +3290,7 @@ const BuilderWorkspaceContent = ({
                       disabledReason={sourceSelectionDisabledReason}
                       disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                       onAddSelected={addSelectedFeatures}
+                      onInspectRouteCoverage={inspectRelatedRouteCoverage}
                     />
                   ) : (
                     <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

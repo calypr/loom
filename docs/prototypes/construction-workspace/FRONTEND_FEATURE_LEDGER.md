@@ -16,6 +16,18 @@ previously framed tables is necessary for a researcher task and the exact
 versioned input can execute through the shared path.
 
 Source state: `feature/construction-workspace` at `40607fe90`, 2026-09-25.
+The entries below are the original inventory. The CDA checks on 2026-09-27
+advance features 06, 06a, 07, and 07a only for the paths stated here:
+
+| Feature | DOM usability | CDA result correctness | Persistence | Measured preview |
+| --- | --- | --- | --- | --- |
+| 06, ready paired value column | The visible suggestion is an Add column button that opens route and result-form choices. | `days_to_collection` matched its raw CDA code/value component. | Apply, reload, and remove passed. | Preview API 121 ms. |
+| 06a, related route choice | Subject and Focus paths explain their relationship and show zero, one, and many matches for displayed Patient rows before selection. | Subject showed 38 matches and Focus 1 for the same Patient, matching the raw CDA oracle. | Route selection persisted through the related-column lifecycle. | Match counts rendered in 836 ms. |
+| 07 and 07a, related Observation forms | COUNT, ALL, and PRESENCE choices are operable in one Add columns flow. | A Patient with 38 matches and one with zero produced the expected count, list length, and presence values. | Apply, reload, saved-step edit, removal, and cleanup passed. | Related proposal preview rendered in 707 ms. |
+
+Browser evidence: `.artifacts/cda-builder/2026-09-27T22-02-23.178Z/` and
+`.artifacts/cda-builder/2026-09-27T22-07-07.266Z/`. These are bounded
+browser paths, not a full release acceptance or a published ClickHouse check.
 The CDA QA UI responded with HTTP 200 on 2026-09-25 at
 `http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=cda-current-builder-qa-20260925&mode=builder`.
 That Explorer is a fresh QA draft. Its builder API reports 159,047 Patient,

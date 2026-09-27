@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   ConstructionChoice,
   ConstructionChoiceForm,
 } from '../../../types';
 import {
   catalogItemDefaultForm,
+  catalogChoiceIntent,
   catalogItemKey,
   catalogItemLabel,
+  isRelatedFieldCatalogItem,
   type CatalogChoiceIntent,
   type CatalogChoiceGroup,
 } from '../catalogItems';
@@ -53,6 +55,17 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
     ).join(' · ');
 
 type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
+export type RouteMatchCoverage = {
+  readonly zero: number;
+  readonly one: number;
+  readonly many: number;
+  readonly displayedRows: number;
+  readonly sampled: boolean;
+};
+type RouteCoverageState =
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly coverage: RouteMatchCoverage }
+  | { readonly status: 'error'; readonly message: string };
 export type CatalogInitialSelection = {
   readonly choiceId: string;
   readonly form: ConstructionChoiceForm;
@@ -61,20 +74,24 @@ export type CatalogInitialSelection = {
 
 export const CatalogSelectionDialog = ({
   groups,
+  rowRoot,
   initialSelection,
   busy,
   loadingMoreRoutes,
   routeLoadError,
   onLoadMoreRoutes,
+  onInspectRouteCoverage,
   onCancel,
   onConfirm,
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
+  readonly rowRoot: string;
   readonly initialSelection?: CatalogInitialSelection;
   readonly busy: boolean;
   readonly loadingMoreRoutes?: string;
   readonly routeLoadError?: { readonly key: string; readonly message: string };
   readonly onLoadMoreRoutes: (group: CatalogChoiceGroup) => void;
+  readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>;
   readonly onCancel: () => void;
   readonly onConfirm: (selections: ReadonlyArray<CatalogChoiceIntent>) => void;
 }) => {
@@ -111,6 +128,43 @@ export const CatalogSelectionDialog = ({
   const [unresolvedConditions, setUnresolvedConditions] = useState<ReadonlyMap<string, ConditionDraft>>(
     () => new Map(),
   );
+  const [routeCoverage, setRouteCoverage] = useState<ReadonlyMap<string, RouteCoverageState>>(() => new Map());
+  const coverageRequests = useRef<Map<string, AbortController>>(new Map());
+  const inspectRouteCoverage = (group: CatalogChoiceGroup, choice: ConstructionChoice) => {
+    if (!onInspectRouteCoverage || group.item.kind !== 'FIELD' ||
+      !isRelatedFieldCatalogItem(group.item, rowRoot) ||
+      !choice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED') ||
+      coverageRequests.current.has(choice.choiceId)
+    ) return;
+    const selection = catalogChoiceIntent({ item: group.item, choice, form: 'COUNT', rowRoot });
+    if (!selection.relatedSource) return;
+    const controller = new AbortController();
+    coverageRequests.current.set(choice.choiceId, controller);
+    setRouteCoverage((current) => new Map(current).set(choice.choiceId, { status: 'loading' }));
+    void onInspectRouteCoverage(selection, controller.signal).then((coverage) => {
+      if (!controller.signal.aborted) {
+        setRouteCoverage((current) => new Map(current).set(choice.choiceId, { status: 'ready', coverage }));
+      }
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) {
+        setRouteCoverage((current) => new Map(current).set(choice.choiceId, {
+          status: 'error',
+          message: error instanceof Error ? error.message : 'Match counts are unavailable.',
+        }));
+      }
+    }).finally(() => {
+      if (coverageRequests.current.get(choice.choiceId) === controller) coverageRequests.current.delete(choice.choiceId);
+    });
+  };
+
+  useEffect(() => {
+    const automatic = groups.flatMap((group) => {
+      const shortest = Math.min(...group.choices.map((choice) => choice.route.length));
+      return group.choices.filter((choice) => choice.route.length === shortest).map((choice) => ({ group, choice }));
+    }).slice(0, 4);
+    automatic.forEach(({ group, choice }) => inspectRouteCoverage(group, choice));
+    return () => coverageRequests.current.forEach((controller) => controller.abort());
+  }, []);
 
   const complete = groups.every((group) => {
     const itemKey = catalogItemKey(group.item);
@@ -235,6 +289,13 @@ export const CatalogSelectionDialog = ({
                         : otherChoices;
                       const renderRouteChoice = ({ routeChoice }: typeof orderedChoices[number]) => {
                         const label = routeLabel(routeChoice.route);
+                        const matchCoverage = routeCoverage.get(routeChoice.choiceId);
+                        const canInspectMatches = Boolean(
+                          onInspectRouteCoverage &&
+                          item.kind === 'FIELD' &&
+                          isRelatedFieldCatalogItem(item, rowRoot) &&
+                          routeChoice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED'),
+                        );
                         return (
                           <div key={routeChoice.choiceId} className="rounded-md border border-slate-200 p-2.5">
                             <label className="flex cursor-pointer items-start gap-2">
@@ -288,6 +349,27 @@ export const CatalogSelectionDialog = ({
                             </label>
                             {routeChoice.route.length > 0 ? (
                               <p className="ml-6 mt-1 text-xs text-slate-600">{routeMeaning(routeChoice.route)}</p>
+                            ) : null}
+                            {canInspectMatches ? (
+                              <div data-testid={`catalog-route-coverage-${routeChoice.choiceId}`} className="ml-6 mt-2 text-xs text-slate-700">
+                                {matchCoverage?.status === 'ready' ? (
+                                  <p>
+                                    In {matchCoverage.coverage.displayedRows} displayed {matchCoverage.coverage.displayedRows === 1 ? 'row' : 'rows'}: {matchCoverage.coverage.zero} with no match, {matchCoverage.coverage.one} with one, {matchCoverage.coverage.many} with two or more.
+                                    {matchCoverage.coverage.sampled ? ' This is a sample; full-table coverage has not been measured.' : ''}
+                                  </p>
+                                ) : matchCoverage?.status === 'loading' ? (
+                                  <p role="status">Checking matching records in preview rows…</p>
+                                ) : (
+                                  <>
+                                    {matchCoverage?.status === 'error' ? <p role="status">{matchCoverage.message}</p> : null}
+                                    <button type="button" disabled={busy} onClick={() => inspectRouteCoverage(group, routeChoice)} className="font-medium text-blue-800 underline underline-offset-2 disabled:text-slate-400">
+                                      {matchCoverage?.status === 'error' ? 'Retry match check' : 'Check matching rows'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            ) : routeChoice.route.length > 0 ? (
+                              <p className="ml-6 mt-2 text-xs text-slate-500">Current-row coverage appears after preview.</p>
                             ) : null}
                             <details className="ml-6 mt-2 text-xs text-slate-600">
                               <summary className="cursor-pointer font-medium text-blue-700">Technical path details</summary>
