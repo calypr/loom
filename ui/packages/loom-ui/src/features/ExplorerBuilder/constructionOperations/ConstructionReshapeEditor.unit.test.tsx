@@ -714,6 +714,7 @@ describe('ConstructionReshapeEditor', () => {
       disabled: false,
       onCandidateChange,
       onEditStep: vi.fn(),
+      onDiscoverCategories: vi.fn(),
     };
     const view = render(<ConstructionReshapeEditor {...props} />);
 
@@ -771,6 +772,7 @@ describe('ConstructionReshapeEditor', () => {
         disabled={false}
         onCandidateChange={vi.fn()}
         onEditStep={vi.fn()}
+        onDiscoverCategories={vi.fn()}
       />,
     );
 

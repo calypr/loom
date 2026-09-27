@@ -1774,6 +1774,7 @@ const PivotEditor = (props: {
   );
   const displayedSelectedCategoryLabels = selectedCategoryLabels.slice(0, 3);
   const additionalSelectedCategoryCount = selectedCategoryLabels.length - displayedSelectedCategoryLabels.length;
+  const showSelectedCategoryLabels = selectedCategoryLabels.length <= 10;
   const shownCategoryIdentities = new Set([
     ...shownCategories.map((category) => scalarIdentity(category.key)),
     ...shownExistingNotListed.map((category) => scalarIdentity(category.key)),
@@ -1927,7 +1928,7 @@ const PivotEditor = (props: {
           {categoriesKnown ? (
             <>
               <p role="status" data-testid="construction-reshape-pivot-category-summary" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                Selected {selectedCategoryLabels.length} of {categoryCount} categories{selectedCategoryLabels.length > 0 ? `: ${displayedSelectedCategoryLabels.join(', ')}${additionalSelectedCategoryCount > 0 ? `, and ${additionalSelectedCategoryCount} more` : ''}` : ': none'}
+                Selected {selectedCategoryLabels.length} of {categoryCount} categories{selectedCategoryLabels.length === 0 ? ': none' : showSelectedCategoryLabels ? `: ${displayedSelectedCategoryLabels.join(', ')}${additionalSelectedCategoryCount > 0 ? `, and ${additionalSelectedCategoryCount} more` : ''}` : '. Review the list to change them.'}
               </p>
               {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Select every discovered category, or filter rows before pivoting.</p> : null}
               <p role="status" aria-live="polite" data-testid="construction-reshape-pivot-category-status" className="text-sm text-slate-600">
