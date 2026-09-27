@@ -1,6 +1,6 @@
 import type { ConstructionRouteStep } from '../../../types';
 
-export const relationshipLabel = (edge: ConstructionRouteStep): string => {
+export const relationshipLabel = (edge: Pick<ConstructionRouteStep, 'fromResourceType' | 'toResourceType' | 'relationship'>): string => {
   const relationship = [edge.fromResourceType, edge.toResourceType].reduce((name, resourceType) => {
     if (name.endsWith(`_${resourceType}`) || name.endsWith(`-${resourceType}`)) {
       return name.slice(0, -resourceType.length - 1);

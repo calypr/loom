@@ -22,7 +22,7 @@ advance the following exact paths:
 | Feature | DOM usability | CDA result correctness | Persistence | Measured preview |
 | --- | --- | --- | --- | --- |
 | 02, start a table | New table → BodyStructure creates a table with an automatic ID column and renders rows without entering a name, reselecting the table, or clicking Preview. | Visible BodyStructure IDs matched the raw CDA source. | Reload preserved rows; deleting the temporary table restored the prior table list. | 436 ms from choosing the row type to rendered rows; 232 ms after reload. |
-| 02a, repeated row shape only | Configure rows offered distinct FHIR repeated paths and a preserve-parent policy; its proposal showed the new row count before Apply. Changing to a different root remains unverified. | One Observation with three component codings became three rows with values matching the exact source order. ALL and FIRST forms both passed. | Apply, reload, edit back to source-record rows, remove the temporary column and filter, and full restoration passed. | Row-change proposal 411 ms; expanded preview 271 ms. |
+| 02a, define and change rows | Configure rows offered distinct FHIR repeated paths and a preserve-parent policy. Changing the root from Patient to Observation offered Subject and Focus repair choices in plain language, but applied without a candidate row preview. This root-change path is incomplete. | One Observation with three component codings became three source-order rows in the repeated-path check. In the root-change check, each displayed Observation ID matched its Patient ID through the raw CDA Subject reference. | Repeated-path Apply, reload, edit, removal, and restoration passed. Root change to Observation, reload, and restoration to Patient passed. | Repeated-row proposal 411 ms. Root-change previews after Apply took 275 ms and 217 ms. |
 | 06, ready paired value column | Coded value suggestions show a distinct Add column button. It opens route and result-form choices, then a rendered proposal before Apply. | `days_to_collection` matched its raw CDA code/value component. | Apply, reload, and remove passed. | Proposed rows rendered in 452 ms on the 2026-09-27 rerun. |
 | 06a, related route choice | Subject and Focus paths explain their relationship and show zero, one, and many matches for displayed Patient rows before selection. | Subject showed 38 matches and Focus 1 for the same Patient, matching the raw CDA oracle. | Route selection persisted through the related-column lifecycle. | Match counts rendered in 836 ms. |
 | 07 and 07a, related Observation forms | COUNT, ALL, and PRESENCE choices are operable in one Add columns flow. | A Patient with 38 matches and one with zero produced the expected count, list length, and presence values. | Apply, reload, saved-step edit, removal, and cleanup passed. | Related proposal preview rendered in 707 ms. |
@@ -52,6 +52,14 @@ The unnamed initial table and repeated-row lifecycles passed at
 `.artifacts/cda-builder/2026-09-27T22-48-32.535Z/`,
 `.artifacts/cda-builder/2026-09-27T22-44-34.752Z/`, and
 `.artifacts/cda-builder/2026-09-27T22-45-21.456Z/`.
+The separate row-root change check passed at
+`.artifacts/cda-builder/2026-09-27T23-16-11.183Z/`. It checked the
+Subject repair choice, 12 displayed Observation and Patient ID pairs against
+raw CDA records, reload, restoration, and temporary-table cleanup. The
+captured request sequence shows `row-change`, then `commands`, with no
+candidate preview between them. The root-change control applies before
+previewing the candidate rows, so
+feature 02a remains incomplete against the preview-before-Apply requirement.
 These paths do not constitute full release acceptance. The current CDA Builder
 is available at
 `http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=cda-builder-full-qa-1790440983382&mode=builder`.

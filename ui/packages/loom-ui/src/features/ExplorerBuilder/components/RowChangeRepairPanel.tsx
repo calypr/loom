@@ -4,6 +4,7 @@ import type {
   RowChangeUnresolvedReference,
 } from '../../../types';
 import { derivedOccurrences, type DraftTable } from '../authoring/model';
+import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 const alternativeLabel = (
   alternative: string,
@@ -16,13 +17,18 @@ const alternativeLabel = (
     if (!edge) return alternative;
     const from = catalog.nodes.find((node) => node.nodeId === edge.fromNodeId)?.resourceType;
     const to = catalog.nodes.find((node) => node.nodeId === edge.toNodeId)?.resourceType;
-    return `${edge.label}${from && to ? ` (${from} to ${to})` : ''}`;
+    const relationship = relationshipLabel({
+      fromResourceType: from ?? '',
+      toResourceType: to ?? '',
+      relationship: edge.label,
+    });
+    return `${relationship}${from && to ? ` between ${from} and ${to}` : ''}`;
   }
   const occurrence = derivedOccurrences(table, catalog).find(
     (candidate) => candidate.id === alternative,
   );
   if (!occurrence) return alternative;
-  return `${occurrence.resourceType}${occurrence.relationship ? ` via ${occurrence.relationship}` : ''}`;
+  return `${occurrence.resourceType}${occurrence.relationship ? ` through ${occurrence.relationship}` : ''}`;
 };
 
 export const RowChangeRepairPanel = ({
@@ -51,14 +57,18 @@ export const RowChangeRepairPanel = ({
       Choose how to preserve this table
     </h2>
     <p className="mt-1 text-xs text-amber-900">
-      More than one valid FHIR relationship can keep the existing features.
-      Choose the relationship you mean; Loom will assess the table again before
-      changing any rows.
+      Your existing columns can be kept through more than one relationship.
+      Choose how these records connect. Loom checks the choice before changing
+      the table.
     </p>
     <div className="mt-3 space-y-3">
       {unresolved.map((reference) => (
         <div key={`${reference.code}:${reference.id}`}>
-          <p className="text-xs font-medium">{reference.message}</p>
+          <p className="text-xs font-medium">
+            {reference.code === 'AMBIGUOUS_ROUTE_REBASE_EDGE'
+              ? 'Which relationship should keep this existing column connected to the new rows?'
+              : reference.message}
+          </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {(reference.alternatives ?? []).map((alternative) => {
               const label = alternativeLabel(
@@ -75,7 +85,7 @@ export const RowChangeRepairPanel = ({
                   disabled={disabled}
                   onClick={() => onChoose(reference, alternative)}
                 >
-                  Use {label}
+                  Match through {label}
                 </button>
               );
             })}
