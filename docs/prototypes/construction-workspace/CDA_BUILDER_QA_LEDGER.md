@@ -39,4 +39,4 @@ The browser driver is [`scripts/verify-cda-builder.mjs`](../../../scripts/verify
 | Open Viewer and export | Partial | Pass | Pass | Viewer shows the published rows. Current-version one-row ZIP works; export of an older publication returned 409. |
 | Use legacy table shape settings | Unrun | Unrun | Unrun | Needs an isolated root-only table without saved construction steps. |
 
-The next browser slices are starting-collection population, repeated-value expansion with actual row multiplication, related expansion, and pivot. Keep each slice bounded; do not republish the 742,505-row table for routine checks.
+The next browser slices are starting-collection population, empty-list policy, related expansion, and pivot. A bounded raw CDA Observation sample has `component[]` empty for `3ea21633-23e1-599b-91fc-b7666953ea26` and three items for `485e2567-b566-56f3-b5bd-5f025f37cd95`; use a metadata-backed component field and an ID filter before previewing those two cases. Keep slices bounded; do not republish the 742,505-row table for routine checks.
