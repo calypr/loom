@@ -2288,6 +2288,101 @@ try {
     await writeFile(join(evidenceDirectory,'source-column-reorder.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
     assert(Math.max(state.before.elapsedMs,state.reordered.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA reorder preview exceeded 5 seconds');
+  } else if (action === 'Verify direct scalar lifecycle') {
+    const copyName='Specimen copy';
+    const renamed='CDA resource type';
+    const state={clicks:[],controls:[],previews:{},errors:[]};
+    let created=false;
+    const click=async(label,selector)=>{
+      const control=await browserEval(browser.cdp, `const node=document.querySelector(${JSON.stringify(selector)});return node?{disabled:node.disabled,visible:node.offsetParent!==null,checked:node.checked??null}:null;`);
+      assert(control&&control.visible&&!control.disabled,`${label} is missing, hidden, or disabled: ${JSON.stringify(control)}`);
+      state.controls.push({label,...control});
+      await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(selector)}).click();return true;`);
+      state.clicks.push(label);
+    };
+    const selectCopy=async()=>{
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)})).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${copyName}`)})`,30000);
+    };
+    const reload=async()=>{await navigate(browser.cdp,pageURL);await selectCopy();};
+    const preview=async(stage)=>{
+      const started=Date.now();
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      const result=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+      state.previews[stage]={...result,elapsedMs:Date.now()-started};
+      assert(result.rows.length>0,`${stage} rendered no visible CDA rows`);
+      return result;
+    };
+    const openColumnControls=async()=>{
+      await click('Open column controls','[data-testid="construction-source-setup"] summary');
+      if(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label^="Display name for configured resourceType"]')?.offsetParent);`)){
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
+        state.clicks.push('Open advanced graph');
+      }
+    };
+    try{
+      assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}));`),'Temporary Specimen copy already exists');
+      await click('Duplicate Specimen','button[aria-label="Duplicate table"]');
+      created=true;
+      await selectCopy();
+      const original=await preview('before');
+      assert.deepEqual(original.headers,['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
+      await click('Open Add columns','button[aria-label^="Add columns:"]');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Specimen.resourceType"]'))`,30000);
+      await click('Select Specimen.resourceType','input[aria-label="Select Specimen.resourceType"]');
+      const add=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');return {disabled:button?.disabled,visible:button?.offsetParent!==null};`);
+      assert(add&&!add.disabled&&add.visible,'Add 1 selected feature is unavailable');
+      state.controls.push({label:'Add 1 selected feature',...add});
+      const priorCommands=responses.filter(response=>response.path.endsWith('/commands')).length;
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
+      state.clicks.push('Add 1 selected feature');
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('resourceType· string')`,30000);
+      assert.equal(responses.filter(response=>response.path.endsWith('/commands')).length,priorCommands+1,'Adding a direct field did not save once');
+      assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,'Adding a direct field failed');
+      const added=await preview('afterAdd');
+      assert.deepEqual(added.headers,[...original.headers,'RESOURCETYPE']);
+      const ids=added.rows.map(row=>row[0]);
+      const script=`print(JSON.stringify(db._query(${JSON.stringify(`FOR d IN Specimen FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN {id:d.id,resourceType:d.payload.resourceType}`)}).toArray()))`;
+      const output=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',script],{encoding:'utf8',maxBuffer:200000});
+      const source=JSON.parse(output.slice(output.indexOf('[')));
+      const byID=new Map(source.map(row=>[row.id,row.resourceType]));
+      state.sourceComparison=added.rows.map(row=>({id:row[0],displayed:row.at(-1),source:byID.get(row[0])}));
+      assert(state.sourceComparison.every(row=>row.displayed===row.source),'A visible resourceType differs from the CDA source');
+      await reload();
+      const persisted=await preview('afterReload');
+      assert.deepEqual(persisted,added,'Added field changed after reload');
+      await openColumnControls();
+      const label='input[aria-label="Display name for configured resourceType"]';
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(label)}))`,30000);
+      await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(label)});input.focus();input.select();return true;`);
+      await browser.cdp.send('Input.insertText',{text:renamed});
+      await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(label)}).blur();return true;`);
+      state.clicks.push('Rename resourceType');
+      await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(label)})?.value===${JSON.stringify(renamed)}`,30000);
+      await reload();
+      const edited=await preview('afterEdit');
+      assert.deepEqual(edited.headers,[...original.headers,renamed.toUpperCase()]);
+      assert.deepEqual(edited.rows,added.rows);
+      await openColumnControls();
+      await click('Remove added field',`button[aria-label="Remove ${renamed}"]`);
+      await reload();
+      const restored=await preview('afterRemove');
+      assert.deepEqual(restored,original,'Original CDA preview was not restored');
+      assert(Object.values(state.previews).every(item=>item.elapsedMs<=5000),'A direct-field preview exceeded five seconds');
+    }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
+    }finally{
+      if(created){
+        await navigate(browser.cdp,pageURL);
+        await selectCopy();
+        await click('Delete temporary copy','button[aria-label="Delete table"]');
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}))`,30000);
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'direct-scalar-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
+    }
   } else if (action === 'Verify sparse column removal') {
     const copyName='Specimen copy';
     assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'));`),'An existing Specimen copy would make cleanup ambiguous');
