@@ -492,8 +492,16 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(controlValue('Pivot category field')).toBe('kind-id');
     expect(controlValue('Pivot values field')).toBe('value-id');
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: baseline');
+    fireEvent.click(screen.getByText('Change selected categories'));
     expect(controlChecked('Keep saved category baseline')).toBe(true);
     expect(screen.queryByText('Not found in the latest category list')).not.toBeInTheDocument();
+    const advanced = screen.getByTestId('construction-reshape-pivot-advanced');
+    expect(advanced).not.toHaveAttribute('open');
+    expect(screen.getByTestId('construction-reshape-pivot-policy-summary')).toHaveTextContent(
+      'Duplicate values: be added together. Empty cells: stay empty. Unselected categories: be skipped and reported.',
+    );
+    fireEvent.click(screen.getByText('Advanced settings'));
     expect(controlValue('Pivot duplicate policy')).toBe('SUM');
     expect(controlValue('Pivot missing cell policy')).toBe('NULL');
     expect(controlValue('Pivot unlisted category policy')).toBe('EXCLUDE_WITH_EVIDENCE');
@@ -618,7 +626,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(intent?.candidateConstruction.steps[0]?.outputs).toContainEqual(expect.objectContaining({ id: 'result-id', label: 'Visit result' }));
   });
 
-  it('requests stage-scoped pivot discovery and does not make a candidate before categories return', () => {
+  it('requests stage-scoped pivot discovery and defaults every complete result', () => {
     const onCandidateChange = vi.fn();
     const onDiscoverCategories = vi.fn();
     const discoveryStage = {
@@ -657,12 +665,19 @@ describe('ConstructionReshapeEditor', () => {
           categoryColumnId: 'site-id',
           valueColumnId: 'age-id',
           status: 'complete',
-          categories: [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }],
+          categories: [
+            { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+            { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+          ],
         }}
       />,
     );
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
+    fireEvent.click(screen.getByText('Change selected categories'));
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(true);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Site A');
     fireEvent.click(screen.getByLabelText('Pivot group Sex'));
-    fireEvent.click(screen.getByLabelText('Include category Site A'));
     const intent = onCandidateChange.mock.lastCall?.[0];
     expect(intent).toBeDefined();
     if (!intent) throw new Error('Expected a candidate after category discovery');
@@ -673,9 +688,106 @@ describe('ConstructionReshapeEditor', () => {
         groupKeyIds: ['sex-id'],
         categoryColumnId: 'site-id',
         valueColumnId: 'age-id',
-        categories: [{ key: { kind: 'STRING', string: 'site-a' }, outputColumnId: expect.any(String) }],
+        categories: expect.arrayContaining([
+          { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: expect.any(String) },
+          { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: expect.any(String) },
+        ]),
       },
     });
+  });
+
+  it('keeps a manual category opt-out when discovery refreshes', () => {
+    const categories = [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ] satisfies NonNullable<Extract<ConstructionReshapeEditorProps['pivotDiscovery'], { status: 'complete' }>['categories']>;
+    const pivotStage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([pivotStage], pivotStage),
+      selectedColumns: ['sex-id'],
+      disabled: false,
+      onCandidateChange,
+      onEditStep: vi.fn(),
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    view.rerender(
+      <ConstructionReshapeEditor
+        {...props}
+        pivotDiscovery={{ stageId: pivotStage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id', status: 'complete', categories }}
+      />,
+    );
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
+    fireEvent.click(screen.getByText('Change selected categories'));
+    fireEvent.click(screen.getByLabelText('Include category Site B'));
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+
+    view.rerender(
+      <ConstructionReshapeEditor
+        {...props}
+        pivotDiscovery={{
+          stageId: pivotStage.id,
+          categoryColumnId: 'site-id',
+          valueColumnId: 'age-id',
+          status: 'complete',
+          categories: [...categories, { key: { kind: 'STRING', string: 'site-c' }, label: 'Site C' }],
+        }}
+      />,
+    );
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(false);
+    expect(controlChecked('Include category Site C')).toBe(false);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 3 categories: Site A');
+    expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it('applies the category default again when returning to a field pair without manual choices', () => {
+    const categories = [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ] satisfies NonNullable<Extract<ConstructionReshapeEditorProps['pivotDiscovery'], { status: 'complete' }>['categories']>;
+    const pivotStage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const view = render(
+      <ConstructionReshapeEditor
+        construction={{ version: 1, steps: [] }}
+        capabilities={capabilitiesFor([pivotStage], pivotStage)}
+        selectedColumns={['sex-id']}
+        pivotDiscovery={{ stageId: pivotStage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id', status: 'complete', categories }}
+        disabled={false}
+        onCandidateChange={vi.fn()}
+        onEditStep={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
+    fireEvent.click(screen.getByText('Change selected categories'));
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'age-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category Site B')).toBe(true);
   });
 
   it('searches Pivot category values and selects or clears only the shown categories in one update', () => {
@@ -711,33 +823,39 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
     fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent(
+      'Selected 3 of 3 categories: Site A, site B, Skeletal tissue',
+    );
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.click(screen.getByText('Change selected categories'));
     const search = screen.getByLabelText('Search category values');
     const status = screen.getByTestId('construction-reshape-pivot-category-status');
-    expect(status).toHaveTextContent('0 selected · Showing 3 of 3 category values');
+    expect(status).toHaveTextContent('3 selected · Showing 3 of 3 category values');
     expect(screen.getByText('If a row has an unselected category')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Skip it and report it' })).toBeDisabled();
-    expect(screen.getByText(/require every category present in the rows to be selected/)).toBeInTheDocument();
-    expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
+    expect(screen.getByText(/New pivots require every category present in the rows to be selected/)).toBeInTheDocument();
+    expect(screen.queryByText('Select every discovered category, or filter rows before pivoting.')).not.toBeInTheDocument();
 
-    fireEvent.change(search, { target: { value: 'sItE' } });
-    expect(screen.getByLabelText('Include category Site A')).toBeInTheDocument();
-    expect(screen.getByLabelText('Include category site B')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Include category Skeletal tissue')).not.toBeInTheDocument();
-    expect(status).toHaveTextContent('0 selected · Showing 2 of 3 category values');
+    fireEvent.change(search, { target: { value: 'SKELETAL' } });
+    expect(controlChecked('Include category Skeletal tissue')).toBe(true);
+    expect(status).toHaveTextContent('3 selected · Showing 1 of 3 category values');
     const callsBeforeSelect = onCandidateChange.mock.calls.length;
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear shown categories' }));
     expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSelect + 1);
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
-    expect(status).toHaveTextContent('2 selected · Showing 2 of 3 category values');
+    expect(status).toHaveTextContent('2 selected · Showing 1 of 3 category values');
     expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
 
     const callsBeforeSearch = onCandidateChange.mock.calls.length;
-    fireEvent.change(search, { target: { value: 'SKELETAL' } });
+    fireEvent.change(search, { target: { value: 'sItE' } });
     expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSearch);
-    expect(status).toHaveTextContent('2 selected · Showing 1 of 3 category values');
-    expect(controlChecked('Include category Skeletal tissue')).toBe(false);
+    expect(status).toHaveTextContent('2 selected · Showing 2 of 3 category values');
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category site B')).toBe(true);
 
+    fireEvent.change(search, { target: { value: 'SKELETAL' } });
+    expect(controlChecked('Include category Skeletal tissue')).toBe(false);
     const callsBeforeSecondSelect = onCandidateChange.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
     expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSecondSelect + 1);
@@ -748,17 +866,17 @@ describe('ConstructionReshapeEditor', () => {
     expect(selectedStep?.operation).toMatchObject({
       kind: 'PIVOT',
       pivot: {
-        categories: [
+        categories: expect.arrayContaining([
           { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: expect.any(String) },
           { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: expect.any(String) },
           { key: { kind: 'STRING', string: 'bone' }, outputColumnId: expect.any(String) },
-        ],
+        ]),
       },
     });
     if (selectedStep?.operation.kind !== 'PIVOT') throw new Error('Expected the selected step to be a Pivot');
     const selectedOutputIds = selectedStep.operation.pivot.categories.map((category) => category.outputColumnId);
     const selectedCategoryOutputs = selectedStep.outputs.filter((output) => selectedOutputIds.includes(output.id));
-    expect(selectedCategoryOutputs.map((output) => output.name)).toEqual(['site_2', 'site_3', 'site_4']);
+    expect(selectedCategoryOutputs.map((output) => output.name).sort()).toEqual(['site_2', 'site_3', 'site_4']);
     expect(new Set(selectedCategoryOutputs.map((output) => output.id)).size).toBe(3);
 
     const callsBeforeClear = onCandidateChange.mock.calls.length;
@@ -772,6 +890,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlChecked('Include category Site A')).toBe(true);
     expect(controlChecked('Include category site B')).toBe(true);
     expect(controlChecked('Include category Skeletal tissue')).toBe(false);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 3 categories: Site A, site B');
 
     const callsBeforeReselect = onCandidateChange.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
