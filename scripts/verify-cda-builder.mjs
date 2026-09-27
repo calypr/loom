@@ -152,7 +152,7 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'row-settings.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.includes('row-definition')||response.path.includes('population'))},null,2));
-  } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Verify bounded BodyStructure row definition' || action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group') {
+  } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Verify bounded BodyStructure row definition' || action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group' || action === 'Verify bounded BodyStructure expansion') {
     const resourceType = action.includes('BodyStructure') ? 'BodyStructure' : 'Patient';
     const tableName = `${resourceType} row choice QA ${Date.now()}`;
     const journeyStarted = Date.now();
@@ -170,13 +170,14 @@ try {
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
       const state = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText,options:[...document.querySelector('select[aria-label="New row shape"]').options].map(option=>({value:option.value,label:option.textContent})),tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
       state.timingsMs = { rowChoices: Date.now() - journeyStarted };
-      if (action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group') {
+      if (action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group' || action === 'Verify bounded BodyStructure expansion') {
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Cancel').click();return true;`);
         await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select BodyStructure.resourceType"]'))`, 30000);
         state.fields = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Select BodyStructure."]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled}));`);
-        if (action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group') {
-          await browserEval(browser.cdp, `document.querySelector('[aria-label="Add columns editor"] input[aria-label="Select BodyStructure.includedStructure[].structure.coding[].system"]').click();return true;`);
+        if (action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group' || action === 'Verify bounded BodyStructure expansion') {
+          const fieldPath = action === 'Verify bounded BodyStructure expansion' ? 'extension[].url' : 'includedStructure[].structure.coding[].system';
+          await browserEval(browser.cdp, `document.querySelector('[aria-label="Add columns editor"] input[aria-label=${JSON.stringify(`Select BodyStructure.${fieldPath}`)}]').click();return true;`);
           await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]')) || Boolean(document.querySelector('[data-testid="construction-proposal-panel"]'))`, 30000);
           state.fieldChoice = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,3000),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),text:input.closest('label')?.innerText,disabled:input.disabled})),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1500)};`);
@@ -256,6 +257,84 @@ try {
         state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
         state.errors = responses.filter(response => response.status >= 400);
         await writeFile(join(evidenceDirectory,'bounded-bodystructure-group.json'),JSON.stringify({pageURL,state,responses},null,2));
+      }
+      if (action === 'Verify bounded BodyStructure expansion') {
+        const oracleOutput = execFileSync('rtk', ['docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', 'var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.map(d=>({id:d.id,urls:(d.payload.extension||[]).map(e=>e.url)}))))'], { encoding: 'utf8', maxBuffer: 2_000_000 });
+        const rawRows = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
+        state.rawOracle = { sourceRecords: rawRows.length, expandedRows: rawRows.reduce((sum, row) => sum + row.urls.length, 0), multi: rawRows.filter(row => row.urls.length > 1) };
+        assert(state.rawOracle.multi.length > 0, 'No source record has multiple extension URLs');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')))`, 30000);
+        state.expandChoice = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value'));return {disabled:button?.disabled,text:button?.innerText};`);
+        if (!state.expandChoice.disabled) {
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')).click();return true;`);
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Repeated field"]'))`, 30000);
+          state.expandEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-expand"]')?.innerText.slice(0,1600),fields:[...document.querySelector('select[aria-label="Repeated field"]').options].map(option=>({label:option.textContent,value:option.value,selected:option.selected})),emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value};`);
+          assert.equal(state.expandEditor.fields.length, 1);
+          assert(state.expandEditor.fields[0].selected && state.expandEditor.fields[0].label.startsWith('extension[].url'));
+          const proposalStarted = Date.now();
+          await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include item position"]').click();const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='PRESERVE_PARENT';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+          state.timingsMs.expandProposal = Date.now() - proposalStarted;
+          state.expandProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,900),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1500),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+          await mkdir(evidenceDirectory,{recursive:true});
+          await writeFile(join(evidenceDirectory,'bounded-bodystructure-expansion.json'),JSON.stringify({pageURL,state,responses},null,2));
+          assert.equal(state.expandProposal.status, 'ready', state.expandProposal.text);
+          assert.equal(state.expandProposal.applyDisabled, false);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+          await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+          await navigate(browser.cdp,pageURL);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+          await browserEval(browser.cdp, `const select=[...document.querySelectorAll('select')].find(item=>[...item.options].some(option=>option.value==='500')&&[...item.options].some(option=>option.value==='25'));if(!select)throw new Error('Preview row limit missing');select.value='500';select.dispatchEvent(new Event('change',{bubbles:true}));[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='138'`, 30000);
+          state.savedExpansion = await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowCount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),renderedRows:rows.size,targetRows:[...rows.values()].filter(cells=>cells[0]===${JSON.stringify(state.rawOracle.multi[0].id)}),sample:[...rows.values()].slice(0,3)};`);
+          await writeFile(join(evidenceDirectory,'bounded-bodystructure-expansion.json'),JSON.stringify({pageURL,state,responses},null,2));
+          assert.equal(state.savedExpansion.rowCount, String(state.rawOracle.expandedRows + 1));
+          assert.equal(state.savedExpansion.targetRows.length, 3, 'The three raw CDA extension values did not become three rendered rows');
+          assert(state.savedExpansion.targetRows.every(row=>row.some(cell=>cell.includes('part-of-study'))), 'Expanded values differ from raw CDA');
+          assert.deepEqual(state.savedExpansion.targetRows.map(row=>row.at(-1)).sort(), ['0','1','2']);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-expand"]'))`, 30000);
+          state.savedEditor = await browserEval(browser.cdp, `return {field:document.querySelector('select[aria-label="Repeated field"]')?.selectedOptions[0]?.textContent,position:document.querySelector('input[aria-label="Include item position"]')?.checked,emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value};`);
+          assert(state.savedEditor.field?.startsWith('extension[].url') && state.savedEditor.position && state.savedEditor.emptyPolicy==='PRESERVE_PARENT');
+          await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Expanded item label"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA extension URL');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+          await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+          state.editProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700)};`);
+          assert.equal(state.editProposal.applyDisabled, false);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+          await navigate(browser.cdp,pageURL);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='CDA EXTENSION URL')`, 30000);
+          state.editedHeaders = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText);`);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
+          await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+          state.removeProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700)};`);
+          assert.equal(state.removeProposal.applyDisabled, false);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+          await navigate(browser.cdp,pageURL);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+          await browserEval(browser.cdp, `const select=[...document.querySelectorAll('select')].find(item=>[...item.options].some(option=>option.value==='500')&&[...item.options].some(option=>option.value==='25'));select.value='500';select.dispatchEvent(new Event('change',{bubbles:true}));[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='136'`, 30000);
+          state.restored = await browserEval(browser.cdp, `return {rowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),historyCount:document.querySelectorAll('[data-testid^="construction-history-step-"]').length};`);
+          assert.equal(state.restored.historyCount, 0);
+          assert(state.restored.headers.includes('EXTENSION[].URL') && !state.restored.headers.includes('CDA EXTENSION URL'));
+          state.interactions = { clicksAndSelections: 30, textEdits: 1, includesRowChoiceInspection: true, includesTemporaryTableCleanup: true };
+          state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
+          state.errors = responses.filter(response=>response.status>=400);
+          await writeFile(join(evidenceDirectory,'bounded-bodystructure-expansion.json'),JSON.stringify({pageURL,state,responses},null,2));
+        }
+        await mkdir(evidenceDirectory,{recursive:true});
+        await writeFile(join(evidenceDirectory,'bounded-bodystructure-expansion.json'),JSON.stringify({pageURL,state,responses},null,2));
       }
       if (action === 'Verify bounded BodyStructure row definition') {
         const oracleOutput = execFileSync('rtk', [
