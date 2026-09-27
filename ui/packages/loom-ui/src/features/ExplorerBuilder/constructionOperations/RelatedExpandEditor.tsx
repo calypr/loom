@@ -11,7 +11,7 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
-import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
+import { relationshipLabel, routeMeaning } from '../constructionWorkspace/routeDisplay';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };
@@ -290,9 +290,12 @@ export const RelatedExpandEditor = ({
   const otherRoutes = listedRoutes.filter((item) => item.route.length > shortestRoute && item.choiceId !== choice?.choiceId);
   const renderRoute = (item: RouteChoice) => (
     <label key={item.choiceId} className="flex gap-2 rounded border border-slate-200 bg-white p-2">
-      <input type="radio" name={`related-expand-route-${stepId}`} checked={choice?.choiceId === item.choiceId}
+      <input type="radio" name={`related-expand-route-${stepId}`} aria-label={routeLabel(item)} checked={choice?.choiceId === item.choiceId}
         disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
-      <span>{routeLabel(item)}</span>
+      <span className="grid gap-1">
+        <span>{routeLabel(item)}</span>
+        <span className="text-xs text-slate-600">{routeMeaning(item.route)}</span>
+      </span>
     </label>
   );
 

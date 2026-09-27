@@ -10,6 +10,7 @@ import {
   type CatalogChoiceIntent,
   type CatalogChoiceGroup,
 } from '../catalogItems';
+import { relationshipLabel, routeMeaning } from '../constructionWorkspace/routeDisplay';
 
 const optionLabel = (option: ConstructionChoice['options'][number]): string => {
   switch (option.form) {
@@ -35,32 +36,10 @@ const optionDescription = (option: ConstructionChoice['options'][number]): strin
   }
 };
 
-const readableRelationship = (
-  relationship: string,
-  endpointResourceTypes: ReadonlyArray<string>,
-): string => {
-  const withoutResourceSuffix = endpointResourceTypes.reduce((current, resourceType) => {
-    const suffix = `_${resourceType}`;
-    const hyphenSuffix = `-${resourceType}`;
-    if (current.endsWith(suffix)) return current.slice(0, -suffix.length);
-    if (current.endsWith(hyphenSuffix)) return current.slice(0, -hyphenSuffix.length);
-    return current;
-  }, relationship);
-  return (withoutResourceSuffix || relationship)
-  .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-  .replace(/[_-]+/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim()
-  .replace(/^./, (first) => first.toUpperCase());
-};
-
 const routeLabel = (route: ConstructionChoice['route']): string => {
   if (route.length === 0) return 'Same resource as each table row';
   const resources = [route[0]!.fromResourceType, ...route.map((step) => step.toResourceType)];
-  const relationships = route.map((step) => readableRelationship(
-    step.relationship,
-    [step.fromResourceType, step.toResourceType],
-  )).join(' then ');
+  const relationships = route.map(relationshipLabel).join(' then ');
   const path = resources.join(' to ');
   return route.length === 1
     ? `Direct relationship: ${path} via ${relationships}`
@@ -72,16 +51,6 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
   : route.map((step) =>
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
-
-const routeMeaning = (route: ConstructionChoice['route']): string => route.map((step) => {
-  const relationship = readableRelationship(
-    step.relationship,
-    [step.fromResourceType, step.toResourceType],
-  );
-  const linkedFrom = step.storageDirection === 'INBOUND' ? step.toResourceType : step.fromResourceType;
-  const linkedTo = step.storageDirection === 'INBOUND' ? step.fromResourceType : step.toResourceType;
-  return `${linkedFrom} links to ${linkedTo} through the ${relationship} relationship.`;
-}).join(' Then ');
 
 type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
 export type CatalogInitialSelection = {

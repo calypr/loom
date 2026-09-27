@@ -140,7 +140,7 @@ describe('CatalogSelectionDialog', () => {
     const equals = within(dialog).getByRole('radio', { name: 'Only records where Observation ID equals' });
     expect(count).toHaveProperty('checked', true);
     expect(equals).toHaveProperty('checked', true);
-    expect(within(dialog).getByText('Observation links to Patient through the Subject relationship.')).toBeInTheDocument();
+    expect(within(dialog).getByText('Find Observation records whose Subject points to this Patient.')).toBeInTheDocument();
     expect(within(dialog).getByText('Each row gets the number of matching records (0 if none), counting each record once.'))
       .toBeInTheDocument();
     const alternateRoute = within(dialog).getByRole('radio', {
@@ -148,6 +148,7 @@ describe('CatalogSelectionDialog', () => {
     });
     expect(alternateRoute.closest('details')).not.toHaveAttribute('open');
     fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
+    expect(within(dialog).getByText('Find Observation records whose Focus points to this Patient.')).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole('radio', {
       name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
@@ -205,7 +206,7 @@ describe('CatalogSelectionDialog', () => {
     });
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
 
-    expect(within(dialog).getByText('StudyVisit links to LabSample through the Tested By relationship.')).toBeInTheDocument();
+    expect(within(dialog).getByText('Find LabSample records pointed to by this StudyVisit through Tested By.')).toBeInTheDocument();
   });
 
   it('keeps all related records by default and places optional filters under Advanced', () => {

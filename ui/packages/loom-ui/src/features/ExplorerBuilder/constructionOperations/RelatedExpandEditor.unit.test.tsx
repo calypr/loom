@@ -162,6 +162,7 @@ describe('RelatedExpandEditor', () => {
     ));
     expect(screen.getByTestId('construction-related-expand-advanced')).not.toHaveAttribute('open');
     fireEvent.click(await screen.findByRole('radio', { name: 'Patient to Encounter through subject' }));
+    expect(screen.getByText('Find Encounter records whose Subject points to this Patient.')).toBeInTheDocument();
 
     const candidate = onCandidateChange.mock.lastCall?.[0];
     const step = candidate?.candidateConstruction.steps[0];
