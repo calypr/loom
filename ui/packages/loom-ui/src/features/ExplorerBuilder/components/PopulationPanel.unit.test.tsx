@@ -134,6 +134,16 @@ it('prioritizes a direct same-resource route and distinguishes meaningful altern
   const onAttach = vi.fn();
   render(<PopulationPanel table={table} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
 
+  await screen.findByRole('button', { name: 'Use selected resources' });
+  expect(screen.getByText('Use selected Specimen records')).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'Population connection' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Other connections' })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText(/automatic route-search limit/)).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
+  expect(onAttach).toHaveBeenNthCalledWith(1, 'direct-population-route');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Other connections' }));
   const options = await screen.findAllByRole('option');
   expect(options).toHaveLength(3);
   expect(options[0]).toHaveTextContent('Use selected Specimen records');
@@ -142,23 +152,75 @@ it('prioritizes a direct same-resource route and distinguishes meaningful altern
   expect(options[2]).toHaveTextContent('documentation');
   expect(options[1]?.textContent).toMatch(/outgoing|required/i);
   expect(options[2]?.textContent).toMatch(/incoming|available/i);
-  expect(screen.queryByText(/automatic route-search limit/)).toBeNull();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Population connection' }), { target: { value: '1' } });
+  expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
 
   fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
-  expect(onAttach).toHaveBeenCalledWith('direct-population-route');
+  expect(onAttach).toHaveBeenNthCalledWith(2, 'required-outbound-route');
 });
 
 it('keeps the route-search warning when no direct same-resource route is available', async () => {
+  const secondConnection: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'alternate-population-route',
+    route: [{ ...populationChoice.route[0]!, relationship: 'encounter' }],
+    presentation: { summary: 'Specimen through encounter', facts: [] },
+  };
   searchPopulationRoutes.mockImplementationOnce(async (request: { selectionRevisionId: string }) => ({
     snapshotToken: 'snapshot',
     outputId: table.outputId,
     selectionRevisionId: request.selectionRevisionId,
     complete: false,
     truncated: true,
-    choices: [populationChoice],
+    choices: [populationChoice, secondConnection],
   }));
   render(<PopulationPanel table={table} selection={selection} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
 
+  expect(await screen.findByRole('combobox', { name: 'Population connection' })).toBeTruthy();
+  expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
+});
+
+it('preserves an attached non-direct route when a direct route is also available', async () => {
+  const directChoice: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'direct-population-route',
+    route: [],
+    presentation: { summary: 'Use selected Specimen records', facts: [] },
+  };
+  const savedRouteChoice: PopulationRouteChoice = {
+    ...populationChoice,
+    routeChoiceId: 'saved-non-direct-route',
+    route: [{
+      ...populationChoice.route[0]!,
+      fromResourceType: 'Specimen',
+      toResourceType: 'Specimen',
+      relationship: 'relatedStructure',
+    }],
+  };
+  const savedTable: DraftTable = {
+    ...table,
+    document: {
+      ...table.document,
+      population: {
+        selectionRevisionId: 'selection-1',
+        route: [{ resourceType: 'Specimen', relationship: 'relatedStructure' }],
+      },
+    },
+  };
+  searchPopulationRoutes.mockImplementationOnce(async (request: { selectionRevisionId: string }) => ({
+    snapshotToken: 'snapshot',
+    outputId: table.outputId,
+    selectionRevisionId: request.selectionRevisionId,
+    complete: false,
+    truncated: true,
+    choices: [directChoice, savedRouteChoice],
+  }));
+  render(<PopulationPanel table={savedTable} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
+
+  const panel = screen.getByRole('region', { name: 'Starting collection' });
+  expect(panel).toHaveAttribute('data-attached-selection-revision-id', 'selection-1');
+  expect(screen.getByRole('button', { name: 'Use all authorized rows' })).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'Population connection' })).toBeNull();
   expect(await screen.findByText(/automatic route-search limit/)).toBeTruthy();
 });
 
