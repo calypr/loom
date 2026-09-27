@@ -2172,6 +2172,7 @@ try {
         assert.equal(results.originalFilteredPreview.rowCount, 1);
       }
 
+      const relatedClickStart = clicks.length;
       await clickDOM('button[aria-label^="Add columns:"]', 'Open related columns');
       const relatedSource = await chooseRelatedSource('Observation');
       clicks.push({ sequence: clicks.length + 1, label: 'Select Observation related source', source: relatedSource.source });
@@ -2191,8 +2192,11 @@ try {
       assert(directSubject, 'Direct Observation subject relationship is missing');
       await browserEval(browser.cdp,
         'document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")[' + directSubject.index + '].click();return true;');
+      clicks.push({ sequence: clicks.length + 1, label: 'Choose direct Patient to Observation Subject route', method: 'DOM radio click()' });
       await waitForBrowser(browser.cdp,
         '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
+      results.selectedRouteDialog = await browserEval(browser.cdp,
+        'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",checked:input.checked,disabled:input.disabled})),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
       const formRadios = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map((input,index)=>({index,label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",disabled:input.disabled}));');
       const countChoice = formRadios.find(radio => /count matching records/i.test((radio.label ?? '') + ' ' + radio.text));
@@ -2200,12 +2204,16 @@ try {
       await browserEval(browser.cdp,
         'const input=document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")[' + countChoice.index + '];' +
         'if(!input)throw new Error("Observation.id COUNT radio is missing");input.click();return true;');
+      clicks.push({ sequence: clicks.length + 1, label: 'Choose COUNT result form', method: 'DOM radio click()' });
+      results.resultFormDialog = await browserEval(browser.cdp,
+        'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",checked:input.checked,disabled:input.disabled})),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
       const addChoiceButton = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[role=\\"dialog\\"] button")].map((button,index)=>({index,text:button.textContent.trim(),disabled:button.disabled})).find(button=>/^Add 1 (column|selected feature)$/i.test(button.text)&&!button.disabled)??null;');
       assert(addChoiceButton, 'Add Observation.id COUNT button is missing');
       const relatedPreviewStartedAt = Date.now();
       await browserEval(browser.cdp,
         'const button=document.querySelectorAll("[role=\\"dialog\\"] button")[' + addChoiceButton.index + '];button.click();return true;');
+      clicks.push({ sequence: clicks.length + 1, label: 'Preview related COUNT proposal', method: 'DOM button click()' });
       await waitForBrowser(browser.cdp,
         'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"',
         180000);
@@ -2230,6 +2238,7 @@ try {
       assert(results.relatedOutput, 'Related COUNT output is missing from the proposal step');
       results.relatedProposal = proposal;
       await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply Observation.id COUNT');
+      results.relatedAddClickTrace = clicks.slice(relatedClickStart);
       await navigate(browser.cdp, pageURL);
       await selectTemporaryTable();
       await waitForBrowser(browser.cdp,

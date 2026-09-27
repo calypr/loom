@@ -25,13 +25,13 @@ const optionLabel = (option: ConstructionChoice['options'][number]): string => {
 
 const optionDescription = (option: ConstructionChoice['options'][number]): string => {
   switch (option.form) {
-    case 'VALUE': return 'Place the value from the selected record in the table.';
-    case 'FIRST': return 'When there are several values, use the first one.';
-    case 'ALL': return 'Keep every value found for the selected field.';
-    case 'DISTINCT': return 'Keep one copy of each value.';
-    case 'COUNT': return 'Count matching records, with each record counted once.';
-    case 'PRESENCE': return 'Show whether at least one matching record exists.';
-    case 'OWNER_RECORDS': return 'Keep matching records together for this row.';
+    case 'VALUE': return 'Each row gets the matching field value.';
+    case 'FIRST': return 'Each row gets the first matching value.';
+    case 'ALL': return 'Each row gets the matching values as a list; no matches produce an empty list.';
+    case 'DISTINCT': return 'Each row gets one copy of each matching value.';
+    case 'COUNT': return 'Each row gets the number of matching records (0 if none), counting each record once.';
+    case 'PRESENCE': return 'Each row shows whether a match exists (false if none).';
+    case 'OWNER_RECORDS': return 'Each row keeps its matching records together.';
   }
 };
 
@@ -72,6 +72,16 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
   : route.map((step) =>
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
+
+const routeMeaning = (route: ConstructionChoice['route']): string => route.map((step) => {
+  const relationship = readableRelationship(
+    step.relationship,
+    [step.fromResourceType, step.toResourceType],
+  );
+  const linkedFrom = step.storageDirection === 'INBOUND' ? step.toResourceType : step.fromResourceType;
+  const linkedTo = step.storageDirection === 'INBOUND' ? step.fromResourceType : step.toResourceType;
+  return `${linkedFrom} links to ${linkedTo} through the ${relationship} relationship.`;
+}).join(' Then ');
 
 type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
 export type CatalogInitialSelection = {
@@ -302,6 +312,9 @@ export const CatalogSelectionDialog = ({
                               />
                               <span className="min-w-0 flex-1 text-sm font-semibold text-slate-900">{label}</span>
                             </label>
+                            {routeChoice.route.length > 0 ? (
+                              <p className="ml-6 mt-1 text-xs text-slate-600">{routeMeaning(routeChoice.route)}</p>
+                            ) : null}
                             <details className="ml-6 mt-2 text-xs text-slate-600">
                               <summary className="cursor-pointer font-medium text-blue-700">Technical path details</summary>
                               <p className="mt-2 font-medium">{routeChoice.presentation.summary}</p>
