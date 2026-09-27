@@ -15,6 +15,7 @@ if (action === 'Verify related source chooser' || action === 'Inspect selected P
 const responses = [];
 const requests = [];
 const proposalRequests = [];
+const requestStartedAt = new Map();
 const chooseRelatedSource = async (resourceType) => {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
   const sources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),key:button.getAttribute('data-source-key'),kind:button.getAttribute('data-source-kind'),selected:button.getAttribute('aria-pressed')==='true',visible:button.offsetParent!==null}));`);
@@ -25,12 +26,13 @@ const chooseRelatedSource = async (resourceType) => {
   return { source, sources };
 };
 browser.cdp.on('Network.requestWillBeSent', (event) => {
+  if (event.request.url.includes('/authoring/v2/')) requestStartedAt.set(event.requestId,Date.now());
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
 browser.cdp.on('Network.responseReceived', (event) => {
   if (event.response.url.includes('/authoring/v2/')) {
-    responses.push({ requestId: event.requestId, path: new URL(event.response.url).pathname, status: event.response.status });
+    responses.push({ requestId: event.requestId, path: new URL(event.response.url).pathname, status: event.response.status, elapsedMs:Date.now()-(requestStartedAt.get(event.requestId)??Date.now()) });
   }
 });
 
@@ -613,7 +615,7 @@ try {
     const expected=rawRows[0].component.find(component=>component.code?.coding?.some(code=>code.code==='primary_disease_type'))?.valueString;
     assert(expected,'The bounded CDA Observation has no primary_disease_type value');
     const tableName=`Observation concept QA ${Date.now()}`;
-    const state={tableName,observationID,expected,rawOracle:rawRows[0]};
+    const state={tableName,observationID,expected,rawOracle:rawRows[0],timingsMs:{}};
     let created=false;
     try {
       state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-concept-${Date.now()}',source:{kind:'resources',resources:{refs:[{project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'Observation',id:${JSON.stringify(observationID)}}]}}})});return {status:response.status,body:await response.json()};`);
@@ -638,16 +640,20 @@ try {
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="primary_disease_type: Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
         state.added=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),remove:[...document.querySelectorAll('button[aria-label^="Remove "]')].map(button=>button.getAttribute('aria-label')).filter(label=>label.includes('primary_disease')),body:document.body.innerText.slice(0,1000)};`);
+        let previewStarted=Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+        state.timingsMs.initialPreview=Date.now()-previewStarted;
         state.preview=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert(state.preview.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
         await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        previewStarted=Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected)})`, 30000);
+        state.timingsMs.savedPreview=Date.now()-previewStarted;
         state.saved=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert(state.saved.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
@@ -655,33 +661,39 @@ try {
         state.editEntry=await browserEval(browser.cdp, `return {mode:document.querySelector('[aria-label="Add columns editor"]')?'catalog':'graph',input:document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')?.offsetParent!==null,buttons:[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].filter(button=>button.offsetParent!==null).map(button=>button.innerText.slice(0,80)).filter(Boolean).slice(0,14)};`);
         if (!state.editEntry.input) await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured primary_disease_type"]:not(:disabled)'))`, 30000);
-        await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Display name for configured primary_disease_type"]');input.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA primary disease');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
-        await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')?.value==='CDA primary disease'`, 30000);
         const commandsBeforeLabelEdit=responses.filter(response=>response.path.endsWith('/commands')).length;
+        await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Display name for configured primary_disease_type"]');input.focus();input.select();return true;`);
+        await browser.cdp.send('Input.insertText',{text:'CDA primary disease'});
+        await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')?.value==='CDA primary disease'`, 30000);
         await browserEval(browser.cdp, `document.querySelector('input[aria-label="Display name for configured primary_disease_type"]').blur();return true;`);
         const labelEditDeadline=Date.now()+30000;
         while (responses.filter(response=>response.path.endsWith('/commands')).length===commandsBeforeLabelEdit && Date.now()<labelEditDeadline) await new Promise(resolve=>setTimeout(resolve,100));
         assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,'Concept label edit failed');
+        assert(requests.slice(commandsBeforeLabelEdit).some(request=>request.postData?.includes('CDA primary disease')),'Concept label edit emitted no matching command');
         await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        previewStarted=Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='CDA PRIMARY DISEASE')`, 30000);
+        state.timingsMs.editedPreview=Date.now()-previewStarted;
         state.edited=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert(state.edited.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
-        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
-        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Remove primary_disease_type"]:not(:disabled)'))`, 30000);
-        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Remove primary_disease_type"]').click();return true;`);
+        await browserEval(browser.cdp, `const remove=document.querySelector('button[aria-label="Remove CDA primary disease"]');if(!remove||remove.offsetParent===null)[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Remove CDA primary disease"]:not(:disabled)'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Remove CDA primary disease"]').click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('1 configured')`, 30000);
         await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        previewStarted=Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1'`, 30000);
+        state.timingsMs.restoredPreview=Date.now()-previewStarted;
         state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert.deepEqual(state.restored.headers,['OBSERVATION ID']);
         assert.deepEqual(state.restored.rows,[[observationID]]);
@@ -689,13 +701,21 @@ try {
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,'bounded-observation-concept-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+      if(action==='Verify bounded Observation concept') assert(Object.values(state.timingsMs).every(elapsed=>elapsed<=5000),`CDA concept preview exceeded 5 seconds: ${JSON.stringify(state.timingsMs)}`);
     } catch (error) {
       state.failure={message:error instanceof Error?error.message:String(error),dom:await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,2500),inputs:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,focused:document.activeElement===input})),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`)};
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,'bounded-observation-concept-failure.json'),JSON.stringify({pageURL,state,responses},null,2));
       throw error;
     } finally {
-      if (created) await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))?.click();[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Delete')?.click();return true;`);
+      if (created) {
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+      }
     }
   } else if (action === 'Inspect bounded pivot' || action === 'Verify bounded pivot') {
     const oracleOutput=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string','var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.filter(d=>["abdomen","colon"].some(v=>(d.payload.includedStructure||[]).some(x=>(x.structure?.coding||[]).some(c=>c.code===v)))).map(d=>({id:d.id,code:d.payload.includedStructure[0].structure.coding[0].code,resourceType:d.payload.resourceType}))))'],{encoding:'utf8',maxBuffer:200000});
@@ -2036,9 +2056,136 @@ try {
     await mkdir(evidenceDirectory, { recursive: true });
     await writeFile(join(evidenceDirectory, 'columns.json'), JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses},null,2));
+  } else if (action === 'Inspect source column controls') {
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`,30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph')?.click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Move Specimen ID to end"]'))`,30000);
+    const state=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,5000),controls:[...document.querySelectorAll('[data-testid="construction-source-setup"] button,[data-testid="construction-source-setup"] input')].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute('aria-label'),text:element.innerText?.slice(0,70),disabled:element.disabled,value:element.value})).filter(element=>element.label||element.text)};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'source-column-controls.json'),JSON.stringify({pageURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state},null,2));
+  } else if (action === 'Verify source column reorder') {
+    const original=['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE'];
+    const headers=()=>browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText);`);
+    const preview=async()=>{
+      const started=Date.now();
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      return {elapsedMs:Date.now()-started,headers:await headers()};
+    };
+    const move=async(label)=>{
+      await browserEval(browser.cdp, `if(!document.querySelector('[data-testid="construction-source-setup"]').open)document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph')?.click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`button[aria-label="Move ${label} to end"]:not(:disabled)`)}))`,30000);
+      const before=responses.filter(response=>response.path.endsWith('/commands')).length;
+      await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(`button[aria-label="Move ${label} to end"]`)}).click();return true;`);
+      const deadline=Date.now()+30000;
+      while(responses.filter(response=>response.path.endsWith('/commands')).length===before&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));
+      assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,`Move ${label} did not save`);
+    };
+    const state={before:await preview()};
+    assert.deepEqual(state.before.headers,original);
+    await move('Specimen ID');
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
+    state.reordered=await preview();
+    assert.deepEqual(state.reordered.headers,[original[1],original[2],original[0]]);
+    await move('subject.reference');
+    await move('collection.bodySite.reference.reference');
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
+    state.restored=await preview();
+    assert.deepEqual(state.restored.headers,original);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'source-column-reorder.json'),JSON.stringify({pageURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
+    assert(Math.max(state.before.elapsedMs,state.reordered.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA reorder preview exceeded 5 seconds');
+  } else if (action === 'Verify sparse column removal') {
+    const copyName='Specimen copy';
+    assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'));`),'An existing Specimen copy would make cleanup ambiguous');
+    const state={};
+    let created=false;
+    const preview=async()=>{
+      const started=Date.now();
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      return {elapsedMs:Date.now()-started,headers:await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText);`),rows:await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,3).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText));`)};
+    };
+    try {
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label="Duplicate table"]').click();return true;`);
+      created=true;
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Specimen copy')).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen copy')`,30000);
+      state.before=await preview();
+      assert.deepEqual(state.before.headers,['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Remove collection.bodySite.reference.reference"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label="Remove collection.bodySite.reference.reference"]').click();return true;`);
+      await navigate(browser.cdp,pageURL);
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Specimen copy')).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen copy')`,30000);
+      state.removed=await preview();
+      assert.deepEqual(state.removed.headers,state.before.headers.slice(0,2));
+      assert.deepEqual(state.removed.rows,state.before.rows.map(row=>row.slice(0,2)));
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Undo').click();return true;`);
+      await navigate(browser.cdp,pageURL);
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Specimen copy')).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen copy')`,30000);
+      state.restored=await preview();
+      assert.deepEqual(state.restored.headers,state.before.headers);
+      assert.deepEqual(state.restored.rows,state.before.rows);
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'sparse-column-removal.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
+      assert(Math.max(state.before.elapsedMs,state.removed.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA column preview exceeded 5 seconds');
+    } finally {
+      if(created){
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith('Specimen copy')).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen copy')`,30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'))`,30000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen')`,30000);
+      }
+    }
+  } else if (action === 'Restore sparse QA tables') {
+    const tableNames=()=>browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
+    const before=await tableNames();
+    assert(before.includes('Specimen copy')&&!before.includes('Specimen'),`Unexpected repair baseline: ${before}`);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Undo').click();return true;`);
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen')`,30000);
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen')`,30000);
+    const undone=await tableNames();
+    assert(undone.includes('Specimen')&&undone.includes('Specimen copy'));
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen copy').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen copy')`,30000);
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen copy')`,30000);
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen')`,30000);
+    const after=await tableNames();
+    assert(after.includes('Specimen')&&!after.includes('Specimen copy'),`Unexpected repair result: ${after}`);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1)==='Specimen').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE'+String.fromCharCode(10)+String.fromCharCode(10)+'Specimen')`,30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='3'`,30000);
+    const preview=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,3).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+    assert.deepEqual(preview.headers,['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'sparse-qa-table-repair.json'),JSON.stringify({pageURL,before,undone,after,preview,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,undone,after,preview,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Preview') {
+    const started=Date.now();
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
-    await waitForBrowser(browser.cdp, `/Preview rows\\s+25/.test(document.body.innerText)`, 120000);
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`, 120000);
+    const previewElapsedMs=Date.now()-started;
     const state = await browserEval(browser.cdp, `const table=document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');const scroll=document.querySelector('[data-testid="preview-table-scroll"]');return {text:document.body.innerText.slice(0, 6000),ariaColumnCount:table?.getAttribute('aria-colcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText),scrollWidth:scroll?.scrollWidth,clientWidth:scroll?.clientWidth,alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText)};`);
     const latestPreview=responses.filter(response=>response.path.endsWith('/preview')).at(-1);
     let rawPreview;
@@ -2048,8 +2195,9 @@ try {
       rawPreview={columns:parsed.columns,firstRow:parsed.rows?.[0],secondRow:parsed.rows?.[1]};
     }
     await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, 'preview.json'), JSON.stringify({pageURL,state,rawPreview,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,state,rawPreview,responses},null,2));
+    await writeFile(join(evidenceDirectory, 'preview.json'), JSON.stringify({pageURL,previewElapsedMs,state,rawPreview,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,previewElapsedMs,state,rawPreview,responses},null,2));
+    assert(previewElapsedMs<=5000,`CDA browser preview took ${previewElapsedMs} ms, exceeding the 5-second goal`);
     process.exitCode = responses.some(response => response.status >= 400) ? 1 : 0;
   } else {
   await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(`button[aria-label^="${action}:"]`)})?.click(); return true;`);
