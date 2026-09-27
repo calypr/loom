@@ -523,6 +523,107 @@ try {
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
       }
     }
+  } else if (action === 'Inspect bounded related expansion' || action === 'Verify bounded related expansion') {
+    const patientIDs = ['02f8e963-73b8-50ea-b840-c4a80719a06a','54b50ad3-aa10-5483-85e2-5382aac7d374'];
+    const tableName = `Patient related expansion QA ${Date.now()}`;
+    const state = { tableName, patientIDs };
+    let created = false;
+    try {
+      state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-related-expand-${Date.now()}',source:{kind:'resources',resources:{refs:${JSON.stringify(patientIDs)}.map(id=>({project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'Patient',id}))}}})});return {status:response.status,body:await response.json()};`);
+      assert.equal(state.selection.status,201,JSON.stringify(state.selection.body));
+      await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)'))`, 30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Patient rows"]').click();return true;`);
+      created=true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)})`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Patient')`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')).click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] label:nth-of-type(1) select'))`, 30000);
+      await browserEval(browser.cdp, `const select=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');if(!select)throw new Error('Related type selector missing');select.value='Observation';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[type="radio"][name^="related-expand-route-"]'))`, 30000);
+      state.editor=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-related-expand-editor"]');const policy=[...editor.querySelectorAll('label')].find(label=>label.innerText.startsWith('When a parent has no matching record'))?.querySelector('select');return {text:editor?.innerText.slice(0,4000),routes:[...document.querySelectorAll('input[type="radio"][name^="related-expand-route-"]')].map(input=>({label:input.closest('label')?.innerText,checked:input.checked,disabled:input.disabled})),policy:[...policy.options].map(option=>({label:option.textContent,value:option.value})),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200)};`);
+      if (action === 'Verify bounded related expansion') {
+        await browserEval(browser.cdp, `const input=[...document.querySelectorAll('input[type="radio"][name^="related-expand-route-"]')].find(input=>input.closest('label')?.innerText.trim()==='Observation via subject_Patient');if(!input)throw new Error('Direct Patient to Observation path missing');input.click();const policy=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('When a parent has no matching record'))?.querySelector('select');policy.value='PRESERVE_PARENT';policy.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 60000);
+        state.proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1000),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1400),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+        assert.equal(state.proposal.status,'ready',state.proposal.text);
+        assert.equal(state.proposal.applyDisabled,false);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `const limit=document.querySelector('select[aria-label="Preview row limit"]');limit.value='100';limit.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value==='100'`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='40'`, 30000);
+        state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()]};`);
+        const oracle=JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json','utf8'));
+        const observed=new Set(oracle.patients.find(patient=>patient.patientId===patientIDs[0]).subjectObservations.map(item=>item.id));
+        const manyRows=state.saved.rows.filter(row=>row[0]===patientIDs[0]);
+        const zeroRows=state.saved.rows.filter(row=>row[0]===patientIDs[1]);
+        assert.equal(manyRows.length,38,'All 38 related CDA rows should render');
+        assert.deepEqual(new Set(manyRows.map(row=>row[1])),observed);
+        assert.equal(zeroRows.length,1);
+        assert.equal(zeroRows[0][1],'—');
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"]'))`, 30000);
+        state.savedEditor=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-related-expand-editor"]');const type=[...editor.querySelectorAll('label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');const policy=[...editor.querySelectorAll('label')].find(label=>label.innerText.startsWith('When a parent has no matching record'))?.querySelector('select');return {type:type?.value,policy:policy?.value,selectedRoute:[...editor.querySelectorAll('input[type="radio"]')].find(input=>input.checked)?.closest('label')?.innerText};`);
+        assert.equal(state.savedEditor.type,'Observation');
+        assert.equal(state.savedEditor.policy,'PRESERVE_PARENT');
+        await browserEval(browser.cdp, `const policy=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('When a parent has no matching record'))?.querySelector('select');policy.value='EXCLUDE';policy.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        state.excludeProposal=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+        assert.equal(state.excludeProposal.applyDisabled,false);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('omit parents without a match')`, 30000);
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `const limit=document.querySelector('select[aria-label="Preview row limit"]');limit.value='100';limit.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value==='100'`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='39'`, 30000);
+        state.savedExclude=await browserEval(browser.cdp, `return {rowcount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),preview:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,1100),history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText};`);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 30000);
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'`, 30000);
+        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        assert.deepEqual(new Set(state.restored.rows.map(row=>row[0])),new Set(patientIDs));
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'bounded-related-expansion-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+    } catch (error) {
+      state.failure={message:error instanceof Error?error.message:String(error),dom:await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,2300),table:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,1000),rowcount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`)};
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'bounded-related-expansion-failure.json'),JSON.stringify({pageURL,state,responses},null,2));
+      throw error;
+    } finally {
+      if (created) {
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))?.click();[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Delete')?.click();return true;`);
+      }
+    }
   } else if (action === 'Verify starting collection') {
     const selectionID = process.argv[4];
     assert(selectionID, 'A CDA selection revision ID is required');
