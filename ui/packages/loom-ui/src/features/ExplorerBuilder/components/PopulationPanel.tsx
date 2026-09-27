@@ -52,6 +52,7 @@ export const PopulationPanel = ({
   const [routeChoices, setRouteChoices] = useState<ReadonlyArray<PopulationRouteChoice>>([]);
   const [routeLoadState, setRouteLoadState] = useState<RouteLoadState>({ status: 'idle' });
   const [pathIndex, setPathIndex] = useState(0);
+  const [otherConnectionsOpen, setOtherConnectionsOpen] = useState(false);
   const [checkPopulation, checkStatus] = usePopulationMappingMutation();
   const [coverage, setCoverage] = useState<PopulationMappingResponse>();
   const [coverageError, setCoverageError] = useState<string>();
@@ -75,13 +76,15 @@ export const PopulationPanel = ({
   );
   const attachedChoice = attachedChoices.length === 1 ? attachedChoices[0] : undefined;
   const selectedChoice = routeOptions[pathIndex]?.choice;
-  const directSameResourceRouteAvailable = selection?.resourceType === table.document.rootResourceType && (
-    routeOptions.some((option) => option.isDirectSameResource) || attached?.route.length === 0
+  const directRouteFirst = routeOptions[0]?.isDirectSameResource === true;
+  const directSameResourceRouteSelected = selection?.resourceType === table.document.rootResourceType && (
+    attached ? attached.route.length === 0 : routeOptions[pathIndex]?.isDirectSameResource === true
   );
   useEffect(() => {
     routeRequestEpoch.current += 1;
     setRouteChoices([]);
     setPathIndex(0);
+    setOtherConnectionsOpen(false);
     if (!selectionRevisionId) {
       setRouteLoadState({ status: 'idle' });
       return;
@@ -201,12 +204,24 @@ export const PopulationPanel = ({
         ) : selection && routeOptions.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             {routeOptions.length > 1 ? (
-              <label className="flex items-center gap-2">
-                <span className="font-medium">Connection</span>
-                <select aria-label="Population connection" value={pathIndex} onChange={(event) => setPathIndex(Number(event.currentTarget.value))} className="rounded border border-slate-300 bg-white px-2 py-2">
-                  {routeOptions.map((option, index) => <option key={option.choice.routeChoiceId} value={index}>{option.label}</option>)}
-                </select>
-              </label>
+              <>
+                {directRouteFirst ? (
+                  <>
+                    <span className="text-xs text-slate-600">{routeOptions[pathIndex]?.label}</span>
+                    <button type="button" aria-expanded={otherConnectionsOpen} onClick={() => setOtherConnectionsOpen((open) => !open)} className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50">
+                      Other connections
+                    </button>
+                  </>
+                ) : null}
+                {!directRouteFirst || otherConnectionsOpen ? (
+                  <label className="flex items-center gap-2">
+                    <span className="font-medium">Connection</span>
+                    <select aria-label="Population connection" value={pathIndex} onChange={(event) => setPathIndex(Number(event.currentTarget.value))} className="rounded border border-slate-300 bg-white px-2 py-2">
+                      {routeOptions.map((option, index) => <option key={option.choice.routeChoiceId} value={index}>{option.label}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+              </>
             ) : <span className="text-xs text-slate-600">{routeOptions[0]?.label}</span>}
             <button type="button" disabled={disabled || !selectedChoice} onClick={() => selectedChoice && onAttach(selectedChoice.routeChoiceId)} className="rounded-md bg-indigo-700 px-3 py-2 font-semibold text-white hover:bg-indigo-800 disabled:opacity-40">
               Use selected resources
@@ -220,7 +235,7 @@ export const PopulationPanel = ({
           <p role="alert" className="font-medium text-amber-800">No supported path connects {table.document.rootResourceType} rows to {selection.resourceType}.</p>
         ) : null}
       </div>
-      {routeLoadState.status === 'ready' && routeLoadState.truncated && !directSameResourceRouteAvailable ? (
+      {routeLoadState.status === 'ready' && routeLoadState.truncated && !directSameResourceRouteSelected ? (
         <p role="status" className="mt-2 text-amber-800">
           Loom reached the automatic route-search limit. The listed connections are valid, but additional routes may be available in Advanced graph.
         </p>
