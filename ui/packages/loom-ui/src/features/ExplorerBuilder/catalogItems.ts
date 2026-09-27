@@ -47,6 +47,13 @@ export type CatalogItemAvailability =
 
 export type CatalogSourceOption =
   | {
+      readonly kind: 'ALL';
+      readonly key: string;
+      readonly label: string;
+      readonly resourceType?: never;
+      readonly sourceNodeId?: never;
+    }
+  | {
       readonly kind: 'ROOT';
       readonly key: string;
       readonly label: string;

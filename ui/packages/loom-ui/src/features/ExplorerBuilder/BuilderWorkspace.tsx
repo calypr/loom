@@ -885,11 +885,12 @@ const BuilderWorkspaceContent = ({
       table?.document.rootResourceType ?? '',
       selectedRouteContext?.nodeId,
     );
+    const searchableSources = [{ kind: 'ALL' as const, key: 'all', label: 'All accessible resources' }, ...sources];
     const current = constructionLifecycle.capabilities;
     if (current.status !== 'ready' ||
         current.response.selectedStage.id !== constructionAppendStageFor(current.response.baseConstruction) ||
         !current.response.selectedStage.activeRelatedRecord ||
-        !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return sources;
+        !current.response.selectedStage.capabilities.some((capability) => capability.kind === 'RELATED_FIELD' && capability.supported)) return searchableSources;
     const anchor = current.response.selectedStage.activeRelatedRecord;
     return [{
       kind: 'EXACT_RELATED' as const,
@@ -897,7 +898,7 @@ const BuilderWorkspaceContent = ({
       label: `${anchor.targetResourceType} — this row’s related record`,
       resourceType: anchor.targetResourceType,
       sourceNodeId: undefined,
-    }, ...sources];
+    }, ...searchableSources];
   }, [state.catalog, table?.document.rootResourceType, selectedRouteContext?.nodeId, constructionLifecycle.capabilities]);
   const addSourceContext = JSON.stringify([
     state.explorerId,
@@ -909,8 +910,8 @@ const BuilderWorkspaceContent = ({
     (source) => source.key === (addColumnsSource?.context === addSourceContext
       ? addColumnsSource.key
       : addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key ??
-        addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
-  ) ?? addSourceOptions[0];
+        addSourceOptions.find((option) => (option.kind === 'RELATED' || option.kind === 'SAVED_OCCURRENCE') && option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
+  ) ?? addSourceOptions.find((option) => option.kind === 'ALL') ?? addSourceOptions[0];
   useEffect(() => {
     choiceProposalRequest.current?.abort();
     choiceProposalRequest.current = undefined;
@@ -923,9 +924,11 @@ const BuilderWorkspaceContent = ({
     return counts;
   }, new Map<string, number>());
   const addSourceOptionItems = addSourceOptions.map((source) => {
-    const isCurrentOccurrence = source.sourceNodeId === selectedRouteContext?.nodeId;
+    const isCurrentOccurrence = source.sourceNodeId !== undefined && source.sourceNodeId === selectedRouteContext?.nodeId;
     const label = source.resourceType ?? source.label;
-    const baseDescription = source.kind === 'ROOT'
+    const baseDescription = source.kind === 'ALL'
+      ? 'Search coded concepts and fields across the dataset'
+      : source.kind === 'ROOT'
       ? 'Current table rows'
       : source.kind === 'EXACT_RELATED'
         ? 'Related record for this row'
@@ -942,18 +945,18 @@ const BuilderWorkspaceContent = ({
       label,
       description,
       selected: source.key === selectedAddSource?.key,
-      isRoot: source.kind === 'ROOT',
+      isSearchScope: source.kind === 'ROOT' || source.kind === 'ALL',
     };
   });
-  const currentRowSourceOptions = addSourceOptionItems.filter((option) => option.isRoot);
-  const relatedSourceOptions = addSourceOptionItems.filter((option) => !option.isRoot);
+  const scopeSourceOptions = addSourceOptionItems.filter((option) => option.isSearchScope);
+  const relatedSourceOptions = addSourceOptionItems.filter((option) => !option.isSearchScope);
   const addSourceSearchQuery = addSourceSearch.context === addSourceContext
     ? addSourceSearch.query.trim().toLowerCase()
     : '';
   const visibleRelatedSourceOptions = relatedSourceOptions.filter(({ source, label }) =>
     `${label} ${source.label}`.toLowerCase().includes(addSourceSearchQuery),
   );
-  const addSourceRouteContext = selectedAddSource?.sourceNodeId === selectedRouteContext?.nodeId
+  const addSourceRouteContext = selectedAddSource?.sourceNodeId !== undefined && selectedAddSource.sourceNodeId === selectedRouteContext?.nodeId
     ? selectedRouteContext
     : undefined;
   const addSelectedFeatures = async (
@@ -2200,17 +2203,17 @@ const BuilderWorkspaceContent = ({
               className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3"
             >
               <legend className="px-1 text-sm font-semibold text-slate-900">
-                Choose a source for columns
+                Choose where to search
               </legend>
               <p className="text-xs text-slate-600">
-                Choose a resource type to search. Loom shows matching paths after selection.
+                Search all accessible resources, or narrow the results to one resource type.
               </p>
-              <div role="group" aria-label="Current row source" className="grid gap-2">
+              <div role="group" aria-label="Search scope" className="grid gap-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Current row source
+                  Search scope
                 </h3>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {currentRowSourceOptions.map(({ source, label, description, selected }) => (
+                  {scopeSourceOptions.map(({ source, label, description, selected }) => (
                     <button
                       key={source.key}
                       type="button"
@@ -2353,7 +2356,10 @@ const BuilderWorkspaceContent = ({
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
-              onAddCodedValues={() => selectConstructionFamily('ADD_COLUMNS')}
+              onAddCodedValues={() => {
+                setAddColumnsSource({ context: addSourceContext, key: 'all' });
+                selectConstructionFamily('ADD_COLUMNS');
+              }}
               relatedExpandContext={{
                 project: projectId,
                 explorerId: state.explorerId,

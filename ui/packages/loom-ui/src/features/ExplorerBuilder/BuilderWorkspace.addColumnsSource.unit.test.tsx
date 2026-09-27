@@ -517,7 +517,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
-    const currentRows = within(source).getByRole('group', { name: 'Current row source' });
+    const currentRows = within(source).getByRole('group', { name: 'Search scope' });
     const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
     expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
     const reportSource = within(relatedSources).getByRole('button', {
@@ -605,8 +605,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
-    const currentRows = within(source).getByRole('group', { name: 'Current row source' });
+    const currentRows = within(source).getByRole('group', { name: 'Search scope' });
     const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
+    expect(within(currentRows).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
     expect(within(relatedSources).getAllByTestId('construction-add-columns-source-option')).toHaveLength(11);
 

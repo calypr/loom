@@ -1704,8 +1704,10 @@ try {
     assert.equal(before.button,false,'The paired code/value action is disabled');
     await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.trim()==='Add coded values').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Add coded values or fields')&&document.body.innerText.includes('Choose a concept for a code and its matching value')`, 30000);
-    const after=await browserEval(browser.cdp, `return {addColumnsSelected:document.querySelector('[data-testid="construction-action-add-columns"]')?.getAttribute('aria-pressed'),pairedGuidance:document.body.innerText.includes('Choose a concept for a code and its matching value'),reshapeStillOpen:Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'))};`);
+    await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading concepts…')`, 30000);
+    const after=await browserEval(browser.cdp, `return {addColumnsSelected:document.querySelector('[data-testid="construction-action-add-columns"]')?.getAttribute('aria-pressed'),allResourcesSelected:document.querySelector('[data-source-key="all"]')?.getAttribute('aria-pressed'),pairedGuidance:document.body.innerText.includes('Choose a concept for a code and its matching value'),daysConceptVisible:Boolean(document.querySelector('input[aria-label="Select days_to_collection"]')),reshapeStillOpen:Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'))};`);
     assert.equal(after.addColumnsSelected,'true');
+    assert.equal(after.allResourcesSelected,'true');
     assert.equal(after.pairedGuidance,true);
     assert.equal(after.reshapeStillOpen,false);
     await mkdir(evidenceDirectory,{recursive:true});
@@ -1922,7 +1924,8 @@ try {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
     const before = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-add-columns-source"]');return {text:panel.innerText,buttons:[...panel.querySelectorAll('button')].map(button=>({label:button.getAttribute('aria-label'),key:button.dataset.sourceKey,kind:button.dataset.sourceKind,selected:button.getAttribute('aria-pressed')==='true',disabled:button.disabled,visible:button.offsetParent!==null})),search:panel.querySelector('input[type="search"]')?.getAttribute('aria-label')};`);
-    assert(before.buttons.some(button=>button.kind==='ROOT' && button.selected));
+    assert(before.buttons.some(button=>button.kind==='ALL' && button.selected));
+    assert(before.buttons.some(button=>button.kind==='ROOT' && !button.selected));
     assert.deepEqual(new Set(before.buttons.filter(button=>button.kind==='RELATED').map(button=>button.label.split(',')[0])), new Set(['Patient','ResearchStudy','Medication','ResearchSubject','Condition','BodyStructure','MedicationAdministration','Observation']));
     await browserEval(browser.cdp, `const search=document.querySelector('input[aria-label="Search related resources"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'Obser');search.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
     await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-source-kind="RELATED"]')].filter(button=>button.offsetParent!==null).length===1`, 30000);
@@ -2761,9 +2764,9 @@ try {
       await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Select temporary duplicate');
       await wait('Boolean(document.querySelector(\'button[aria-label^="Add columns:"]\'))', 'Temporary table workspace ready');
       await click('document.querySelector(\'button[aria-label^="Add columns:"]\').click();return true;', 'Open Add columns');
-      const { source, sources } = await chooseRelatedSource('Observation');
-      state.source = source;
-      state.sources = sources;
+      await wait('document.querySelector(\'[data-source-key="all"]\')?.getAttribute("aria-pressed")==="true"', 'Dataset-wide concept search selected');
+      state.searchScope = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[data-testid=construction-add-columns-source-option]")].map(button=>({key:button.getAttribute("data-source-key"),selected:button.getAttribute("aria-pressed")}));');
+      await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Dataset-wide paired concept loaded');
       state.catalogOrder = await browserEval(browser.cdp, 'const concepts=document.querySelector("#feature-catalog-concepts-title");const fields=document.querySelector("#feature-catalog-fields-title");return {conceptsTop:concepts?.getBoundingClientRect().top,fieldsTop:fields?.getBoundingClientRect().top,concepts:concepts?.innerText,fields:fields?.innerText};');
       assert(state.catalogOrder.conceptsTop < state.catalogOrder.fieldsTop, 'Paired coded concepts should appear before raw FHIR fields');
       await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Semantic days_to_collection enabled');
@@ -2773,9 +2776,9 @@ try {
       // Keep this a scalar predicate: returning the input node causes CDP to fail with “Object reference chain is too long”.
       await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Route choice radios rendered');
       state.dialogBeforeRoute = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[role=dialog]")].map(dialog=>({text:dialog.innerText,radios:[...dialog.querySelectorAll("input[type=radio]")].map(input=>({label:input.getAttribute("aria-label"),text:input.labels?.[0]?.innerText??input.closest("label")?.innerText??"",checked:input.checked}))}));');
-      await click('(()=>{const dialog=[...document.querySelectorAll("[role=dialog]")].find(item=>item.innerText.includes("days_to_collection"));const input=[...dialog.querySelectorAll("input[type=radio]")].find(item=>[...(item.labels??[])].some(label=>label.innerText.includes("via Specimen"))||item.closest("label")?.innerText.includes("via Specimen"));if(!input)throw new Error("Direct via Specimen route radio not found");input.click();return true;})()', 'Choose direct Specimen route');
-      await wait('Boolean([...document.querySelectorAll("[role=dialog] input[type=radio]")].some(input=>[...(input.labels??[])].some(label=>/first value/i.test(label.innerText))||/first value/i.test(input.closest("label")?.innerText??"")))', 'FIRST result form rendered');
-      await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>[...(item.labels??[])].some(label=>/first value/i.test(label.innerText))||/first value/i.test(item.closest("label")?.innerText??""));input.click();return true;})()', 'Choose FIRST result form');
+      await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>item.getAttribute("aria-label")?.includes("Direct relationship: Specimen to Observation via Specimen"));if(!input)throw new Error("Direct via Specimen route radio not found");input.click();return true;})()', 'Choose direct Specimen route');
+      await wait('Boolean([...document.querySelectorAll("[role=dialog] input[type=radio]")].some(input=>/first value/i.test(input.getAttribute("aria-label")??"")))', 'FIRST result form rendered');
+      await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>/first value/i.test(item.getAttribute("aria-label")??""));input.click();return true;})()', 'Choose FIRST result form');
       await wait('Boolean([...document.querySelectorAll("[role=dialog] button")].find(button=>button.textContent?.trim()==="Add 1 column"&&!button.disabled))', 'Add column enabled');
       const previewStarted = Date.now();
       await click('[...document.querySelectorAll("[role=dialog] button")].find(button=>button.textContent?.trim()==="Add 1 column").click();return true;', 'Preview paired semantic column');
