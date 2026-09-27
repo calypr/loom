@@ -354,14 +354,17 @@ export const useConstructionLifecycle = ({
           response.outputId === args.outputId &&
           response.stageId === request.stageId &&
           response.categoryColumnId === request.categoryColumnId &&
-          response.valueColumnId === request.valueColumnId &&
-          response.complete === true &&
-          response.proofFingerprint.trim() !== '';
+          response.valueColumnId === request.valueColumnId;
+        const nextState: ConstructionReshapePivotDiscovery = !matchesRequest
+          ? { ...request, status: 'failed', reason: 'Loom returned category values for a different stage or field pair.' }
+          : response.outcome === 'LIMIT_EXCEEDED'
+            ? { ...request, status: 'limit-exceeded', limit: response.limit, reason: response.message }
+            : response.outcome === 'COMPLETE' && response.complete && response.proofFingerprint.trim() !== ''
+              ? { ...request, status: 'complete', categories: response.categories }
+              : { ...request, status: 'failed', reason: 'Loom returned category values without a complete compiler proof.' };
         setPivotDiscoveryLoad({
           key: discoveryKey,
-          state: matchesRequest
-            ? { ...request, status: 'complete', categories: response.categories }
-            : { ...request, status: 'failed', reason: 'Loom returned category values for a different stage or field pair.' },
+          state: nextState,
         });
       },
     ).catch((error: unknown) => {

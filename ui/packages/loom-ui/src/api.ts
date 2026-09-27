@@ -21,6 +21,8 @@ import {
   constructionCategoryDiscoveryResponseSchema,
   constructionProposalRequestSchema,
   constructionProposalResponseSchema,
+  constructionChoiceProposalRequestSchema,
+  constructionChoiceProposalResponseSchema,
   populationRoutesResponseSchema,
   rowDefinitionChoicesResponseSchema,
   rowDefinitionProposalSchema,
@@ -53,6 +55,8 @@ import {
   type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalRequest,
   type ConstructionProposalResponse,
+  type ConstructionChoiceProposalRequest,
+  type ConstructionChoiceProposalResponse,
   type PopulationRoutesResponse,
   type RowDefinitionChoicesResponse,
   type RowDefinitionProposal,
@@ -434,6 +438,9 @@ export interface GetConstructionInputsArgs extends ExplorerAuthoringStateArgs {
 export type ProposeConstructionArgs = ExplorerAuthoringStateArgs &
   ConstructionProposalRequest & { readonly requestId?: string };
 
+export type ProposeConstructionChoicesArgs = ExplorerAuthoringStateArgs &
+  ConstructionChoiceProposalRequest & { readonly requestId?: string };
+
 export interface CreateExplicitGroupRevisionArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly selectionRevision: string;
@@ -660,6 +667,10 @@ export interface LoomClient {
     args: ProposeConstructionArgs,
     signal?: AbortSignal,
   ) => Promise<ConstructionProposalResponse>;
+  readonly proposeConstructionChoices: (
+    args: ProposeConstructionChoicesArgs,
+    signal?: AbortSignal,
+  ) => Promise<ConstructionChoiceProposalResponse>;
   readonly preview: (
     args: PreviewExplorerBuilderArgs,
     signal?: AbortSignal,
@@ -1330,6 +1341,12 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       constructionProposalRequestSchema.parse(body), signal, requestId,
     )).then((value) => constructionProposalResponseSchema.parse(value));
   };
+  const proposeConstructionChoices = (args: ProposeConstructionChoicesArgs, signal?: AbortSignal) => {
+    const { project: _project, explorerId: _explorerId, authResourcePath: _authResourcePath, requestId, ...body } = args;
+    return request(durableAuthoringPath(args, '/construction-choice-proposals'), withJson(
+      constructionChoiceProposalRequestSchema.parse(body), signal, requestId,
+    )).then((value) => constructionChoiceProposalResponseSchema.parse(value));
+  };
   const preview = (args: PreviewExplorerBuilderArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/preview'), withJson({ receiptId: args.receiptId, outputId: args.outputId, ...(args.limit === undefined ? {} : { limit: args.limit }) }, signal, args.requestId)).then(assertExplorerBuilderPreviewResult);
   const populationMapping = (args: PopulationMappingArgs, signal?: AbortSignal) =>
@@ -1576,6 +1593,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     discoverConstructionCategories,
     getConstructionInputs,
     proposeConstruction,
+    proposeConstructionChoices,
     preview,
     populationMapping,
     cellTrace,

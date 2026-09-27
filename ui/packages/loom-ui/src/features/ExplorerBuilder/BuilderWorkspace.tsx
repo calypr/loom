@@ -26,6 +26,7 @@ import type {
   Construction,
   ConstructionOperation,
   ConstructionStep,
+  ConstructionChoiceProposalResponse,
   RowChangeAssessment,
   RowChangeUnresolvedReference,
 } from '../../types';
@@ -134,6 +135,12 @@ const previewPresentationCommand = (
 
 const isRelatedFieldStep = (step: ConstructionStep): step is RelatedFieldStep =>
   step.operation.kind === 'RELATED_FIELD';
+
+type ChoiceProposalState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'previewing' }
+  | { readonly status: 'ready'; readonly selections: ReadonlyArray<CatalogChoiceIntent>; readonly response: ConstructionChoiceProposalResponse }
+  | { readonly status: 'error'; readonly message: string };
 
 const emptyCatalog = (): ExplorerBuilderCatalog => ({
   snapshotToken: '',
@@ -422,6 +429,8 @@ const BuilderWorkspaceContent = ({
   const [firstTableProgress, setFirstTableProgress] =
     useState<FirstTableProgress>({ kind: 'idle' });
   const [previewLimit, setPreviewLimit] = useState<PreviewLimit>(25);
+  const [choiceProposal, setChoiceProposal] = useState<ChoiceProposalState>({ status: 'idle' });
+  const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
@@ -579,7 +588,7 @@ const BuilderWorkspaceContent = ({
   );
 
   const applyCommandsWithResult = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>) => {
+    (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) => {
       compileGeneration.current += 1;
       previewGeneration.current += 1;
       activeCompile.current?.abort();
@@ -587,7 +596,7 @@ const BuilderWorkspaceContent = ({
       setPendingCommands((value) => value + 1);
       const run = commandQueue.current.then(async () => {
         const current = latestState.current;
-        const commandId = window.crypto.randomUUID();
+        const commandId = proposedCommandId ?? window.crypto.randomUUID();
         try {
           const value = await applyBuilderCommands({
             project: projectId,
@@ -660,14 +669,19 @@ const BuilderWorkspaceContent = ({
     ],
   );
   const applyCommands = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>) =>
-      applyCommandsWithResult(commands).then(Boolean),
+    (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) =>
+      applyCommandsWithResult(commands, proposedCommandId).then(Boolean),
     [applyCommandsWithResult],
   );
 
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  useEffect(() => {
+    choiceProposalRequest.current?.abort();
+    choiceProposalRequest.current = undefined;
+    setChoiceProposal({ status: 'idle' });
+  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
   const unsupportedColumns = unsupportedSavedSourceColumns(state.tables);
   const hasUnsupportedSavedSourceColumns = unsupportedColumns.length > 0;
   const construction = table?.document.construction;
@@ -896,6 +910,11 @@ const BuilderWorkspaceContent = ({
       : addSourceOptions.find((option) => option.kind === 'EXACT_RELATED')?.key ??
         addSourceOptions.find((option) => option.sourceNodeId === selectedRouteContext?.nodeId)?.key),
   ) ?? addSourceOptions[0];
+  useEffect(() => {
+    choiceProposalRequest.current?.abort();
+    choiceProposalRequest.current = undefined;
+    setChoiceProposal({ status: 'idle' });
+  }, [selectedAddSource?.key, activeConstructionFamily]);
   const relatedSourceTypeCounts = addSourceOptions.reduce((counts, source) => {
     if (source.kind === 'RELATED') {
       counts.set(source.resourceType, (counts.get(source.resourceType) ?? 0) + 1);
@@ -1060,16 +1079,52 @@ const BuilderWorkspaceContent = ({
         },
         changedStepId: step.id,
       });
-      return;
+      return 'preview-pending' as const;
     }
-    const applied = await applyCommands(selections.map((selection) => ({
-      type: 'APPLY_CONSTRUCTION_CHOICE',
-      outputId: table.outputId,
-      constructionChoice: selection.constructionChoice,
-      ...(selection.title ? { title: selection.title } : {}),
-    } satisfies ExplorerBuilderCommand)));
-    if (!applied) {
-      throw new Error('Loom did not add the selected features. Review the Builder message and try again.');
+    const current = latestState.current;
+    if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest) {
+      throw new Error('The current table is still loading. Try adding the columns again.');
+    }
+    choiceProposalRequest.current?.abort();
+    const controller = new AbortController();
+    choiceProposalRequest.current = controller;
+    setChoiceProposal({ status: 'previewing' });
+    try {
+      const response = await loomClient.proposeConstructionChoices({
+        project: projectId,
+        explorerId: current.explorerId,
+        ...(authResourcePath ? { authResourcePath } : {}),
+        commandId: window.crypto.randomUUID(),
+        snapshotToken: current.catalog.snapshotToken,
+        expectedDraftVersion: current.draftVersion,
+        expectedDraftDigest: current.draftDigest,
+        outputId: table.outputId,
+        constructionChoices: selections.map((selection) => ({
+          ...selection.constructionChoice,
+          ...(selection.title ? { title: selection.title } : {}),
+        })),
+        limit: previewLimit,
+      }, controller.signal);
+      const latest = latestState.current;
+      if (
+        controller.signal.aborted ||
+        latest.explorerId !== current.explorerId ||
+        latest.catalog.snapshotToken !== response.snapshotToken ||
+        latest.draftVersion !== response.draftVersion ||
+        latest.draftDigest !== response.draftDigest ||
+        selectedTable(latest)?.outputId !== response.outputId
+      ) throw new Error('The table changed while its column preview was loading. Choose the columns again.');
+      if (response.preview.rows === null || response.preview.outputId !== table.outputId) {
+        throw new Error('Loom did not render rows for these columns. The table was not changed.');
+      }
+      setChoiceProposal({ status: 'ready', selections, response });
+      return 'preview-ready' as const;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Loom could not preview the selected columns.';
+      if (!controller.signal.aborted) setChoiceProposal({ status: 'error', message });
+      throw error;
+    } finally {
+      if (choiceProposalRequest.current === controller) choiceProposalRequest.current = undefined;
     }
   };
 
@@ -2396,13 +2451,56 @@ const BuilderWorkspaceContent = ({
       onRetry={constructionLifecycle.retry}
     />
   );
-  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle'
-    ? <>{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
+  const choicePreview = choiceProposal.status === 'ready' ? choiceProposal.response.preview : undefined;
+  const applyChoiceProposal = async () => {
+    if (choiceProposal.status !== 'ready' || pendingCommands > 0) return;
+    const { response } = choiceProposal;
+    const latest = latestState.current;
+    if (
+      latest.catalog.snapshotToken !== response.snapshotToken ||
+      latest.draftVersion !== response.draftVersion ||
+      latest.draftDigest !== response.draftDigest ||
+      selectedTable(latest)?.outputId !== response.outputId
+    ) {
+      setChoiceProposal({ status: 'error', message: 'The table changed since this preview. Choose the columns again.' });
+      return;
+    }
+    const applied = await applyCommands(response.constructionChoices.map((choice) => ({
+      type: 'APPLY_CONSTRUCTION_CHOICE',
+      outputId: response.outputId,
+      constructionChoice: { choiceId: choice.choiceId, form: choice.form },
+      ...(choice.title ? { title: choice.title } : {}),
+    } satisfies ExplorerBuilderCommand)), response.commandId);
+    if (applied) setChoiceProposal({ status: 'idle' });
+  };
+  const choiceProposalPanel = choiceProposal.status === 'idle' ? null : (
+    <section data-testid="construction-choice-proposal-panel" data-proposal-status={choiceProposal.status} className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
+      <h3 className="text-base font-semibold text-slate-900">Preview new columns</h3>
+      {choiceProposal.status === 'previewing' ? <p role="status" className="mt-2 text-sm text-slate-600">Rendering rows with the selected columns…</p> : null}
+      {choiceProposal.status === 'error' ? <p role="alert" className="mt-2 text-sm text-red-800">{choiceProposal.message}</p> : null}
+      {choiceProposal.status === 'ready' ? (
+        <p className="mt-2 text-sm text-slate-700">
+          {choiceProposal.response.candidateColumnIds.length} new {choiceProposal.response.candidateColumnIds.length === 1 ? 'column' : 'columns'} in the rendered row preview. Apply saves them to this table.
+        </p>
+      ) : null}
+      <div className="mt-4 flex gap-2">
+        {choiceProposal.status === 'ready' ? (
+          <button type="button" onClick={() => void applyChoiceProposal()} disabled={pendingCommands > 0} className="rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Apply columns</button>
+        ) : null}
+        <button type="button" onClick={() => {
+          choiceProposalRequest.current?.abort();
+          setChoiceProposal({ status: 'idle' });
+        }} className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">Cancel</button>
+      </div>
+    </section>
+  );
+  const workspaceEditor = operationEditor || relatedSourceStepEditor || relatedFieldStepEditor || constructionLifecycle.proposal.status !== 'idle' || choiceProposal.status !== 'idle'
+    ? <>{choiceProposalPanel}{operationEditor}{relatedSourceStepEditor}{relatedFieldStepEditor}{proposalPanel}</>
     : undefined;
-  const candidatePreview = constructionLifecycle.proposal.status === 'ready' ||
+  const candidatePreview = choicePreview ?? ((constructionLifecycle.proposal.status === 'ready' ||
     constructionLifecycle.proposal.status === 'applying'
     ? constructionLifecycle.proposal.preview
-    : undefined;
+    : undefined));
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
@@ -2410,11 +2508,11 @@ const BuilderWorkspaceContent = ({
   const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = candidatePreview
     ? 'ready'
-    : constructionLifecycle.proposal.status === 'previewing'
+    : choiceProposal.status === 'previewing' || constructionLifecycle.proposal.status === 'previewing'
       ? 'previewing'
       : constructionLifecycle.proposal.status === 'needs-repair'
         ? 'needs-repair'
-        : constructionLifecycle.proposal.status === 'error'
+        : choiceProposal.status === 'error' || constructionLifecycle.proposal.status === 'error'
           ? 'error'
           : currentPreviewStatus;
   const workspacePreviewProposalId = candidatePreview?.receiptId ?? proposalResponse?.proposalId;

@@ -61,10 +61,18 @@ type ConstructionCategoryDiscoveryResponse struct {
 	StageID          string                           `json:"stageId"`
 	CategoryColumnID string                           `json:"categoryColumnId"`
 	ValueColumnID    string                           `json:"valueColumnId"`
+	Outcome          string                           `json:"outcome"`
 	Complete         bool                             `json:"complete"`
-	ProofFingerprint string                           `json:"proofFingerprint"`
+	ProofFingerprint string                           `json:"proofFingerprint,omitempty"`
 	Categories       []ConstructionDiscoveredCategory `json:"categories"`
+	Limit            int                              `json:"limit,omitempty"`
+	Message          string                           `json:"message,omitempty"`
 }
+
+const (
+	constructionCategoryDiscoveryComplete      = "COMPLETE"
+	constructionCategoryDiscoveryLimitExceeded = "LIMIT_EXCEEDED"
+)
 
 func (s *Service) DiscoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
 	if err := request.Validate(); err != nil {
@@ -135,10 +143,8 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", code, "complete compiler-owned pivot categories are unavailable for this stage and pair", err)
 	}
 	proof := scan.Proof
-	if scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues {
-		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_LIMIT_EXCEEDED", "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.", nil)
-	}
-	if !scan.Complete ||
+	overflow := scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues
+	if (!overflow && !scan.Complete) ||
 		proof.Version != 2 || proof.Output != request.OutputID || proof.StageID != request.StageID ||
 		proof.ColumnID != request.CategoryColumnID || proof.ValueColumnID != request.ValueColumnID ||
 		proof.Column != category.Name || proof.MaxValues != compiler.MaxCategoryScanValues ||
@@ -146,6 +152,15 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" ||
 		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" {
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_SCAN_INCOMPLETE", "pivot categories require a complete stage-bound scan within the supported limit", nil)
+	}
+	if overflow {
+		return ConstructionCategoryDiscoveryResponse{
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
+			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryLimitExceeded,
+			Categories: []ConstructionDiscoveredCategory{}, Limit: compiler.MaxCategoryScanValues,
+			Message: "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.",
+		}, nil
 	}
 	categories := make([]ConstructionDiscoveredCategory, 0, len(scan.Values))
 	for _, item := range scan.Values {
@@ -158,7 +173,8 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 	return ConstructionCategoryDiscoveryResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
-		ValueColumnID: request.ValueColumnID, Complete: true, ProofFingerprint: proof.Fingerprint, Categories: categories,
+		ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryComplete,
+		Complete: true, ProofFingerprint: proof.Fingerprint, Categories: categories,
 	}, nil
 }
 

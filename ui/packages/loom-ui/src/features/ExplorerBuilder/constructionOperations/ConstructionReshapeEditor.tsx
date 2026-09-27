@@ -36,6 +36,7 @@ export interface ConstructionReshapePivotDiscoveryRequest {
 export type ConstructionReshapePivotDiscovery = ConstructionReshapePivotDiscoveryRequest & (
   | { readonly status: 'loading' }
   | { readonly status: 'failed'; readonly reason: string }
+  | { readonly status: 'limit-exceeded'; readonly limit: number; readonly reason: string }
   | { readonly status: 'complete'; readonly categories: ReadonlyArray<ConstructionReshapePivotCategory> }
 );
 
@@ -1840,8 +1841,9 @@ const PivotEditor = (props: {
           {!props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery for this stage is not connected yet. Existing pivots can still be edited using their saved categories.</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'loading' ? <p role="status" className="text-sm text-slate-600">Finding category values…</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
+          {props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason} (Maximum supported categories: {props.discovery.limit}.)</p> : null}
           {props.discovery && !discoveryMatches ? <p role="status" className="text-sm text-amber-900">The available category list belongs to different fields. Find values for this category and values pair before applying.</p> : null}
-          {!categoriesKnown ? <p role="status" className="text-sm text-amber-900">Find category values for the selected fields before applying this pivot.</p> : null}
+          {!categoriesKnown && !(props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded') ? <p role="status" className="text-sm text-amber-900">Find category values for the selected fields before applying this pivot.</p> : null}
           {categoriesKnown ? (
             <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
               <legend className="px-1 text-sm font-semibold text-slate-800">Category columns</legend>

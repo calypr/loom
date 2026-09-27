@@ -97,6 +97,7 @@ const categoriesFor = (args: DiscoverConstructionCategoriesArgs): ConstructionCa
   stageId: args.stageId,
   categoryColumnId: args.categoryColumnId,
   valueColumnId: args.valueColumnId,
+  outcome: 'COMPLETE',
   complete: true,
   proofFingerprint: 'category-proof',
   categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'final' }],
@@ -280,6 +281,54 @@ describe('useConstructionLifecycle', () => {
 
     rerender({ capabilitiesRequest: { ...request, expectedDraftVersion: request.expectedDraftVersion + 1 } });
     expect(result.current.pivotDiscovery).toBeUndefined();
+    unmount();
+  });
+
+  it('surfaces the structured category limit outcome without treating it as a failed request', async () => {
+    const message = 'This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.';
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs): Promise<ConstructionCategoryDiscoveryResponse> => ({
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        categoryColumnId: args.categoryColumnId,
+        valueColumnId: args.valueColumnId,
+        outcome: 'LIMIT_EXCEEDED' as const,
+        complete: false as const,
+        categories: [],
+        limit: 256,
+        message,
+      })),
+      proposeConstruction: vi.fn(async () => proposalResponse()),
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, unmount } = renderHook(() => useConstructionLifecycle({
+      client,
+      capabilitiesRequest: request,
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => result.current.onDiscoverCategories({
+      stageId: request.stageId,
+      categoryColumnId: 'category-id',
+      valueColumnId: 'value-id',
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.pivotDiscovery).toMatchObject({
+      status: 'limit-exceeded',
+      limit: 256,
+      reason: message,
+    });
     unmount();
   });
 });

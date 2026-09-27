@@ -63,6 +63,7 @@ describe('Loom project paths', () => {
       stageId: 'source_projection',
       categoryColumnId: 'status-id',
       valueColumnId: 'value-id',
+      outcome: 'COMPLETE',
       complete: true,
       proofFingerprint: 'proof-1',
       categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'final' }],
@@ -82,6 +83,28 @@ describe('Loom project paths', () => {
       expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
       categoryColumnId: 'status-id', valueColumnId: 'value-id',
     })).resolves.toEqual(categories);
+    const limitedCategories = {
+      snapshotToken: 'snapshot-1',
+      draftVersion: 7,
+      draftDigest: 'draft-7',
+      outputId: 'patients',
+      stageId: 'source_projection',
+      categoryColumnId: 'status-id',
+      valueColumnId: 'value-id',
+      outcome: 'LIMIT_EXCEEDED',
+      complete: false,
+      categories: [],
+      limit: 256,
+      message: 'This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.',
+    } as const;
+    const limitedClient = createLoomClient({
+      fetch: vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(limitedCategories), { status: 200 })),
+    });
+    await expect(limitedClient.discoverConstructionCategories({
+      project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', stageId: 'source_projection',
+      categoryColumnId: 'status-id', valueColumnId: 'value-id',
+    })).resolves.toEqual(limitedCategories);
     await expect(client.proposeConstruction({
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       expectedDraftVersion: 7, expectedDraftDigest: 'draft-7', outputId: 'patients', changedStepId: 'filter-1',

@@ -1448,7 +1448,7 @@ const constructionDiscoveredCategorySchema = z.object({
   label: z.string(),
 }).strict();
 
-export const constructionCategoryDiscoveryResponseSchema = z.object({
+const constructionCategoryDiscoveryIdentitySchema = z.object({
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),
   draftDigest: z.string().min(1),
@@ -1456,10 +1456,23 @@ export const constructionCategoryDiscoveryResponseSchema = z.object({
   stageId: opaqueIdSchema,
   categoryColumnId: opaqueIdSchema,
   valueColumnId: opaqueIdSchema,
-  complete: z.literal(true),
-  proofFingerprint: z.string().min(1),
-  categories: z.array(constructionDiscoveredCategorySchema),
 }).strict();
+
+export const constructionCategoryDiscoveryResponseSchema = z.discriminatedUnion('outcome', [
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('COMPLETE'),
+    complete: z.literal(true),
+    proofFingerprint: z.string().min(1),
+    categories: z.array(constructionDiscoveredCategorySchema),
+  }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('LIMIT_EXCEEDED'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    limit: z.number().int().positive(),
+    message: z.string().min(1),
+  }).strict(),
+]);
 export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
 
 export const constructionProposalRequestSchema = z.object({
@@ -1977,6 +1990,34 @@ export const constructionChoiceSelectionSchema = z
 export type ConstructionChoiceSelection = z.infer<
   typeof constructionChoiceSelectionSchema
 >;
+
+export const constructionChoiceProposalRequestSchema = z.object({
+  commandId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  expectedDraftVersion: z.number().int().positive(),
+  expectedDraftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  constructionChoices: z.array(constructionChoiceSelectionSchema.extend({
+    title: z.string().min(1).optional(),
+  })).min(1).max(100),
+  limit: z.number().int().min(1).max(1000).optional(),
+}).strict();
+export type ConstructionChoiceProposalRequest = z.infer<typeof constructionChoiceProposalRequestSchema>;
+
+export const constructionChoiceProposalResponseSchema = z.object({
+  commandId: opaqueIdSchema,
+  snapshotToken: opaqueIdSchema,
+  draftVersion: z.number().int().positive(),
+  draftDigest: z.string().min(1),
+  outputId: opaqueIdSchema,
+  constructionChoices: constructionChoiceProposalRequestSchema.shape.constructionChoices,
+  candidateColumnIds: z.array(opaqueIdSchema),
+  candidateWorkspaceDigest: z.string().min(1),
+  previewStatus: z.literal('READY'),
+  previewDurationMs: z.number().int().nonnegative(),
+  preview: z.lazy(() => explorerBuilderPreviewResultSchema),
+}).strict();
+export type ConstructionChoiceProposalResponse = z.infer<typeof constructionChoiceProposalResponseSchema>;
 
 export const aggregateOperationCapabilitySchema = z
   .object({

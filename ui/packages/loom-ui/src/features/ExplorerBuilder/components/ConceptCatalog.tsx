@@ -503,7 +503,7 @@ export const ConceptCatalog = ({
   readonly initialSelection?: CatalogInitialSelection;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
-  ) => Promise<void>;
+  ) => Promise<'preview-ready' | 'preview-pending' | void>;
 }) => {
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
@@ -803,10 +803,12 @@ export const ConceptCatalog = ({
     setAdding(true);
     setActionMessage(undefined);
     try {
-      await onAddSelected(intents);
+      const result = await onAddSelected(intents);
       setSelected(new Map());
       setPendingSelection(undefined);
-      setActionMessage(addActionMessage(intents));
+      setActionMessage(result === 'preview-ready' || result === 'preview-pending'
+        ? 'Review the proposed rows, then apply the columns.'
+        : addActionMessage(intents));
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : 'Loom could not add the selected features.');
     } finally {
@@ -867,9 +869,11 @@ export const ConceptCatalog = ({
           setPendingSelection(groups);
           return;
         }
-        await onAddSelected(direct);
+        const result = await onAddSelected(direct);
         setSelected(new Map());
-        setActionMessage(addActionMessage(direct));
+        setActionMessage(result === 'preview-ready' || result === 'preview-pending'
+          ? 'Review the proposed rows, then apply the columns.'
+          : addActionMessage(direct));
       } else {
         setPendingSelection(groups);
       }

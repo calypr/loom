@@ -570,6 +570,32 @@ paths:
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
         '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choice-proposals:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: proposeExplorerConstructionChoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConstructionChoiceProposalRequest'}
+      responses:
+        '200':
+          description: The exact ordered construction choices applied in memory, compiled, and rendered against a bounded preview of the saved output.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConstructionChoiceProposalResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/population-routes:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -3636,7 +3662,7 @@ components:
     ConstructionCategoryDiscoveryResponse:
       type: object
       additionalProperties: false
-      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, categoryColumnId, valueColumnId, complete, proofFingerprint, categories]
+      required: [snapshotToken, draftVersion, draftDigest, outputId, stageId, categoryColumnId, valueColumnId, outcome, complete, categories]
       properties:
         snapshotToken: {type: string, minLength: 1}
         draftVersion: {type: integer, minimum: 1}
@@ -3645,11 +3671,15 @@ components:
         stageId: {type: string, minLength: 1}
         categoryColumnId: {type: string, minLength: 1}
         valueColumnId: {type: string, minLength: 1}
-        complete: {type: boolean, enum: [true]}
-        proofFingerprint: {type: string, minLength: 1}
+        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set.}
+        complete: {type: boolean, description: True only when the full category set was returned.}
+        proofFingerprint: {type: string, minLength: 1, description: Present only for COMPLETE.}
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionDiscoveredCategory'}
+          description: Empty for LIMIT_EXCEEDED; partial category values are never returned.
+        limit: {type: integer, minimum: 1, description: Present only for LIMIT_EXCEEDED; maximum supported number of categories.}
+        message: {type: string, minLength: 1, description: Present only for LIMIT_EXCEEDED; user-facing recovery guidance.}
     ConstructionOperationCapability:
       type: object
       additionalProperties: false
@@ -3789,6 +3819,54 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         previewStatus: {type: string, enum: [READY, NEEDS_REPAIR]}
+        previewDurationMs: {type: integer, format: int64, minimum: 0}
+        preview: {$ref: '#/components/schemas/PreviewResponse'}
+    ConstructionChoiceProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [commandId, snapshotToken, expectedDraftVersion, expectedDraftDigest, outputId, constructionChoices]
+      properties:
+        commandId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        expectedDraftVersion: {type: integer, minimum: 1}
+        expectedDraftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        constructionChoices:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/ConstructionChoiceProposalSelection'}
+        limit: {type: integer, minimum: 1, maximum: 1000}
+    ConstructionChoiceProposalSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, form]
+      properties:
+        choiceId: {type: string, minLength: 1, maxLength: 16384}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        title: {type: string}
+    ConstructionChoiceProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [commandId, snapshotToken, draftVersion, draftDigest, outputId, constructionChoices, candidateWorkspaceDigest, candidateColumnIds, previewStatus, previewDurationMs, preview]
+      properties:
+        commandId: {type: string, minLength: 1}
+        snapshotToken: {type: string, minLength: 1}
+        draftVersion: {type: integer, minimum: 1}
+        draftDigest: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        constructionChoices:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: '#/components/schemas/ConstructionChoiceProposalSelection'}
+        candidateWorkspaceDigest: {type: string, minLength: 1}
+        candidateColumnIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {type: string, minLength: 1}
+        previewStatus: {type: string, enum: [READY]}
         previewDurationMs: {type: integer, format: int64, minimum: 0}
         preview: {$ref: '#/components/schemas/PreviewResponse'}
     TableShapeCapabilitiesRequest:
