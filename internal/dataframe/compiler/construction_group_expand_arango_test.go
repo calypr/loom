@@ -94,6 +94,16 @@ func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) 
 	if !strings.Contains(keyedQuery.Query, "WITH COUNT INTO ") || !strings.Contains(keyedQuery.Query, "CONSTRUCTION_GROUP_MISSING_KEY") {
 		t.Fatalf("keyed count query did not retain its missing-key error behavior:\n%s", keyedQuery.Query)
 	}
+	keyed := constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup)
+	keyed.Fields = append(keyed.Fields, recipe.Field{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}})
+	keyed.Construction.SourceColumns = append(keyed.Construction.SourceColumns, recipe.StageColumn{ID: "amount_id", Name: "amount", Type: "decimal"})
+	pruned := compileConstructionOutputQuery(t, keyed, "construction-count-rows-only", "generation-count-rows-only")
+	if !strings.Contains(pruned.Query, "root.payload.status") || strings.Contains(pruned.Query, "root.payload.valueQuantity.value") {
+		t.Fatalf("keyed count query projected an unused source field:\n%s", pruned.Query)
+	}
+	if !strings.Contains(pruned.Query, "SORT __loom_construction_group_key_1 ASC") || strings.Contains(pruned.Query, "SORT __loom_construction_final_row.__loom_row_id") {
+		t.Fatalf("group query did not preserve its key order without a second final sort:\n%s", pruned.Query)
+	}
 }
 
 func TestConstructionExpandPreserveAndGroupNullKeyRowsAgainstArango(t *testing.T) {

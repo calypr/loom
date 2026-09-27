@@ -17,6 +17,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
+	pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	source, err := RenderPhysicalPlan(sourcePlan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
@@ -125,7 +126,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	}
 	finalRow := "__loom_construction_final_row"
 	lines = append(lines, fmt.Sprintf("FOR %s IN %s", finalRow, priorRows))
-	lines = append(lines, fmt.Sprintf("SORT %s.%s ASC", finalRow, sequence.FinalRowIdentity))
+	if len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp {
+		lines = append(lines, fmt.Sprintf("SORT %s.%s ASC", finalRow, sequence.FinalRowIdentity))
+	}
 	if sequence.PreviewLimitBindKey != "" {
 		lines = append(lines, "LIMIT @"+sequence.PreviewLimitBindKey)
 	}
@@ -178,6 +181,38 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+}
+
+func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence) {
+	if sequence.CellTraceReturn != nil || len(sequence.Stages) == 0 {
+		return
+	}
+	groupStage := sequence.Stages[0]
+	if groupStage.Kind != ir.PhysicalStageGroupOp || groupStage.Group == nil || groupStage.InputStageID != sequence.SourceStageID {
+		return
+	}
+	required := make(map[string]bool, len(groupStage.Group.Keys)+len(groupStage.Group.Aggregates))
+	for _, key := range groupStage.Group.Keys {
+		required[key.InputColumn] = true
+	}
+	for _, aggregate := range groupStage.Group.Aggregates {
+		if aggregate.InputColumn != "" {
+			required[aggregate.InputColumn] = true
+		}
+	}
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		projections := operation.Return.Projections[:0]
+		for _, projection := range operation.Return.Projections {
+			if projection.Hidden || required[projection.Name] {
+				projections = append(projections, projection)
+			}
+		}
+		operation.Return.Projections = projections
+	}
 }
 
 // pruneUnusedRelatedOutputsForCountRows keeps row-changing stages intact and
