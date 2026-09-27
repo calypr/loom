@@ -115,6 +115,8 @@ func classifyMaterializationError(stage string, err error) error {
 		instruction := "Update the feature policy, then publish again."
 		if userErr.Code() == string(dataframeerrors.CodeRelationshipCardinalityViolation) {
 			instruction = "Choose how multiple related values should be reduced, then publish again."
+		} else if userErr.Code() == string(dataframeerrors.CodeConstructionExpansionEmpty) {
+			instruction = "Choose EXCLUDE or PRESERVE_PARENT for the empty-list policy, then publish again."
 		}
 		message := dataframeerrors.PublicMessage(err) + ". " + instruction + " The active revision was retained."
 		return failureDetails(ClassUnprocessable, stage, userErr.Code(), message, userErr.Details(), err)

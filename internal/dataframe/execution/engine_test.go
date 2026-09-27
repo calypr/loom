@@ -362,6 +362,18 @@ func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
 	}
 }
 
+func TestNormalizePreviewErrorKeepsUnknownBackendFailuresRetryable(t *testing.T) {
+	cause := errors.New("database connection refused")
+	err := normalizePreviewError(cause, true)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeBackendUnavailable) || !userErr.Retryable() {
+		t.Fatalf("normalized error = %#v, want retryable BACKEND_UNAVAILABLE", userErr)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatal("normalized backend error did not preserve the cause")
+	}
+}
+
 func TestValidatePreviewPlanRequiresCanonicalPhysicalClass(t *testing.T) {
 	valid := compiler.CompiledQuery{PlanMode: previewPlanMode, PlanProfile: previewPlanProfile, Limit: 2, PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: "fingerprint"}}
 	if err := validatePreviewPlan(valid, 2, ir.PhysicalEngineAQL); err != nil {

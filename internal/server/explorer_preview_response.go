@@ -61,6 +61,7 @@ func previewRouteError(err error) error {
 		case string(dataframeerrors.CodePlanTooExpensive):
 			return &explorer.AuthoringError{Status: 429, Diagnostic: explorer.AuthoringDiagnostic{Severity: "ERROR", Stage: "preview", Code: userErr.Code(), Message: dataframeerrors.PublicMessage(err)}, Cause: err}
 		case string(dataframeerrors.CodeRelationshipCardinalityViolation),
+			string(dataframeerrors.CodeConstructionExpansionEmpty),
 			string(dataframeerrors.CodeTemporalAnchorInvalid),
 			string(dataframeerrors.CodeTemporalPrecisionUnsupported),
 			string(dataframeerrors.CodeTemporalTieAmbiguous),

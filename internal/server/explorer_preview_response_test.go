@@ -103,6 +103,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"oversized", &previewResponseTooLargeError{Limit: 32}, http.StatusRequestEntityTooLarge, "RESPONSE_TOO_LARGE"},
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
+		{"construction-expansion-empty", dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, ""), http.StatusUnprocessableEntity, "CONSTRUCTION_EXPANSION_EMPTY"},
 		{"temporal-anchor", dataframeerrors.NewError(dataframeerrors.CodeTemporalAnchorInvalid, "private"), http.StatusUnprocessableEntity, "TEMPORAL_ANCHOR_INVALID"},
 		{"temporal-precision", dataframeerrors.NewError(dataframeerrors.CodeTemporalPrecisionUnsupported, "private"), http.StatusUnprocessableEntity, "TEMPORAL_PRECISION_UNSUPPORTED"},
 		{"temporal-tie", dataframeerrors.NewError(dataframeerrors.CodeTemporalTieAmbiguous, "private"), http.StatusUnprocessableEntity, "TEMPORAL_TIE_AMBIGUOUS"},
@@ -120,6 +121,17 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 				t.Fatalf("error=%#v, want status=%d code=%s", got, test.status, test.code)
 			}
 		})
+	}
+}
+
+func TestConstructionExpansionEmptyPreviewErrorIsActionable(t *testing.T) {
+	var got *explorer.AuthoringError
+	if !errors.As(previewRouteError(dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, "")), &got) {
+		t.Fatal("previewRouteError() did not return an authoring error")
+	}
+	want := "an expanded list is empty for at least one row; choose EXCLUDE or PRESERVE_PARENT, or populate the list"
+	if got.Status != http.StatusUnprocessableEntity || got.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) || got.Diagnostic.Message != want {
+		t.Fatalf("diagnostic = %#v, want 422 %s with actionable message", got.Diagnostic, dataframeerrors.CodeConstructionExpansionEmpty)
 	}
 }
 

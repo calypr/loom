@@ -24,7 +24,7 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeDynamicSchemaDrift, CodeRecipeContractViolation,
 		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
 		CodePreviewResponseTooLarge, CodeQueryMemoryLimitExceeded, CodeQueryResourceLimitExceeded, CodeQueryBackendOutOfMemory,
-		CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible,
+		CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty,
 	}
 	seen := make(map[ErrorCode]struct{}, len(codes))
 	for _, code := range codes {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 func (r *physicalPlanRenderer) renderConstructionExpandStage(stage ir.PhysicalConstructionStage) ([]string, error) {
@@ -29,7 +30,7 @@ func (r *physicalPlanRenderer) renderConstructionExpandStage(stage ir.PhysicalCo
 	identityColumnBind := r.newInternalBindKey("construction_expand_identity_column")
 	r.bindVars[identityColumnBind] = identityColumn
 	rawVariable := r.newInternalVariable("construction_expand_raw")
-	errorMessage := fmt.Sprintf("CONCAT(\"row expansion construction \", @%s, \" has no items for row \", %s[@%s])", expand.ConstructionIDBindKey, stage.InputRowVariable, identityColumnBind)
+	errorMessage := fmt.Sprintf("CONCAT(\"%s: construction \", @%s, \" has no items for row \", %s[@%s])", dataframeerrors.CodeConstructionExpansionEmpty, expand.ConstructionIDBindKey, stage.InputRowVariable, identityColumnBind)
 	lines := []string{
 		fmt.Sprintf("  LET %s = %s[@%s]", rawVariable, stage.InputRowVariable, columnBind),
 		fmt.Sprintf("  FILTER ASSERT(%s == null OR IS_ARRAY(%s), \"CONSTRUCTION_EXPAND_ARRAY_TYPE_MISMATCH\")", rawVariable, rawVariable),

@@ -77,6 +77,31 @@ func TestClassifyDataframeQueryErrorPreservesRelationshipCardinalityViolation(t 
 	}
 }
 
+func TestClassifyDataframeQueryErrorPreservesEmptyConstructionExpansion(t *testing.T) {
+	driverErr := shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: CONSTRUCTION_EXPANSION_EMPTY: construction expand_tags has no items for row row-17 (while executing)",
+	}
+	err := classifyDataframeQueryError(driverErr)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeConstructionExpansionEmpty) || userErr.Retryable() {
+		t.Fatalf("classified error=%#v, want non-retryable %s", userErr, dataframeerrors.CodeConstructionExpansionEmpty)
+	}
+	if !errors.Is(err, driverErr) {
+		t.Fatal("classified error did not preserve the Arango cause")
+	}
+}
+
+func TestClassifyDataframeQueryErrorDoesNotInferEmptyExpansionFromMessage(t *testing.T) {
+	driverErr := shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: row expansion construction expand_tags has no items for row row-17 (while executing)",
+	}
+	if got := classifyDataframeQueryError(driverErr); got != driverErr {
+		t.Fatalf("classifyDataframeQueryError() = %v, want original unrecognized assertion", got)
+	}
+}
+
 func TestClassifyDataframeQueryErrorPreservesTemporalAssertions(t *testing.T) {
 	tests := []dataframeerrors.ErrorCode{
 		dataframeerrors.CodeTemporalAnchorInvalid,

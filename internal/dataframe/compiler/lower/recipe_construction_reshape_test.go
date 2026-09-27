@@ -120,6 +120,33 @@ func TestConstructionExpandExcludeUsesRequiredItemAndOrdinal(t *testing.T) {
 	}
 }
 
+func TestConstructionExpandErrorUsesStableAssertionCode(t *testing.T) {
+	output := recipe.Output{
+		Name: "construction_expand_error", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll}},
+		Construction: &recipe.Construction{
+			Version:       1,
+			SourceColumns: []recipe.StageColumn{{ID: "tags_id", Name: "tags"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "expand_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
+					ConstructionID: "expand_tag_values", InputColumnID: "tags_id", OutputColumnID: "tag_id",
+					OrdinalColumnID: "ordinal_id", EmptyPolicy: recipe.ExpansionError,
+				}},
+				Outputs: []recipe.StageColumn{{ID: "tag_id", Name: "tag"}, {ID: "ordinal_id", Name: "ordinal"}},
+			}},
+		},
+	}
+	compiled := compileDerivedTestOutput(t, output)
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "CONSTRUCTION_EXPANSION_EMPTY: construction ") {
+		t.Fatalf("ERROR empty policy omitted its stable assertion code:\n%s", rendered.Query)
+	}
+}
+
 func TestConstructionGroupAllowsZeroKeysAndExplicitCountSemantics(t *testing.T) {
 	output := recipe.Output{
 		Name: "construction_summary", RootResourceType: "Observation", RowGrain: "observation",

@@ -1049,6 +1049,7 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 
 func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *testing.T) {
 	for _, code := range []dataframeerrors.ErrorCode{
+		dataframeerrors.CodeConstructionExpansionEmpty,
 		dataframeerrors.CodeTemporalAnchorInvalid,
 		dataframeerrors.CodeTemporalPrecisionUnsupported,
 		dataframeerrors.CodeTemporalTieAmbiguous,
@@ -1061,6 +1062,10 @@ func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *test
 			}
 			if !strings.Contains(lifecycleErr.Message, "active revision was retained") {
 				t.Fatalf("message = %q", lifecycleErr.Message)
+			}
+			if code == dataframeerrors.CodeConstructionExpansionEmpty &&
+				(!strings.Contains(lifecycleErr.Message, "EXCLUDE") || !strings.Contains(lifecycleErr.Message, "PRESERVE_PARENT")) {
+				t.Fatalf("empty expansion message = %q, want both supported empty-list policies", lifecycleErr.Message)
 			}
 		})
 	}

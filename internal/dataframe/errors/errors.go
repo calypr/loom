@@ -72,13 +72,14 @@ const (
 	CodeTemporalTieAmbiguous             ErrorCode = "TEMPORAL_TIE_AMBIGUOUS"
 	CodeUnitIdentityUnknown              ErrorCode = "UNIT_IDENTITY_UNKNOWN"
 	CodeUnitDimensionIncompatible        ErrorCode = "UNIT_DIMENSION_INCOMPATIBLE"
+	CodeConstructionExpansionEmpty       ErrorCode = "CONSTRUCTION_EXPANSION_EMPTY"
 )
 
 // IsFeatureResolutionCode identifies data-dependent feature policies that a
 // Builder user can resolve without an operator or a retry.
 func IsFeatureResolutionCode(code string) bool {
 	switch ErrorCode(code) {
-	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible:
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty:
 		return true
 	default:
 		return false
@@ -394,6 +395,8 @@ func defaultMessage(code ErrorCode) string {
 		return "a measurement has no approved source unit identity"
 	case CodeUnitDimensionIncompatible:
 		return "a measurement unit is dimensionally incompatible with the feature target"
+	case CodeConstructionExpansionEmpty:
+		return "an expanded list is empty for at least one row; choose EXCLUDE or PRESERVE_PARENT, or populate the list"
 	default:
 		return "internal server error"
 	}
