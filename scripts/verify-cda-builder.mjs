@@ -1368,7 +1368,7 @@ try {
     await writeFile(join(evidenceDirectory,'specimen-subject-group-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
     assert(elapsedMs<=5000,`Specimen subject group proposal took ${elapsedMs} ms`);
-  } else if (action === 'Discover Specimen pivot categories performance') {
+  } else if (action === 'Discover Specimen pivot categories performance' || action === 'Preview Specimen pivot performance') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Turn categories into columns')`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
@@ -1386,7 +1386,20 @@ try {
     await writeFile(join(evidenceDirectory,'specimen-pivot-discovery-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,responses:responses.filter(response=>response.path.includes('pivot')||response.path.includes('categor'))},null,2));
     assert(state.categories.length>0,`Pivot category discovery did not return categories: ${state.alerts.join('; ')}`);
-    assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
+    if (action === 'Discover Specimen pivot categories performance') assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
+    if (action === 'Preview Specimen pivot performance') {
+      await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot unlisted category policy"]');select.value='EXCLUDE_WITH_EVIDENCE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+      const proposalStarted=Date.now();
+      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category Null"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 60000);
+      const proposalMs=Date.now()-proposalStarted;
+      const proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+      await writeFile(join(evidenceDirectory,'specimen-pivot-proposal-performance.json'),JSON.stringify({pageURL,discoveryMs:elapsedMs,proposalMs,gateMs:5000,proposal,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,discoveryMs:elapsedMs,proposalMs,gateMs:5000,proposal,responses:responses.filter(response=>response.path.endsWith('/construction-proposals'))},null,2));
+      assert.equal(proposal.status,'ready',proposal.panel);
+      assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
+      assert(proposalMs<=5000,`Specimen pivot proposal took ${proposalMs} ms`);
+    }
   } else if (action === 'Expand Specimen Patient performance') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Expand related records')`, 30000);
