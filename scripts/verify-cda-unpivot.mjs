@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev.mjs';
 
 const explorerId = process.argv[2] ?? 'cda-builder-full-qa-1790440983382';
-const pageURL = `http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
+const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
+const pageURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const browser = await launchBrowser('/private/tmp');
 const requests = [];
@@ -63,6 +65,18 @@ try {
   assert(sourcePreview.columns.some(column=>column.label==='collection.bodySite.reference.reference'));
   assert(sourcePreview.rows.some(row=>row['col_69ee827a3bd92ad6cb1c86c0']?.startsWith('Patient/')));
   assert(sourcePreview.rows.some(row=>row['col_d9e50113230ca5d6c7600beb']?.startsWith('BodyStructure/')));
+  const sourceIds = sourcePreview.rows.map(row=>row['col_17edcedbd7920c717b54b398']);
+  const sourceAQL = `FOR d IN Specimen FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(sourceIds)} RETURN {id:d.id,subject:d.payload.subject.reference,bodySite:d.payload.collection.bodySite.reference.reference}`;
+  const sourceScript = `print(JSON.stringify(db._query(${JSON.stringify(sourceAQL)}).toArray()))`;
+  const sourceOutput = execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',sourceScript],{encoding:'utf8',maxBuffer:200000});
+  const sourceRecords = JSON.parse(sourceOutput.slice(sourceOutput.indexOf('[')));
+  const sourceById = new Map(sourceRecords.map(row=>[row.id,row]));
+  assert.equal(sourceById.size,sourceIds.length,'The CDA source oracle did not return every previewed Specimen');
+  for(const row of sourcePreview.rows){
+    const record=sourceById.get(row['col_17edcedbd7920c717b54b398']);
+    assert.equal(row['col_69ee827a3bd92ad6cb1c86c0'],record.subject);
+    assert.equal(row['col_d9e50113230ca5d6c7600beb'],record.bodySite);
+  }
 
   await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn columns into rows')))`, 30000);
@@ -94,6 +108,10 @@ try {
   const savedHistory = await browserEval(browser.cdp, `return document.querySelector('[data-testid^="construction-history-step-"]')?.innerText;`);
   await navigate(browser.cdp, pageURL);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')&&document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+  let historyLabelsResolved = true;
+  try {
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('a column as')`, 3000);
+  } catch { historyLabelsResolved = false; }
   const reloadedHistory = await browserEval(browser.cdp, `return document.querySelector('[data-testid^="construction-history-step-"]')?.innerText;`);
   const appliedPreviewStart = responses.length;
   await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview'&&!button.disabled)?.click();return true;`);
@@ -102,6 +120,14 @@ try {
   const appliedPreview = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId:appliedPreviewResponse.requestId })).body);
   const appliedRows = appliedPreview.rows.map(row=>({ id:row['col_17edcedbd7920c717b54b398'], key:row.qa_unpivot_key, value:row.qa_unpivot_value }));
   const proposedRows = proposalBody.preview.rows.map(row=>({ id:row['col_17edcedbd7920c717b54b398'], key:row.qa_unpivot_key, value:row.qa_unpivot_value }));
+  assert(appliedRows.every(row=>fields.includes(row.key)), 'Unpivot key values should name visible source fields, not internal column IDs');
+  assert(fields.every(field=>appliedRows.some(row=>row.key===field)), 'Both chosen source fields should appear as unpivot keys');
+  assert(!reloadedHistory.includes('col_'), 'Saved Unpivot summary should not expose internal column IDs');
+  for(const row of appliedRows){
+    const record=sourceById.get(row.id);
+    assert(record,'An Unpivot row has no CDA source Specimen');
+    assert.equal(row.value,row.key==='subject.reference'?record.subject:record.bodySite,'An Unpivot value differs from its CDA source field');
+  }
   assert.equal(appliedPreview.rowCount, proposalBody.preview.rowCount, 'Applied preview row count differs from the reviewed proposal');
   assert.deepEqual(appliedRows, proposedRows, 'Applied preview values differ from the reviewed proposal sample');
   await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
@@ -144,9 +170,10 @@ try {
   const expectedRows = sourcePreview.rows.map(row=>({ id:row['col_17edcedbd7920c717b54b398'], subject:row['col_69ee827a3bd92ad6cb1c86c0'], bodySite:row['col_d9e50113230ca5d6c7600beb'] }));
   assert.deepEqual(restoredRows, expectedRows, 'Removing the unpivot should restore the original source rows exactly');
   await mkdir(evidenceDirectory, { recursive: true });
-  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourcePreview: { outputId:sourcePreview.outputId, rowCount:sourcePreview.rowCount, columns:sourcePreview.columns, rows:expectedRows }, editor, configured, proposal, savedHistory, reloadedHistory, appliedPreview: { rowCount:appliedPreview.rowCount, columns:appliedPreview.columns, rows:appliedRows }, restoredEditor, removeProposalRequest:JSON.parse(removeProposalRequest.postData), removeProposal, removeProposalStatus:removeProposalResponse.status, removeApplyStatus:removeCommandResponse.status, restored: { outputId:restoredBody.outputId, rowCount:restoredBody.rowCount, columns:restoredBody.columns, rows:restoredRows }, requests, responses }, null, 2));
+  await writeFile(join(evidenceDirectory, 'unpivot-end-to-end.json'), JSON.stringify({ pageURL, before, currentColumns, sourceRecords, sourcePreview: { outputId:sourcePreview.outputId, rowCount:sourcePreview.rowCount, columns:sourcePreview.columns, rows:expectedRows }, editor, configured, proposal, savedHistory, reloadedHistory, historyLabelsResolved, appliedPreview: { rowCount:appliedPreview.rowCount, columns:appliedPreview.columns, rows:appliedRows }, restoredEditor, removeProposalRequest:JSON.parse(removeProposalRequest.postData), removeProposal, removeProposalStatus:removeProposalResponse.status, removeApplyStatus:removeCommandResponse.status, restored: { outputId:restoredBody.outputId, rowCount:restoredBody.rowCount, columns:restoredBody.columns, rows:restoredRows }, requests, responses }, null, 2));
   console.log(JSON.stringify({ evidenceDirectory, sourcePreview:{rowCount:sourcePreview.rowCount,columns:sourcePreview.columns.map(column=>column.label),firstRows:expectedRows.slice(0,3)},proposal:proposalSummary,savedHistory,reloadedHistory,appliedPreview:{rowCount:appliedPreview.rowCount,rows:appliedRows.slice(0,3)},restoredEditor:restoredEditor.inputs.filter(input=>input.checked||input.label?.startsWith('Unpivot key output')||input.label?.startsWith('Unpivot value output')),removeProposal,removeProposalStatus:removeProposalResponse.status,removeApplyStatus:removeCommandResponse.status,restored:{rowCount:restoredBody.rowCount,columns:restoredBody.columns.map(column=>column.label),firstRows:restoredRows.slice(0,3)},publishRequests:requests.filter(request=>request.path.endsWith('/publish'))}, null, 2));
   assert.equal(restoredBody.rowCount, sourcePreview.rowCount, 'Restored preview row count differs from source');
+  assert(historyLabelsResolved, 'Saved Unpivot history did not resolve the selected field labels');
   assert.deepEqual(requests.filter(request=>request.path.endsWith('/publish')), [], 'Focused unpivot verification must not publish');
 } finally {
   await browser.close();

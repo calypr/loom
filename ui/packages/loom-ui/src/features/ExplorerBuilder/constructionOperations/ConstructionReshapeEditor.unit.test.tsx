@@ -358,7 +358,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(screen.getByTestId('construction-reshape-choice-expand')).toBeDisabled();
-    expect(screen.getByText('No field with multiple values is available at this stage.')).toBeInTheDocument();
+    expect(screen.getByText('Add a column with multiple values before expanding it.')).toBeInTheDocument();
   });
 
   it('reopens an existing expand with its stable IDs, names, policy, and history edit action', () => {
@@ -503,6 +503,25 @@ describe('ConstructionReshapeEditor', () => {
       />,
     );
     expect(screen.getByText('Not found in the latest category list')).toBeInTheDocument();
+  });
+
+  it('uses visible, distinct column labels as new unpivot keys', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+        { id: 'opaque-b', name: 'col_opaque_b', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: capabilitiesFor([unpivotStage], unpivotStage),
+      selectedColumns: ['opaque-a', 'opaque-b'],
+    });
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-unpivot'));
+    expect(controlValue('Unpivot key value opaque-a')).toBe('Patient reference');
+    expect(controlValue('Unpivot key value opaque-b')).toBe('Patient reference (2)');
   });
 
   it('reopens an unpivot with exact typed keys and edits output metadata without changing its mapping', () => {

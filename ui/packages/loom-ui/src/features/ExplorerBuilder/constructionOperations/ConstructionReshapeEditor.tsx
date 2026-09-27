@@ -803,10 +803,20 @@ const initialPivotForm = (
   };
 };
 
-const defaultKeyForColumn = (column: ReshapeColumn | undefined): ConstructionTableScalar => ({
-  kind: 'STRING',
-  string: column?.name ?? 'value',
-});
+const defaultKeyForColumn = (
+  column: ReshapeColumn | undefined,
+  inputs: ReadonlyArray<UnpivotInputForm> = [],
+): ConstructionTableScalar => {
+  const label = column?.label.trim() || column?.name || 'value';
+  const used = new Set(inputs.flatMap((input) =>
+    input.key.kind === 'STRING' ? [input.key.string.toLowerCase()] : [],
+  ));
+  let value = label;
+  for (let suffix = 2; used.has(value.toLowerCase()); suffix += 1) {
+    value = `${label} (${suffix})`;
+  }
+  return { kind: 'STRING', string: value };
+};
 
 const initialUnpivotForm = (
   stage: ReshapeStage,
@@ -832,10 +842,11 @@ const initialUnpivotForm = (
       savedOutputs: editingStep.outputs,
     };
   }
-  const initialInputs = selectedColumns.flatMap((columnId) => {
+  const initialInputs = selectedColumns.reduce<UnpivotInputForm[]>((inputs, columnId) => {
     const column = stage.columns.find((candidate) => candidate.id === columnId);
-    return column ? [{ columnId, key: defaultKeyForColumn(column) }] : [];
-  });
+    if (column) inputs.push({ columnId, key: defaultKeyForColumn(column, inputs) });
+    return inputs;
+  }, []);
   return {
     kind: 'unpivot',
     stepId: createOpaqueId('unpivot'),
@@ -1956,7 +1967,7 @@ const UnpivotEditor = (props: {
   });
   const toggleInput = (column: ReshapeColumn, checked: boolean) => {
     const inputs = checked
-      ? [...props.form.inputs, { columnId: column.id, key: defaultKeyForColumn(column) }]
+      ? [...props.form.inputs, { columnId: column.id, key: defaultKeyForColumn(column, props.form.inputs) }]
       : props.form.inputs.filter((input) => input.columnId !== column.id);
     props.onChange({ ...props.form, inputs });
   };
