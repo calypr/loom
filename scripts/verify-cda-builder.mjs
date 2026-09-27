@@ -1118,6 +1118,48 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'filter-removed.json'),JSON.stringify({pageURL,proposed,restored,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,proposed,restored,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
+  } else if (action === 'Edit saved missing filter') {
+    const bodySite='BodyStructure/4e5ae09f-f81e-5126-a6d9-97ac10405700';
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]'))`, 30000);
+    const before=await browserEval(browser.cdp, `return {column:document.querySelector('select[aria-label="Column"]')?.selectedOptions[0]?.textContent,condition:document.querySelector('select[aria-label="Condition"]')?.value};`);
+    assert.equal(before.condition,'MISSING');
+    const priorProposals=responses.filter(response=>response.path.endsWith('/construction-proposals')).length;
+    const started=Date.now();
+    await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Condition"]');select.value='EQUALS';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]'))`, 30000);
+    await browserEval(browser.cdp, `setInput('Value',${JSON.stringify(bodySite)});return true;`);
+    while (responses.filter(response=>response.path.endsWith('/construction-proposals')).length===priorProposals && Date.now()-started<10000) await new Promise(resolve=>setTimeout(resolve,25));
+    try {
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='error' || (document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.includes('77d5efff-e239-57d9-88ac-bbb6394872fe'))`, 15000);
+    } catch (error) {
+      const diagnostic=await browserEval(browser.cdp, `return {editor:document.querySelector('[data-testid="construction-filter-editor"]')?.innerText,condition:document.querySelector('select[aria-label="Condition"]')?.value,proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText),body:document.body.innerText.slice(0,1600)};`);
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'missing-filter-edit-timeout.json'),JSON.stringify({pageURL,before,diagnostic,responses},null,2));
+      throw error;
+    }
+    const proposalMs=Date.now()-started;
+    const proposed=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1100),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1100)};`);
+    if (proposed.status!=='ready') {
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'missing-filter-edit-failure.json'),JSON.stringify({pageURL,before,proposalMs,proposed,responses},null,2));
+      throw new Error(`equality edit proposal failed: ${proposed.panel}`);
+    }
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('equals')`, 30000);
+    await navigate(browser.cdp,pageURL);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes('equals')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'`, 30000);
+    const saved=await browserEval(browser.cdp, `return {history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+    assert(saved.rows.some(row=>row[0]==='77d5efff-e239-57d9-88ac-bbb6394872fe'));
+    assert(saved.rows.every(row=>row[2]===bodySite),'edited equality preview showed a different body-site value');
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'missing-filter-edited.json'),JSON.stringify({pageURL,before,proposalMs,proposed,saved,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,proposalMs,saved,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
   } else if (action === 'Edit saved filter') {
     const nextId='77d5efff-e239-57d9-88ac-bbb6394872fe';
     await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`, 30000);
@@ -1326,6 +1368,25 @@ try {
     await writeFile(join(evidenceDirectory,'specimen-subject-group-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
     assert(elapsedMs<=5000,`Specimen subject group proposal took ${elapsedMs} ms`);
+  } else if (action === 'Discover Specimen pivot categories performance') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Turn categories into columns')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 30000);
+    await browserEval(browser.cdp, `const category=document.querySelector('select[aria-label="Pivot category field"]');category.value=[...category.options].find(option=>option.textContent==='collection.bodySite.reference.reference').value;category.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await browserEval(browser.cdp, `const value=document.querySelector('select[aria-label="Pivot values field"]');value.value=[...value.options].find(option=>option.textContent.startsWith('subject.reference')).value;value.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+    await browserEval(browser.cdp, `document.querySelector('input[aria-label="Pivot group Specimen ID"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values'&&!button.disabled))`, 30000);
+    const started=Date.now();
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values').click();return true;`);
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding category values…') && (Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] fieldset input[aria-label^="Include category"]')) || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('No categories were found') || !document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Find category values for the selected fields before applying this pivot.'))`, 60000);
+    const elapsedMs=Date.now()-started;
+    const state=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2000),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>input.getAttribute('aria-label')),alerts:[...editor.querySelectorAll('[role="status"]')].map(item=>item.innerText)};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'specimen-pivot-discovery-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,responses:responses.filter(response=>response.path.includes('pivot')||response.path.includes('categor'))},null,2));
+    assert(state.categories.length>0,`Pivot category discovery did not return categories: ${state.alerts.join('; ')}`);
+    assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
   } else if (action === 'Expand Specimen Patient performance') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Expand related records')`, 30000);
