@@ -99,6 +99,12 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	}
 	valueTypeBind := r.newInternalBindKey("reshape_value_type")
 	r.bindVars[valueTypeBind] = valueType
+	if r.dynamicPivotPreview && !pivot.OneInputRowPerGroup {
+		return r.renderGroupedTablePivotDynamicPreview(
+			pivot, lines, categoryColumnBind, valueColumnBind, categoryPresenceBind,
+			categoryTypeBind, valueTypeBind, previewIdentityVariable,
+		)
+	}
 	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+len(pivot.Categories)+2)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output

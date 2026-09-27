@@ -30,6 +30,24 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlan(plan, "")
 }
 
+// RenderPhysicalPlanWithDynamicCategoryPivotPreview renders a terminal
+// nonunique Pivot preview with category specifications supplied as one bind
+// array. Full execution continues to use the canonical static renderer.
+func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a terminal Pivot preview")
+	}
+	stage := sequence.Stages[0]
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
+		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a nonunique terminal Pivot")
+	}
+	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{dynamicPivotPreview: true})
+}
+
 // RenderPhysicalPlanWithTwoScanPivotPreview renders a terminal Pivot preview
 // by selecting complete group tuples before reading their contributing source
 // rows. The caller must prove the source projection is a direct, terminal
@@ -70,6 +88,7 @@ func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint s
 	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
 		rootIndexHint:            indexHint,
 		twoScanPivotPreview:      true,
+		dynamicPivotPreview:      true,
 		pivotGroupKeySourcePaths: groupKeySourcePaths,
 	})
 }
@@ -78,6 +97,7 @@ type physicalRenderOptions struct {
 	rootIndexHint            string
 	internalPrefix           string
 	twoScanPivotPreview      bool
+	dynamicPivotPreview      bool
 	pivotGroupKeySourcePaths [][]string
 	pivotGroupTupleFilter    *pivotGroupTupleFilter
 }
@@ -161,6 +181,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		collectionKeys:      collectionKeys,
 		rootIndexHint:       options.rootIndexHint,
 		internalPrefix:      options.internalPrefix,
+		dynamicPivotPreview: options.dynamicPivotPreview,
 		setVariables:        map[string]string{},
 		reservedVars:        physicalPlanVariableNames(plan),
 		rootVariable:        layout.root.Variable,
@@ -385,6 +406,7 @@ type physicalPlanRenderer struct {
 	rootVariable        string
 	cellTrace           *ir.PhysicalCellTraceReturn
 	tableShapeExclusion *ir.PhysicalTableShapeExclusionReturn
+	dynamicPivotPreview bool
 }
 
 func (r *physicalPlanRenderer) renderExpressionLet(operation ir.PhysicalOperation, indent string) ([]string, error) {

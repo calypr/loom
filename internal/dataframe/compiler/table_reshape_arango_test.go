@@ -207,6 +207,167 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 	}
 }
 
+func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_dynamic_pivot_" + uuid.NewString()
+	const generation = "generation-dynamic-pivot-preview"
+	rows := []struct {
+		id, group string
+		category  *string
+		value     int
+	}{
+		{id: "a-alpha-1", group: "A", category: reshapeOracleStringPointer("alpha"), value: 2},
+		{id: "a-alpha-2", group: "A", category: reshapeOracleStringPointer("alpha"), value: 4},
+		{id: "a-beta", group: "A", category: reshapeOracleStringPointer("beta"), value: 3},
+		{id: "a-null", group: "A", value: 5},
+		{id: "b-alpha", group: "B", category: reshapeOracleStringPointer("alpha"), value: 10},
+	}
+	documents := make([]json.RawMessage, 0, len(rows))
+	for _, row := range rows {
+		payload := map[string]any{
+			"id": row.id, "resourceType": "Observation", "status": row.group,
+			"valueInteger": row.value,
+		}
+		payload["valueString"] = row.category
+		document, err := json.Marshal(map[string]any{
+			"_key": project + "_" + row.id, "id": row.id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Observation", "payload": payload,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, "Observation", documents, false, "document"); err != nil {
+		t.Fatalf("insert dynamic pivot fixture: %v", err)
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if err := client.ExecuteAQL(cleanupCtx,
+			`FOR document IN @@collection FILTER document.project == @project REMOVE document IN @@collection`,
+			map[string]interface{}{"@collection": "Observation", "project": project}); err != nil {
+			t.Errorf("remove dynamic pivot fixture: %v", err)
+		}
+	}()
+
+	for _, policy := range []recipe.PivotDuplicatePolicy{
+		recipe.PivotDuplicateSum, recipe.PivotDuplicateMin, recipe.PivotDuplicateMax,
+	} {
+		output := dynamicConstructionPivotOutput(policy)
+		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		if err != nil {
+			t.Fatalf("build %s plan: %v", policy, err)
+		}
+		resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+		if err != nil {
+			t.Fatalf("resolve %s plan: %v", policy, err)
+		}
+		compile := func(limit int) CompiledQuery {
+			t.Helper()
+			queries, compileErr := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+			if compileErr != nil {
+				t.Fatalf("compile %s Pivot preview: %v", policy, compileErr)
+			}
+			return queries[0]
+		}
+		staticRows := executeReshapeOracleQuery(t, ctx, client, compile(0))
+		preview := compile(10)
+		if !strings.Contains(preview.Query, "reshape_category_specs") {
+			t.Fatalf("%s preview did not use dynamic category specs:\n%s", policy, preview.Query)
+		}
+		previewRows := executeReshapeOracleQuery(t, ctx, client, preview)
+		if !reflect.DeepEqual(previewRows, staticRows) {
+			t.Fatalf("%s dynamic preview differs from static full result:\npreview=%#v\nstatic=%#v", policy, previewRows, staticRows)
+		}
+		if len(previewRows) != 2 {
+			t.Fatalf("%s Pivot rows = %d, want two groups: %#v", policy, len(previewRows), previewRows)
+		}
+		byGroup := make(map[string]map[string]any, len(previewRows))
+		for _, row := range previewRows {
+			group, ok := row["group"].(string)
+			if !ok {
+				t.Fatalf("group field = %#v, want string", row["group"])
+			}
+			byGroup[group] = row
+		}
+		expectedAlphaA := float64(6)
+		if policy == recipe.PivotDuplicateMin {
+			expectedAlphaA = 2
+		} else if policy == recipe.PivotDuplicateMax {
+			expectedAlphaA = 4
+		}
+		for group, expected := range map[string]map[string]any{
+			"A": {"alpha": expectedAlphaA, "beta": float64(3), "null_category": float64(5)},
+			"B": {"alpha": float64(10), "beta": nil, "null_category": nil},
+		} {
+			row := byGroup[group]
+			if row == nil {
+				t.Fatalf("%s Pivot omitted group %q: %#v", policy, group, previewRows)
+			}
+			for column, want := range expected {
+				if got := row[column]; !reflect.DeepEqual(got, want) {
+					t.Errorf("%s %s.%s = %#v, want %#v", policy, group, column, got, want)
+				}
+			}
+		}
+	}
+}
+
+func dynamicConstructionPivotOutput(policy recipe.PivotDuplicatePolicy) recipe.Output {
+	alpha, beta := "alpha", "beta"
+	return recipe.Output{
+		Name: "dynamic_pivot_" + strings.ToLower(string(policy)), RootResourceType: "Observation", RowGrain: "observation",
+		Fields: []recipe.Field{
+			{Name: "group", ColumnID: "group_id", Expr: recipe.Expression{Select: "root.status"}},
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.valueString"}},
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "group_id", Name: "group"}, {ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+			},
+			Steps: []recipe.ConstructionStep{{
+				ID: "dynamic_pivot_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+					ConstructionID: "dynamic_pivot_" + strings.ToLower(string(policy)), GroupKeyIDs: []string{"group_id"},
+					CategoryColumnID: "category_id", ValueColumnID: "amount_id",
+					Categories: []recipe.ConstructionPivotCategory{
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &alpha}, OutputColumnID: "alpha_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &beta}, OutputColumnID: "beta_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, OutputColumnID: "null_id"},
+					},
+					DuplicatePolicy: policy, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "group_id", Name: "group"}, {ID: "alpha_id", Name: "alpha"}, {ID: "beta_id", Name: "beta"},
+					{ID: "null_id", Name: "null_category"},
+				},
+			}},
+		},
+	}
+}
+
+func reshapeOracleStringPointer(value string) *string { return &value }
+
 func constructionPreviewMultiKeyPivotOutput() recipe.Output {
 	categoryFemale, categoryMale := "female", "male"
 	return recipe.Output{

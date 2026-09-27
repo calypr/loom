@@ -61,6 +61,8 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	var rendered aql.RenderedPhysicalPlan
 	if previewCoveringIndex != nil {
 		rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
+	} else if canRenderDynamicCategoryPivotPreview(physical) {
+		rendered, err = aql.RenderPhysicalPlanWithDynamicCategoryPivotPreview(physical)
 	} else {
 		rendered, err = aql.RenderPhysicalPlan(physical)
 	}
@@ -104,6 +106,18 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewCoveringIndex: previewCoveringIndex,
 		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+func canRenderDynamicCategoryPivotPreview(physical ir.PhysicalPlan) bool {
+	sequence := physical.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		return false
+	}
+	stage := sequence.Stages[0]
+	return stage.ID == sequence.FinalStageID && stage.InputStageID == sequence.SourceStageID &&
+		stage.Kind == ir.PhysicalStagePivotOp && stage.GroupedPivot != nil &&
+		!stage.GroupedPivot.OneInputRowPerGroup && len(stage.GroupedPivot.GroupKeys) > 0
 }
 
 func appendAuthResourcePathProjection(physical *ir.PhysicalPlan) error {

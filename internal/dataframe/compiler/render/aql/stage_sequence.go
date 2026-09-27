@@ -82,11 +82,12 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 	}
 	renderer := physicalPlanRenderer{
-		bindVars:       bindVars,
-		collectionKeys: collectionKeys,
-		setVariables:   map[string]string{},
-		reservedVars:   reservedVars,
-		internalPrefix: "construction_",
+		bindVars:            bindVars,
+		collectionKeys:      collectionKeys,
+		setVariables:        map[string]string{},
+		reservedVars:        reservedVars,
+		internalPrefix:      "construction_",
+		dynamicPivotPreview: options.dynamicPivotPreview,
 	}
 
 	lines := make([]string, 0, 16)
