@@ -90,6 +90,7 @@ import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
+import { PreviewValueCoverage } from './constructionWorkspace/PreviewValueCoverage';
 import {
   constructionHistorySteps,
 } from './constructionWorkspace/constructionHistory';
@@ -2479,9 +2480,12 @@ const BuilderWorkspaceContent = ({
       {choiceProposal.status === 'previewing' ? <p role="status" className="mt-2 text-sm text-slate-600">Rendering rows with the selected columns…</p> : null}
       {choiceProposal.status === 'error' ? <p role="alert" className="mt-2 text-sm text-red-800">{choiceProposal.message}</p> : null}
       {choiceProposal.status === 'ready' ? (
-        <p className="mt-2 text-sm text-slate-700">
-          {choiceProposal.response.candidateColumnIds.length} new {choiceProposal.response.candidateColumnIds.length === 1 ? 'column' : 'columns'} in the rendered row preview. Apply saves them to this table.
-        </p>
+        <>
+          <p className="mt-2 text-sm text-slate-700">
+            {choiceProposal.response.candidateColumnIds.length} new {choiceProposal.response.candidateColumnIds.length === 1 ? 'column' : 'columns'} in the rendered row preview. Apply saves them to this table.
+          </p>
+          <PreviewValueCoverage preview={choiceProposal.response.preview} columnIds={choiceProposal.response.candidateColumnIds} />
+        </>
       ) : null}
       <div className="mt-4 flex gap-2">
         {choiceProposal.status === 'ready' ? (

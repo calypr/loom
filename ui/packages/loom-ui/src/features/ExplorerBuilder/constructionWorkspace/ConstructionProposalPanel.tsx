@@ -3,6 +3,7 @@ import type {
   ConstructionProposalResponse,
   ExplorerBuilderPreviewResult,
 } from '../../../types';
+import { PreviewValueCoverage } from './PreviewValueCoverage';
 
 export type ConstructionProposalViewState =
   | { readonly status: 'idle' }
@@ -64,6 +65,18 @@ export const ConstructionProposalPanel = ({
   const affectedStepCount = response?.dependencyImpact.affectedStepIds.filter(
     (stepId) => stepId !== response.changedStepId,
   ).length ?? 0;
+  const changedStep = response?.candidateConstruction.steps.find(
+    (step) => step.id === response.changedStepId,
+  );
+  const relatedOutputId = changedStep?.operation.kind === 'RELATED_SOURCE'
+    ? changedStep.operation.relatedSource.outputColumnId
+    : undefined;
+  const relatedColumnId = relatedOutputId
+    ? changedStep?.outputs.find((output) => output.id === relatedOutputId)?.name
+    : undefined;
+  const relatedForm = changedStep?.operation.kind === 'RELATED_SOURCE'
+    ? changedStep.operation.relatedSource.form
+    : undefined;
 
   return (
     <section
@@ -101,6 +114,9 @@ export const ConstructionProposalPanel = ({
             {state.preview.rowCount.toLocaleString()} rows and {state.preview.columns.length} columns
             {' '}· checked in {state.response.previewDurationMs} ms.
           </p>
+          {relatedColumnId ? (
+            <PreviewValueCoverage preview={state.preview} columnIds={[relatedColumnId]} resultForm={relatedForm} />
+          ) : null}
           {affectedStepCount > 0 ? (
             <p className="mt-1 text-xs text-slate-600">
               {affectedStepCount} later step{affectedStepCount === 1 ? '' : 's'} will be recalculated.

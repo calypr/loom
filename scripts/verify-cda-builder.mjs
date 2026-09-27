@@ -2172,10 +2172,36 @@ try {
       }
       const output = step.outputs?.find(item => item.id === step.operation.relatedSource.outputColumnId);
       assert(output, `${form} output missing from proposal`);
+      const coverageText = await browserEval(browser.cdp,
+        'return document.querySelector("[data-testid=construction-proposal-panel] [data-testid=construction-preview-value-coverage]")?.innerText;');
+      const proposalResponse = responses.find(response => response.requestId === request.requestId);
+      assert.equal(proposalResponse?.status, 200, `${form} proposal response failed`);
+      const proposalBody = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: proposalResponse.requestId })).body);
+      results.coverageDiagnostics ??= [];
+      results.coverageDiagnostics.push({form,coverageText,output,previewColumns:proposalBody.preview?.columns});
+      assert(coverageText?.includes('Values in the preview'), `${form} proposal did not show value coverage`);
+      const previewIsComplete=proposalBody.preview?.sampled===false&&proposalBody.preview?.partialValidation!==true&&proposalBody.preview?.rows?.length===proposalBody.preview?.rowCount;
+      assert.equal(coverageText?.includes('Coverage across the full table has not been measured'),!previewIsComplete,`${form} proposal reported the wrong coverage scope`);
+      const proposalRows = proposalBody.preview?.rows;
+      assert(Array.isArray(proposalRows), `${form} proposal returned no rendered rows`);
+      if (form === 'COUNT' || form === 'ALL') {
+        const resultSizes = proposalRows.map(row => form === 'COUNT'
+          ? row[output.name]
+          : row[output.name]?.length);
+        const zero = resultSizes.filter(size => size === 0).length;
+        const one = resultSizes.filter(size => size === 1).length;
+        const many = resultSizes.filter(size => size >= 2).length;
+        assert(coverageText.includes(`0 for ${zero}, 1 for ${one}, 2 or more for ${many}`), `${form} zero/one/many DOM counts differ from the proposal rows`);
+      }
+      if (form === 'PRESENCE') {
+        const none = proposalRows.filter(row => row[output.name] === false).length;
+        const some = proposalRows.filter(row => row[output.name] === true).length;
+        assert(coverageText.includes(`none for ${none}, at least one for ${some}`), 'PRESENCE DOM counts differ from the proposal rows');
+      }
       await clickDOM('[data-testid="construction-apply-proposal"]', `Apply Observation.id ${form}`);
       await navigate(browser.cdp, pageURL);
       await selectTemporaryTable();
-      return { output, proposalPreview, proposalPreviewMs, contributorValue };
+      return { output, proposalPreview, proposalPreviewMs, contributorValue, coverageText };
     };
     try {
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
@@ -2764,6 +2790,16 @@ try {
       assert.equal(choiceProposalResponse?.status, 200, 'Paired choice proposal failed');
       state.choiceProposalResponse = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: choiceProposalResponse.requestId })).body);
       assert.equal(state.choiceProposalResponse.previewStatus, 'READY');
+      const newColumnId = state.choiceProposalResponse.candidateColumnIds[0];
+      const proposedRows = state.choiceProposalResponse.preview.rows;
+      const populatedRows = proposedRows.filter(row=>row[newColumnId]!==null&&row[newColumnId]!==undefined).length;
+      state.valueCoverage = {
+        displayedRows: proposedRows.length,
+        populatedRows,
+        text: await browserEval(browser.cdp, 'return document.querySelector("[data-testid=construction-preview-value-coverage]")?.innerText;'),
+      };
+      assert(state.valueCoverage.text?.includes(`${populatedRows} of ${proposedRows.length} displayed rows contain a value`),'The visible coverage count does not match the proposed CDA rows');
+      assert(state.valueCoverage.text?.includes('Coverage across the full table has not been measured'),'Sample coverage must not be presented as full-table coverage');
       await click('[...document.querySelectorAll("[data-testid=construction-choice-proposal-panel] button")].find(button=>button.textContent?.trim()==="Apply columns").click();return true;', 'Apply paired semantic column');
       state.choiceApplied = await waitForCommand('APPLY_CONSTRUCTION_CHOICE');
       assert.equal(JSON.parse(state.choiceApplied.request.postData).commandId, state.choiceProposalResponse.commandId, 'Apply must reuse the previewed command ID');
