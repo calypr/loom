@@ -153,7 +153,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
     const advanced = screen.getByTestId('construction-reshape-group-advanced');
     expect(advanced).not.toHaveAttribute('open');
-    expect(screen.queryByLabelText('Summary output name 1')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Summary output name 1')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Advanced options'));
     expect(advanced).toHaveAttribute('open');
     fireEvent.change(screen.getByLabelText('Summary output name 1'), { target: { value: 'participant_count' } });
@@ -180,8 +180,8 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
       'those rows stay together in one missing-key group',
     );
-    expect(screen.queryByLabelText('Missing group key policy')).not.toBeInTheDocument();
     const advanced = screen.getByTestId('construction-reshape-group-advanced');
+    expect(advanced).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('Advanced options'));
     expect(controlValue('Missing group key policy')).toBe('GROUP');
     fireEvent.change(screen.getByLabelText('Missing group key policy'), { target: { value: 'EXCLUDE' } });
@@ -305,7 +305,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByTestId('construction-reshape-group-missing-key-effect')).toHaveTextContent(
       'rows with any missing key are excluded before summaries run',
     );
-    expect(screen.queryByLabelText('Missing group key policy')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-group-advanced')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByText('Advanced options'));
     expect(controlValue('Missing group key policy')).toBe('EXCLUDE');
     expect(controlValue('Group output name 1')).toBe('study_site');

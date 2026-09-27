@@ -1440,6 +1440,7 @@ const GroupEditor = (props: {
                     type="checkbox"
                     checked={checked}
                     aria-label={`Group by ${column.label}`}
+                    disabled={props.disabled || !props.supported}
                     onChange={() => props.onChange(checked
                       ? { ...props.form, keys: props.form.keys.filter((key) => key.inputColumnId !== column.id) }
                       : addGroupKey(props.form, props.stage, column.id))}
@@ -1479,6 +1480,7 @@ const GroupEditor = (props: {
                 <select
                   aria-label={`Summary ${index + 1}`}
                   value={operation}
+                  disabled={props.disabled || !props.supported}
                   onChange={(event) => {
                     const selected = groupAggregateKindFromInput(event.currentTarget.value);
                     if (!selected) return;
@@ -1500,6 +1502,7 @@ const GroupEditor = (props: {
                   <select
                     aria-label={`Summary field ${index + 1}`}
                     value={aggregate.inputColumnId}
+                    disabled={props.disabled || !props.supported}
                     onChange={(event) => {
                       const input = inputColumns.find((column) => column.id === event.currentTarget.value);
                       if (!input) return;
@@ -1517,13 +1520,14 @@ const GroupEditor = (props: {
                   {inputColumns.length === 0 ? <span role="status" className="text-xs text-amber-900">No compatible columns were returned for this summary.</span> : null}
                 </label>
               ) : <span className="self-end text-xs text-slate-500">Counts every input row in the group.</span>}
-              <button type="button" aria-label={`Remove summary ${index + 1}`} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="justify-self-start rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove summary</button>
+              <button type="button" aria-label={`Remove summary ${index + 1}`} disabled={props.disabled || !props.supported} onClick={() => props.onChange({ ...props.form, aggregates: props.form.aggregates.filter((_, itemIndex) => itemIndex !== index) })} className="justify-self-start rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50">Remove summary</button>
             </div>
           );
         })}
         <button
           type="button"
           data-testid="construction-reshape-add-summary"
+          disabled={props.disabled || !props.supported}
           onClick={() => {
             const aggregate = makeAggregate('COUNT_ROWS', props.stage, usedNames);
             props.onChange({ ...props.form, aggregates: [...props.form.aggregates, aggregate] });
@@ -1568,11 +1572,11 @@ const GroupEditor = (props: {
                   <p className="sm:col-span-2 text-xs text-slate-500">Values from {groupKeyName(props.stage, key)} identify each group.</p>
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column name
-                    <input aria-label={`Group output name ${index + 1}`} value={key.name} onChange={(event) => changeKey(index, { name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                    <input aria-label={`Group output name ${index + 1}`} value={key.name} disabled={props.disabled || !props.supported} onChange={(event) => changeKey(index, { name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
                   </label>
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column label
-                    <input aria-label={`Group output label ${index + 1}`} value={key.label} onChange={(event) => changeKey(index, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                    <input aria-label={`Group output label ${index + 1}`} value={key.label} disabled={props.disabled || !props.supported} onChange={(event) => changeKey(index, { label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
                   </label>
                 </div>
               ))}
@@ -1586,11 +1590,11 @@ const GroupEditor = (props: {
                 <div key={aggregate.outputColumnId} className="grid gap-2 sm:grid-cols-2">
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column name
-                    <input aria-label={`Summary output name ${index + 1}`} value={aggregate.name} onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                    <input aria-label={`Summary output name ${index + 1}`} value={aggregate.name} disabled={props.disabled || !props.supported} onChange={(event) => changeAggregate(index, { ...aggregate, name: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
                   </label>
                   <label className="grid gap-1 text-sm font-medium text-slate-700">
                     Column label
-                    <input aria-label={`Summary output label ${index + 1}`} value={aggregate.label} onChange={(event) => changeAggregate(index, { ...aggregate, label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                    <input aria-label={`Summary output label ${index + 1}`} value={aggregate.label} disabled={props.disabled || !props.supported} onChange={(event) => changeAggregate(index, { ...aggregate, label: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
                   </label>
                 </div>
               ))}
