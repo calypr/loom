@@ -121,7 +121,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	includeMissing = true
 	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
 	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete ||
-		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "filter out rows with missing categories") {
+		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "Filter rows where the category field is missing") {
 		t.Fatalf("missing-category discovery = %#v, error = %v; want empty unsupported result with guidance", unsupported, err)
 	}
 	includeMissing = false

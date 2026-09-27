@@ -1836,21 +1836,37 @@ try {
     await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values'&&!button.disabled))`, 30000);
     const started=Date.now();
     await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values').click();return true;`);
-    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding category values…') && (Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] fieldset input[aria-label^="Include category"]')) || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('No categories were found') || !document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Find category values for the selected fields before applying this pivot.'))`, 60000);
+    await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Finding category values…') && (Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] fieldset input[aria-label^="Include category"]')) || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Some records have no category field') || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('No categories were found'))`, 60000);
     const elapsedMs=Date.now()-started;
-    const state=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2000),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>input.getAttribute('aria-label')),alerts:[...editor.querySelectorAll('[role="status"]')].map(item=>item.innerText)};`);
+    const state=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2000),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>input.getAttribute('aria-label')),categoryControls:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked})),summary:editor.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')?.innerText,categoriesOpen:editor.querySelector('[data-testid="construction-reshape-pivot-categories"]')?.open,advancedOpen:editor.querySelector('[data-testid="construction-reshape-pivot-advanced"]')?.open,proposalStatus:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),alerts:[...editor.querySelectorAll('[role="status"]')].map(item=>item.innerText)};`);
+    const discoveryHTTP=responses.filter(response=>response.path.endsWith('/construction-category-discoveries')).at(-1);
+    state.discoveryOutcome=discoveryHTTP?.status===200?JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:discoveryHTTP.requestId})).body).outcome:undefined;
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'specimen-pivot-discovery-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,categoryDiscoveryRequests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,categoryCount:state.categories.length,responses:responses.filter(response=>response.path.includes('pivot')||response.path.includes('categor'))},null,2));
+    if(state.discoveryOutcome==='MISSING_UNSUPPORTED'){
+      const result=responses.filter(response=>response.path.endsWith('/construction-category-discoveries')).at(-1);
+      assert.equal(result?.status,200,'Unsupported MISSING discovery should be a typed response, not an HTTP error');
+      assert.equal(state.discoveryOutcome,'MISSING_UNSUPPORTED');
+      assert.equal(state.categories.length,0,'Unsupported MISSING categories must not be selectable');
+      assert(state.text.includes('Filter rows where the category field is missing'),'Pivot did not show recovery guidance');
+      assert.notEqual(state.proposalStatus,'ready','Unsupported MISSING categories must not enable a proposal');
+      assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
+    }else{
     assert(state.categories.length>0,`Pivot category discovery did not return categories: ${state.alerts.join('; ')}`);
+    assert(state.categoryControls.every(category=>category.checked),'A new Pivot did not include every discovered category by default');
+    assert.equal(state.categoriesOpen,false,'The category checklist did not start collapsed');
+    assert.equal(state.advancedOpen,false,'Advanced settings did not start collapsed');
+    assert(state.summary?.length<300,`The category summary is too long for the main editor: ${state.summary}`);
     if (action === 'Discover Specimen pivot categories performance') assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
     if (action === 'Preview Specimen pivot performance' || nonuniquePivot) {
       const initial=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:[...editor.querySelector('select[aria-label="Pivot unlisted category policy"]').options].map(option=>({text:option.textContent,disabled:option.disabled})),duplicatePolicy:[...editor.querySelector('select[aria-label="Pivot duplicate policy"]').options].map(option=>({text:option.textContent,disabled:option.disabled})),status:editor.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,bulkDisabled:editor.querySelector('button[aria-label="Select shown categories"]')?.disabled};`);
       assert(initial.policy.find(option=>option.text==='Skip it and report it')?.disabled,'Unsupported Pivot policy is enabled');
       assert(initial.duplicatePolicy.find(option=>option.text==='Keep the smallest')?.disabled,'Non-numeric Pivot MIN is enabled');
       assert(initial.duplicatePolicy.find(option=>option.text==='Keep the largest')?.disabled,'Non-numeric Pivot MAX is enabled');
-      assert.equal(initial.bulkDisabled,false);
-      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category Null"]').click();return true;`);
+      assert.equal(initial.bulkDisabled,true,'Every discovered category should be selected by default');
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-pivot-categories"] > summary').click();return true;`);
+      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category Missing"]').click();return true;`);
       const subset=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {status:editor.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,guidance:editor.innerText.includes('Select every discovered category, or filter rows before pivoting.'),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')};`);
       assert(subset.guidance,'Subset Pivot did not explain the required choice');
       assert.notEqual(subset.proposal,'ready','Subset Pivot unexpectedly produced an applicable proposal');
@@ -1888,6 +1904,7 @@ try {
       }
       assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
       assert(proposalMs<=5000,`Specimen pivot proposal took ${proposalMs} ms`);
+    }
     }
   } else if (action === 'Expand Specimen Patient performance') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
@@ -3428,6 +3445,16 @@ try {
       assert(state.addControl.visible&&!state.addControl.disabled,'Three scalar fields could not be added together');
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(item=>item.innerText.trim().startsWith('Add 3 selected')).click();return true;`);
       state.clicks.push('Add 3 selected features');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))||Boolean(document.querySelector('[data-testid="construction-choice-proposal-panel"]'))`,30000);
+      state.addDialog=await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"]');return dialog?{text:dialog.innerText.slice(0,2000),confirm:[...dialog.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('Add 3 columns')).map(button=>({disabled:button.disabled,text:button.innerText}))}:null;`);
+      if(state.addDialog){
+        assert(state.addDialog.confirm.some(button=>!button.disabled),`Direct Observation field choices are unresolved: ${state.addDialog.text}`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 3 columns'&&!button.disabled).click();return true;`);
+        state.clicks.push('Confirm three direct columns');
+      }
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
+      state.clicks.push('Apply three direct columns');
       await waitForBrowser(browser.cdp, `document.body.innerText.includes('valueQuantity.value· decimal')`,30000);
       state.afterAdd=await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,1000),fields:[...document.querySelectorAll('input[aria-label^="Display name for configured "]')].map(input=>input.getAttribute('aria-label')),body:document.body.innerText.slice(0,1100)};`);
       const baselineStarted=Date.now();
@@ -3453,17 +3480,20 @@ try {
       state.clicks.push('Group by patient reference');
       const discoveryStarted=Date.now();
       await clickText('Find category values',`document.querySelector('[data-testid="construction-reshape-pivot"]')`);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label^="Include category"]'))`,60000);
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')?.innerText.includes('Selected 1 of 1 categories')`,60000);
       state.timingsMs.discovery=Date.now()-discoveryStarted;
-      state.discovered=await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+      state.discovered=await browserEval(browser.cdp, `return {summary:document.querySelector('[data-testid="construction-reshape-pivot-category-summary"]')?.innerText,categoriesOpen:document.querySelector('[data-testid="construction-reshape-pivot-categories"]')?.open,advancedOpen:document.querySelector('[data-testid="construction-reshape-pivot-advanced"]')?.open,choices:[...document.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}))};`);
+      assert.equal(state.discovered.categoriesOpen,false,'Category checklist should start collapsed');
+      assert.equal(state.discovered.advancedOpen,false,'Advanced settings should start collapsed');
+      assert(state.discovered.choices.length>0&&state.discovered.choices.every(choice=>choice.checked),'A new Pivot did not select all complete discovered categories');
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-pivot-advanced"] > summary').click();return true;`);
+      state.clicks.push('Open advanced Pivot settings');
       state.duplicatePolicy=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Pivot duplicate policy"]').options].map(option=>({text:option.textContent,value:option.value,disabled:option.disabled}));`);
       const sum=state.duplicatePolicy.find(option=>option.text==='Add them together');
       assert(sum&&!sum.disabled,'SUM is disabled for the decimal Observation field');
+      const proposalStarted=Date.now();
       await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');select.value=${JSON.stringify(sum.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
       state.clicks.push('Add duplicate values together');
-      const proposalStarted=Date.now();
-      await browserEval(browser.cdp, `document.querySelector('button[aria-label="Select shown categories"]').click();return true;`);
-      state.clicks.push('Select shown categories');
       await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`,30000);
       state.timingsMs.proposal=Date.now()-proposalStarted;
       state.proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1600),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1800),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
@@ -3541,6 +3571,8 @@ try {
       await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
       state.clicks.push('Edit saved Pivot');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Pivot output label final"]'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-pivot-advanced"] > summary').click();return true;`);
+      state.clicks.push('Open saved advanced Pivot settings');
       state.savedEditor=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {category:editor.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:editor.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,group:editor.querySelector('input[aria-label="Pivot group subject.reference"]')?.checked,duplicate:editor.querySelector('select[aria-label="Pivot duplicate policy"]')?.selectedOptions[0]?.textContent,label:editor.querySelector('input[aria-label="Pivot output label final"]')?.value};`);
       assert.equal(state.savedEditor.duplicate,'Add them together');
       assert.equal(state.savedEditor.group,true);

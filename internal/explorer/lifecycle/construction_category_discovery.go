@@ -174,7 +174,7 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 				OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
 				ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryMissingUnsupported,
 				Categories: []ConstructionDiscoveredCategory{},
-				Message:    "This category field has MISSING values. Construction pivots cannot preserve MISSING separately from NULL for the selected stage; filter out rows with missing categories or choose a category field without missing values.",
+				Message:    "Some records have no category field. Loom cannot currently distinguish an absent field from a field present with no value in this Pivot. Filter rows where the category field is missing, or choose a field populated in every row.",
 			}, nil
 		}
 	}
