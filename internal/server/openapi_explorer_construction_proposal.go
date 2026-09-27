@@ -203,6 +203,8 @@ func (r *HTTPRoutes) ProposeExplorerConstruction(ctx context.Context, request lo
 		return loomapi.ProposeExplorerConstruction500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
 	case http.StatusServiceUnavailable:
 		return loomapi.ProposeExplorerConstruction503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.ProposeExplorerConstruction504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
 	default:
 		return nil, unexpectedResponseStatus("proposeExplorerConstruction", status)
 	}
