@@ -154,9 +154,11 @@ describe('PairedColumnSuggestions', () => {
     const suggestion = await screen.findByTestId('paired-column-suggestion-days_to_collection');
     expect(screen.getByTestId('paired-column-suggestions')).toBeInTheDocument();
     expect(screen.getByTestId('paired-column-suggestions-browse-all')).toBeInTheDocument();
-    expect(screen.getByText('Add paired value columns')).toBeInTheDocument();
+    expect(screen.getByText('Add columns from coded values')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Days to collection as a column' })).toBeInTheDocument();
-    expect(screen.getAllByText('Add column →').length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /as a column$/ })).toHaveLength(
+      MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS,
+    );
     expect(screen.queryByTestId('paired-column-suggestion-no-code')).not.toBeInTheDocument();
     expect(screen.queryByTestId('paired-column-suggestion-needs-mapping')).not.toBeInTheDocument();
     expect(screen.queryByTestId('paired-column-suggestion-unsupported-route')).not.toBeInTheDocument();

@@ -179,9 +179,9 @@ export const PairedColumnSuggestions = ({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-indigo-950">Add paired value columns</h3>
+          <h3 className="text-sm font-semibold text-indigo-950">Add columns from coded values</h3>
           <p className="mt-0.5 text-[11px] text-slate-600">
-            Add the value stored with a code to each matching row. Choose a column to review its route and how missing or repeated matches are handled.
+            Choose a value to add to this table. You can check which records match and preview the new column before applying it.
           </p>
         </div>
         <button
@@ -205,28 +205,29 @@ export const PairedColumnSuggestions = ({
         <p className="mt-2 text-xs text-slate-500" role="status">No coded pairings with a supported route and result form were found on this page.</p>
       ) : null}
       {state.status === 'ready' && state.suggestions.length > 0 ? (
-        <ul className="mt-2 flex flex-wrap gap-2">
+        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
           {state.suggestions.map((suggestion) => {
             const label = meaningfulConceptLabel(suggestion.item);
             return (
-              <li key={`${suggestion.item.conceptId}:${suggestion.item.bindingId}`}>
+              <li key={`${suggestion.item.conceptId}:${suggestion.item.bindingId}`} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-indigo-200 bg-white px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-slate-900" title={label}>{label}</p>
+                  <p className="text-[10px] text-slate-600">
+                    {suggestion.item.resourceType} value · {suggestion.item.valueType || 'type unknown'}
+                  </p>
+                  {suggestion.item.readiness.status === 'READY_WITH_WARNING' ? (
+                    <p className="mt-1 text-[10px] text-amber-800">{suggestion.item.readiness.message}</p>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   data-testid={`paired-column-suggestion-${suggestion.item.conceptId}`}
                   aria-label={`Add ${label} as a column`}
                   disabled={disabled}
                   onClick={() => onSelectSuggestion(suggestion)}
-                  className="flex max-w-full flex-col items-start rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-left hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="shrink-0 rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <span className="max-w-full truncate text-xs font-semibold text-slate-900">{label}</span>
-                  <span className="text-[10px] text-slate-600">
-                    Value from {suggestion.item.resourceType} · {suggestion.item.valueType || 'type unknown'}
-                  </span>
-                  <span className="mt-0.5 text-[10px] font-medium text-indigo-800">
-                    {suggestion.item.readiness.status === 'READY_WITH_WARNING'
-                      ? `Warning: ${suggestion.item.readiness.message}`
-                      : 'Add column →'}
-                  </span>
+                  Add column
                 </button>
               </li>
             );

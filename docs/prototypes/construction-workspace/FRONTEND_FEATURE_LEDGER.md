@@ -23,7 +23,7 @@ advance the following exact paths:
 | --- | --- | --- | --- | --- |
 | 02, start a table | New table → BodyStructure creates a table with an automatic ID column and renders rows without entering a name, reselecting the table, or clicking Preview. | Visible BodyStructure IDs matched the raw CDA source. | Reload preserved rows; deleting the temporary table restored the prior table list. | 436 ms from choosing the row type to rendered rows; 232 ms after reload. |
 | 02a, repeated row shape only | Configure rows offered distinct FHIR repeated paths and a preserve-parent policy; its proposal showed the new row count before Apply. Changing to a different root remains unverified. | One Observation with three component codings became three rows with values matching the exact source order. ALL and FIRST forms both passed. | Apply, reload, edit back to source-record rows, remove the temporary column and filter, and full restoration passed. | Row-change proposal 411 ms; expanded preview 271 ms. |
-| 06, ready paired value column | The visible suggestion is an Add column button that opens route and result-form choices. | `days_to_collection` matched its raw CDA code/value component. | Apply, reload, and remove passed. | Preview API 121 ms. |
+| 06, ready paired value column | Coded value suggestions show a distinct Add column button. It opens route and result-form choices, then a rendered proposal before Apply. | `days_to_collection` matched its raw CDA code/value component. | Apply, reload, and remove passed. | Proposed rows rendered in 452 ms on the 2026-09-27 rerun. |
 | 06a, related route choice | Subject and Focus paths explain their relationship and show zero, one, and many matches for displayed Patient rows before selection. | Subject showed 38 matches and Focus 1 for the same Patient, matching the raw CDA oracle. | Route selection persisted through the related-column lifecycle. | Match counts rendered in 836 ms. |
 | 07 and 07a, related Observation forms | COUNT, ALL, and PRESENCE choices are operable in one Add columns flow. | A Patient with 38 matches and one with zero produced the expected count, list length, and presence values. | Apply, reload, saved-step edit, removal, and cleanup passed. | Related proposal preview rendered in 707 ms. |
 | 09, expand related records | The route chooser shows Subject and Focus meanings and defaults to retaining a parent with no match. Optional policies are under Advanced. | Two bounded Patients produced 38 matching Observation rows and one retained no-match row; changing the policy removed that row. | Apply, reload, edit, remove, and restoration passed. | Default proposal rendered in 631 ms. |
@@ -44,6 +44,10 @@ The full-source numeric Pivot performance reruns passed at
 The ready paired-column flow passed again at
 `.artifacts/cda-builder/2026-09-27T22-30-27.979Z/`: its rendered value
 matched the raw CDA Observation, and Apply, reload, and removal succeeded.
+After making Add column a distinct control, the same complete browser path
+passed at `.artifacts/cda-builder/2026-09-27T23-09-17.643Z/`. The proposed
+column rendered in 452 ms; the displayed `days_to_collection` value 366
+matched the raw CDA Observation component. No browser request failed.
 The unnamed initial table and repeated-row lifecycles passed at
 `.artifacts/cda-builder/2026-09-27T22-48-32.535Z/`,
 `.artifacts/cda-builder/2026-09-27T22-44-34.752Z/`, and

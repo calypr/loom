@@ -2833,9 +2833,9 @@ try {
       await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Select temporary duplicate');
       await wait('Boolean(document.querySelector(\'button[aria-label^="Add columns:"]\'))', 'Temporary table workspace ready');
       if (action === 'Verify ready paired column lifecycle') {
-        await wait('Boolean([...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.innerText.includes("days_to_collection")&&!button.disabled))', 'Ready paired days_to_collection column visible beside current columns', 30000);
+        await wait('Boolean([...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.getAttribute("aria-label")?.includes("days_to_collection")&&!button.disabled))', 'Ready paired days_to_collection column visible beside current columns', 30000);
         state.readySuggestion = await browserEval(browser.cdp, 'const panel=document.querySelector("[data-testid=paired-column-suggestions]");return {text:panel?.innerText,currentColumns:[...document.querySelectorAll("[data-testid^=construction-column-]")].map(button=>button.innerText)};');
-        await click('[...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.innerText.includes("days_to_collection")).click();return true;', 'Choose ready paired days_to_collection column');
+        await click('[...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.getAttribute("aria-label")?.includes("days_to_collection")).click();return true;', 'Choose ready paired days_to_collection column');
         await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Existing route and result form dialog opened', 30000);
       } else if (action === 'Verify paired semantic from Pivot lifecycle') {
         await click('document.querySelector(\'button[aria-label^="Reshape:"]\').click();return true;', 'Open Reshape');
