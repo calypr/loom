@@ -628,15 +628,20 @@ describe('ConstructionReshapeEditor', () => {
       ],
       capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
     } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
-    const { onCandidateChange } = renderEditor({
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    renderEditor({
       capabilities: capabilitiesFor([unpivotStage], unpivotStage),
       selectedColumns: ['opaque-a', 'opaque-b'],
+      onCandidateChange,
     });
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-unpivot'));
     expect(screen.getByTestId('construction-unpivot-advanced')).not.toHaveAttribute('open');
     expect(screen.getByTestId('construction-unpivot-effect')).toHaveTextContent('Rows with missing values stay in the table.');
-    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].operation.unpivot.nullRowPolicy).toBe('PRESERVE');
+    const operation = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0]?.operation;
+    expect(operation?.kind).toBe('UNPIVOT');
+    if (operation?.kind !== 'UNPIVOT') throw new Error('Expected an Unpivot candidate');
+    expect(operation.unpivot.nullRowPolicy).toBe('PRESERVE');
     fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
     expect(controlValue('Unpivot key value opaque-a')).toBe('Patient reference');
     expect(controlValue('Unpivot key value opaque-b')).toBe('Patient reference (2)');
