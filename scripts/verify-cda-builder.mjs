@@ -17,6 +17,7 @@ const responses = [];
 const requests = [];
 const proposalRequests = [];
 const capabilityRequests = [];
+const categoryDiscoveryRequests = [];
 const requestStartedAt = new Map();
 const chooseRelatedSource = async (resourceType) => {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
@@ -32,6 +33,7 @@ browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-capabilities')) capabilityRequests.push({ requestId: event.requestId, postData: event.request.postData });
+  if (event.request.url.includes('/authoring/v2/construction-category-discoveries')) categoryDiscoveryRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
 browser.cdp.on('Network.responseReceived', (event) => {
   if (event.response.url.includes('/authoring/v2/')) {
@@ -1427,7 +1429,7 @@ try {
     const elapsedMs=Date.now()-started;
     const state=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2000),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>input.getAttribute('aria-label')),alerts:[...editor.querySelectorAll('[role="status"]')].map(item=>item.innerText)};`);
     await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'specimen-pivot-discovery-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,responses},null,2));
+    await writeFile(join(evidenceDirectory,'specimen-pivot-discovery-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,categoryDiscoveryRequests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,categoryCount:state.categories.length,responses:responses.filter(response=>response.path.includes('pivot')||response.path.includes('categor'))},null,2));
     assert(state.categories.length>0,`Pivot category discovery did not return categories: ${state.alerts.join('; ')}`);
     if (action === 'Discover Specimen pivot categories performance') assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
