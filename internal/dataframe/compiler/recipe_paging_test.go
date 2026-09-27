@@ -221,6 +221,56 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 	}
 }
 
+func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		operator   recipe.FilterOperator
+		comparison string
+	}{
+		{name: "MISSING", operator: recipe.FilterMissing, comparison: "== null"},
+		{name: "EXISTS", operator: recipe.FilterExists, comparison: "!= null"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			output := constructionEqualsPageOutput("")
+			output.Construction.Steps[0].Operation.Filter.Operator = tc.operator
+			output.Construction.Steps[0].Operation.Filter.Values = nil
+			bundle := recipe.Bundle{
+				RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+				Name:                "construction-filter-root-page-" + tc.name,
+				TranslationVersion:  "construction-filter-root-page-" + tc.name,
+				Outputs:             []recipe.Output{output},
+			}
+			bindings := recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project/a", DatasetGeneration: "generation-a"}
+			semanticPlan, err := semantic.BuildRecipePlan(bundle, bindings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(semanticPlan, "scope-a", bindings.DatasetGeneration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootFilter := "FILTER __loom_construction_input_1 " + tc.comparison
+			filter := strings.Index(page.RootKeysQuery, rootFilter)
+			window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
+			limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+			if filter < 0 || window < 0 || limit < 0 || filter > window || window > limit {
+				t.Fatalf("construction %s filter must run before the root-key page window: filter=%d sort=%d limit=%d\n%s", tc.name, filter, window, limit, page.RootKeysQuery)
+			}
+			if !strings.Contains(page.RowsQuery, "FILTER __loom_construction_input_1.specimen_id "+tc.comparison) {
+				t.Fatalf("selected-root execution lost the construction %s filter:\n%s", tc.name, page.RowsQuery)
+			}
+		})
+	}
+}
+
 func constructionEqualsPageOutput(id string) recipe.Output {
 	columns := []recipe.StageColumn{{ID: "specimen-id", Name: "specimen_id", Label: "Specimen ID"}}
 	return recipe.Output{

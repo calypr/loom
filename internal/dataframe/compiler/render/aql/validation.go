@@ -303,6 +303,11 @@ func validateRenderableOperation(operation ir.PhysicalOperation, collectionKeys 
 			return validateRenderablePredicateExpression(*operation.Filter.Expression, collectionKeys)
 		}
 		switch strings.ToUpper(strings.TrimSpace(operation.Filter.Predicate.Operator)) {
+		case "EXISTS", "MISSING":
+			if operation.Filter.Predicate.Right != nil {
+				return fmt.Errorf("physical filter operator %q must not have a right value", operation.Filter.Predicate.Operator)
+			}
+			return checkValue(operation.Filter.Predicate.Left)
 		case "EQUALS", "IN", "GT":
 		default:
 			return fmt.Errorf("unsupported physical filter operator %q", operation.Filter.Predicate.Operator)
