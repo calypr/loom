@@ -11,6 +11,7 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandContributorEditor, type ContributorChoice, type ContributorCondition } from './RelatedExpandContributorEditor';
+import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_EXPAND' }>;
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };
@@ -20,19 +21,8 @@ type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPol
 
 const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
-const humanizeIdentifier = (value: string): string => value
-  .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-  .replace(/[_\-.]+/g, ' ')
-  .replace(/\s+/g, ' ')
-  .trim();
-
 const routeLabel = (choice: RouteChoice): string => choice.route.map((hop) => {
-  const resourceSuffix = [hop.fromResourceType, hop.toResourceType]
-    .find((resourceType) => hop.relationship.endsWith(`_${resourceType}`));
-  const relationship = resourceSuffix
-    ? hop.relationship.slice(0, -(resourceSuffix.length + 1))
-    : hop.relationship;
-  return `${hop.fromResourceType} to ${hop.toResourceType} through ${humanizeIdentifier(relationship) || 'relationship'}`;
+  return `${hop.fromResourceType} to ${hop.toResourceType} through ${relationshipLabel(hop).toLowerCase() || 'relationship'}`;
 }).join(' then ');
 
 const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly name: string }>): string => {

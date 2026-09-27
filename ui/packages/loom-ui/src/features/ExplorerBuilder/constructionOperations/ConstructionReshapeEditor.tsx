@@ -10,6 +10,7 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandEditor } from './RelatedExpandEditor';
+import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
@@ -904,7 +905,7 @@ const stepDescription = (step: ConstructionReshapeStep, capabilities: ReshapeCap
     }
     case 'RELATED_EXPAND': {
       const expansion = step.operation.relatedExpand;
-      const path = expansion.route.map((edge) => edge.relationship).join(' → ');
+      const path = expansion.route.map(relationshipLabel).join(' → ');
       return `Make one row per distinct ${expansion.targetResourceType} via ${path}. Empty matches: ${emptyPolicyLabel(expansion.emptyPolicy).toLowerCase()}.`;
     }
     case 'PIVOT': {

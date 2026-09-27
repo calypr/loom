@@ -14,6 +14,7 @@ import type {
 import { ConceptCatalog } from '../components/ConceptCatalog';
 import { catalogSourceOptions, type CatalogChoiceIntent } from '../catalogItems';
 import { relatedSourceOutputLabel } from '../constructionWorkspace/relatedSourceOutputLabel';
+import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type RelatedSourceOperation = Extract<ConstructionOperation, { readonly kind: 'RELATED_SOURCE' }>;
 type RelatedSourceForm = RelatedSourceOperation['relatedSource']['form'];
@@ -396,7 +397,7 @@ export const RelatedSourceStepEditor = ({
         </p>
         <p className="mt-1 text-sm text-slate-600">
           Current route: {relatedSource.route.length > 0
-            ? relatedSource.route.map((edge) => `${edge.fromResourceType} → ${edge.toResourceType} via ${edge.relationship}`).join(' · ')
+            ? relatedSource.route.map((edge) => `${edge.fromResourceType} → ${edge.toResourceType} via ${relationshipLabel(edge)}`).join(' · ')
             : 'Same resource as each table row'}
         </p>
         <p className="mt-1 text-sm text-slate-600">
