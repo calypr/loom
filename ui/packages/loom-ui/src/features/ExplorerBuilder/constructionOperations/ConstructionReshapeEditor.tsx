@@ -1143,7 +1143,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
 
       {props.onAddCodedValues && form.kind !== 'pivot' ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
-          <span>Need a column from a FHIR code pair?</span>
+          <span>Need a column from a FHIR code and its matching value?</span>
           <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
             Add coded concept
           </button>

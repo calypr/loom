@@ -1699,7 +1699,7 @@ try {
   } else if (action === 'Open paired concepts from Reshape') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-editor"] button'))`, 30000);
-    const entry=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');const button=[...editor.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add coded concept');return {guidance:editor?.innerText.includes('Need a column from a FHIR code pair'),buttonDisabled:button?.disabled};`);
+    const entry=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');const button=[...editor.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add coded concept');return {guidance:editor?.innerText.includes('Need a column from a FHIR code and its matching value?'),buttonDisabled:button?.disabled};`);
     assert.equal(entry.guidance,true,'Reshape does not offer the coded concept shortcut');
     assert.equal(entry.buttonDisabled,false,'The coded concept shortcut is disabled');
     await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
@@ -2739,7 +2739,7 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,action === 'Apply Observation concept'?'apply-observation-concept.json':'add-observation-concept.json'),JSON.stringify({pageURL,source,state,requests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/construction-choices')||response.path.endsWith('/construction-proposals'))},null,2));
-  } else if (action === 'Verify paired semantic days-to-collection lifecycle') {
+  } else if (action === 'Verify paired semantic days-to-collection lifecycle' || action === 'Verify paired semantic from Pivot lifecycle') {
     // Paired semantic values are selected from the semantic catalog and resolved through a route and result form.
     const state = { clicks: [], duplicateCreated: false };
     const click = async (script, label) => { await browserEval(browser.cdp, script); state.clicks.push(label); };
@@ -2771,7 +2771,15 @@ try {
       await wait('Boolean([...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith("Specimen copy")))', 'Duplicate visible after reload');
       await click('[...document.querySelectorAll("button")].find(button=>button.innerText.trim().endsWith("Specimen copy")).click();return true;', 'Select temporary duplicate');
       await wait('Boolean(document.querySelector(\'button[aria-label^="Add columns:"]\'))', 'Temporary table workspace ready');
-      await click('document.querySelector(\'button[aria-label^="Add columns:"]\').click();return true;', 'Open Add columns');
+      if (action === 'Verify paired semantic from Pivot lifecycle') {
+        await click('document.querySelector(\'button[aria-label^="Reshape:"]\').click();return true;', 'Open Reshape');
+        await wait('Boolean(document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\'))', 'Pivot choice visible');
+        await click('document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\').click();return true;', 'Open Pivot');
+        await wait('Boolean([...document.querySelectorAll(\'[data-testid="construction-reshape-pivot"] button\')].find(button=>button.innerText.trim()==="Add a paired coded concept"&&!button.disabled))', 'Paired coded concept action enabled');
+        await click('[...document.querySelectorAll(\'[data-testid="construction-reshape-pivot"] button\')].find(button=>button.innerText.trim()==="Add a paired coded concept").click();return true;', 'Open paired concept catalog from Pivot');
+      } else {
+        await click('document.querySelector(\'button[aria-label^="Add columns:"]\').click();return true;', 'Open Add columns');
+      }
       await wait('document.querySelector(\'[data-source-key="all"]\')?.getAttribute("aria-pressed")==="true"', 'Dataset-wide concept search selected');
       state.searchScope = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[data-testid=construction-add-columns-source-option]")].map(button=>({key:button.getAttribute("data-source-key"),selected:button.getAttribute("aria-pressed")}));');
       await wait('Boolean(document.querySelector(\'input[aria-label="Select days_to_collection"]:not(:disabled)\'))', 'Dataset-wide paired concept loaded');
@@ -2876,7 +2884,7 @@ try {
       assert(!state.removedPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), 'days_to_collection remains after removal');
       state.previewResponse = semanticPreviewResponse;
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
+      await writeFile(join(evidenceDirectory,action === 'Verify paired semantic from Pivot lifecycle' ? 'paired-semantic-from-pivot.json' : 'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks,choiceApplied:state.choiceApplied,preview:state.preview,reloadPreview:state.reloadPreview,removalProposal:state.removalProposal,removedPreview:state.removedPreview,previewResponse:state.previewResponse,responses:responses.filter(response=>response.status>=400)},null,2));
     } finally {
       if (state.duplicateCreated) {
