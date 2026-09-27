@@ -347,6 +347,10 @@ try {
         assert(outputProjectionChoice && !outputProjectionChoice.disabled, `The repeated code column has no enabled ${outputForm} option`);
         if (!outputProjectionChoice.checked) await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label=${JSON.stringify(outputProjectionChoice.label)}]').click();return true;`);
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.textContent?.trim()==='Apply columns'&&!button.disabled))`, 30000);
+        state.componentCodeProposal = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`);
+        assert(state.componentCodeProposal.includes(rowValues[0].value), 'The component code proposal did not render the raw CDA value');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.textContent?.trim()==='Apply columns'&&!button.disabled).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
 
         const sourcePreviewStarted = Date.now();
@@ -3340,8 +3344,9 @@ try {
       await writeFile(join(evidenceDirectory,'direct-scalar-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
     }
-  } else if (action === 'Verify populated row type lifecycle') {
-    const tableName='CDA row type QA';
+  } else if (action === 'Verify populated row type lifecycle' || action === 'Verify unnamed row type auto-preview') {
+    const unnamed=action==='Verify unnamed row type auto-preview';
+    const tableName=unnamed?'BodyStructure':'CDA row type QA';
     const state={clicks:[],controls:[],previews:{},errors:[]};
     let created=false;
     const selectTable=async()=>{
@@ -3367,11 +3372,26 @@ try {
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose BodyStructure rows"]'))`,30000);
       state.controls=await browserEval(browser.cdp, `return [...document.querySelectorAll('button[aria-label^="Choose "][aria-label$=" rows"]')].map(button=>({label:button.getAttribute('aria-label'),disabled:button.disabled,visible:button.offsetParent!==null,text:button.innerText.slice(0,100)}));`);
       assert(state.controls.some(control=>control.label==='Choose BodyStructure rows'&&!control.disabled&&control.visible),'Populated BodyStructure row choice is unavailable');
-      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+      const createStarted=Date.now();
+      if(unnamed){
+        assert.equal(await browserEval(browser.cdp, `return document.querySelector('#first-table-name')?.value;`),'','The table name is prefilled before choosing rows');
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+      }else{
+        await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+      }
       state.clicks.push('Choose BodyStructure rows');
       created=true;
-      await selectTable();
-      const first=await preview('afterCreate');
+      if(!unnamed)await selectTable();
+      let first;
+      if(unnamed){
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+        first=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+        state.previews.afterCreate={...first,elapsedMs:Date.now()-createStarted,automatic:true};
+        assert(state.previews.afterCreate.elapsedMs<=5000,'The automatic first table preview exceeded five seconds');
+      }else{
+        first=await preview('afterCreate');
+      }
       assert.deepEqual(first.headers,['BODYSTRUCTURE ID']);
       assert(first.rows.length>0,'BodyStructure produced no CDA rows');
       const ids=first.rows.map(row=>row[0]);
@@ -3404,7 +3424,7 @@ try {
         state.capabilityFailures.push({response,request:capabilityRequests.find(item=>item.requestId===response.requestId),body});
       }
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,requests,capabilityRequests,responses},null,2));
+      await writeFile(join(evidenceDirectory,unnamed?'unnamed-row-type-auto-preview.json':'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,requests,capabilityRequests,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
     }
   } else if (action === 'Inspect Observation numeric Pivot controls') {
