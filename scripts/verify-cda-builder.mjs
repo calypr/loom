@@ -447,7 +447,13 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         const restoredRecordPreviewStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+        try {
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+        } catch (error) {
+          const diagnostic = await browserEval(browser.cdp, `return {rowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),preview:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,1000),alerts:[...document.querySelectorAll('[role="alert"]')].map(node=>node.innerText),body:document.body.innerText.slice(0,1600)};`);
+          await writeFile(join(evidenceDirectory, 'restored-row-preview-failure.json'), JSON.stringify({ diagnostic, responses }, null, 2));
+          throw error;
+        }
         state.timingsMs.restoredRecordPreview = Date.now() - restoredRecordPreviewStarted;
         state.restoredRecordPreview = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert.equal(state.restoredRecordPreview.rows.length, 1);

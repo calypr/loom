@@ -38,6 +38,9 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, err
 	}
+	if bindings.PreviewLimit > 0 {
+		physical = withConstructionPreviewRootIDFilter(output, physical)
+	}
 	keysPlan, err := rootKeysPagePlan(physical, pageSize)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("build root-key page: %w", err)

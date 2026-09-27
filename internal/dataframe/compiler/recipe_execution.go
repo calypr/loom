@@ -48,6 +48,9 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			return CompiledQuery{}, fmt.Errorf("optimize canonical recipe plan: %w", err)
 		}
 	}
+	if limit > 0 {
+		physical = withConstructionPreviewRootIDFilter(output, physical)
+	}
 	physical, err := withGenericPhysicalExecutionWindow(physical, limit)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("apply canonical recipe execution window: %w", err)
