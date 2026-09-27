@@ -1699,10 +1699,18 @@ try {
   } else if (action === 'Open paired concepts from Reshape') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-editor"] button'))`, 30000);
-    const before=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');return {guidance:editor?.innerText.includes('a FHIR code and its matching value'),button:[...editor.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add coded values')?.disabled};`);
-    assert.equal(before.guidance,true,'Reshape does not explain the paired code/value path');
+    const entry=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');const button=[...editor.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add coded concept');return {guidance:editor?.innerText.includes('Need a column from a FHIR code pair'),buttonDisabled:button?.disabled};`);
+    assert.equal(entry.guidance,true,'Reshape does not offer the coded concept shortcut');
+    assert.equal(entry.buttonDisabled,false,'The coded concept shortcut is disabled');
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 30000);
+    const before=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-editor"]');const pivot=document.querySelector('[data-testid="construction-reshape-pivot"]');return {guidance:pivot?.innerText.includes('selectors use columns already in this table')&&pivot?.innerText.includes('separate column'),button:[...pivot.querySelectorAll('button')].find(button=>button.innerText.trim()==='Add a paired coded concept')?.disabled,topLevelShortcut:[...editor.querySelectorAll('button')].some(button=>button.innerText.trim()==='Add coded concept'),categoryField:Boolean(pivot?.querySelector('select[aria-label="Pivot category field"]')),valuesField:Boolean(pivot?.querySelector('select[aria-label="Pivot values field"]'))};`);
+    assert.equal(before.guidance,true,'Pivot does not distinguish existing table columns from paired coded concepts');
+    assert.equal(before.topLevelShortcut,false,'The top-level shortcut is redundant while Pivot inputs are open');
+    assert.equal(before.categoryField,true,'Pivot category field is missing');
+    assert.equal(before.valuesField,true,'Pivot values field is missing');
     assert.equal(before.button,false,'The paired code/value action is disabled');
-    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-editor"] button')].find(button=>button.innerText.trim()==='Add coded values').click();return true;`);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText.trim()==='Add a paired coded concept').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Add coded values or fields')&&document.body.innerText.includes('Choose a concept for a code and its matching value')`, 30000);
     await waitForBrowser(browser.cdp, `!document.body.innerText.includes('Loading concepts…')`, 30000);
     const after=await browserEval(browser.cdp, `return {addColumnsSelected:document.querySelector('[data-testid="construction-action-add-columns"]')?.getAttribute('aria-pressed'),allResourcesSelected:document.querySelector('[data-source-key="all"]')?.getAttribute('aria-pressed'),pairedGuidance:document.body.innerText.includes('Choose a concept for a code and its matching value'),daysConceptVisible:Boolean(document.querySelector('input[aria-label="Select days_to_collection"]')),reshapeStillOpen:Boolean(document.querySelector('[data-testid="construction-reshape-editor"]'))};`);

@@ -49,6 +49,8 @@ const renderEditor = (args: {
   readonly editingStep?: ConstructionReshapeStep;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
+  readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
+  readonly onAddCodedValues?: ConstructionReshapeEditorProps['onAddCodedValues'];
   readonly onEditStep?: ConstructionReshapeEditorProps['onEditStep'];
 }) => {
   const onCandidateChange = args.onCandidateChange ?? vi.fn();
@@ -59,6 +61,8 @@ const renderEditor = (args: {
       capabilities={args.capabilities ?? capabilitiesFor()}
       editingStep={args.editingStep}
       selectedColumns={args.selectedColumns}
+      onDiscoverCategories={args.onDiscoverCategories}
+      onAddCodedValues={args.onAddCodedValues}
       disabled={false}
       onCandidateChange={onCandidateChange}
       onEditStep={onEditStep}
@@ -109,6 +113,32 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByText('EXPAND was rejected for this stage.')).toBeInTheDocument();
     expect(screen.getByTestId('construction-reshape-choice-related-expand')).toBeDisabled();
     expect(onCandidateChange).not.toHaveBeenCalledWith(expect.objectContaining({ candidateConstruction: expect.anything() }));
+  });
+
+  it('offers paired coded concepts beside Pivot inputs and keeps them distinct from current table columns', () => {
+    const pivotStage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onAddCodedValues = vi.fn();
+    renderEditor({
+      capabilities: capabilitiesFor([pivotStage], pivotStage),
+      onDiscoverCategories: vi.fn(),
+      onAddCodedValues,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add coded concept' }));
+    expect(onAddCodedValues).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+
+    expect(screen.getByLabelText('Pivot category field')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pivot values field')).toBeInTheDocument();
+    expect(screen.getByText(/category and values selectors use columns already in this table/i)).toBeInTheDocument();
+    expect(screen.getByText(/paired coded concept adds a separate column/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add coded concept' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add a paired coded concept' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a paired coded concept' }));
+    expect(onAddCodedValues).toHaveBeenCalledTimes(2);
   });
 
   it('builds a whole-table group summary with editable stable outputs', () => {

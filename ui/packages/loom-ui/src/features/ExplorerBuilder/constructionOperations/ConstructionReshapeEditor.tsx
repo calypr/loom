@@ -1141,11 +1141,11 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p className="mt-1 text-sm text-slate-600">Choose a change below. Each option shows what happens to rows and columns.</p>
       </header>
 
-      {props.onAddCodedValues ? (
+      {props.onAddCodedValues && form.kind !== 'pivot' ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
-          <span>Need a column from a FHIR code and its matching value? Add a coded concept first.</span>
+          <span>Need a column from a FHIR code pair?</span>
           <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
-            Add coded values
+            Add coded concept
           </button>
         </div>
       ) : null}
@@ -1289,6 +1289,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           reason={pivotSupport.reason}
           disabled={disabled}
           discovery={pivotDiscovery}
+          onAddCodedValues={props.onAddCodedValues}
           requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           onDiscover={() => requestPivotCategories(form)}
@@ -1682,6 +1683,7 @@ const PivotEditor = (props: {
   readonly reason: string;
   readonly disabled: boolean;
   readonly discovery?: ConstructionReshapePivotDiscovery;
+  readonly onAddCodedValues?: () => void;
   readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly onDiscover: () => void;
@@ -1794,6 +1796,14 @@ const PivotEditor = (props: {
         <h4 className="text-sm font-semibold text-slate-900">Turn categories into columns</h4>
         <p className="mt-1 text-sm text-slate-600">Each group becomes a row. Each chosen category becomes a value column from fields already in this table.</p>
       </header>
+      {props.onAddCodedValues ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
+          <span>The category and values selectors use columns already in this table. A paired coded concept adds a separate column from its FHIR code and matching value.</span>
+          <button type="button" onClick={props.onAddCodedValues} disabled={props.disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
+            Add a paired coded concept
+          </button>
+        </div>
+      ) : null}
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
       {columns.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
