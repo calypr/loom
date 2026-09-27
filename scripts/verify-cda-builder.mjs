@@ -523,10 +523,99 @@ try {
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
       }
     }
+  } else if (action === 'Verify starting collection') {
+    const selectionID = process.argv[4];
+    assert(selectionID, 'A CDA selection revision ID is required');
+    const tableName = `BodyStructure population QA ${Date.now()}`;
+    const selectedID = '9a651f6b-6b9b-54a5-8294-31a42a6df35f';
+    const state = { tableName, selectedID, interactions: 0 };
+    let created = false;
+    try {
+      await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(selectionID)}`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose BodyStructure rows"]:not(:disabled)'))`, 30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+      state.interactions += 2;
+      created = true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'))`, 30000);
+      state.before=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,buttons:[...document.querySelectorAll('[aria-label="Starting collection"] button')].map(button=>({text:button.innerText,disabled:button.disabled})),table:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,500)};`);
+      assert.equal(state.before.buttons.find(button=>button.text==='Use selected resources')?.disabled,false);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per BodyStructure')`, 30000);
+      state.attachedPanel=await browserEval(browser.cdp, `return {text:document.querySelector('[aria-label="Starting collection"]')?.innerText,buttons:[...document.querySelectorAll('[aria-label="Starting collection"] button')].map(button=>({text:button.innerText,disabled:button.disabled})),attached:document.querySelector('[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id')};`);
+      assert.equal(state.attachedPanel.attached,selectionID);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+      state.attachedPreview=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      assert(state.attachedPreview.rows.some(row=>row.includes(selectedID)));
+      await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(selectionID)}`);
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+      state.interactions++;
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use all authorized rows'))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+      state.reloadedPreview=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      assert(state.reloadedPreview.rows.some(row=>row.includes(selectedID)));
+      const coverageAvailable=await browserEval(browser.cdp, `return Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Check selected-resource coverage'&&!button.disabled));`);
+      if (coverageAvailable) {
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Check selected-resource coverage').click();return true;`);
+        state.interactions++;
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="population-coverage-report"]')) || Boolean(document.querySelector('[aria-label="Starting collection"] [role="alert"]'))`, 30000);
+        state.coverage=await browserEval(browser.cdp, `return {report:document.querySelector('[data-testid="population-coverage-report"]')?.innerText,alert:document.querySelector('[aria-label="Starting collection"] [role="alert"]')?.innerText};`);
+        assert(state.coverage.report?.includes('1 selected · 1 produce rows · 0 needs attention'),JSON.stringify(state.coverage));
+      }
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use all authorized rows').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('ready to constrain this table')`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'`, 30000);
+      state.clearedPreview=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,rowcount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      await navigate(browser.cdp,pageURL);
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+      state.interactions++;
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      state.interactions++;
+      await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('every authorized BodyStructure resource')`, 30000);
+      state.restoredPanel=await browserEval(browser.cdp, `return document.querySelector('[aria-label="Starting collection"]')?.innerText;`);
+      assert(!state.restoredPanel.includes('selected BodyStructure resources'));
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'starting-collection.json'),JSON.stringify({pageURL,selectionID,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+    } finally {
+      if (created) {
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))?.click();[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Delete')?.click();return true;`);
+        state.interactions += 2;
+      }
+    }
+  } else if (action === 'Inspect starting selection') {
+    const selectedID = '9a651f6b-6b9b-54a5-8294-31a42a6df35f';
+    const selection = await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-builder-population-${Date.now()}',source:{kind:'resources',resources:{refs:[{project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'BodyStructure',id:${JSON.stringify(selectedID)}}]}}})});return {status:response.status,body:await response.json(),generation:builder.catalog.generation};`);
+    assert.equal(selection.status,201,JSON.stringify(selection.body));
+    await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(selection.body.id)}`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.innerText.includes('selected BodyStructure resources')`, 30000);
+    const panel=await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,1700),selection:document.querySelector('[aria-label="Starting collection"]')?.innerText.slice(0,1000),buttons:[...document.querySelectorAll('[aria-label="Starting collection"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'starting-selection-inspection.json'),JSON.stringify({pageURL,selection,panel,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,selection,panel,responses:responses.filter(response=>response.status>=400)},null,2));
   } else if (action === 'Inspect source setup') {
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open === true`, 30000);
-    const state=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-source-setup"]');return {text:panel?.innerText.slice(0,5000),controls:[...panel.querySelectorAll('button,select,input')].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute('aria-label'),text:element.innerText?.slice(0,90),disabled:element.disabled,value:element.value})).filter(item=>item.label||item.text?.includes('row')||item.text?.includes('population'))};`);
+    const state=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-source-setup"]');const response=await fetch('/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}/authoring/v2/builder');const builder=await response.json();return {text:panel?.innerText.slice(0,5000),controls:[...panel.querySelectorAll('button,select,input')].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute('aria-label'),text:element.innerText?.slice(0,90),disabled:element.disabled,value:element.value})).filter(item=>item.label||item.text?.includes('row')||item.text?.includes('population')),catalog:{snapshotToken:builder.catalog?.snapshotToken,generation:builder.catalog?.generation},responseStatus:response.status};`);
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'source-setup.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses},null,2));
