@@ -2444,6 +2444,189 @@ try {
       await writeFile(join(evidenceDirectory,'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
     }
+  } else if (action === 'Inspect Observation numeric Pivot controls') {
+    const tableName='CDA numeric pivot QA';
+    const state={};
+    let created=false;
+    try{
+      assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));`),'Temporary numeric Pivot table already exists');
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Observation rows"]').click();return true;`);
+      created=true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Add columns:"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`,30000);
+      state.fields=await browserEval(browser.cdp, `return [...document.querySelectorAll('[aria-label="Add columns editor"] input[aria-label^="Select "]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled,checked:input.checked,near:input.parentElement?.innerText.slice(0,100)}));`);
+      state.editor=await browserEval(browser.cdp, `return document.querySelector('[aria-label="Add columns editor"]')?.innerText.slice(0,2200);`);
+    }finally{
+      if(created){
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'observation-numeric-pivot-controls.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,fields:state.fields?.filter(field=>/status|subject|valueQuantity/.test(field.label)),responses:responses.filter(response=>response.status>=400)},null,2));
+    }
+  } else if (action === 'Preview Observation numeric nonunique Pivot') {
+    const tableName='CDA numeric pivot QA';
+    const state={clicks:[],timingsMs:{},errors:[]};
+    let created=false;
+    const clickText=async(textValue,scope='document')=>{
+      await browserEval(browser.cdp, `const root=${scope};const button=[...root.querySelectorAll('button')].find(item=>item.innerText.trim()===${JSON.stringify(textValue)}&&!item.disabled);if(!button)throw new Error(${JSON.stringify(`Missing enabled ${textValue}`)});button.click();return true;`);
+      state.clicks.push(textValue);
+    };
+    try{
+      assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));`),'Temporary numeric Pivot table already exists');
+      await clickText('New table');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Observation rows"]').click();return true;`);
+      state.clicks.push('Choose Observation rows');
+      created=true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Add columns:"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
+      state.clicks.push('Add columns');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.subject.reference"]:not(:disabled)'))`,30000);
+      for(const field of ['subject.reference','status','valueQuantity.value']){
+        await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(`input[aria-label="Select Observation.${field}"]`)}).click();return true;`);
+        state.clicks.push(`Select ${field}`);
+      }
+      state.addControl=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(item=>item.innerText.trim().startsWith('Add 3 selected'));return {text:button?.innerText,disabled:button?.disabled,visible:button?.offsetParent!==null};`);
+      assert(state.addControl.visible&&!state.addControl.disabled,'Three scalar fields could not be added together');
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(item=>item.innerText.trim().startsWith('Add 3 selected')).click();return true;`);
+      state.clicks.push('Add 3 selected features');
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('valueQuantity.value· decimal')`,30000);
+      state.afterAdd=await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,1000),fields:[...document.querySelectorAll('input[aria-label^="Display name for configured "]')].map(input=>input.getAttribute('aria-label')),body:document.body.innerText.slice(0,1100)};`);
+      const baselineStarted=Date.now();
+      await clickText('Preview');
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      state.timingsMs.baseline=Date.now()-baselineStarted;
+      state.baseline=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+      state.clicks.push('Reshape');
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.startsWith('Turn categories into columns')&&!button.disabled)`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn categories into columns')&&!button.disabled).click();return true;`);
+      state.clicks.push('Turn categories into columns');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`,30000);
+      state.pivotChoices=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {categories:[...editor.querySelector('select[aria-label="Pivot category field"]').options].map(item=>({text:item.textContent,value:item.value})),values:[...editor.querySelector('select[aria-label="Pivot values field"]').options].map(item=>({text:item.textContent,value:item.value})),groups:[...editor.querySelectorAll('input[aria-label^="Pivot group "]')].map(item=>({label:item.getAttribute('aria-label'),disabled:item.disabled})),duplicates:[...editor.querySelector('select[aria-label="Pivot duplicate policy"]').options].map(item=>({text:item.textContent,value:item.value,disabled:item.disabled}))};`);
+      const category=state.pivotChoices.categories.find(item=>item.text==='status');
+      const value=state.pivotChoices.values.find(item=>item.text.startsWith('valueQuantity.value (decimal)'));
+      assert(category&&value,`Pivot does not expose added Observation fields: ${JSON.stringify(state.pivotChoices)}`);
+      await browserEval(browser.cdp, `const category=document.querySelector('select[aria-label="Pivot category field"]');category.value=${JSON.stringify(category.value)};category.dispatchEvent(new Event('change',{bubbles:true}));const value=document.querySelector('select[aria-label="Pivot values field"]');value.value=${JSON.stringify(value.value)};value.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+      state.clicks.push('Choose status category','Choose numeric value');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Pivot group subject.reference"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Pivot group subject.reference"]').click();return true;`);
+      state.clicks.push('Group by patient reference');
+      const discoveryStarted=Date.now();
+      await clickText('Find category values',`document.querySelector('[data-testid="construction-reshape-pivot"]')`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label^="Include category"]'))`,60000);
+      state.timingsMs.discovery=Date.now()-discoveryStarted;
+      state.discovered=await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+      state.duplicatePolicy=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Pivot duplicate policy"]').options].map(option=>({text:option.textContent,value:option.value,disabled:option.disabled}));`);
+      const sum=state.duplicatePolicy.find(option=>option.text==='Add them together');
+      assert(sum&&!sum.disabled,'SUM is disabled for the decimal Observation field');
+      await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot duplicate policy"]');select.value=${JSON.stringify(sum.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+      state.clicks.push('Add duplicate values together');
+      const proposalStarted=Date.now();
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label="Select shown categories"]').click();return true;`);
+      state.clicks.push('Select shown categories');
+      await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`,30000);
+      state.timingsMs.proposal=Date.now()-proposalStarted;
+      state.proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1600),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1800),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+      state.proposalRows=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-preview"]');return {tables:[...panel.querySelectorAll('table,[role="table"]')].map(table=>({tag:table.tagName,headers:[...table.querySelectorAll('th,[role="columnheader"]')].map(cell=>cell.innerText),rows:[...table.querySelectorAll('tr,[role="row"]')].map(row=>[...row.querySelectorAll('td,[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)})),html:panel.outerHTML.slice(0,1600)};`);
+      assert.equal(state.proposal.status,'ready',state.proposal.text);
+      assert.equal(state.proposal.applyDisabled,false);
+      const pivotRows=state.proposalRows.tables[0]?.rows;
+      assert.equal(pivotRows?.length,25,'Numeric Pivot did not render 25 proposal rows');
+      const patients=pivotRows.map(row=>row[0]);
+      const aql=`FOR d IN Observation FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.payload.subject.reference IN ${JSON.stringify(patients)} COLLECT patient=d.payload.subject.reference AGGREGATE records=COUNT(d),numeric=SUM(IS_NUMBER(d.payload.valueQuantity.value)?1:0),total=SUM(IS_NUMBER(d.payload.valueQuantity.value)?d.payload.valueQuantity.value:0) RETURN {patient,records,numeric,total}`;
+      const script=`print(JSON.stringify(db._query(${JSON.stringify(aql)}).toArray()))`;
+      const output=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',script],{encoding:'utf8',maxBuffer:200000});
+      state.sourceGroups=JSON.parse(output.slice(output.indexOf('[')));
+      const byPatient=new Map(state.sourceGroups.map(group=>[group.patient,group]));
+      state.sourceComparison=pivotRows.map(([patient,displayed])=>({patient,displayed,expected:byPatient.get(patient)?.numeric>0?String(byPatient.get(patient).total):'—',records:byPatient.get(patient)?.records}));
+      assert(state.sourceComparison.every(row=>row.displayed===row.expected),`Numeric Pivot values differ from CDA: ${JSON.stringify(state.sourceComparison.filter(row=>row.displayed!==row.expected))}`);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+      state.clicks.push('Apply numeric Pivot');
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`,30000);
+      const loadTable=async()=>{
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+      };
+      const preview=async(stage)=>{
+        const started=Date.now();
+        await clickText('Preview');
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+        state.timingsMs[stage]=Date.now()-started;
+        return browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+      };
+      const assertPivotValues=(previewRows,stage)=>{
+        assert.deepEqual(previewRows.headers.slice(0,1),['SUBJECT.REFERENCE'],`${stage} lost patient group identity`);
+        assert(previewRows.rows.length>0,`${stage} has no rendered rows`);
+        for(const [patient,displayed] of previewRows.rows){
+          const group=byPatient.get(patient);
+          assert(group,`${stage} has an unexpected patient ${patient}`);
+          assert.equal(displayed,group.numeric>0?String(group.total):'—',`${stage} has a wrong sum for ${patient}`);
+        }
+      };
+      await loadTable();
+      state.saved=await preview('savedPreview');
+      assert.deepEqual(state.saved.headers,['SUBJECT.REFERENCE','FINAL']);
+      assertPivotValues(state.saved,'Saved Pivot');
+      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+      state.clicks.push('Open saved Pivot step');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+      state.clicks.push('Edit saved Pivot');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Pivot output label final"]'))`,30000);
+      state.savedEditor=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {category:editor.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:editor.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,group:editor.querySelector('input[aria-label="Pivot group subject.reference"]')?.checked,duplicate:editor.querySelector('select[aria-label="Pivot duplicate policy"]')?.selectedOptions[0]?.textContent,label:editor.querySelector('input[aria-label="Pivot output label final"]')?.value};`);
+      assert.equal(state.savedEditor.duplicate,'Add them together');
+      assert.equal(state.savedEditor.group,true);
+      await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Pivot output label final"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA final sum');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+      state.clicks.push('Rename final output');
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+      state.clicks.push('Apply Pivot edit');
+      await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`,30000);
+      await loadTable();
+      state.edited=await preview('editedPreview');
+      assert.deepEqual(state.edited.headers,['SUBJECT.REFERENCE','CDA FINAL SUM']);
+      assertPivotValues(state.edited,'Edited Pivot');
+      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+      state.clicks.push('Open Pivot step for removal');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`,30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
+      state.clicks.push('Remove Pivot step');
+      await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+      state.clicks.push('Apply Pivot removal');
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`,30000);
+      await loadTable();
+      state.restored=await preview('restoredPreview');
+      assert.deepEqual(state.restored,state.baseline,'Removing Pivot did not restore original Observation columns and rows');
+      assert(Object.values(state.timingsMs).every(elapsed=>elapsed<=5000),`A numeric Pivot browser stage exceeded five seconds: ${JSON.stringify(state.timingsMs)}`);
+    }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
+    }finally{
+      if(created){
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'observation-numeric-nonunique-pivot.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,timingsMs:state.timingsMs,proposal:state.proposal,errors:state.errors,httpErrors:responses.filter(response=>response.status>=400)},null,2));
+    }
   } else if (action === 'Verify sparse column removal') {
     const copyName='Specimen copy';
     assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'));`),'An existing Specimen copy would make cleanup ambiguous');
