@@ -12,6 +12,7 @@ const choices: RowDefinitionChoicesResponse = {
   outputId: 'patients',
   choices: [{
     choiceId: 'expanded-choice',
+    fieldPath: 'name[]',
     label: 'Patient.name[]',
     description: '',
     occurrenceSummary: 'Root occurrence',
@@ -91,8 +92,13 @@ const selectionPage = {
   ],
 };
 
-const renderSettings = (overrides: { draftVersion?: number; draftDigest?: string; proposalValue?: RowDefinitionProposal } = {}) => {
-  const listRowDefinitionChoices = vi.fn().mockResolvedValue(choices);
+const renderSettings = (overrides: {
+  draftVersion?: number;
+  draftDigest?: string;
+  proposalValue?: RowDefinitionProposal;
+  choicesValue?: RowDefinitionChoicesResponse;
+} = {}) => {
+  const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
   const getSelection = vi.fn().mockResolvedValue(selectionPage);
   const createExplicitGroupRevision = vi.fn();
@@ -122,7 +128,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     const select = await screen.findByRole('combobox', { name: 'New row shape' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();
-    expect(screen.getAllByRole('option', { name: /One row per value in Patient.name/ })).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: /One row per value in Name \(name\[\]\)/ })).toHaveLength(2);
     expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(3);
     expect(screen.getByRole('option', { name: /Leave out records with no values/ })).toBeTruthy();
     expect(screen.getByRole('option', { name: /Keep records with no values as one empty row/ })).toBeTruthy();
@@ -147,6 +153,38 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply row definition' }));
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
+  });
+
+  it('shows path breadcrumbs and exact FHIR paths when semantic choice labels repeat', async () => {
+    const ambiguousChoices: RowDefinitionChoicesResponse = {
+      ...choices,
+      choices: [
+        { ...choices.choices[0]!, choiceId: 'component-choice', label: 'Code defined by a terminology system', fieldPath: 'component[].code.coding[]' },
+        { ...choices.choices[0]!, choiceId: 'category-choice', label: 'Code defined by a terminology system', fieldPath: 'category[].coding[]' },
+      ],
+    };
+    renderSettings({ choicesValue: ambiguousChoices });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row shape' });
+
+    expect(screen.getAllByRole('option', { name: /Component → Code → Coding \(component\[\]\.code\.coding\[\]\)/ })).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: /Category → Coding \(category\[\]\.coding\[\]\)/ })).toHaveLength(2);
+  });
+
+  it('distinguishes the same path on different route occurrences', async () => {
+    const repeatedPathChoices: RowDefinitionChoicesResponse = {
+      ...choices,
+      choices: [
+        { ...choices.choices[0]!, choiceId: 'first-route', fieldPath: 'component[].code.coding[]', occurrenceSummary: 'Occurrence first via Subject' },
+        { ...choices.choices[0]!, choiceId: 'second-route', fieldPath: 'component[].code.coding[]', occurrenceSummary: 'Occurrence second via Focus' },
+      ],
+    };
+    renderSettings({ choicesValue: repeatedPathChoices });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row shape' });
+
+    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence first via Subject/ })).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence second via Focus/ })).toHaveLength(2);
   });
 
   it('authors exact overlapping groups from the owned selection before previewing and applying the receipt-backed proposal', async () => {

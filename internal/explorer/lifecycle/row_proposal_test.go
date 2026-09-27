@@ -21,6 +21,7 @@ type rowProposalChoicePlanner struct{}
 func (rowProposalChoicePlanner) ListRowChoices(_ context.Context, _ capability.Snapshot, _ authoringv2.Document) ([]capability.RowChoice, error) {
 	return []capability.RowChoice{{
 		ChoiceID: "expanded-choice", Kind: capability.RowChoiceExpandedScope, Label: "Patient.name[]",
+		Path: "component[].code.coding[]",
 		Description: "Patient name occurrences", ValueType: "ARRAY", OccurrenceID: authoringv2.RootOccurrenceID,
 	}}, nil
 }
@@ -165,7 +166,7 @@ func TestListRowDefinitionChoicesReturnsServerExplicitGroupRevisions(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Choices) != 1 || response.Choices[0].Kind != RowChoiceExpanded || len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
+	if len(response.Choices) != 1 || response.Choices[0].Kind != RowChoiceExpanded || response.Choices[0].FieldPath != "component[].code.coding[]" || len(response.ExplicitGroups) != 1 || len(resolver.listReqs) != 1 {
 		t.Fatalf("row-definition choices omitted server-authorized options: %#v", response)
 	}
 	listRequest := resolver.listReqs[0]

@@ -482,6 +482,7 @@ describe('row-definition contract schemas', () => {
       outputId: 'output',
       choices: [{
         choiceId: 'opaque-choice',
+        fieldPath: 'identifier',
         label: 'Grouping key',
         description: '',
         occurrenceSummary: 'Root occurrence',
@@ -528,6 +529,7 @@ describe('row-definition contract schemas', () => {
       outputId: 'output',
       choices: [{
         choiceId: 'opaque-choice',
+        fieldPath: 'identifier',
         label: 'Grouping key',
         description: '',
         occurrenceSummary: 'Root occurrence',
@@ -535,7 +537,7 @@ describe('row-definition contract schemas', () => {
         kind: 'FIELD_GROUP',
         valueType: 'STRING',
         policies: [{ name: 'missingKeyPolicy', options: ['ERROR'] }],
-        fieldPath: 'not-in-the-public-contract',
+        rawSchemaSelector: 'not-in-the-public-contract',
       }],
       explicitGroups: [],
     }).success).toBe(false);

@@ -28,6 +28,7 @@ type RowDefinitionChoicesResponse struct {
 
 type RowDefinitionChoice struct {
 	ChoiceID          string                      `json:"choiceId"`
+	FieldPath         string                      `json:"fieldPath"`
 	Label             string                      `json:"label"`
 	Description       string                      `json:"description"`
 	OccurrenceSummary string                      `json:"occurrenceSummary"`
@@ -205,7 +206,7 @@ func responseFromRowChoices(snapshotToken, outputID string, choices []capability
 	response := RowDefinitionChoicesResponse{SnapshotToken: snapshotToken, OutputID: outputID, Choices: make([]RowDefinitionChoice, 0, len(choices)), ExplicitGroups: []ExplicitGroupRevisionChoice{}}
 	for _, choice := range choices {
 		response.Choices = append(response.Choices, RowDefinitionChoice{
-			ChoiceID: choice.ChoiceID, Label: choice.Label, Description: choice.Description,
+			ChoiceID: choice.ChoiceID, FieldPath: choice.Path, Label: choice.Label, Description: choice.Description,
 			OccurrenceSummary: rowChoiceOccurrenceSummary(choice), RouteSummary: rowChoiceRouteSummary(choice),
 			Kind: lifecycleRowChoiceKind(choice.Kind), ValueType: choice.ValueType, Policies: rowChoicePolicies(choice.Kind),
 		})

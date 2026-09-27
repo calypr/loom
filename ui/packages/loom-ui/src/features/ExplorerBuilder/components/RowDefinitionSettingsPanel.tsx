@@ -35,6 +35,14 @@ const unassignedMemberLabel = (policy: string): string => {
   }
 };
 
+const fieldPathLabel = (path: string): string => path
+  .split('.')
+  .map((segment) => segment.replace(/\[\]/g, ''))
+  .filter(Boolean)
+  .map((segment) => segment.replace(/([a-z0-9])([A-Z])/g, '$1 $2'))
+  .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+  .join(' → ');
+
 type SettingsState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'loading' }
@@ -63,14 +71,19 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
     label: 'One row per source record',
     selection: { kind: 'RECORDS' },
   }];
+  const pathCounts = new Map<string, number>();
+  for (const choice of choices.choices) {
+    if (choice.kind === 'EXPANDED') pathCounts.set(choice.fieldPath, (pathCounts.get(choice.fieldPath) ?? 0) + 1);
+  }
   for (const choice of choices.choices) {
     if (choice.kind !== 'EXPANDED') continue;
+    const occurrence = (pathCounts.get(choice.fieldPath) ?? 0) > 1 ? ` · ${choice.occurrenceSummary}` : '';
     for (const policy of choice.policies) {
       if (policy.name !== 'emptyCollectionPolicy') continue;
       for (const emptyCollectionPolicy of policy.options) {
         options.push({
           value: `expanded:${choice.choiceId}:${emptyCollectionPolicy}`,
-          label: `One row per value in ${choice.label} · ${emptyCollectionLabel(emptyCollectionPolicy)}`,
+          label: `One row per value in ${fieldPathLabel(choice.fieldPath)} (${choice.fieldPath})${occurrence} · ${emptyCollectionLabel(emptyCollectionPolicy)}`,
           selection: { kind: 'EXPANDED', expanded: { rowChoiceId: choice.choiceId, emptyCollectionPolicy } },
         });
       }

@@ -216,6 +216,7 @@ describe('Loom project paths', () => {
       outputId: 'output',
       choices: [{
         choiceId: 'opaque-choice',
+        fieldPath: 'component[].code.coding[]',
         label: 'Expanded collection',
         description: '',
         occurrenceSummary: 'Root occurrence',

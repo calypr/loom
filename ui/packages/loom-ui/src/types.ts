@@ -358,6 +358,7 @@ const rowDefinitionChoiceExpandedPolicySchema = z
   .strict();
 const rowDefinitionChoiceBaseSchema = z.object({
   choiceId: opaqueIdSchema,
+  fieldPath: z.string().min(1),
   label: z.string().min(1),
   description: z.string(),
   occurrenceSummary: z.string().min(1),

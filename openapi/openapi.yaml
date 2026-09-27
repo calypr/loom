@@ -3072,9 +3072,10 @@ components:
     RowDefinitionChoice:
       type: object
       additionalProperties: false
-      required: [choiceId, label, description, occurrenceSummary, routeSummary, kind, valueType, policies]
+      required: [choiceId, fieldPath, label, description, occurrenceSummary, routeSummary, kind, valueType, policies]
       properties:
         choiceId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
         label: {type: string}
         description: {type: string}
         occurrenceSummary: {type: string, minLength: 1}
