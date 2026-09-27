@@ -76,12 +76,13 @@ type CategoryScanProof struct {
 }
 
 type CompiledCategoryScanQuery struct {
-	Query         string
-	BindVars      map[string]any
-	PresentColumn string
-	ValueColumn   string
-	Proof         CategoryScanProof
-	Diagnostics   ir.CompilerPlanDiagnostics
+	Query                string
+	BindVars             map[string]any
+	PresentColumn        string
+	ValueColumn          string
+	Proof                CategoryScanProof
+	Diagnostics          ir.CompilerPlanDiagnostics
+	PreviewCoveringIndex *PreviewCoveringIndexSpec
 }
 
 func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
@@ -142,6 +143,7 @@ func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stage
 			sequence.FinalRowIdentity = last.RowIdentityColumn
 			sequence.FinalColumns = append(sequence.FinalColumns[:0], last.OutputColumns...)
 			sequence.PreviewLimitBindKey = ""
+			sequence.PreviewTerminalPivotWindow = false
 			sequence.CellTraceReturn = nil
 		}
 	} else if stageID != recipe.ConstructionSourceProjectionID {
@@ -181,6 +183,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
+	previewCoveringIndex := categoryScanPreviewCoveringIndexSpec(physical, schema, stageID, categoryColumnID, valueColumnID)
 	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
@@ -234,8 +237,52 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	}
 	return CompiledCategoryScanQuery{
 		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
-		Proof: proof, Diagnostics: diagnostics,
+		Proof: proof, Diagnostics: diagnostics, PreviewCoveringIndex: previewCoveringIndex,
 	}, nil
+}
+
+func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string) *PreviewCoveringIndexSpec {
+	if stageID != recipe.ConstructionSourceProjectionID || categoryColumnID == "" || valueColumnID == "" || categoryColumnID == valueColumnID {
+		return nil
+	}
+	categoryName, categoryFound := categoryScanSchemaColumnName(schema, categoryColumnID)
+	valueName, valueFound := categoryScanSchemaColumnName(schema, valueColumnID)
+	if !categoryFound || !valueFound {
+		return nil
+	}
+	rootScan, sourceReturn, ok := previewCoveringIndexSource(plan)
+	if !ok || rootScan.Population != nil {
+		return nil
+	}
+	projectionPaths, ok := previewCoveringProjectionPaths(sourceReturn.Projections, rootScan.Variable)
+	if !ok {
+		return nil
+	}
+	projectionNames := make(map[string]struct{}, len(sourceReturn.Projections))
+	for _, projection := range sourceReturn.Projections {
+		projectionNames[projection.Name] = struct{}{}
+	}
+	if _, ok := projectionNames[categoryName]; !ok {
+		return nil
+	}
+	if _, ok := projectionNames[valueName]; !ok {
+		return nil
+	}
+	collection, ok := plan.BindVars[rootScan.CollectionBindKey].(string)
+	if !ok || strings.TrimSpace(collection) == "" {
+		return nil
+	}
+
+	return previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+}
+
+func categoryScanSchemaColumnName(schema []lower.CompiledOutputColumn, id string) (string, bool) {
+	for _, column := range schema {
+		if column.ID == id && !column.Internal && !column.Identity {
+			return column.Name, column.Name != ""
+		}
+	}
+	return "", false
 }
 
 func categoryScanColumn(schema []lower.CompiledOutputColumn, name string) (lower.CompiledOutputColumn, error) {

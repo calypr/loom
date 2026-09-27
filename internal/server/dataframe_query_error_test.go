@@ -92,6 +92,21 @@ func TestClassifyDataframeQueryErrorPreservesUnlistedPivotCategory(t *testing.T)
 	}
 }
 
+func TestClassifyDataframeQueryErrorPreservesPivotCellCardinality(t *testing.T) {
+	driverErr := shared.ArangoError{
+		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
+		ErrorMessage: "AQL: TABLE_PIVOT_CELL_CARDINALITY (while executing)",
+	}
+	err := classifyDataframeQueryError(driverErr)
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeTablePivotCellCardinality) || userErr.Retryable() {
+		t.Fatalf("classified error=%#v, want non-retryable %s", userErr, dataframeerrors.CodeTablePivotCellCardinality)
+	}
+	if !errors.Is(err, driverErr) {
+		t.Fatal("classified error did not preserve the Arango cause")
+	}
+}
+
 func TestClassifyDataframeQueryErrorPreservesEmptyConstructionExpansion(t *testing.T) {
 	driverErr := shared.ArangoError{
 		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,

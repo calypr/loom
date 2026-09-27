@@ -20,10 +20,11 @@ import (
 )
 
 type Client struct {
-	db     driver.Database
-	rawURL string
-	dbName string
-	client *http.Client
+	db             driver.Database
+	rawURL         string
+	dbName         string
+	client         *http.Client
+	previewIndexMu sync.Mutex
 }
 
 const previewCursorCleanupTimeout = time.Second

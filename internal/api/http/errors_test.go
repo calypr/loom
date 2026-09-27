@@ -111,6 +111,7 @@ func TestMapDataframeErrorPreviewClassifications(t *testing.T) {
 		retryable bool
 	}{
 		{dataframeerrors.CodePlanTooExpensive, http.StatusTooManyRequests, false},
+		{dataframeerrors.CodeTablePivotCellCardinality, http.StatusUnprocessableEntity, false},
 		{dataframeerrors.CodeReceiptStoreUnavailable, http.StatusServiceUnavailable, true},
 		{dataframeerrors.CodePreviewTimeout, http.StatusGatewayTimeout, true},
 		{dataframeerrors.CodePreviewResponseTooLarge, http.StatusRequestEntityTooLarge, false},

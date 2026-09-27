@@ -16,6 +16,10 @@ type PhysicalStageSequence struct {
 	// row identity. Preview compilation may then bound the root scan before the
 	// source projection is materialized. Full execution ignores this hint.
 	PreviewSourceWindowByRootID bool
+	// PreviewTerminalPivotWindow is set only when a preview ends at a
+	// nonunique Pivot. Rendering may select complete groups by their final
+	// grouped-row identity after COLLECT and before computing Pivot cells.
+	PreviewTerminalPivotWindow bool
 	// OutputAuthResourcePathBindKey adds the exact bound authorization path to
 	// the private prefix result as hidden row metadata. It is populated only by
 	// the typed composite Combine boundary.

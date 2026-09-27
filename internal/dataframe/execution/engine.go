@@ -83,6 +83,7 @@ type Config struct {
 	ResolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows               QueryRows
 	PreviewQueryRows        QueryRows
+	PreparePreviewIndex     func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	ClickHouseQueryRows     ClickHouseQueryRows
 	ResolveClickHouseInputs ResolveClickHouseInputs
 	WithExecutionReadPins   WithExecutionReadPins
@@ -99,6 +100,7 @@ type Engine struct {
 	resolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows               QueryRows
 	previewQueryRows        QueryRows
+	preparePreviewIndex     func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	clickHouseQueryRows     ClickHouseQueryRows
 	resolveClickHouseInputs ResolveClickHouseInputs
 	withExecutionReadPins   WithExecutionReadPins
@@ -192,7 +194,7 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex, clickHouseQueryRows: cfg.ClickHouseQueryRows,
 		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
 		scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
 	}, nil
@@ -664,6 +666,14 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	}
 	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
+	}
+	if query.PreviewCoveringIndex != nil && e.preparePreviewIndex != nil {
+		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
+		cancel()
+		if err := contextError(ctx); err != nil {
+			return PreviewSummary{}, err
+		}
 	}
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
 		stream.stream = e.previewQueryRows

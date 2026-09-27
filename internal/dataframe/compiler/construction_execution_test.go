@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -155,7 +156,7 @@ func TestConstructionPreviewRootIDSourceMetadataIsFHIROptionalScalar(t *testing.
 	t.Fatalf("compiled source stage has no id_id column: %+v", compiled.Outputs[0].Stages[0].Columns)
 }
 
-func TestConstructionPreviewRootIDWindowFallsBackWithoutProof(t *testing.T) {
+func TestConstructionPreviewUsesTerminalPivotWindowWithoutRootIDProof(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		output recipe.Output
@@ -168,14 +169,97 @@ func TestConstructionPreviewRootIDWindowFallsBackWithoutProof(t *testing.T) {
 			if strings.Contains(query.Query, "SORT root.id ASC") {
 				t.Fatalf("unproven plan received the early source order:\n%s", query.Query)
 			}
-			if strings.Count(query.Query, "LIMIT @limit") != 1 {
-				t.Fatalf("unproven plan should retain only the ordinary final preview limit:\n%s", query.Query)
+			if strings.Count(query.Query, "LIMIT @limit") != 2 {
+				t.Fatalf("terminal Pivot preview should limit complete groups and retain the final limit:\n%s", query.Query)
 			}
-			if query.PartialValidation {
-				t.Fatal("unproven plan was marked as partial validation")
+			if !query.PartialValidation {
+				t.Fatal("preview group window was not marked as partial validation")
 			}
 			if tc.name == "non-identity group key" && !strings.Contains(query.Query, "COLLECT") {
 				t.Fatalf("nonunique group key bypassed canonical COLLECT:\n%s", query.Query)
+			}
+		})
+	}
+}
+
+func TestConstructionPreviewTerminalPivotLimitsCompleteGroupsBeforeCellReduction(t *testing.T) {
+	preview := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
+	if !preview.PartialValidation {
+		t.Fatal("terminal Pivot preview window was not marked as partial validation")
+	}
+	stageStart := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
+	if stageStart < 0 {
+		t.Fatalf("terminal Pivot stage is missing:\n%s", preview.Query)
+	}
+	stage := preview.Query[stageStart:]
+	collectAt := strings.Index(stage, "COLLECT ")
+	identityAt := strings.Index(stage, "LET __loom_physical_construction_reshape_preview_identity = TO_STRING([\"GROUPED_PIVOT\"")
+	sortAt := strings.Index(stage, "SORT __loom_physical_construction_reshape_preview_identity ASC")
+	limitAt := strings.Index(stage, "LIMIT @limit")
+	cellValidationAt := strings.Index(stage, "TABLE_PIVOT_CELL_CARDINALITY")
+	if collectAt < 0 || identityAt <= collectAt || sortAt <= identityAt || limitAt <= sortAt || cellValidationAt <= limitAt {
+		t.Fatalf("preview must collect complete groups, select them by final row identity, then compute cells:\n%s", stage)
+	}
+	if strings.Count(stage, "LIMIT @limit") != 2 {
+		t.Fatalf("expected group and final output limits:\n%s", stage)
+	}
+	if got := preview.BindVars["limit"]; got != 3 {
+		t.Fatalf("preview limit bind = %#v, want 3", got)
+	}
+
+	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 0)
+	if full.PartialValidation || strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "reshape_preview_identity") {
+		t.Fatalf("full execution received the preview-only group window:\n%s", full.Query)
+	}
+}
+
+func TestConstructionPreviewCoveringIndexMetadataAndRootHint(t *testing.T) {
+	query := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
+	index := query.PreviewCoveringIndex
+	if index == nil {
+		t.Fatalf("eligible terminal Pivot preview has no covering-index spec:\n%s", query.Query)
+	}
+	if index.Collection != "Patient" {
+		t.Fatalf("index collection = %q, want Patient", index.Collection)
+	}
+	if !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) {
+		t.Fatalf("index name = %q, want prefix %q", index.Name, previewCoveringIndexNamePrefix)
+	}
+	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.gender", "payload.multipleBirthInteger"}
+	if !reflect.DeepEqual(index.Fields, wantFields) {
+		t.Fatalf("index fields = %#v, want %#v", index.Fields, wantFields)
+	}
+	wantHint := "OPTIONS { indexHint: \"" + index.Name + "\", forceIndexHint: false }"
+	if strings.Count(query.Query, wantHint) != 1 {
+		t.Fatalf("query root scan does not have exactly one non-forcing index hint %q:\n%s", wantHint, query.Query)
+	}
+	if !strings.Contains(query.Query, "FOR root IN @@root_collection "+wantHint) {
+		t.Fatalf("index hint was not placed on the root source scan:\n%s", query.Query)
+	}
+
+	repeated := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.gender", false), 3)
+	if repeated.PreviewCoveringIndex == nil || repeated.PreviewCoveringIndex.Name != index.Name || !reflect.DeepEqual(repeated.PreviewCoveringIndex.Fields, index.Fields) {
+		t.Fatalf("covering-index metadata is not deterministic: first=%+v second=%+v", index, repeated.PreviewCoveringIndex)
+	}
+}
+
+func TestConstructionPreviewCoveringIndexIneligiblePlansStayUnhinted(t *testing.T) {
+	tests := []struct {
+		name   string
+		output recipe.Output
+		limit  int
+	}{
+		{name: "full execution", output: constructionPreviewPivotOutput("root.gender", false), limit: 0},
+		{name: "prior stage", output: constructionPreviewPivotOutput("root.gender", true), limit: 3},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query := compileConstructionPivotPreview(t, test.output, test.limit)
+			if query.PreviewCoveringIndex != nil {
+				t.Fatalf("ineligible plan produced index metadata: %+v", query.PreviewCoveringIndex)
+			}
+			if strings.Contains(query.Query, "indexHint:") {
+				t.Fatalf("ineligible plan received an index hint:\n%s", query.Query)
 			}
 		})
 	}

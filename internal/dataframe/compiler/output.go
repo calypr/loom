@@ -82,6 +82,7 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 				// optimization when its root-scan insertion point is unavailable.
 				out.StageSequence.PreviewSourceWindowByRootID = false
 			}
+			out.StageSequence.PreviewTerminalPivotWindow = previewTerminalPivotWindowEligible(out.StageSequence)
 		}
 		if err := ir.ValidateGenericPhysicalPlanScope(out); err != nil {
 			return ir.PhysicalPlan{}, fmt.Errorf("validate construction physical execution scope: %w", err)
@@ -196,6 +197,20 @@ func withGenericPhysicalExecutionWindow(plan ir.PhysicalPlan, limit int) (ir.Phy
 		return ir.PhysicalPlan{}, fmt.Errorf("validate generic physical execution window: %w", err)
 	}
 	return out, nil
+}
+
+func previewTerminalPivotWindowEligible(sequence *ir.PhysicalStageSequence) bool {
+	if sequence == nil || sequence.PreviewSourceWindowByRootID || len(sequence.Stages) == 0 {
+		return false
+	}
+	stage := sequence.Stages[len(sequence.Stages)-1]
+	return stage.ID == sequence.FinalStageID &&
+		stage.Kind == ir.PhysicalStagePivotOp &&
+		stage.GroupedPivot != nil &&
+		!stage.GroupedPivot.OneInputRowPerGroup &&
+		len(stage.GroupedPivot.GroupKeys) > 0 &&
+		stage.OutputRowVariable == stage.GroupedPivot.OutputRowVariable &&
+		stage.RowIdentityColumn == sequence.FinalRowIdentity
 }
 
 func insertConstructionPreviewRootIDWindow(plan *ir.PhysicalPlan) bool {

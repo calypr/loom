@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -20,9 +21,30 @@ type RenderedPhysicalPlan struct {
 	BindVars map[string]any
 }
 
+var rootIndexHintPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+
 // RenderPhysicalPlan renders a validated physical plan to deterministic AQL.
 // It keeps data and metadata values out of the generated AQL source.
 func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+	return renderPhysicalPlan(plan, "")
+}
+
+// RenderPhysicalPlanWithRootIndexHint adds a non-forcing index hint to the
+// root scan of an eligible terminal Pivot preview. The optimizer remains free
+// to use another index when the hinted index is unavailable or unsuitable.
+func RenderPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
+	if !rootIndexHintPattern.MatchString(indexHint) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
+	}
+	sequence := plan.StageSequence
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint requires a terminal Pivot preview")
+	}
+	return renderPhysicalPlan(plan, indexHint)
+}
+
+func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhysicalPlan, error) {
 	if plan.Engine == ir.PhysicalEngineClickHouse {
 		return RenderedPhysicalPlan{}, fmt.Errorf("ClickHouse physical plan cannot be rendered as AQL")
 	}
@@ -33,7 +55,7 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 		if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("verify construction source scope: %w", err)
 		}
-		return renderPhysicalStageSequence(plan)
+		return renderPhysicalStageSequence(plan, rootIndexHint)
 	}
 	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp {
 		return renderPhysicalGroupRows(plan, *plan.Operations[0].GroupRows)
@@ -66,6 +88,7 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	renderer := physicalPlanRenderer{
 		bindVars:            runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys:      collectionKeys,
+		rootIndexHint:       rootIndexHint,
 		setVariables:        map[string]string{},
 		reservedVars:        physicalPlanVariableNames(plan),
 		rootVariable:        layout.root.Variable,
@@ -176,7 +199,11 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 
 func (r *physicalPlanRenderer) renderRootScan(root ir.PhysicalRootScan) ([]string, error) {
 	if root.Population == nil {
-		return []string{fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)}, nil
+		line := fmt.Sprintf("FOR %s IN @@%s", root.Variable, root.CollectionBindKey)
+		if r.rootIndexHint != "" {
+			line += fmt.Sprintf(" OPTIONS { indexHint: %q, forceIndexHint: false }", r.rootIndexHint)
+		}
+		return []string{line}, nil
 	}
 	population := root.Population
 	lines := []string{fmt.Sprintf("FOR %s IN @@%s", population.MemberScan.Variable, population.MemberScan.CollectionBindKey)}
@@ -271,6 +298,7 @@ func (r *physicalPlanRenderer) renderRootWindowOperation(operation ir.PhysicalOp
 type physicalPlanRenderer struct {
 	bindVars            map[string]any
 	collectionKeys      map[string]struct{}
+	rootIndexHint       string
 	setVariables        map[string]string
 	reservedVars        map[string]struct{}
 	internalPrefix      string

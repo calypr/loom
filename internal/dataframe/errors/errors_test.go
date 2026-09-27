@@ -25,7 +25,7 @@ func TestErrorCodesAreUniqueAndStable(t *testing.T) {
 		CodeInvalidSelector, CodeReceiptStoreUnavailable, CodePreviewTimeout,
 		CodePreviewResponseTooLarge, CodeQueryMemoryLimitExceeded, CodeQueryResourceLimitExceeded, CodeQueryBackendOutOfMemory,
 		CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty,
-		CodeTablePivotUnlistedCategory,
+		CodeTablePivotCellCardinality, CodeTablePivotUnlistedCategory,
 	}
 	seen := make(map[ErrorCode]struct{}, len(codes))
 	for _, code := range codes {

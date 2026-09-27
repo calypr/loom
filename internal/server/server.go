@@ -21,6 +21,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
@@ -78,6 +79,8 @@ func classifyDataframeQueryError(err error) error {
 		return err
 	}
 	switch {
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotCellCardinality)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotCellCardinality, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
@@ -233,9 +236,16 @@ func run(ctx context.Context, serverConfig Config) error {
 		withExecutionReadPins = materializationReader.WithExecutionReadPins
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:            recipeRegistry,
-		Revisions:           recipeRevisions,
-		ResolveBundle:       recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		Registry:      recipeRegistry,
+		Revisions:     recipeRevisions,
+		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		PreparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			err := lifecycleClient.EnsurePivotPreviewIndex(ctx, spec.Collection, spec.Name, spec.Fields)
+			if err != nil {
+				logger.Warn("pivot preview covering index unavailable", "collection", spec.Collection, "error", err)
+			}
+			return err
+		},
 		ClickHouseQueryRows: clickHouseQueryRows,
 		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
 			err := lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, visit)

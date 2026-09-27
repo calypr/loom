@@ -626,6 +626,7 @@ const pivotStepFromForm = (args: {
   const keyIDs = form.categories.map((category) => scalarIdentity(category.key));
   const outputs = pivotOutputsFor(form, stage);
   if (form.groupKeyIds.length === 0 || form.categories.length === 0 || !categoryColumn || !valueColumn) return undefined;
+  if (form.duplicatePolicy !== 'ERROR' && !isNumericColumn(valueColumn)) return undefined;
   if (groupIDs.size !== form.groupKeyIds.length || groupIDs.has(form.categoryColumnId) || groupIDs.has(form.valueColumnId)) return undefined;
   if (form.groupKeyIds.some((id) => !scalarColumnsFor(stage).some((column) => column.id === id))) return undefined;
   if (form.categoryColumnId === form.valueColumnId || new Set(keyIDs).size !== keyIDs.length) return undefined;
@@ -1892,8 +1893,8 @@ const PivotEditor = (props: {
               <select aria-label="Pivot duplicate policy" value={props.form.duplicatePolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotDuplicatePolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, duplicatePolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                 <option value="ERROR">Show an error</option>
                 <option value="SUM" disabled={!numericValue}>Add them together</option>
-                <option value="MIN">Keep the smallest</option>
-                <option value="MAX">Keep the largest</option>
+                <option value="MIN" disabled={!numericValue}>Keep the smallest</option>
+                <option value="MAX" disabled={!numericValue}>Keep the largest</option>
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">

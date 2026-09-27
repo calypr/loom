@@ -6,6 +6,15 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
+// PreviewCoveringIndexSpec describes a bounded compiler-selected persistent
+// index that can cover one terminal nonunique Pivot preview source scan.
+// Runtime owners may provision this index before executing the hinted query.
+type PreviewCoveringIndexSpec struct {
+	Collection string
+	Name       string
+	Fields     []string
+}
+
 // CompiledQuery is the executable result of the canonical recipe compiler.
 // It contains parameterized AQL plus stable metadata for execution, export,
 // and diagnostics; it does not expose a transport-specific request builder.
@@ -31,8 +40,9 @@ type CompiledQuery struct {
 	PublicColumns []string
 	PivotFields   []string
 	Limit         int
-	// PartialValidation is true when a preview-only source window bounds
-	// validation to a deterministic subset of complete construction groups.
-	PartialValidation bool
-	PlanDiagnostics   ir.CompilerPlanDiagnostics
+	// PartialValidation is true when a preview-only source or terminal Pivot
+	// group window bounds validation to a deterministic subset of output rows.
+	PartialValidation    bool
+	PreviewCoveringIndex *PreviewCoveringIndexSpec
+	PlanDiagnostics      ir.CompilerPlanDiagnostics
 }

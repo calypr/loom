@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -28,6 +30,16 @@ type CategoryScanResult struct {
 	Complete bool
 	Overflow bool
 	Proof    compiler.CategoryScanProof
+}
+
+const (
+	previewIndexPrewarmLimit   = 2
+	previewIndexPrewarmTimeout = 8 * time.Second
+)
+
+var previewIndexPrewarmState struct {
+	sync.Mutex
+	inFlight map[string]struct{}
 }
 
 func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request CategoryScanRequest) (CategoryScanResult, error) {
@@ -63,6 +75,9 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if err := ctx.Err(); err != nil {
 		return CategoryScanResult{}, err
 	}
+	if compiled.PreviewCoveringIndex != nil {
+		schedulePreviewIndexPrewarm(ctx, e, *compiled.PreviewCoveringIndex)
+	}
 	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
 	overflow := false
 	queryRows := e.queryRows
@@ -95,4 +110,38 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 		return CategoryScanResult{}, err
 	}
 	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
+}
+
+func schedulePreviewIndexPrewarm(ctx context.Context, engine *Engine, spec compiler.PreviewCoveringIndexSpec) {
+	if engine == nil || engine.preparePreviewIndex == nil || spec.Collection == "" || spec.Name == "" || len(spec.Fields) == 0 {
+		return
+	}
+	key := fmt.Sprintf("%p:%s:%s", engine, spec.Collection, spec.Name)
+	previewIndexPrewarmState.Lock()
+	if previewIndexPrewarmState.inFlight == nil {
+		previewIndexPrewarmState.inFlight = make(map[string]struct{})
+	}
+	if _, exists := previewIndexPrewarmState.inFlight[key]; exists || len(previewIndexPrewarmState.inFlight) >= previewIndexPrewarmLimit {
+		previewIndexPrewarmState.Unlock()
+		return
+	}
+	previewIndexPrewarmState.inFlight[key] = struct{}{}
+	previewIndexPrewarmState.Unlock()
+
+	prepare := engine.preparePreviewIndex
+	indexSpec := compiler.PreviewCoveringIndexSpec{
+		Collection: spec.Collection,
+		Name:       spec.Name,
+		Fields:     append([]string(nil), spec.Fields...),
+	}
+	go func() {
+		defer func() {
+			previewIndexPrewarmState.Lock()
+			delete(previewIndexPrewarmState.inFlight, key)
+			previewIndexPrewarmState.Unlock()
+		}()
+		prepareCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), previewIndexPrewarmTimeout)
+		defer cancel()
+		_ = prepare(prepareCtx, indexSpec)
+	}()
 }

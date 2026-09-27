@@ -185,6 +185,14 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 	if sequence.FinalStageID != last.ID || sequence.FinalRowIdentity != last.RowIdentityColumn {
 		return fmt.Errorf("final stage or row identity does not match the final operation")
 	}
+	if sequence.PreviewTerminalPivotWindow {
+		if sequence.PreviewLimitBindKey == "" || sequence.PreviewSourceWindowByRootID ||
+			last.Kind != PhysicalStagePivotOp || last.GroupedPivot == nil ||
+			last.GroupedPivot.OneInputRowPerGroup || len(last.GroupedPivot.GroupKeys) == 0 ||
+			last.OutputRowVariable != last.GroupedPivot.OutputRowVariable {
+			return fmt.Errorf("terminal Pivot preview window lacks a terminal nonunique Pivot proof")
+		}
+	}
 	if !samePhysicalStageColumns(sequence.FinalColumns, last.OutputColumns) {
 		return fmt.Errorf("final output schema differs from the final stage")
 	}

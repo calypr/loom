@@ -57,7 +57,13 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			return CompiledQuery{}, err
 		}
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	previewCoveringIndex := previewCoveringIndexSpec(physical)
+	var rendered aql.RenderedPhysicalPlan
+	if previewCoveringIndex != nil {
+		rendered, err = aql.RenderPhysicalPlanWithRootIndexHint(physical, previewCoveringIndex.Name)
+	} else {
+		rendered, err = aql.RenderPhysicalPlan(physical)
+	}
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
@@ -93,8 +99,10 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PublicColumns:      publicColumns,
 		PivotFields:        pivotFields,
 		Limit:              limit,
-		PartialValidation:  physical.StageSequence != nil && physical.StageSequence.PreviewSourceWindowByRootID && physical.StageSequence.PreviewLimitBindKey != "",
-		PlanDiagnostics:    physicalPlanDiagnostics(physical),
+		PartialValidation: physical.StageSequence != nil && physical.StageSequence.PreviewLimitBindKey != "" &&
+			(physical.StageSequence.PreviewSourceWindowByRootID || physical.StageSequence.PreviewTerminalPivotWindow),
+		PreviewCoveringIndex: previewCoveringIndex,
+		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
 }
 

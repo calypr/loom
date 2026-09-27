@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -156,5 +157,50 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 		if !errors.As(err, &refusal) || refusal.Code != test.want {
 			t.Errorf("stage scan (%q, %q, %q) error = %v, want refusal %s", test.stage, test.category, test.value, err, test.want)
 		}
+	}
+}
+
+func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotPair(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "pre_pivot_category_discovery", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "resource_id", ColumnID: "resource_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "resource_id", Name: "resource_id"},
+				{ID: "category_id", Name: "category"},
+				{ID: "amount_id", Name: "amount"},
+			},
+		},
+	})
+	if output.Plan.StageSequence != nil {
+		t.Fatal("source-only output unexpectedly has a construction stage sequence")
+	}
+	scanned, err := CompileCategoryScanStageWithPolicy(output, recipe.ConstructionSourceProjectionID, "category_id", "amount_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := scanned.PreviewCoveringIndex
+	if index == nil {
+		t.Fatalf("direct source category discovery did not emit an explicit-pair covering-index spec:\n%s", scanned.Query)
+	}
+	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.gender", "payload.id", "payload.multipleBirthInteger"}
+	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
+		t.Fatalf("category scan covering-index metadata = %+v, want collection Patient fields %#v", index, wantFields)
+	}
+	if strings.Contains(scanned.Query, "indexHint:") {
+		t.Fatalf("category scan should expose prewarm metadata without changing its query:\n%s", scanned.Query)
+	}
+
+	withoutPair, err := CompileCategoryScanOutputWithPolicy(output, "category", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutPair.PreviewCoveringIndex != nil {
+		t.Fatalf("category-only discovery without explicit Pivot value intent emitted prewarm metadata: %+v", withoutPair.PreviewCoveringIndex)
 	}
 }

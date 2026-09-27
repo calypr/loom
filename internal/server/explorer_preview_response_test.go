@@ -104,6 +104,7 @@ func TestPreviewErrorPreservesStableClassifications(t *testing.T) {
 		{"plan", dataframeerrors.NewError(dataframeerrors.CodePlanTooExpensive, "private"), http.StatusTooManyRequests, "PLAN_TOO_EXPENSIVE"},
 		{"relationship-cardinality", dataframeerrors.NewError(dataframeerrors.CodeRelationshipCardinalityViolation, "private"), http.StatusUnprocessableEntity, "RELATIONSHIP_CARDINALITY_VIOLATION"},
 		{"construction-expansion-empty", dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, ""), http.StatusUnprocessableEntity, "CONSTRUCTION_EXPANSION_EMPTY"},
+		{"pivot-cell-cardinality", dataframeerrors.NewError(dataframeerrors.CodeTablePivotCellCardinality, ""), http.StatusUnprocessableEntity, "TABLE_PIVOT_CELL_CARDINALITY"},
 		{"pivot-unlisted-category", dataframeerrors.NewError(dataframeerrors.ErrorCode("TABLE_PIVOT_UNLISTED_CATEGORY"), ""), http.StatusUnprocessableEntity, "TABLE_PIVOT_UNLISTED_CATEGORY"},
 		{"temporal-anchor", dataframeerrors.NewError(dataframeerrors.CodeTemporalAnchorInvalid, "private"), http.StatusUnprocessableEntity, "TEMPORAL_ANCHOR_INVALID"},
 		{"temporal-precision", dataframeerrors.NewError(dataframeerrors.CodeTemporalPrecisionUnsupported, "private"), http.StatusUnprocessableEntity, "TEMPORAL_PRECISION_UNSUPPORTED"},

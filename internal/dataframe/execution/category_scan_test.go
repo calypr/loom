@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -110,6 +112,68 @@ func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
 	result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
 	if err != nil || !called || !result.Complete || len(result.Values) != 1 {
 		t.Fatalf("bounded scan called=%t result=%#v error=%v", called, result, err)
+	}
+}
+
+func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *testing.T) {
+	prepareStarted := make(chan struct{})
+	prepareRelease := make(chan struct{})
+	prepareFinished := make(chan struct{})
+	var prepareCalls atomic.Int32
+	var queryCalls atomic.Int32
+	engine := &Engine{
+		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			t.Fatal("category discovery used the unbounded executor")
+			return nil
+		},
+		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			if spec.Collection != "Patient" || spec.Name != "loom_pivot_preview_test" || !reflect.DeepEqual(spec.Fields, []string{"project", "payload.gender"}) {
+				t.Errorf("prewarm spec = %+v", spec)
+			}
+			prepareCalls.Add(1)
+			close(prepareStarted)
+			select {
+			case <-prepareRelease:
+				close(prepareFinished)
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if query != "scan" {
+				t.Fatalf("query = %q", query)
+			}
+			if queryCalls.Add(1) == 1 {
+				select {
+				case <-prepareStarted:
+				case <-time.After(time.Second):
+					t.Fatal("covering-index prewarm did not start before category query")
+				}
+			}
+			return visit(map[string]any{"present": true, "value": "category"})
+		},
+	}
+	compiled := compiledCategoryScan(256)
+	compiled.PreviewCoveringIndex = &compiler.PreviewCoveringIndexSpec{
+		Collection: "Patient", Name: "loom_pivot_preview_test", Fields: []string{"project", "payload.gender"},
+	}
+	first, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !first.Complete || len(first.Values) != 1 {
+		t.Fatalf("first scan result=%#v error=%v", first, err)
+	}
+	second, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !second.Complete || len(second.Values) != 1 {
+		t.Fatalf("second scan result=%#v error=%v", second, err)
+	}
+	if got := prepareCalls.Load(); got != 1 {
+		t.Fatalf("prewarm calls while first is in flight = %d, want one", got)
+	}
+	close(prepareRelease)
+	select {
+	case <-prepareFinished:
+	case <-time.After(time.Second):
+		t.Fatal("prewarm did not finish after release")
 	}
 }
 

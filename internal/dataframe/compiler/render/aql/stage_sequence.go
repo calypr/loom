@@ -9,7 +9,7 @@ import (
 
 const constructionSourceVariable = "__loom_construction_source_projection"
 
-func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
+func renderPhysicalStageSequence(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("physical construction stage sequence is required")
@@ -19,7 +19,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
 	pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
-	source, err := RenderPhysicalPlan(sourcePlan)
+	source, err := renderPhysicalPlan(sourcePlan, rootIndexHint)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
 	}
@@ -69,7 +69,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 			}
 			// The final construction query sorts on row identity after all stages.
 			// A one-input-per-group pivot needs no intermediate group-key sort.
-			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup)
+			previewLimitBindKey := ""
+			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 {
+				previewLimitBindKey = sequence.PreviewLimitBindKey
+			}
+			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
 			if renderErr != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q pivot: %w", stage.ID, renderErr)
 			}

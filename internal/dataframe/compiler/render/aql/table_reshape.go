@@ -13,7 +13,7 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 		if operation.GroupedPivot == nil {
 			return nil, fmt.Errorf("grouped pivot is missing payload")
 		}
-		return r.renderGroupedTablePivot(*operation.GroupedPivot, true)
+		return r.renderGroupedTablePivot(*operation.GroupedPivot, true, "")
 	case ir.PhysicalUnpivotOp:
 		if operation.Unpivot == nil {
 			return nil, fmt.Errorf("unpivot is missing payload")
@@ -24,7 +24,7 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 	}
 }
 
-func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool) ([]string, error) {
+func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool, previewLimitBindKey string) ([]string, error) {
 	input, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 	if err != nil {
 		return nil, err
@@ -66,7 +66,24 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		)
 		lines = append(lines, collectClause)
 	}
-	if sortGroups {
+	previewIdentityVariable := ""
+	if previewLimitBindKey != "" && !pivot.OneInputRowPerGroup {
+		groupValues := make([]string, 0, len(pivot.GroupKeys))
+		for _, key := range pivot.GroupKeys {
+			groupValues = append(groupValues, key.Variable)
+		}
+		identity, identityErr := r.renderGroupedPivotIdentity(pivot, groupValues)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		previewIdentityVariable = r.newInternalVariable("reshape_preview_identity")
+		lines = append(lines,
+			fmt.Sprintf("  LET %s = %s", previewIdentityVariable, identity),
+			fmt.Sprintf("  SORT %s ASC", previewIdentityVariable),
+			"  LIMIT @"+previewLimitBindKey,
+		)
+	}
+	if sortGroups && previewIdentityVariable == "" {
 		lines = append(lines, "  SORT "+strings.Join(sort, ", "))
 	}
 
@@ -183,12 +200,15 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	for _, key := range pivot.GroupKeys {
 		groupValues = append(groupValues, key.Variable)
 	}
-	identity, err := r.renderGroupedPivotIdentity(pivot, groupValues)
-	if err != nil {
-		return nil, err
+	identityVariable := previewIdentityVariable
+	if identityVariable == "" {
+		identity, identityErr := r.renderGroupedPivotIdentity(pivot, groupValues)
+		if identityErr != nil {
+			return nil, identityErr
+		}
+		identityVariable = r.newInternalVariable("reshape_identity")
+		lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	}
-	identityVariable := r.newInternalVariable("reshape_identity")
-	lines = append(lines, fmt.Sprintf("  LET %s = %s", identityVariable, identity))
 	outputProjections = append(outputProjections, ir.PhysicalProjection{Name: "__loom_row_id", Value: ir.PhysicalValue{Variable: identityVariable}})
 	output, err := r.renderReturn(ir.PhysicalReturn{Projections: outputProjections})
 	if err != nil {
