@@ -245,6 +245,12 @@ try {
     const resourceType = action.includes('BodyStructure') ? 'BodyStructure' : action.includes('Observation') ? 'Observation' : 'Patient';
     const tableName = `${resourceType} row choice QA ${Date.now()}`;
     const journeyStarted = Date.now();
+    const countClicks = action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity';
+    if (countClicks) {
+      const counter = `document.addEventListener('click', () => sessionStorage.setItem('loomRowJourneyClicks', String(Number(sessionStorage.getItem('loomRowJourneyClicks') || 0) + 1)), true);`;
+      await browser.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: counter });
+      await browserEval(browser.cdp, `sessionStorage.setItem('loomRowJourneyClicks', '0');${counter}return true;`);
+    }
     let created = false;
     let tablesBefore = [];
     try {
@@ -511,6 +517,7 @@ try {
         assert(Object.entries(state.timingsMs).filter(([name]) => name.endsWith('Preview')).every(([, elapsed]) => elapsed <= 5000),
           `A CDA preview exceeded 5 seconds: ${JSON.stringify(state.timingsMs)}`);
         state.errors = responses.filter(response => response.status >= 400);
+        state.clicks = await browserEval(browser.cdp, `return Number(sessionStorage.getItem('loomRowJourneyClicks') || 0);`);
         await mkdir(evidenceDirectory, { recursive: true });
         await writeFile(join(evidenceDirectory, 'observation-row-grain-multiplicity.json'), JSON.stringify({ pageURL, tableName, state, responses }, null, 2));
       }
