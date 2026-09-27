@@ -350,6 +350,16 @@ const scalarLabel = (scalar: ConstructionTableScalar): string => {
   }
 };
 
+const createPivotCategoryForm = (
+  available: ConstructionReshapePivotCategory,
+  usedNames: ReadonlySet<string>,
+): PivotCategoryForm => ({
+  key: available.key,
+  outputColumnId: createOpaqueId('pivot-column'),
+  name: uniqueName(available.suggestedName ?? normalizedName(scalarLabel(available.key)), usedNames),
+  label: available.suggestedLabel ?? available.label,
+});
+
 const scalarFromText = (kind: ConstructionTableScalar['kind'], value: string): ConstructionTableScalar | undefined => {
   switch (kind) {
     case 'STRING': return { kind, string: value };
@@ -956,6 +966,16 @@ const pivotCategoriesAreKnown = (
     && form.originalPair.valueColumnId === form.valueColumnId);
 };
 
+const allDiscoveredPivotCategoriesSelected = (
+  form: PivotForm,
+  stageId: string,
+  discovery: ConstructionReshapePivotDiscovery | undefined,
+): boolean => {
+  if (!pivotDiscoveryMatches(form, stageId, discovery) || discovery.status !== 'complete') return false;
+  const selectedIdentities = new Set(form.categories.map((category) => scalarIdentity(category.key)));
+  return discovery.categories.every((category) => selectedIdentities.has(scalarIdentity(category.key)));
+};
+
 const getUsedGroupNames = (form: GroupForm, excludingColumnId?: string): ReadonlySet<string> =>
   new Set([
     ...form.keys.filter((key) => key.outputColumnId !== excludingColumnId).map((key) => key.name.trim().toLowerCase()),
@@ -1065,12 +1085,19 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const evaluate = (next: ReshapeForm): CandidateEvaluation => {
     const support = capabilityForForm(next);
     if (!support?.supported) return { kind: 'incomplete' };
+    const pivotCategoriesKnown = next.kind === 'pivot' && pivotCategoriesAreKnown(next, stage.id, pivotDiscovery);
+    if (
+      next.kind === 'pivot'
+      && editingStep?.operation.kind !== 'PIVOT'
+      && pivotCategoriesKnown
+      && !allDiscoveredPivotCategoriesSelected(next, stage.id, pivotDiscovery)
+    ) return { kind: 'incomplete' };
     return candidateFor({
       form: next,
       construction,
       stage,
       editingStep,
-      pivotCategoriesKnown: next.kind === 'pivot' && pivotCategoriesAreKnown(next, stage.id, pivotDiscovery),
+      pivotCategoriesKnown,
     });
   };
 
@@ -1240,6 +1267,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           reason={pivotSupport.reason}
           disabled={disabled}
           discovery={pivotDiscovery}
+          requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           onDiscover={() => requestPivotCategories(form)}
           onChange={updateForm}
@@ -1632,10 +1660,12 @@ const PivotEditor = (props: {
   readonly reason: string;
   readonly disabled: boolean;
   readonly discovery?: ConstructionReshapePivotDiscovery;
+  readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly onDiscover: () => void;
   readonly onChange: (form: PivotForm) => void;
 }) => {
+  const [categorySearch, setCategorySearch] = useState('');
   const columns = scalarColumnsFor(props.stage);
   const discoveryMatches = pivotDiscoveryMatches(props.form, props.stage.id, props.discovery);
   const discoveryComplete = discoveryMatches && props.discovery.status === 'complete';
@@ -1643,10 +1673,27 @@ const PivotEditor = (props: {
     && props.form.originalPair.valueColumnId === props.form.valueColumnId;
   const categoriesKnown = pairUnchanged || discoveryComplete;
   const categoriesAvailable = discoveryComplete ? props.discovery.categories : [];
+  const missingDiscoveredCategories = props.requireEveryDiscoveredCategory
+    && discoveryComplete
+    && !allDiscoveredPivotCategoriesSelected(props.form, props.stage.id, props.discovery);
   const listedKeys = new Set(categoriesAvailable.map((category) => scalarIdentity(category.key)));
   const existingNotListed = pairUnchanged
     ? props.form.categories.filter((category) => !listedKeys.has(scalarIdentity(category.key)))
     : [];
+  const categorySearchTerm = categorySearch.trim().toLowerCase();
+  const matchesCategorySearch = (label: string, key: ConstructionTableScalar): boolean =>
+    `${label} ${scalarLabel(key)}`.toLowerCase().includes(categorySearchTerm);
+  const shownCategories = categoriesAvailable.filter((category) => matchesCategorySearch(category.label, category.key));
+  const shownExistingNotListed = existingNotListed.filter((category) => matchesCategorySearch(scalarLabel(category.key), category.key));
+  const selectedCategoryIdentities = new Set(props.form.categories.map((category) => scalarIdentity(category.key)));
+  const shownCategoryIdentities = new Set([
+    ...shownCategories.map((category) => scalarIdentity(category.key)),
+    ...shownExistingNotListed.map((category) => scalarIdentity(category.key)),
+  ]);
+  const hasUnselectedShownCategory = shownCategories.some((category) => !selectedCategoryIdentities.has(scalarIdentity(category.key)));
+  const hasSelectedShownCategory = props.form.categories.some((category) => shownCategoryIdentities.has(scalarIdentity(category.key)));
+  const shownCategoryCount = shownCategories.length + shownExistingNotListed.length;
+  const categoryCount = categoriesAvailable.length + existingNotListed.length;
   const groupColumns = props.form.groupKeyIds.flatMap((id) => {
     const column = columns.find((candidate) => candidate.id === id);
     return column ? [column] : [];
@@ -1674,16 +1721,44 @@ const PivotEditor = (props: {
     const categories = checked
       ? existing
         ? props.form.categories.map((category) => scalarIdentity(category.key) === identity ? { ...category } : category)
-        : [...props.form.categories, {
-            key: available.key,
-            outputColumnId: createOpaqueId('pivot-column'),
-            name: uniqueName(available.suggestedName ?? normalizedName(scalarLabel(available.key)), new Set([
-              ...props.stage.columns.map((column) => column.name.toLowerCase()),
-              ...props.form.categories.map((category) => category.name.toLowerCase()),
-            ])),
-            label: available.suggestedLabel ?? available.label,
-          }]
+        : [...props.form.categories, createPivotCategoryForm(available, new Set([
+            ...props.stage.columns.map((column) => column.name.toLowerCase()),
+            ...props.form.categories.map((category) => category.name.toLowerCase()),
+          ]))]
       : props.form.categories.filter((category) => scalarIdentity(category.key) !== identity);
+    props.onChange({
+      ...props.form,
+      categories,
+      categoriesPair: { categoryColumnId: props.form.categoryColumnId, valueColumnId: props.form.valueColumnId },
+    });
+  };
+
+  const selectShownCategories = () => {
+    const selectedIdentities = new Set(selectedCategoryIdentities);
+    const categories = [...props.form.categories];
+    const usedNames = new Set([
+      ...props.stage.columns.map((column) => column.name.toLowerCase()),
+      ...props.form.categories.map((category) => category.name.toLowerCase()),
+    ]);
+    for (const available of shownCategories) {
+      const identity = scalarIdentity(available.key);
+      if (selectedIdentities.has(identity)) continue;
+      const category = createPivotCategoryForm(available, usedNames);
+      categories.push(category);
+      selectedIdentities.add(identity);
+      usedNames.add(category.name.toLowerCase());
+    }
+    if (categories.length === props.form.categories.length) return;
+    props.onChange({
+      ...props.form,
+      categories,
+      categoriesPair: { categoryColumnId: props.form.categoryColumnId, valueColumnId: props.form.valueColumnId },
+    });
+  };
+
+  const clearShownCategories = () => {
+    const categories = props.form.categories.filter((category) => !shownCategoryIdentities.has(scalarIdentity(category.key)));
+    if (categories.length === props.form.categories.length) return;
     props.onChange({
       ...props.form,
       categories,
@@ -1747,7 +1822,42 @@ const PivotEditor = (props: {
           {categoriesKnown ? (
             <fieldset className="grid gap-3 rounded border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
               <legend className="px-1 text-sm font-semibold text-slate-800">Category columns</legend>
-              {categoriesAvailable.map((available) => {
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Search category values
+                  <input
+                    type="search"
+                    aria-label="Search category values"
+                    value={categorySearch}
+                    onChange={(event) => setCategorySearch(event.currentTarget.value)}
+                    placeholder="Search by label or value"
+                    className="rounded border border-slate-300 bg-white px-2 py-1.5"
+                  />
+                </label>
+                <button
+                  type="button"
+                  aria-label="Select shown categories"
+                  disabled={props.disabled || !props.supported || !hasUnselectedShownCategory}
+                  onClick={selectShownCategories}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  Select shown categories
+                </button>
+                <button
+                  type="button"
+                  aria-label="Clear shown categories"
+                  disabled={props.disabled || !props.supported || !hasSelectedShownCategory}
+                  onClick={clearShownCategories}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  Clear shown categories
+                </button>
+              </div>
+              <p role="status" aria-live="polite" data-testid="construction-reshape-pivot-category-status" className="text-sm text-slate-600">
+                {props.form.categories.length} selected · Showing {shownCategoryCount} of {categoryCount} category values
+              </p>
+              {missingDiscoveredCategories ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Select every discovered category, or filter rows before pivoting.</p> : null}
+              {shownCategories.map((available) => {
                 const identity = scalarIdentity(available.key);
                 const current = props.form.categories.find((category) => scalarIdentity(category.key) === identity);
                 return (
@@ -1760,7 +1870,7 @@ const PivotEditor = (props: {
                   </div>
                 );
               })}
-              {existingNotListed.map((category) => {
+              {shownExistingNotListed.map((category) => {
                 const identity = scalarIdentity(category.key);
                 return (
                   <div key={identity} className={`grid gap-2 rounded p-2 ${discoveryComplete ? 'border border-amber-200 bg-amber-50' : 'bg-slate-50'}`}>
@@ -1773,6 +1883,7 @@ const PivotEditor = (props: {
                 );
               })}
               {categoriesAvailable.length === 0 && existingNotListed.length === 0 ? <p role="status" className="text-sm text-slate-600">No categories were found for this pair.</p> : null}
+              {categoryCount > 0 && shownCategoryCount === 0 ? <p role="status" className="text-sm text-slate-600">No categories match this search.</p> : null}
             </fieldset>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-3">
@@ -1793,13 +1904,16 @@ const PivotEditor = (props: {
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
-              If a new category appears
+              If a row has an unselected category
               <select aria-label="Pivot unlisted category policy" value={props.form.unlistedCategoryPolicy} disabled={props.disabled || !props.supported} onChange={(event) => { const policy = pivotUnlistedPolicyFromInput(event.currentTarget.value); if (policy) props.onChange({ ...props.form, unlistedCategoryPolicy: policy }); }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                 <option value="ERROR">Show an error</option>
-                <option value="EXCLUDE_WITH_EVIDENCE">Skip it and report it</option>
+                <option value="EXCLUDE_WITH_EVIDENCE" disabled>Skip it and report it</option>
               </select>
             </label>
           </div>
+          <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            Construction pivots using “Show an error” require every category present in the rows to be selected. “Skip it and report it” is unavailable.
+          </p>
         </>
       )}
       {!outputNamesValid ? <p role="status" className="text-sm text-amber-900">Give each output a unique column name using letters, numbers, or underscores, and add a label.</p> : null}

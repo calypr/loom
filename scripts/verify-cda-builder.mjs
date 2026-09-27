@@ -1388,13 +1388,24 @@ try {
     assert(state.categories.length>0,`Pivot category discovery did not return categories: ${state.alerts.join('; ')}`);
     if (action === 'Discover Specimen pivot categories performance') assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
     if (action === 'Preview Specimen pivot performance') {
-      await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot unlisted category policy"]');select.value='EXCLUDE_WITH_EVIDENCE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
-      const proposalStarted=Date.now();
+      const initial=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {policy:[...editor.querySelector('select[aria-label="Pivot unlisted category policy"]').options].map(option=>({text:option.textContent,disabled:option.disabled})),status:editor.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,bulkDisabled:editor.querySelector('button[aria-label="Select shown categories"]')?.disabled};`);
+      assert(initial.policy.find(option=>option.text==='Skip it and report it')?.disabled,'Unsupported Pivot policy is enabled');
+      assert.equal(initial.bulkDisabled,false);
       await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category Null"]').click();return true;`);
-      await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 60000);
+      const subset=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {status:editor.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,guidance:editor.innerText.includes('Select every discovered category, or filter rows before pivoting.'),proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')};`);
+      assert(subset.guidance,'Subset Pivot did not explain the required choice');
+      assert.notEqual(subset.proposal,'ready','Subset Pivot unexpectedly produced an applicable proposal');
+      const proposalStarted=Date.now();
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label="Select shown categories"]').click();return true;`);
+      let proposalWaitError;
+      try {
+        await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 15000);
+      } catch (error) {
+        proposalWaitError=String(error);
+      }
       const proposalMs=Date.now()-proposalStarted;
-      const proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
-      await writeFile(join(evidenceDirectory,'specimen-pivot-proposal-performance.json'),JSON.stringify({pageURL,discoveryMs:elapsedMs,proposalMs,gateMs:5000,proposal,responses},null,2));
+      const proposal=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,categoryStatus:editor?.querySelector('[data-testid="construction-reshape-pivot-category-status"]')?.textContent,editorTail:editor?.innerText.slice(-1200)};`);
+      await writeFile(join(evidenceDirectory,'specimen-pivot-proposal-performance.json'),JSON.stringify({pageURL,discoveryMs:elapsedMs,proposalMs,gateMs:5000,initial,subset,proposalWaitError,proposal,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,discoveryMs:elapsedMs,proposalMs,gateMs:5000,proposal,responses:responses.filter(response=>response.path.endsWith('/construction-proposals'))},null,2));
       assert.equal(proposal.status,'ready',proposal.panel);
       assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);

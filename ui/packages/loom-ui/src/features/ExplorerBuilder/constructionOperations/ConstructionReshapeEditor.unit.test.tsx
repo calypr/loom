@@ -625,4 +625,113 @@ describe('ConstructionReshapeEditor', () => {
       },
     });
   });
+
+  it('searches Pivot category values and selects or clears only the shown categories in one update', () => {
+    const categories = [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A', suggestedName: 'site' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'site B', suggestedName: 'site' },
+      { key: { kind: 'STRING', string: 'bone' }, label: 'Skeletal tissue', suggestedName: 'site' },
+    ] satisfies NonNullable<Extract<ConstructionReshapeEditorProps['pivotDiscovery'], { status: 'complete' }>['categories']>;
+    const pivotStage = {
+      ...sourceStage,
+      columns: [...sourceColumns, { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' as const }],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    render(
+      <ConstructionReshapeEditor
+        construction={{ version: 1, steps: [] }}
+        capabilities={capabilitiesFor([pivotStage], pivotStage)}
+        selectedColumns={['sex-id']}
+        pivotDiscovery={{
+          stageId: pivotStage.id,
+          categoryColumnId: 'site-id',
+          valueColumnId: 'age-id',
+          status: 'complete',
+          categories,
+        }}
+        onDiscoverCategories={vi.fn()}
+        disabled={false}
+        onCandidateChange={onCandidateChange}
+        onEditStep={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    const search = screen.getByLabelText('Search category values');
+    const status = screen.getByTestId('construction-reshape-pivot-category-status');
+    expect(status).toHaveTextContent('0 selected · Showing 3 of 3 category values');
+    expect(screen.getByText('If a row has an unselected category')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Skip it and report it' })).toBeDisabled();
+    expect(screen.getByText(/require every category present in the rows to be selected/)).toBeInTheDocument();
+    expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: 'sItE' } });
+    expect(screen.getByLabelText('Include category Site A')).toBeInTheDocument();
+    expect(screen.getByLabelText('Include category site B')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Include category Skeletal tissue')).not.toBeInTheDocument();
+    expect(status).toHaveTextContent('0 selected · Showing 2 of 3 category values');
+    const callsBeforeSelect = onCandidateChange.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
+    expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSelect + 1);
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    expect(status).toHaveTextContent('2 selected · Showing 2 of 3 category values');
+    expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
+
+    const callsBeforeSearch = onCandidateChange.mock.calls.length;
+    fireEvent.change(search, { target: { value: 'SKELETAL' } });
+    expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSearch);
+    expect(status).toHaveTextContent('2 selected · Showing 1 of 3 category values');
+    expect(controlChecked('Include category Skeletal tissue')).toBe(false);
+
+    const callsBeforeSecondSelect = onCandidateChange.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
+    expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeSecondSelect + 1);
+    const selectedIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(selectedIntent).toBeDefined();
+    if (!selectedIntent) throw new Error('Expected a candidate after selecting every discovered category');
+    const selectedStep = constructionSchema.parse(selectedIntent.candidateConstruction).steps[0];
+    expect(selectedStep?.operation).toMatchObject({
+      kind: 'PIVOT',
+      pivot: {
+        categories: [
+          { key: { kind: 'STRING', string: 'site-a' }, outputColumnId: expect.any(String) },
+          { key: { kind: 'STRING', string: 'site-b' }, outputColumnId: expect.any(String) },
+          { key: { kind: 'STRING', string: 'bone' }, outputColumnId: expect.any(String) },
+        ],
+      },
+    });
+    if (selectedStep?.operation.kind !== 'PIVOT') throw new Error('Expected the selected step to be a Pivot');
+    const selectedOutputIds = selectedStep.operation.pivot.categories.map((category) => category.outputColumnId);
+    const selectedCategoryOutputs = selectedStep.outputs.filter((output) => selectedOutputIds.includes(output.id));
+    expect(selectedCategoryOutputs.map((output) => output.name)).toEqual(['site_2', 'site_3', 'site_4']);
+    expect(new Set(selectedCategoryOutputs.map((output) => output.id)).size).toBe(3);
+
+    const callsBeforeClear = onCandidateChange.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Clear shown categories' }));
+    expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeClear + 1);
+    expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+
+    fireEvent.change(search, { target: { value: '' } });
+    expect(status).toHaveTextContent('2 selected · Showing 3 of 3 category values');
+    expect(screen.getByText('Select every discovered category, or filter rows before pivoting.')).toBeInTheDocument();
+    expect(controlChecked('Include category Site A')).toBe(true);
+    expect(controlChecked('Include category site B')).toBe(true);
+    expect(controlChecked('Include category Skeletal tissue')).toBe(false);
+
+    const callsBeforeReselect = onCandidateChange.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Select shown categories' }));
+    expect(onCandidateChange).toHaveBeenCalledTimes(callsBeforeReselect + 1);
+    const reselectedIntent = onCandidateChange.mock.lastCall?.[0];
+    expect(reselectedIntent).toBeDefined();
+    if (!reselectedIntent) throw new Error('Expected a candidate after reselecting all categories');
+    const reselectedStep = constructionSchema.parse(reselectedIntent.candidateConstruction).steps[0];
+    if (reselectedStep?.operation.kind !== 'PIVOT') throw new Error('Expected the reselected step to be a Pivot');
+    const reselectedOutputIds = reselectedStep.operation.pivot.categories.map((category) => category.outputColumnId);
+    const reselectedCategoryOutputs = reselectedStep.outputs.filter((output) => reselectedOutputIds.includes(output.id));
+    const retainedOutputIds = new Set(selectedStep.operation.pivot.categories.slice(0, 2).map((category) => category.outputColumnId));
+    expect(reselectedCategoryOutputs.filter((output) => retainedOutputIds.has(output.id))).toEqual(selectedCategoryOutputs.slice(0, 2));
+    expect(screen.queryByText('Select every discovered category, or filter rows before pivoting.')).not.toBeInTheDocument();
+  });
 });
