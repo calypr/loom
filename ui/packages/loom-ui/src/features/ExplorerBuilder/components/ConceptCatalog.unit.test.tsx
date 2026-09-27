@@ -14,6 +14,7 @@ import type {
   SemanticInventoryItem,
 } from '../../../types';
 import type { CatalogInitialSelection } from './CatalogSelectionDialog';
+import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 import {
   ConceptCatalog,
   type CatalogRelatedSourceAvailability,
@@ -267,6 +268,56 @@ const renderCatalogAtRoute = (
 };
 
 describe('ConceptCatalog', () => {
+  it('opens the existing route and result-form dialog for a ready-to-add paired concept without adding it', async () => {
+    const daysToCollection = item('days_to_collection', 'Days to collection', 202195, 'Specimen');
+    const resolvedChoice = semanticChoice('days-to-collection-route', daysToCollection, [
+      choiceOption('VALUE', 'REQUIRES_DECISION'),
+      choiceOption('ALL', 'REQUIRES_DECISION'),
+    ]);
+    const pairedSuggestion: PairedColumnSuggestion = {
+      requestId: 'paired-selection-1',
+      snapshotToken: 'snapshot-a',
+      outputId: 'specimens',
+      contextToken: 'context-1',
+      buildId: 'build-1',
+      item: daysToCollection,
+      choices: {
+        snapshotToken: 'snapshot-a',
+        outputId: 'specimens',
+        complete: true,
+        truncated: false,
+        choices: [resolvedChoice],
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify(page([daysToCollection])), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const onAddSelected = vi.fn().mockResolvedValue(undefined);
+    render(
+      <LoomProvider client={createLoomClient({ fetch })}>
+        <ConceptCatalog
+          project="project-a"
+          explorerId="explorer-a"
+          snapshotToken="snapshot-a"
+          outputId="specimens"
+          rowRoot="Specimen"
+          catalog={catalog}
+          pairedColumnSuggestion={pairedSuggestion}
+          onAddSelected={onAddSelected}
+        />
+      </LoomProvider>,
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(within(dialog).getByText('Days to collection')).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Use the matching value' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: 'Days to collection: Keep all matching values' })).toBeInTheDocument();
+    expect(onAddSelected).not.toHaveBeenCalled();
+  });
+
   it('searches root fields and concepts, shows available forms, and submits only choice IDs and forms', async () => {
     const hemoglobin = item('4548-4', 'Hemoglobin A1c', 91);
     const offRoot = item('718-7', 'Off-root concept', 64, 'Observation');

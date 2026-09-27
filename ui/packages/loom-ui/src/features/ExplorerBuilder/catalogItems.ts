@@ -39,6 +39,10 @@ export type CatalogChoiceGroup = {
   readonly complete: boolean;
   readonly truncated: boolean;
   readonly nextCursor?: string;
+  readonly semanticContext?: {
+    readonly contextToken: string;
+    readonly buildId: string;
+  };
 };
 
 export type CatalogItemAvailability =

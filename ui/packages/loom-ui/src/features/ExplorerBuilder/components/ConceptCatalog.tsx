@@ -22,6 +22,7 @@ import {
   type CatalogItem,
 } from '../catalogItems';
 import { CatalogSelectionDialog, type CatalogInitialSelection } from './CatalogSelectionDialog';
+import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
 const ROUTE_PAGE_SIZE = 10;
@@ -482,6 +483,8 @@ export const ConceptCatalog = ({
   relatedSourceAvailability,
   suppressUnavailableNotices = false,
   initialSelection,
+  pairedColumnSuggestion,
+  onPairedColumnSuggestionHandled,
   onAddSelected,
 }: {
   readonly project: string;
@@ -501,6 +504,8 @@ export const ConceptCatalog = ({
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly suppressUnavailableNotices?: boolean;
   readonly initialSelection?: CatalogInitialSelection;
+  readonly pairedColumnSuggestion?: PairedColumnSuggestion;
+  readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
@@ -529,6 +534,7 @@ export const ConceptCatalog = ({
   const activeRequest = useRef<AbortController | undefined>(undefined);
   const activeChoiceRequest = useRef<AbortController | undefined>(undefined);
   const selectionContext = useRef<string | undefined>(undefined);
+  const handledSuggestionRequests = useRef<Set<string>>(new Set());
   const contextKey = JSON.stringify([
     project,
     explorerId,
@@ -620,6 +626,64 @@ export const ConceptCatalog = ({
     };
   }, [contextKey, loadPage, rowRoot, snapshotToken]);
 
+  useEffect(() => {
+    const suggestion = pairedColumnSuggestion;
+    if (!suggestion || handledSuggestionRequests.current.has(suggestion.requestId)) return;
+    handledSuggestionRequests.current.add(suggestion.requestId);
+    onPairedColumnSuggestionHandled?.(suggestion.requestId);
+
+    if (
+      suggestion.snapshotToken !== snapshotToken ||
+      suggestion.outputId !== outputId ||
+      suggestion.choices.snapshotToken !== snapshotToken ||
+      suggestion.choices.outputId !== outputId
+    ) {
+      setActionMessage('The table changed. Choose the paired concept again for the current table.');
+      return;
+    }
+
+    const choices = suggestion.choices.choices.filter((choice) =>
+      choice.source.kind === 'SEMANTIC' &&
+      choice.source.conceptId === suggestion.item.conceptId &&
+      choice.source.bindingId === suggestion.item.bindingId &&
+      choice.source.resourceType === suggestion.item.resourceType &&
+      choice.options.some((option) => option.support === 'SUPPORTED'),
+    );
+    const firstChoice = choices[0];
+    if (!firstChoice || !catalogItemAvailability({
+      kind: 'SEMANTIC',
+      item: suggestion.item,
+      constructionChoice: firstChoice,
+    }).selectable) {
+      setActionMessage('Loom no longer provides a supported route and result form for this paired concept.');
+      return;
+    }
+
+    const item: CatalogItem = {
+      kind: 'SEMANTIC',
+      item: suggestion.item,
+      constructionChoice: firstChoice,
+    };
+    setSelected(new Map([[catalogItemKey(item), item]]));
+    setPendingSelection([{
+      item,
+      choices,
+      complete: suggestion.choices.complete,
+      truncated: suggestion.choices.truncated,
+      ...(suggestion.choices.nextCursor ? { nextCursor: suggestion.choices.nextCursor } : {}),
+      semanticContext: {
+        contextToken: suggestion.contextToken,
+        buildId: suggestion.buildId,
+      },
+    }]);
+    setActionMessage(undefined);
+  }, [
+    onPairedColumnSuggestionHandled,
+    outputId,
+    pairedColumnSuggestion,
+    snapshotToken,
+  ]);
+
   const page = pages[pageIndex];
   const response = page?.response;
   const warning = response ? availabilityMessage(response) : undefined;
@@ -659,9 +723,11 @@ export const ConceptCatalog = ({
     item: CatalogItem,
     signal?: AbortSignal,
     cursor?: string,
+    semanticContext?: { readonly contextToken: string; readonly buildId: string },
   ): Promise<CatalogChoiceGroup> => {
     const existingChoice = catalogItemConstructionChoice(item);
     if (
+      !cursor &&
       existingChoice &&
       !routeContext &&
       existingChoice.source.resourceType === rowRoot &&
@@ -670,19 +736,25 @@ export const ConceptCatalog = ({
       return { item, choices: [existingChoice], complete: true, truncated: false };
     }
     if (item.kind === 'SEMANTIC' && !response) {
-      throw new Error('Loom has not provided a complete concept catalog for this result.');
+      if (!semanticContext) {
+        throw new Error('Loom has not provided a complete concept catalog for this result.');
+      }
     }
     let source: ConstructionChoiceSearchSource;
     if (item.kind === 'FIELD') {
       source = { kind: 'FIELD', candidateId: item.candidate.candidateId };
     } else {
-      if (!response) {
+      const effectiveContext = semanticContext ?? (response ? {
+        contextToken: response.contextToken,
+        buildId: response.buildId,
+      } : undefined);
+      if (!effectiveContext) {
         throw new Error('Loom has not provided a complete concept catalog for this result.');
       }
       source = {
         kind: 'SEMANTIC',
-        contextToken: response.contextToken,
-        buildId: response.buildId,
+        contextToken: effectiveContext.contextToken,
+        buildId: effectiveContext.buildId,
         conceptId: item.item.conceptId,
         bindingId: item.item.bindingId,
       };
@@ -711,6 +783,12 @@ export const ConceptCatalog = ({
       complete: resolved.complete,
       truncated: resolved.truncated,
       nextCursor: resolved.nextCursor,
+      ...(item.kind === 'SEMANTIC' ? {
+        semanticContext: semanticContext ?? (response ? {
+          contextToken: response.contextToken,
+          buildId: response.buildId,
+        } : undefined),
+      } : {}),
     };
   };
 
@@ -720,7 +798,7 @@ export const ConceptCatalog = ({
     setLoadingMoreRoutes(key);
     setRouteLoadError(undefined);
     try {
-      const page = await resolveChoiceGroup(group.item, undefined, group.nextCursor);
+      const page = await resolveChoiceGroup(group.item, undefined, group.nextCursor, group.semanticContext);
       const seen = new Set(group.choices.map((choice) => choice.choiceId));
       const updated = {
         ...group,

@@ -87,6 +87,10 @@ import {
   type ConstructionSelectableColumn,
 } from './constructionWorkspace/ConstructionColumnSelection';
 import {
+  PairedColumnSuggestions,
+  type PairedColumnSuggestion,
+} from './constructionWorkspace/PairedColumnSuggestions';
+import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
@@ -433,6 +437,8 @@ const BuilderWorkspaceContent = ({
   const [choiceProposal, setChoiceProposal] = useState<ChoiceProposalState>({ status: 'idle' });
   const choiceProposalRequest = useRef<AbortController | undefined>(undefined);
   const [featureMode, setFeatureMode] = useState<'catalog' | 'graph'>('catalog');
+  const [pairedColumnSuggestion, setPairedColumnSuggestion] =
+    useState<PairedColumnSuggestion>();
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
   const [addColumnsSource, setAddColumnsSource] = useState<{
@@ -749,8 +755,11 @@ const BuilderWorkspaceContent = ({
     : (table?.document.columns ?? []).map((column) => ({
         id: column.column,
         label: column.label,
-        type: column.logicalType,
-      }));
+      type: column.logicalType,
+    }));
+  useEffect(() => {
+    setPairedColumnSuggestion(undefined);
+  }, [state.explorerId, state.catalog.snapshotToken, table?.outputId, table?.document.rootResourceType]);
   const rowMeaning = !table?.document.rootResourceType
     ? 'Choose what one row represents to start this table.'
     : table.document.output.rowLabel?.trim() ||
@@ -2798,6 +2807,32 @@ const BuilderWorkspaceContent = ({
                       onClear={() => setColumnSelection({ kind: 'empty' })}
                       onOpenFamily={selectConstructionFamily}
                     />
+                    {table.document.rootResourceType ? (
+                      <PairedColumnSuggestions
+                        project={projectId}
+                        explorerId={state.explorerId}
+                        authResourcePath={authResourcePath}
+                        snapshotToken={state.catalog.snapshotToken}
+                        outputId={table.outputId}
+                        rowRoot={table.document.rootResourceType}
+                        columns={[
+                          ...selectableColumns,
+                          ...table.document.columns.map((column) => ({
+                            id: column.column,
+                            label: column.label,
+                          })),
+                        ]}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                        onSelectSuggestion={(suggestion) => {
+                          setPairedColumnSuggestion(suggestion);
+                          setFeatureMode('catalog');
+                        }}
+                        onBrowseAll={() => {
+                          setPairedColumnSuggestion(undefined);
+                          setFeatureMode('catalog');
+                        }}
+                      />
+                    ) : null}
                     {candidatePreview ? (
                       <ConstructionProposalPreview preview={candidatePreview} />
                     ) : (
@@ -2934,6 +2969,12 @@ const BuilderWorkspaceContent = ({
                   suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
                   disabledReason={sourceSelectionDisabledReason}
                   disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  pairedColumnSuggestion={pairedColumnSuggestion}
+                  onPairedColumnSuggestionHandled={(requestId) =>
+                    setPairedColumnSuggestion((current) =>
+                      current?.requestId === requestId ? undefined : current,
+                    )
+                  }
                   onAddSelected={addSelectedFeatures}
                   />
                 ) : (
