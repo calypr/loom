@@ -74,9 +74,15 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
     ).join(' · ');
 
 type ConditionDraft = { readonly mode: 'ALL' | 'EXISTS' | 'EQUALS'; readonly value: string };
+export type CatalogInitialSelection = {
+  readonly choiceId: string;
+  readonly form: ConstructionChoiceForm;
+  readonly condition?: ConditionDraft;
+};
 
 export const CatalogSelectionDialog = ({
   groups,
+  initialSelection,
   busy,
   loadingMoreRoutes,
   routeLoadError,
@@ -85,6 +91,7 @@ export const CatalogSelectionDialog = ({
   onConfirm,
 }: {
   readonly groups: ReadonlyArray<CatalogChoiceGroup>;
+  readonly initialSelection?: CatalogInitialSelection;
   readonly busy: boolean;
   readonly loadingMoreRoutes?: string;
   readonly routeLoadError?: { readonly key: string; readonly message: string };
@@ -94,24 +101,34 @@ export const CatalogSelectionDialog = ({
 }) => {
   const [choiceIDs, setChoiceIDs] = useState<ReadonlyMap<string, string>>(
     () => new Map(
-      groups.flatMap((group) =>
-        group.choices.length === 1 && !group.truncated && !group.nextCursor
-          ? [[catalogItemKey(group.item), group.choices[0]!.choiceId]]
-          : [],
-      ),
+      groups.flatMap((group) => {
+        const savedChoice = group.choices.find((choice) => choice.choiceId === initialSelection?.choiceId);
+        const defaultChoice = group.choices.length === 1 && !group.truncated && !group.nextCursor
+          ? group.choices[0]
+          : undefined;
+        const choiceId = savedChoice?.choiceId ?? defaultChoice?.choiceId;
+        return choiceId ? [[catalogItemKey(group.item), choiceId]] : [];
+      }),
     ),
   );
   const [forms, setForms] = useState<ReadonlyMap<string, ConstructionChoiceForm>>(
     () => new Map(
       groups.flatMap((group) =>
         group.choices.flatMap((choice) => {
-          const form = catalogItemDefaultForm(choice);
+          const form = choice.choiceId === initialSelection?.choiceId &&
+            choice.options.some((option) => option.form === initialSelection.form)
+            ? initialSelection.form
+            : catalogItemDefaultForm(choice);
           return form ? [[choice.choiceId, form] as const] : [];
         }),
       ),
     ),
   );
-  const [conditions, setConditions] = useState<ReadonlyMap<string, ConditionDraft>>(new Map());
+  const [conditions, setConditions] = useState<ReadonlyMap<string, ConditionDraft>>(
+    () => initialSelection?.condition
+      ? new Map([[initialSelection.choiceId, initialSelection.condition]])
+      : new Map(),
+  );
 
   const complete = groups.every((group) => {
     const choice = group.choices.find(

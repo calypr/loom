@@ -1578,8 +1578,9 @@ try {
     }
     await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
-  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero') {
-    const includeAllAndPresence = action === 'Verify direct Observation forms many and zero';
+  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form') {
+    const changeSavedForm = action === 'Verify saved Observation result form';
+    const includeAllAndPresence = action !== 'Verify direct Observation COUNT many and zero';
     const targetExplorer = 'cda-builder-full-qa-1790440983382';
     const manyPatientId = '02f8e963-73b8-50ea-b840-c4a80719a06a';
     const zeroPatientId = '54b50ad3-aa10-5483-85e2-5382aac7d374';
@@ -1853,6 +1854,46 @@ try {
         const expectedIDs = rawValues.patients.find(patient => patient.patientId === manyPatientId).subjectObservations.map(observation => observation.id).sort();
         assert.deepEqual([...results.manyForms.row[results.allForm.output.name]].sort(), expectedIDs);
         assert.equal(results.manyForms.row[results.presenceForm.output.name], true);
+        if (changeSavedForm) {
+          const savedSteps = await browserEval(browser.cdp,
+            'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText}));');
+          const presenceStep = savedSteps.at(-1);
+          assert(presenceStep, 'Saved Observation presence step is missing');
+          results.savedFormBeforeEdit = { step: presenceStep, output: results.presenceForm.output, manyValue: true };
+          await clickDOM('[data-testid=' + JSON.stringify(presenceStep.testId) + ']', 'Select saved Observation presence step');
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+          await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit saved Observation presence step');
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]'))`, 30000);
+          await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id');
+          await clickButtonText('Add 1 selected feature', 'Open saved Observation result forms');
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].some(input=>/Count matching records/i.test(input.getAttribute('aria-label')??''))`, 30000);
+          results.savedFormChoices = await browserEval(browser.cdp,
+            'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),disabled:input.disabled,checked:input.checked}));');
+          assert(results.savedFormChoices.some(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? '') && choice.checked), 'Saved route was not preselected');
+          assert(results.savedFormChoices.some(choice => /Show whether a match exists/i.test(choice.label ?? '') && choice.checked), 'Saved Presence form was not preselected');
+          const countForm = results.savedFormChoices.find(choice => /Count matching records/i.test(choice.label ?? ''));
+          assert(countForm && !countForm.disabled, 'Saved Observation COUNT result form is unavailable');
+          await browserEval(browser.cdp,
+            'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.getAttribute("aria-label")===' + JSON.stringify(countForm.label) + ');input.click();return true;');
+          await browserEval(browser.cdp,
+            'const button=[...document.querySelectorAll("[role=\\"dialog\\"] button")].find(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled);if(!button)throw new Error("Save edited result form unavailable");button.click();return true;');
+          clicks.push({ sequence: clicks.length + 1, label: 'Choose COUNT and preview saved result-form edit' });
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+          const editRequest = JSON.parse(proposalRequests.filter(item => item.postData).at(-1)?.postData ?? '{}');
+          const editedStep = editRequest.candidateConstruction?.steps?.filter(item => item.operation?.kind === 'RELATED_SOURCE').at(-1);
+          assert.equal(editedStep?.operation?.relatedSource?.form, 'COUNT');
+          results.editedFormOutput = editedStep.outputs?.find(item => item.id === editedStep.operation.relatedSource.outputColumnId);
+          assert(results.editedFormOutput, 'Edited COUNT output is missing');
+          results.savedFormProposal = await browserEval(browser.cdp,
+            'return {preview:document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText,applyDisabled:document.querySelector("[data-testid=\\"construction-apply-proposal\\"]")?.disabled};');
+          assert.equal(results.savedFormProposal.applyDisabled, false);
+          await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply saved result-form edit');
+          await navigate(browser.cdp, pageURL);
+          await selectTemporaryTable();
+          results.editedFormMany = await previewFor(manyPatientId);
+          assert.equal(results.editedFormMany.row[results.editedFormOutput.name], 38, 'Edited related COUNT differs from raw CDA');
+        }
         results.filteredForm = await addRelatedForm('COUNT', /Count matching records/i, expectedIDs[0]);
         results.manyFiltered = await previewFor(manyPatientId);
         assert.equal(results.manyFiltered.row[results.filteredForm.output.name], 1);
@@ -1870,14 +1911,14 @@ try {
         await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id field');
         await clickButtonText('Add 1 selected feature', 'Open saved Observation.id choices');
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
-        await browserEval(browser.cdp,
-          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Direct relationship: Patient to Observation via Subject/i.test(input.getAttribute("aria-label")??""));if(!input)throw new Error("Saved direct subject route missing");input.click();return true;');
         await waitForBrowser(browser.cdp,
           '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
-        await browserEval(browser.cdp,
-          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""));input.click();return true;');
-        await browserEval(browser.cdp,
-          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.name.startsWith("construction-condition-")&&/Only records where id equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Saved equality condition missing");input.click();return true;');
+        results.savedContributorChoices = await browserEval(browser.cdp,
+          'return {radios:[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText,checked:input.checked})),exactValue:document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]")?.value};');
+        assert(results.savedContributorChoices.radios.some(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? '') && choice.checked), 'Saved contributor route was not preselected');
+        assert(results.savedContributorChoices.radios.some(choice => /Count matching records/i.test(choice.label ?? '') && choice.checked), 'Saved Count form was not preselected');
+        assert(results.savedContributorChoices.radios.some(choice => /Only records where id equals/i.test(choice.text ?? '') && choice.checked), 'Saved equality rule was not preselected');
+        assert.equal(results.savedContributorChoices.exactValue, expectedIDs[0], 'Saved contributor value was not restored');
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id exact value"]'))`, 30000);
         await setInputValue('[role="dialog"] input[aria-label="id exact value"]', expectedIDs[1], 'Change saved contributor ID');
         await browserEval(browser.cdp,
@@ -1925,7 +1966,8 @@ try {
       assert.equal(results.zero.count, rawOracle.zeroObservationEdges, 'zero Patient COUNT differs from raw CDA Oracle');
       if (includeAllAndPresence) {
         assert.deepEqual(results.zero.row[results.allForm.output.name], []);
-        assert.equal(results.zero.row[results.presenceForm.output.name], false);
+        if (changeSavedForm) assert.equal(results.zero.row[results.editedFormOutput.name], 0);
+        else assert.equal(results.zero.row[results.presenceForm.output.name], false);
         assert.equal(results.zero.row[results.filteredForm.output.name], 0);
       }
 
@@ -1941,7 +1983,9 @@ try {
       if (includeAllAndPresence) {
         results.assertions.push(
           'ALL matched every raw CDA Observation ID for the many Patient and returned an empty list for the zero Patient.',
-          'PRESENCE returned true for the many Patient and false for the zero Patient.',
+          changeSavedForm
+            ? 'Saved PRESENCE reopened and changed to COUNT; the reloaded many and zero Patients matched raw CDA counts.'
+            : 'PRESENCE returned true for the many Patient and false for the zero Patient.',
           'A contributor rule limited related Observation.id to one raw CDA ID and changed COUNT from 38 to 1 for the many Patient; the zero Patient remained at 0.',
         );
       }
@@ -1983,7 +2027,7 @@ try {
     results.error = scenarioError;
     results.cleanupError = cleanupError;
     await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
+    await writeFile(join(evidenceDirectory, changeSavedForm ? 'saved-observation-result-form.json' : includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
     console.log(JSON.stringify({
       evidenceDirectory,
       many: results.many && { patientId: results.many.patientId, count: results.many.count },

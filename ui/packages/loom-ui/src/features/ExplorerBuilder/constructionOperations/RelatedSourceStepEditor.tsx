@@ -179,6 +179,19 @@ export const RelatedSourceStepEditor = ({
       sourceOptions[0]?.key,
   );
   const activeSource = sourceOptions.find((option) => option.key === sourceKey);
+  const savedPredicate = relatedSource.contributorRule.predicate;
+  const initialSelection = {
+    choiceId: relatedSource.choiceId,
+    form: relatedSource.form,
+    ...(savedPredicate ? { condition: {
+      mode: savedPredicate.operator,
+      value: savedPredicate.value?.kind === 'STRING'
+        ? savedPredicate.value.string
+        : savedPredicate.value?.kind === 'CODE'
+          ? savedPredicate.value.code.code
+          : '',
+    } } : {}),
+  };
 
   const candidateFor = (
     nextName: string,
@@ -375,6 +388,13 @@ export const RelatedSourceStepEditor = ({
           Current source: {relatedSource.source.resourceType}.{relatedSource.source.path}
         </p>
         <p className="mt-1 text-sm text-slate-600">
+          Current result: {relatedSource.form === 'COUNT'
+            ? 'Count matching records'
+            : relatedSource.form === 'PRESENCE'
+              ? 'Whether a match exists'
+              : 'All matching values'}
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
           Current route: {relatedSource.route.length > 0
             ? relatedSource.route.map((edge) => `${edge.fromResourceType} → ${edge.toResourceType} via ${edge.relationship}`).join(' · ')
             : 'Same resource as each table row'}
@@ -427,6 +447,7 @@ export const RelatedSourceStepEditor = ({
           }}
           relatedSourceAvailability={support}
           suppressUnavailableNotices
+          initialSelection={initialSelection}
           onAddSelected={useSelectedField}
         />
       </div>

@@ -21,7 +21,7 @@ import {
   type CatalogChoiceIntent,
   type CatalogItem,
 } from '../catalogItems';
-import { CatalogSelectionDialog } from './CatalogSelectionDialog';
+import { CatalogSelectionDialog, type CatalogInitialSelection } from './CatalogSelectionDialog';
 
 const PAGE_SIZE = 50;
 const ROUTE_PAGE_SIZE = 10;
@@ -481,6 +481,7 @@ export const ConceptCatalog = ({
   sourceProjectionAvailability,
   relatedSourceAvailability,
   suppressUnavailableNotices = false,
+  initialSelection,
   onAddSelected,
 }: {
   readonly project: string;
@@ -499,6 +500,7 @@ export const ConceptCatalog = ({
   readonly sourceProjectionAvailability?: CatalogSourceProjectionAvailability;
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly suppressUnavailableNotices?: boolean;
+  readonly initialSelection?: CatalogInitialSelection;
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<void>;
@@ -902,6 +904,7 @@ export const ConceptCatalog = ({
             rowRoot,
             relatedSourceAvailability,
           )}
+          initialSelection={initialSelection}
           busy={adding || loadingMoreRoutes !== undefined}
           loadingMoreRoutes={loadingMoreRoutes}
           routeLoadError={routeLoadError}
