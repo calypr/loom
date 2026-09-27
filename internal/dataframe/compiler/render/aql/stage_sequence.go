@@ -67,7 +67,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan) (RenderedPhysicalPlan, er
 			if stage.GroupedPivot == nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("stage %q is missing grouped pivot payload", stage.ID)
 			}
-			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot)
+			// The final construction query sorts on row identity after all stages.
+			// A one-input-per-group pivot needs no intermediate group-key sort.
+			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup)
 			if renderErr != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q pivot: %w", stage.ID, renderErr)
 			}

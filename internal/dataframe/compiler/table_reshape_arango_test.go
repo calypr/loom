@@ -189,6 +189,80 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 		t.Fatalf("insert reshape fixture: %v", err)
 	}
 
+	directIDOutput := reshapeOracleOutput("direct_id", &recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "s04-pivot-direct-id", GroupKeys: []string{"source_id"},
+			CategoryColumn: "string_category", ValueColumn: "numeric_value",
+			Categories: []recipe.GroupedPivotCategory{
+				{Key: reshapeOracleString("alpha"), Output: "alpha", Label: "Alpha"},
+				{Key: reshapeOracleString("beta"), Output: "beta", Label: "Beta"},
+				{Key: reshapeOracleString("zero"), Output: "zero", Label: "Zero"},
+				{Key: reshapeOracleString(""), Output: "empty_category", Label: "Empty category"},
+			},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	directIDCompiled, directIDQuery, err := compileReshapeOracle(directIDOutput, project, generation, 100)
+	if err != nil {
+		t.Fatalf("compile direct-ID grouped pivot oracle: %v", err)
+	}
+	directIDFastPath := false
+	for _, operation := range directIDCompiled.Plan.Operations {
+		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
+			directIDFastPath = operation.GroupedPivot.OneInputRowPerGroup
+		}
+	}
+	if !directIDFastPath {
+		t.Fatal("direct root-ID pivot did not lower with its one-input-per-group proof")
+	}
+	if strings.Contains(directIDQuery.Query, "COLLECT") || strings.Contains(directIDQuery.Query, "FOR __loom_physical_reshape_cell_") {
+		t.Fatalf("direct root-ID pivot retained group materialization or per-category scans:\n%s", directIDQuery.Query)
+	}
+	directIDRows := executeReshapeOracleQuery(t, ctx, client, directIDQuery)
+	if len(directIDRows) != len(reshapeOracleSourceRows) {
+		t.Fatalf("direct-ID pivot rows = %d, want one for each of %d source records: %#v", len(directIDRows), len(reshapeOracleSourceRows), directIDRows)
+	}
+	directByID := make(map[string]map[string]any, len(directIDRows))
+	for _, row := range directIDRows {
+		id, ok := row["source_id"].(string)
+		if !ok || id == "" {
+			t.Errorf("direct-ID pivot group key = %#v, want string resource ID", row["source_id"])
+			continue
+		}
+		directByID[id] = row
+	}
+	for _, source := range reshapeOracleSourceRows {
+		row, ok := directByID[source.SourceID]
+		if !ok {
+			t.Errorf("direct-ID pivot omitted Observation/%s: %#v", source.SourceID, directIDRows)
+			continue
+		}
+		for outputColumn, category := range map[string]string{
+			"alpha": "alpha", "beta": "beta", "zero": "zero", "empty_category": "",
+		} {
+			var expected any
+			if *source.StringCategory.String == category {
+				expected = reshapeOracleValue(source.Number)
+			}
+			if got := row[outputColumn]; !reflect.DeepEqual(got, expected) {
+				t.Errorf("Observation/%s.%s = %#v, want %#v", source.SourceID, outputColumn, got, expected)
+			}
+		}
+		wantUnlisted := float64(0)
+		if *source.StringCategory.String == "unlisted" {
+			wantUnlisted = 1
+		}
+		if got := row["__loom_reshape_unlisted_count"]; got != wantUnlisted {
+			t.Errorf("Observation/%s unlisted evidence = %#v, want %v", source.SourceID, got, wantUnlisted)
+		}
+		wantID := fmt.Sprintf(`["GROUPED_PIVOT","s04-pivot-direct-id",["STRING",%q]]`, source.SourceID)
+		if got := row["__loom_row_id"]; got != wantID {
+			t.Errorf("Observation/%s row identity = %#v, want %s", source.SourceID, got, wantID)
+		}
+	}
+
 	output := reshapeOracleOutput("sum", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,
 		GroupedPivot: &recipe.GroupedPivot{
@@ -497,6 +571,78 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 	assertExclusionLiteral(t, missingPayloadID, "unlisted", true, "STRING", `["GROUPED_PIVOT","s04-pivot-exclusion",["STRING","final"],["INTEGER",1]]`)
 	if missingPayloadID[ir.PhysicalTableShapeExclusionResourceIDField] != nil || missingPayloadID[ir.PhysicalTableShapeExclusionIdentityStatusField] != ir.PhysicalTableShapeExclusionIdentityUnavailable || missingPayloadID[ir.PhysicalTableShapeExclusionOmissionField] != ir.PhysicalTableShapeExclusionSourceIdentityUnavailable {
 		t.Fatalf("source without payload resource ID was fabricated instead of omitted: %#v", missingPayloadID)
+	}
+
+	missingNullOutput := reshapeOracleOutput("direct_missing_null", &recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "s04-pivot-direct-missing-null", GroupKeys: []string{"source_id"},
+			CategoryColumn: "string_category", ValueColumn: "numeric_value",
+			Categories: []recipe.GroupedPivotCategory{
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Null"},
+			},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	missingNullOutput.Filters = []recipe.Filter{{
+		Select: "root.id", Operator: recipe.FilterIn,
+		Values: []recipe.FilterValue{reshapeOracleStringFilter("missing-category"), reshapeOracleStringFilter("null-category")},
+	}}
+	missingNullCompiled, missingNullQuery, err := compileReshapeOracle(missingNullOutput, project, generation, 100)
+	if err != nil {
+		t.Fatalf("compile direct-ID missing/null category oracle: %v", err)
+	}
+	missingNullFastPath := false
+	for _, operation := range missingNullCompiled.Plan.Operations {
+		if operation.Kind == ir.PhysicalGroupedPivotOp && operation.GroupedPivot != nil {
+			missingNullFastPath = operation.GroupedPivot.OneInputRowPerGroup
+		}
+	}
+	if !missingNullFastPath || strings.Contains(missingNullQuery.Query, "COLLECT") {
+		t.Fatalf("missing/null oracle did not use direct-ID renderer:\n%s", missingNullQuery.Query)
+	}
+	missingNullRows := executeReshapeOracleQuery(t, ctx, client, missingNullQuery)
+	if len(missingNullRows) != 2 {
+		t.Fatalf("direct-ID missing/null pivot returned %d rows, want two: %#v", len(missingNullRows), missingNullRows)
+	}
+	missingNullByID := make(map[string]map[string]any, len(missingNullRows))
+	for _, row := range missingNullRows {
+		id, ok := row["source_id"].(string)
+		if !ok || id == "" {
+			t.Errorf("direct-ID missing/null group key = %#v, want string resource ID", row["source_id"])
+			continue
+		}
+		missingNullByID[id] = row
+	}
+	for _, test := range []struct {
+		id            string
+		missing, null any
+		rowID         string
+	}{
+		{
+			id: "missing-category", missing: float64(11), null: nil,
+			rowID: `["GROUPED_PIVOT","s04-pivot-direct-missing-null",["STRING","missing-category"]]`,
+		},
+		{
+			id: "null-category", missing: nil, null: float64(11),
+			rowID: `["GROUPED_PIVOT","s04-pivot-direct-missing-null",["STRING","null-category"]]`,
+		},
+	} {
+		row := missingNullByID[test.id]
+		if row == nil {
+			t.Errorf("direct-ID missing/null pivot omitted Observation/%s: %#v", test.id, missingNullRows)
+			continue
+		}
+		for column, expected := range map[string]any{
+			"missing_category": test.missing, "null_category": test.null,
+			"__loom_reshape_unlisted_count": float64(0), "__loom_row_id": test.rowID,
+		} {
+			if got := row[column]; !reflect.DeepEqual(got, expected) {
+				t.Errorf("Observation/%s.%s = %#v, want %#v", test.id, column, got, expected)
+			}
+		}
 	}
 
 	trueValue := true

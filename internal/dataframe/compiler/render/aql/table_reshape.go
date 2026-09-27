@@ -13,7 +13,7 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 		if operation.GroupedPivot == nil {
 			return nil, fmt.Errorf("grouped pivot is missing payload")
 		}
-		return r.renderGroupedTablePivot(*operation.GroupedPivot)
+		return r.renderGroupedTablePivot(*operation.GroupedPivot, true)
 	case ir.PhysicalUnpivotOp:
 		if operation.Unpivot == nil {
 			return nil, fmt.Errorf("unpivot is missing payload")
@@ -24,7 +24,7 @@ func (r *physicalPlanRenderer) renderTableReshape(operation ir.PhysicalOperation
 	}
 }
 
-func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot) ([]string, error) {
+func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedPivot, sortGroups bool) ([]string, error) {
 	input, err := r.renderReturn(ir.PhysicalReturn{Projections: pivot.InputProjections})
 	if err != nil {
 		return nil, err
@@ -56,14 +56,19 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		r.bindVars[columnBind] = key.Column
 		collect = append(collect, fmt.Sprintf("%s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
 		sort = append(sort, key.Variable+" ASC")
+		if pivot.OneInputRowPerGroup {
+			lines = append(lines, fmt.Sprintf("  LET %s = %s[@%s]", key.Variable, pivot.InputRowVariable, columnBind))
+		}
 	}
-	collectClause := fmt.Sprintf(
-		"  COLLECT %s INTO %s = %s", strings.Join(collect, ", "), pivot.GroupRowsVariable, pivot.InputRowVariable,
-	)
-	lines = append(lines,
-		collectClause,
-		"  SORT "+strings.Join(sort, ", "),
-	)
+	if !pivot.OneInputRowPerGroup {
+		collectClause := fmt.Sprintf(
+			"  COLLECT %s INTO %s = %s", strings.Join(collect, ", "), pivot.GroupRowsVariable, pivot.InputRowVariable,
+		)
+		lines = append(lines, collectClause)
+	}
+	if sortGroups {
+		lines = append(lines, "  SORT "+strings.Join(sort, ", "))
+	}
 
 	categoryType, err := aqlTableScalarType(pivot.CategoryType)
 	if err != nil {
@@ -90,13 +95,29 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		valueVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_value_%d", index))
 		valuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_values_%d", index))
 		typedValuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_typed_values_%d", index))
-		match, err := groupedPivotCategoryMatchPredicate(category, cellVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
+		matchVariable := ""
+		matchRowVariable := cellVariable
+		if pivot.OneInputRowPerGroup {
+			matchVariable = r.newInternalVariable(fmt.Sprintf("reshape_category_match_%d", index))
+			matchRowVariable = pivot.InputRowVariable
+		}
+		match, err := groupedPivotCategoryMatchPredicate(category, matchRowVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
 		if err != nil {
 			return nil, fmt.Errorf("category %q: %w", category.Output, err)
 		}
-		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s RETURN %s[@%s])", valuesVariable, cellVariable, pivot.GroupRowsVariable, match, cellVariable, valueColumnBind))
-		lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN %s)",
-			typedValuesVariable, valueVariable, valuesVariable, valueVariable, valueVariable, valueTypeBind, valueVariable))
+		if pivot.OneInputRowPerGroup {
+			value := fmt.Sprintf("%s[@%s]", pivot.InputRowVariable, valueColumnBind)
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = %s", matchVariable, match),
+				fmt.Sprintf("  LET %s = (%s ? [%s] : [])", valuesVariable, matchVariable, value),
+				fmt.Sprintf("  LET %s = (%s ? (%s == null ? [] : [ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") ? %s : null]) : [])",
+					typedValuesVariable, matchVariable, value, value, valueTypeBind, value),
+			)
+		} else {
+			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s RETURN %s[@%s])", valuesVariable, cellVariable, pivot.GroupRowsVariable, match, cellVariable, valueColumnBind))
+			lines = append(lines, fmt.Sprintf("  LET %s = (FOR %s IN %s FILTER %s != null FILTER ASSERT(TYPENAME(%s) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN %s)",
+				typedValuesVariable, valueVariable, valuesVariable, valueVariable, valueVariable, valueTypeBind, valueVariable))
+		}
 		cellValue := "null"
 		switch pivot.DuplicatePolicy {
 		case "ERROR":
@@ -124,24 +145,38 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if pivot.UnlistedCategoryPolicy == "EXCLUDE_WITH_EVIDENCE" {
 		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
 		itemVariable := r.newInternalVariable("reshape_unlisted_item")
+		if pivot.OneInputRowPerGroup {
+			itemVariable = pivot.InputRowVariable
+		}
 		listed, err := groupedPivotListedPredicate(pivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
 		if err != nil {
 			return nil, err
 		}
-		lines = append(lines, fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))",
-			unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed))
+		if pivot.OneInputRowPerGroup {
+			lines = append(lines, fmt.Sprintf("  LET %s = (%s ? 0 : 1)", unlistedVariable, listed))
+		} else {
+			lines = append(lines, fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))",
+				unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed))
+		}
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: pivot.UnlistedEvidenceColumn, Value: ir.PhysicalValue{Variable: unlistedVariable}})
 	} else if pivot.UnlistedCategoryPolicy == "ERROR" {
 		unlistedVariable := r.newInternalVariable("reshape_unlisted_count")
 		itemVariable := r.newInternalVariable("reshape_unlisted_item")
+		if pivot.OneInputRowPerGroup {
+			itemVariable = pivot.InputRowVariable
+		}
 		listed, err := groupedPivotListedPredicate(pivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind)
 		if err != nil {
 			return nil, err
 		}
-		lines = append(lines,
-			fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))", unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed),
-			fmt.Sprintf("  FILTER ASSERT(%s == 0, \"TABLE_PIVOT_UNLISTED_CATEGORY\")", unlistedVariable),
-		)
+		if pivot.OneInputRowPerGroup {
+			lines = append(lines, fmt.Sprintf("  FILTER ASSERT(%s, \"TABLE_PIVOT_UNLISTED_CATEGORY\")", listed))
+		} else {
+			lines = append(lines,
+				fmt.Sprintf("  LET %s = LENGTH((FOR %s IN %s FILTER NOT %s RETURN 1))", unlistedVariable, itemVariable, pivot.GroupRowsVariable, listed),
+				fmt.Sprintf("  FILTER ASSERT(%s == 0, \"TABLE_PIVOT_UNLISTED_CATEGORY\")", unlistedVariable),
+			)
+		}
 	}
 
 	groupValues := make([]string, 0, len(pivot.GroupKeys))

@@ -186,11 +186,14 @@ const (
 )
 
 // PhysicalCellTraceReshapeSource identifies one source expression that
-// contributes to the requested reshaped cell. Pivot sources are evaluated
-// over GroupRowsVariable; unpivot sources are carried on the emitted row.
+// contributes to the requested reshaped cell. Pivot sources use the grouped
+// rows unless lowering proves one input row per group; unpivot sources are
+// carried on the emitted row.
 type PhysicalCellTraceReshapeSource struct {
 	Kind                  PhysicalCellTraceReshapeSourceKind
 	GroupRowsVariable     string
+	InputRowVariable      string
+	OneInputRowPerGroup   bool
 	SourceColumn          string
 	SourcePresenceField   string
 	CategoryColumn        string
@@ -511,10 +514,14 @@ type PhysicalReturn struct {
 // row projection. COLLECT forms groups; categories remain frozen values and
 // never become query fragments.
 type PhysicalGroupedPivot struct {
-	ConstructionID         string
-	InputRowVariable       string
-	GroupRowsVariable      string
-	OutputRowVariable      string
+	ConstructionID    string
+	InputRowVariable  string
+	GroupRowsVariable string
+	OutputRowVariable string
+	// OneInputRowPerGroup is set only when lowering proves that a direct root
+	// resource ID is among the group keys and the source plan cannot multiply
+	// root rows. Renderers can then emit one pivot row per input without COLLECT.
+	OneInputRowPerGroup    bool
 	InputProjections       []PhysicalProjection
 	GroupKeys              []PhysicalGroupedPivotKey
 	CategoryColumn         string

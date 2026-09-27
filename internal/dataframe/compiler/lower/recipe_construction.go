@@ -157,7 +157,10 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	sequence.FinalStageID = priorStageID
 	sequence.FinalRowIdentity = priorIdentity
 	sequence.FinalColumns = toPhysicalStageColumns(priorSchema)
-	sequence.PreviewSourceWindowByRootID = constructionPreviewRootIDWindowEligible(plan, sequence, descriptors, rootResourceType)
+	sequence.PreviewSourceWindowByRootID = constructionRootIDPivotFastPathEligible(plan, sequence, descriptors, rootResourceType)
+	if sequence.PreviewSourceWindowByRootID {
+		sequence.Stages[0].GroupedPivot.OneInputRowPerGroup = true
+	}
 	plan.StageSequence = sequence
 	if err := plan.Validate(); err != nil {
 		return nil, nil, "", fmt.Errorf("validate typed construction sequence: %w", err)
@@ -165,7 +168,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	return priorSchema, descriptors, priorIdentity, nil
 }
 
-func constructionPreviewRootIDWindowEligible(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, descriptors []CompiledStageDescriptor, rootResourceType string) bool {
+func constructionRootIDPivotFastPathEligible(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, descriptors []CompiledStageDescriptor, rootResourceType string) bool {
 	if plan == nil || sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || len(descriptors) != 2 {
 		return false
 	}
@@ -173,25 +176,13 @@ func constructionPreviewRootIDWindowEligible(plan *ir.PhysicalPlan, sequence *ir
 	if stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil || len(stage.GroupedPivot.GroupKeys) == 0 {
 		return false
 	}
-	if !constructionPreviewSourceCanWindowRootScan(plan, rootResourceType) {
+	if !constructionRootIDPivotSourceEligible(plan, rootResourceType) {
 		return false
 	}
-
-	for _, key := range stage.GroupedPivot.GroupKeys {
-		column, ok := schemaColumn(descriptors[0].Columns, key.Column)
-		if !ok || column.Internal || column.Kind != string(expression.KindString) || column.Cardinality == string(expression.Many) {
-			continue
-		}
-		// The lowered source projection is the authority here. Catalog fieldRef
-		// values may give this same direct FHIR id an opaque semantic identity.
-		if constructionPreviewProjectionIsRootID(plan, column.Name, rootResourceType) {
-			return true
-		}
-	}
-	return false
+	return groupedPivotHasDirectRootIDKey(plan, stage.GroupedPivot.GroupKeys, descriptors[0].Columns, rootResourceType)
 }
 
-func constructionPreviewSourceCanWindowRootScan(plan *ir.PhysicalPlan, rootResourceType string) bool {
+func constructionRootIDPivotSourceEligible(plan *ir.PhysicalPlan, rootResourceType string) bool {
 	if len(plan.Operations) < 2 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
 		return false
 	}
@@ -218,6 +209,21 @@ func constructionPreviewSourceCanWindowRootScan(plan *ir.PhysicalPlan, rootResou
 		}
 	}
 	return returns == 1
+}
+
+func groupedPivotHasDirectRootIDKey(plan *ir.PhysicalPlan, keys []ir.PhysicalGroupedPivotKey, schema []CompiledOutputColumn, rootResourceType string) bool {
+	for _, key := range keys {
+		column, ok := schemaColumn(schema, key.Column)
+		if !ok || column.Internal || column.Kind != string(expression.KindString) || column.Cardinality == string(expression.Many) {
+			continue
+		}
+		// The lowered source projection is authoritative. Catalog fieldRef values
+		// can give a direct FHIR id an opaque semantic identity.
+		if constructionPreviewProjectionIsRootID(plan, column.Name, rootResourceType) {
+			return true
+		}
+	}
+	return false
 }
 
 func constructionPreviewProjectionIsRootID(plan *ir.PhysicalPlan, columnName, rootResourceType string) bool {

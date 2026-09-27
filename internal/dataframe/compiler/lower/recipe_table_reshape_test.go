@@ -222,6 +222,45 @@ func TestCompileGroupedTablePivotPreservesNullAndMissingCategoryIdentity(t *test
 	}
 }
 
+func TestCompileDirectIDGroupedPivotPreservesNullAndMissingCategoryIdentity(t *testing.T) {
+	output := tableReshapeTestOutput(&recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "shape_pivot_direct_sentinels", GroupKeys: []string{"resource_id"},
+			CategoryColumn: "category", ValueColumn: "value",
+			Categories: []recipe.GroupedPivotCategory{
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarMissing}, Output: "missing_category", Label: "Missing"},
+				{Key: recipe.TableScalar{Kind: recipe.TableScalarNull}, Output: "null_category", Label: "Null"},
+			},
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryExcludeWithEvidence,
+		},
+	})
+	output.Fields = append(output.Fields, recipe.Field{Name: "resource_id", Expr: recipe.Expression{Select: "id"}})
+	compiled := compileDerivedTestOutput(t, output)
+	pivot := compiledGroupedPivot(t, compiled.Plan)
+	if !pivot.OneInputRowPerGroup {
+		t.Fatal("direct root-ID group key did not prove one source input per group")
+	}
+	if pivot.CategoryPresence == nil || pivot.CategoryPresenceColumn == "" {
+		t.Fatalf("direct root-ID pivot lost its category presence contract: %#v", pivot)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{"COLLECT", "FOR __loom_physical_reshape_cell_"} {
+		if strings.Contains(rendered.Query, absent) {
+			t.Fatalf("direct-ID sentinel pivot retained %q:\n%s", absent, rendered.Query)
+		}
+	}
+	for _, expected := range []string{"HAS(", " == true", " == null)", "NOT (", "TABLE_PIVOT_CELL_CARDINALITY"} {
+		if !strings.Contains(rendered.Query, expected) {
+			t.Fatalf("direct-ID sentinel pivot omitted %q:\n%s", expected, rendered.Query)
+		}
+	}
+}
+
 func TestCompileGroupedPivotOrdinaryFalseZeroAndEmptyStringUseTypedBinds(t *testing.T) {
 	for _, test := range []struct {
 		name     string

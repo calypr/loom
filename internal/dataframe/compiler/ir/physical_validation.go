@@ -275,7 +275,12 @@ func (p PhysicalPlan) Validate() error {
 			if err := validatePhysicalGroupedPivot(*operation.GroupedPivot, defined, p.BindVars); err != nil {
 				return fmt.Errorf("operation %d grouped pivot: %w", i, err)
 			}
-			for _, variable := range append([]string{operation.GroupedPivot.InputRowVariable, operation.GroupedPivot.GroupRowsVariable}, groupedPivotVariables(operation.GroupedPivot.GroupKeys)...) {
+			pivotVariables := []string{operation.GroupedPivot.InputRowVariable}
+			if !operation.GroupedPivot.OneInputRowPerGroup {
+				pivotVariables = append(pivotVariables, operation.GroupedPivot.GroupRowsVariable)
+			}
+			pivotVariables = append(pivotVariables, groupedPivotVariables(operation.GroupedPivot.GroupKeys)...)
+			for _, variable := range pivotVariables {
 				if err := definePhysicalVariable(defined, variable); err != nil {
 					return fmt.Errorf("operation %d grouped pivot: %w", i, err)
 				}
@@ -1171,7 +1176,11 @@ func validatePhysicalCellTraceReturn(terminal PhysicalCellTraceReturn, defined m
 		for index, source := range terminal.Reshape.Sources {
 			switch source.Kind {
 			case PhysicalCellTracePivotGroupKey, PhysicalCellTracePivotCell:
-				if !defined[source.GroupRowsVariable] {
+				if source.OneInputRowPerGroup {
+					if !defined[source.InputRowVariable] {
+						return fmt.Errorf("trace reshape source %d input row %q is not defined", index, source.InputRowVariable)
+					}
+				} else if !defined[source.GroupRowsVariable] {
 					return fmt.Errorf("trace reshape source %d group rows %q are not defined", index, source.GroupRowsVariable)
 				}
 				if strings.TrimSpace(source.SourceColumn) == "" || source.OmissionCode == "" && !physicalPathPartPattern.MatchString(source.SourcePresenceField) {

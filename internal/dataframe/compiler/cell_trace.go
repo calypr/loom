@@ -596,6 +596,7 @@ func pivotCellTraceSource(pivot ir.PhysicalGroupedPivot, output string, root str
 		}
 		source := ir.PhysicalCellTraceReshapeSource{
 			Kind: ir.PhysicalCellTracePivotGroupKey, GroupRowsVariable: pivot.GroupRowsVariable,
+			InputRowVariable: pivot.InputRowVariable, OneInputRowPerGroup: pivot.OneInputRowPerGroup,
 			SourceColumn: key.Column, SourcePresenceField: tracePresenceField(pivot.InputProjections, key.Column),
 		}
 		if !traceableRootScalarProjection(pivot.InputProjections, key.Column, root) {
@@ -609,6 +610,7 @@ func pivotCellTraceSource(pivot ir.PhysicalGroupedPivot, output string, root str
 		}
 		source := ir.PhysicalCellTraceReshapeSource{
 			Kind: ir.PhysicalCellTracePivotCell, GroupRowsVariable: pivot.GroupRowsVariable,
+			InputRowVariable: pivot.InputRowVariable, OneInputRowPerGroup: pivot.OneInputRowPerGroup,
 			SourceColumn: pivot.ValueColumn, SourcePresenceField: tracePresenceField(pivot.InputProjections, pivot.ValueColumn),
 			CategoryColumn: pivot.CategoryColumn, CategoryPresenceField: pivot.CategoryPresenceColumn,
 			CategoryType: pivot.CategoryType, Category: &category, ValueColumn: pivot.ValueColumn, ValueColumnType: pivot.ValueType,

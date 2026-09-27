@@ -70,6 +70,8 @@ func appendRecipeTableReshape(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 		if err != nil {
 			return nil, err
 		}
+		physical.OneInputRowPerGroup = constructionRootIDPivotSourceEligible(plan, plan.Source.ResourceType) &&
+			groupedPivotHasDirectRootIDKey(plan, physical.GroupKeys, baseSchema, plan.Source.ResourceType)
 		operation = ir.PhysicalOperation{Kind: ir.PhysicalGroupedPivotOp, Source: ir.PhysicalSource{SemanticField: "table_shape.reshape"}, GroupedPivot: &physical}
 		projections, schema = nextProjections, nextSchema
 	case recipe.TableReshapeUnpivot:

@@ -85,13 +85,33 @@ func TestConstructionPreviewBoundsProvenRootIDPivotBeforeSourceMaterialization(t
 	if !query.PartialValidation {
 		t.Fatal("preview with a source window was not marked as partial validation")
 	}
-	if !strings.Contains(query.Query[stageStart:], "COLLECT") {
-		t.Fatalf("terminal Pivot did not follow bounded source projection:\n%s", query.Query)
+	stageQuery := query.Query[stageStart:]
+	if strings.Contains(stageQuery, "COLLECT") {
+		t.Fatalf("proven root-ID pivot still materialized group rows:\n%s", query.Query)
+	}
+	if strings.Count(stageQuery, "FOR ") != 2 {
+		// One FOR iterates source rows inside the stage and one emits final rows.
+		// Category matching must not add a FOR over group rows per output cell.
+		t.Fatalf("root-ID pivot emitted per-category group-row scans:\n%s", query.Query)
+	}
+	if strings.Contains(stageQuery, "SORT __loom_construction_pivot_group") {
+		t.Fatalf("root-ID pivot retained an intermediate sort before the final identity sort:\n%s", query.Query)
+	}
+	for _, validation := range []string{"TYPENAME(", "TABLE_PIVOT_VALUE_TYPE_MISMATCH", "TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
+		if !strings.Contains(stageQuery, validation) {
+			t.Fatalf("root-ID pivot dropped %q validation:\n%s", validation, query.Query)
+		}
 	}
 
 	full := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.id", false), 0)
 	if strings.Contains(full.Query, "LIMIT @limit") || strings.Contains(full.Query, "SORT root.id ASC") {
 		t.Fatalf("full construction execution received a preview-only source window:\n%s", full.Query)
+	}
+	if strings.Contains(full.Query, "COLLECT") || strings.Count(full.Query, "FOR ") != 3 {
+		t.Fatalf("full direct-ID pivot did not retain the one-input-per-group renderer:\n%s", full.Query)
+	}
+	if !strings.Contains(full.Query, "SORT __loom_construction_final_row.__loom_row_id ASC") {
+		t.Fatalf("full construction output lost deterministic final row-identity ordering:\n%s", full.Query)
 	}
 	if full.PartialValidation {
 		t.Fatal("full construction execution was marked as partial validation")
@@ -154,6 +174,9 @@ func TestConstructionPreviewRootIDWindowFallsBackWithoutProof(t *testing.T) {
 			if query.PartialValidation {
 				t.Fatal("unproven plan was marked as partial validation")
 			}
+			if tc.name == "non-identity group key" && !strings.Contains(query.Query, "COLLECT") {
+				t.Fatalf("nonunique group key bypassed canonical COLLECT:\n%s", query.Query)
+			}
 		})
 	}
 }
@@ -204,7 +227,7 @@ func constructionPreviewPivotOutput(groupSelector string, priorFilter bool) reci
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryFemale}, OutputColumnID: "female_amount_id"},
 				{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryMale}, OutputColumnID: "male_amount_id"},
 			},
-			DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+			DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		}},
 		Outputs: []recipe.StageColumn{{ID: "id_id", Name: "resource_id"}, {ID: "female_amount_id", Name: "female_amount"}, {ID: "male_amount_id", Name: "male_amount"}},

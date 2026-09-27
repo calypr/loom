@@ -302,6 +302,10 @@ contributorsReady:
 
 func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalCellTraceReshapeSource) (string, error) {
 	item := r.newInternalVariable("trace_pivot_group_key_source")
+	rows := source.GroupRowsVariable
+	if source.OneInputRowPerGroup {
+		rows = "[" + source.InputRowVariable + "]"
+	}
 	columnBind := r.newInternalBindKey("trace_pivot_group_key_column")
 	r.bindVars[columnBind] = source.SourceColumn
 	presenceBind := r.newInternalBindKey("trace_pivot_group_key_presence")
@@ -310,7 +314,7 @@ func (r *physicalPlanRenderer) renderPivotGroupKeyTraceQuery(source ir.PhysicalC
 	r.bindVars[documentBind] = ir.PhysicalCellTraceSourceDocumentField
 	value := fmt.Sprintf("%s[@%s]", item, columnBind)
 	document := fmt.Sprintf("%s[@%s]", item, documentBind)
-	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, source.GroupRowsVariable, item, presenceBind, document, document, value), nil
+	return fmt.Sprintf("(FOR %s IN %s FILTER %s[@%s] == true RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, item, presenceBind, document, document, value), nil
 }
 
 func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellTraceReshapeSource, terminal ir.PhysicalCellTraceReturn) (string, error) {
@@ -318,6 +322,10 @@ func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellT
 		return "", fmt.Errorf("pivot cell trace requires a category")
 	}
 	item := r.newInternalVariable("trace_pivot_cell_source")
+	rows := source.GroupRowsVariable
+	if source.OneInputRowPerGroup {
+		rows = "[" + source.InputRowVariable + "]"
+	}
 	columnBind := r.newInternalBindKey("trace_pivot_cell_column")
 	r.bindVars[columnBind] = source.SourceColumn
 	presenceBind := r.newInternalBindKey("trace_pivot_cell_presence")
@@ -367,7 +375,7 @@ func (r *physicalPlanRenderer) renderPivotCellTraceQuery(source ir.PhysicalCellT
 		filters = append(filters, "FILTER "+value+" == ("+result+")")
 	}
 	document := fmt.Sprintf("%s[@%s]", item, documentBind)
-	return fmt.Sprintf("(FOR %s IN %s %s RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, source.GroupRowsVariable, strings.Join(filters, " "), document, document, value), nil
+	return fmt.Sprintf("(FOR %s IN %s %s RETURN {resourceType: %s.resourceType, resourceId: %s.id, value: %s})", item, rows, strings.Join(filters, " "), document, document, value), nil
 }
 
 func (r *physicalPlanRenderer) renderUnpivotValueTraceQuery(outputVariable string, terminal ir.PhysicalCellTraceReturn) (string, error) {
