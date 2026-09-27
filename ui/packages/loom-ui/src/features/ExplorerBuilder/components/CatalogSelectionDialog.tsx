@@ -458,6 +458,14 @@ export const CatalogSelectionDialog = ({
                   </p>
                 ) : null}
                 {choice?.route.length && item.kind === 'FIELD' && (predicateOperators.length > 0 || invalidCondition) ? (
+                  <details data-testid={`catalog-matching-advanced-${key}`} className="mt-3 rounded-md border border-slate-200 px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-medium text-slate-800">
+                      Matching records: {selectedCondition?.mode === 'EXISTS'
+                        ? `only records with ${catalogItemLabel(item)}`
+                        : selectedCondition?.mode === 'EQUALS'
+                          ? `only records where ${catalogItemLabel(item)} equals ${selectedCondition.value}`
+                          : 'all related records'} · Change
+                    </summary>
                   <fieldset className="mt-3 space-y-2" disabled={busy}>
                     <legend className="text-sm font-medium text-slate-800">Matching records</legend>
                     <p className="text-xs text-slate-600">This condition selects related records. It does not remove table rows.</p>
@@ -505,6 +513,7 @@ export const CatalogSelectionDialog = ({
                       />
                     ) : null}
                   </fieldset>
+                  </details>
                 ) : null}
               </article>
             );

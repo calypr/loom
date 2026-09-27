@@ -58,6 +58,7 @@ const routeChoice = (
 const createDialog = (
   focusOperators: ConstructionChoice['options'][number]['contributorPredicateOperators'],
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
+  withSavedCondition = true,
 ) => {
   const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', [countOption], routeMetadata);
   const focusChoice = routeChoice('focus-choice', 'focus_Patient', [{
@@ -116,7 +117,7 @@ const createDialog = (
       initialSelection={{
         choiceId: subjectChoice.choiceId,
         form: 'COUNT',
-        condition: { mode: 'EQUALS', value: 'known-observation-id' },
+        ...(withSavedCondition ? { condition: { mode: 'EQUALS' as const, value: 'known-observation-id' } } : {}),
       }}
       busy={false}
       onLoadMoreRoutes={vi.fn()}
@@ -132,6 +133,8 @@ describe('CatalogSelectionDialog', () => {
   it('keeps a saved COUNT equality condition when the new route supports it', async () => {
     const { focusChoice, onConfirm } = createDialog(['EXISTS', 'EQUALS']);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    expect(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
 
     const count = within(dialog).getByRole('radio', { name: 'Observation ID: Count matching records' });
     const equals = within(dialog).getByRole('radio', { name: 'Only records where Observation ID equals' });
@@ -167,6 +170,7 @@ describe('CatalogSelectionDialog', () => {
   it('blocks Add and requires explicit reset when a target route cannot keep the saved condition', () => {
     const { focusChoice, onConfirm } = createDialog([]);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
     fireEvent.click(within(dialog).getByRole('radio', {
       name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
     }));
@@ -196,5 +200,17 @@ describe('CatalogSelectionDialog', () => {
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
 
     expect(within(dialog).getByText('StudyVisit links to LabSample through the Tested By relationship.')).toBeInTheDocument();
+  });
+
+  it('keeps all related records by default and places optional filters under Advanced', () => {
+    createDialog(['EXISTS', 'EQUALS'], {}, false);
+    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    const matching = within(dialog).getByText('Matching records: all related records · Change').closest('details');
+    expect(matching).not.toBeNull();
+    if (!matching) return;
+    expect(matching).not.toHaveAttribute('open');
+    expect(within(dialog).getByText('Matching records: all related records · Change')).toBeInTheDocument();
+    fireEvent.click(within(matching).getByText('Matching records: all related records · Change'));
+    expect(within(matching).getByRole('radio', { name: 'All related records' })).toHaveProperty('checked', true);
   });
 });

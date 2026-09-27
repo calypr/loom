@@ -2184,6 +2184,7 @@ try {
       await browserEval(browser.cdp,
         'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.getAttribute("aria-label")===' + JSON.stringify(choice.label) + ');input.click();return true;');
       if (contributorValue) {
+        await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Open optional matching-record choices');
         const predicateChoices = await browserEval(browser.cdp,
           'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].filter(input=>input.name.startsWith("construction-condition-")).map(input=>({name:input.name,label:input.closest("label")?.innerText??"",disabled:input.disabled}));');
         results.predicateChoices = predicateChoices;
@@ -2383,6 +2384,7 @@ try {
         await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id to add EQUALS');
         await clickButtonText('Add 1 selected feature', 'Open saved Subject COUNT matching rules');
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+        await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Open saved matching-record choices');
         await browserEval(browser.cdp,
           'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Only records where id equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Observation.id EQUALS condition is unavailable");input.click();return true;');
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]"))', 30000);
@@ -2431,6 +2433,7 @@ try {
         await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id');
         await clickButtonText('Add 1 selected feature', 'Open saved Observation route choices');
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+        await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Inspect saved matching-record rule');
         results.savedRouteChoices = await browserEval(browser.cdp,
           'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"id exact value\\"]")?.value,controls:[...dialog?.querySelectorAll("input,button")??[]].map(input=>({tag:input.tagName,label:input.getAttribute("aria-label")??input.closest("label")?.innerText??input.innerText,checked:input.checked??null,disabled:input.disabled??false}))};');
         const savedSubjectChoice = results.savedRouteChoices.radios.find(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? ''));
@@ -2598,6 +2601,7 @@ try {
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
         await waitForBrowser(browser.cdp,
           '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
+        await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Open saved contributor filter');
         results.savedContributorChoices = await browserEval(browser.cdp,
           'return {radios:[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText,checked:input.checked})),exactValue:document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]")?.value};');
         assert(results.savedContributorChoices.radios.some(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? '') && choice.checked), 'Saved contributor route was not preselected');
