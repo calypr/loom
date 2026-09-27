@@ -1065,7 +1065,7 @@ try {
     await writeFile(join(evidenceDirectory,'table-rename-reorder-undo.json'),JSON.stringify({pageURL,moved,undone,reloaded,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,moved,undone,reloaded,responses:responses.filter(response=>response.path.endsWith('/commands'))},null,2));
   } else if (action === 'Apply missing') {
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Keep rows:"]').click();return true;`);
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Filter rows:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Column"]:not(:disabled)'))`, 30000);
     const target=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Column"]').options].find(option=>option.textContent.includes('collection.bodySite'))?.value;`);
     assert(target);
@@ -1074,9 +1074,9 @@ try {
     await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Condition"]');select.value='MISSING';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready'`, 30000);
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 2`, 30000);
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`, 30000);
     await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 2`, 30000);
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '26'`, 30000);
     const state=await browserEval(browser.cdp, `return {history:document.body.innerText.slice(document.body.innerText.indexOf('HOW THIS TABLE IS MADE'),document.body.innerText.indexOf('DATASET WORKSPACE')),preview:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,1500)};`);
@@ -1086,7 +1086,7 @@ try {
     await writeFile(join(evidenceDirectory,'missing-applied.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
   } else if (action === 'Missing proposal') {
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Keep rows:"]').click();return true;`);
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Filter rows:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Column"]:not(:disabled)'))`, 30000);
     const target=await browserEval(browser.cdp, `return [...document.querySelector('select[aria-label="Column"]').options].find(option=>option.textContent.includes('collection.bodySite'))?.value;`);
     assert(target);
@@ -1095,9 +1095,11 @@ try {
     await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Condition"]');select.value='MISSING';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
     await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
     const state=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,2000),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText)};`);
+    const proposalResponse=responses.filter(response=>response.path.endsWith('/construction-proposals')).at(-1);
+    const rawResponse=proposalResponse?JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:proposalResponse.requestId})).body):null;
     await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'missing-proposal.json'),JSON.stringify({pageURL,target,state,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,target,state,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/preview'))},null,2));
+    await writeFile(join(evidenceDirectory,'missing-proposal.json'),JSON.stringify({pageURL,target,state,rawResponse,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,target,state,rawResponse,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/preview'))},null,2));
   } else if (action === 'Remove saved filter') {
     await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`, 30000);
     await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
@@ -1108,7 +1110,7 @@ try {
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0`, 30000);
     await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Keep rows:"]'))`, 30000);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '26'`, 30000);
     const restored=await browserEval(browser.cdp, `return {steps:document.querySelectorAll('[data-testid^="construction-history-step-"]').length,rows:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,450)};`);
@@ -1130,9 +1132,9 @@ try {
     const proposed=await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText;`);
     assert(proposed.includes(nextId));
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`Keep rows where Specimen ID equals “${nextId}”.`)})`, 30000);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`Filter output rows where Specimen ID equals “${nextId}”.`)})`, 30000);
     await navigate(browser.cdp,pageURL);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`Keep rows where Specimen ID equals “${nextId}”.`)})`, 30000);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`Filter output rows where Specimen ID equals “${nextId}”.`)})`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element=>element.textContent?.trim()==='Preview')?.click();return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === '2'`, 30000);
     const saved=await browserEval(browser.cdp, `return document.querySelector('[data-testid="preview-table-scroll"]')?.innerText;`);
@@ -1143,7 +1145,7 @@ try {
     console.log(JSON.stringify({evidenceDirectory,original,nextId,proposed,saved,responses:responses.filter(response=>response.path.endsWith('/construction-proposals')||response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
   } else if (action === 'Apply known filter') {
     const knownId='b7cad184-db67-5542-a975-10fffa3e89e7';
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Keep rows:"]').click();return true;`);
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Filter rows:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] input[aria-label="Value"]:not(:disabled)'))`, 30000);
     await browserEval(browser.cdp, `setInput('Value',${JSON.stringify(knownId)});return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready'`, 30000);
@@ -1307,6 +1309,23 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'reshape-options.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/construction-capabilities'))},null,2));
+  } else if (action === 'Group by Specimen subject performance') {
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Summarize into groups')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Summarize into groups')).click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready'`, 30000);
+    const priorProposals=responses.filter(response=>response.path.endsWith('/construction-proposals')).length;
+    const started=Date.now();
+    await browserEval(browser.cdp, `document.querySelector('input[aria-label="Group by subject.reference"]').click();return true;`);
+    while (responses.filter(response=>response.path.endsWith('/construction-proposals')).length === priorProposals && Date.now()-started<60000) await new Promise(resolve=>setTimeout(resolve,25));
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status') === 'ready' && document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.toLowerCase().includes('subject.reference')`, 60000);
+    const elapsedMs=Date.now()-started;
+    const state=await browserEval(browser.cdp, `return {panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1500),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+    const proposal=responses.filter(response=>response.path.endsWith('/construction-proposals')).at(-1);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'specimen-subject-group-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
+    assert(elapsedMs<=5000,`Specimen subject group proposal took ${elapsedMs} ms`);
   } else if (action === 'Group proposal') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Summarize into groups')`, 30000);
@@ -1949,7 +1968,7 @@ try {
       await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference'));item.querySelector('input[type="checkbox"]').click();return true;`);
       await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
       await navigate(browser.cdp, pageURL);
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Keep rows:"]'))`, 30000);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Columns')?.click();return true;`);
@@ -1959,7 +1978,7 @@ try {
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
     assert(responses.some(response => response.path.endsWith('/commands') && response.status === 200));
     await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Keep rows:"]'))`, 30000);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === '4'`, 30000);
     const hidden = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText),count:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount')};`);
@@ -1968,7 +1987,7 @@ try {
     await browserEval(browser.cdp, `const item=[...document.querySelectorAll('[role="list"][aria-label="Table columns"] [role="listitem"]')].find(element=>element.innerText.includes('subject.reference'));item.querySelector('input[type="checkbox"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Choose a row resource and at least one visible column, then preview.')`, 30000);
     await navigate(browser.cdp, pageURL);
-    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Keep rows:"]'))`, 30000);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]'))`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(element => element.textContent?.trim() === 'Preview')?.click(); return true;`);
     await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount') === '5'`, 30000);
     const restored = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText),count:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]').getAttribute('aria-colcount')};`);
