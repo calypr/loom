@@ -143,6 +143,11 @@ describe('CatalogSelectionDialog', () => {
     expect(within(dialog).getByText('Observation links to Patient through the Subject relationship.')).toBeInTheDocument();
     expect(within(dialog).getByText('Each row gets the number of matching records (0 if none), counting each record once.'))
       .toBeInTheDocument();
+    const alternateRoute = within(dialog).getByRole('radio', {
+      name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
+    });
+    expect(alternateRoute.closest('details')).not.toHaveAttribute('open');
+    fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
 
     fireEvent.click(within(dialog).getByRole('radio', {
       name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
@@ -171,6 +176,7 @@ describe('CatalogSelectionDialog', () => {
     const { focusChoice, onConfirm } = createDialog([]);
     const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
     fireEvent.click(within(dialog).getByText(/Matching records: only records where Observation ID equals known-observation-id/));
+    fireEvent.click(within(dialog).getByText('Change relationship path (1 alternatives)'));
     fireEvent.click(within(dialog).getByRole('radio', {
       name: 'Observation ID: Direct relationship: Patient to Observation via Focus',
     }));

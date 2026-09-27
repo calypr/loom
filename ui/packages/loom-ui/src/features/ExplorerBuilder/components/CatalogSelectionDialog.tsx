@@ -259,6 +259,11 @@ export const CatalogSelectionDialog = ({
                       const shortestLength = orderedChoices[0]?.routeChoice.route.length ?? 0;
                       const shortestChoices = orderedChoices.filter(({ routeChoice }) => routeChoice.route.length === shortestLength);
                       const otherChoices = orderedChoices.filter(({ routeChoice }) => routeChoice.route.length > shortestLength);
+                      const selectedChoice = orderedChoices.find(({ routeChoice }) => routeChoice.choiceId === choice?.choiceId);
+                      const visibleChoices = selectedChoice ? [selectedChoice] : shortestChoices;
+                      const alternateChoices = selectedChoice
+                        ? orderedChoices.filter(({ routeChoice }) => routeChoice.choiceId !== selectedChoice.routeChoice.choiceId)
+                        : otherChoices;
                       const renderRouteChoice = ({ routeChoice }: typeof orderedChoices[number]) => {
                         const label = routeLabel(routeChoice.route);
                         return (
@@ -336,14 +341,23 @@ export const CatalogSelectionDialog = ({
                       };
                       return (
                         <>
-                          {shortestChoices.map(renderRouteChoice)}
-                          {otherChoices.length > 0 ? (
-                            <details className="rounded-md border border-slate-200 px-3 py-2">
+                          {visibleChoices.map(renderRouteChoice)}
+                          {alternateChoices.length > 0 || (selectedChoice && group.nextCursor) ? (
+                            <details data-testid={`catalog-route-alternatives-${key}`} className="rounded-md border border-slate-200 px-3 py-2">
                               <summary className="cursor-pointer text-sm font-semibold text-blue-800">
-                                Other relationship paths ({otherChoices.length})
+                                {selectedChoice
+                                  ? alternateChoices.length > 0
+                                    ? `Change relationship path (${alternateChoices.length} alternatives)`
+                                    : 'Find more relationship paths'
+                                  : `Other relationship paths (${alternateChoices.length})`}
                               </summary>
                               <div className="mt-2 space-y-2">
-                                {otherChoices.map(renderRouteChoice)}
+                                {alternateChoices.map(renderRouteChoice)}
+                                {selectedChoice && group.nextCursor ? (
+                                  <button type="button" disabled={busy} onClick={() => onLoadMoreRoutes(group)} className="justify-self-start rounded border border-slate-300 px-3 py-1.5 text-sm font-medium text-blue-700 disabled:opacity-50">
+                                    {loadingMoreRoutes === key ? 'Checking for more paths…' : 'Load more paths'}
+                                  </button>
+                                ) : null}
                               </div>
                             </details>
                           ) : null}
@@ -352,7 +366,7 @@ export const CatalogSelectionDialog = ({
                     })()}
                   </fieldset>
                 ) : null}
-                {group.nextCursor ? (
+                {group.nextCursor && !choice ? (
                   <button
                     type="button"
                     disabled={busy}

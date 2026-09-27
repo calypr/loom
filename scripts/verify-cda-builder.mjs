@@ -2328,7 +2328,9 @@ try {
       await waitForBrowser(browser.cdp,
         '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
       results.selectedRouteDialog = await browserEval(browser.cdp,
-        'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",checked:input.checked,disabled:input.disabled})),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
+        'const dialog=document.querySelector("[role=\\"dialog\\"]");const alternatives=dialog?.querySelector("[data-testid^=\\"catalog-route-alternatives-\\"]");return {text:dialog?.innerText,alternatives:{closed:!alternatives?.open,summary:alternatives?.querySelector("summary")?.textContent.trim()},visibleRoutes:[...dialog?.querySelectorAll("input[name^=\\"construction-route-\\"]")??[]].filter(input=>!input.closest("details:not([open])")).map(input=>input.getAttribute("aria-label")),radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",checked:input.checked,disabled:input.disabled})),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
+      assert(results.selectedRouteDialog.alternatives.closed && results.selectedRouteDialog.visibleRoutes.length===1 && results.selectedRouteDialog.alternatives.summary?.startsWith('Change relationship path'), 'Selected route should be the only visible path before choosing a result form');
+      assert(!results.selectedRouteDialog.text.includes('Load more paths'), 'Route paging should not interrupt the selected route and result-form decision');
       const formRadios = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map((input,index)=>({index,label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText??"",disabled:input.disabled}));');
       const countChoice = formRadios.find(radio => /count matching records/i.test((radio.label ?? '') + ' ' + radio.text));
@@ -2451,6 +2453,7 @@ try {
         const savedEqualsCondition = results.savedRouteChoices.conditions.find(choice => /Only records where id equals/i.test(choice.label ?? ''));
         assert(savedEqualsCondition?.checked, 'Saved Observation.id EQUALS condition did not reopen as selected');
         assert.equal(results.savedRouteChoices.exactValue, focusObservationId, 'Saved Observation.id EQUALS value was not restored');
+        await clickDOM('[role="dialog"] [data-testid^="catalog-route-alternatives-"] summary', 'Show alternative saved routes');
         await captureScreenshot('saved-observation-route-edit-controls.png');
         await clickDOM('[role="dialog"] input[type="radio"][aria-label=' + JSON.stringify(focusChoice.label) + ']', 'Choose direct Focus route');
         results.savedRouteControls = await browserEval(browser.cdp,

@@ -18,13 +18,14 @@ const knownObservationId = '35cfec85-56e8-5257-af99-2e9345be2011';
 const knownPatientId = 'afcfb15e-7617-5691-ae2c-ab675322fb33';
 const generation = 'cda-fhir-v1';
 const expectedRoute = '2-relationship path: Specimen to Observation to Patient via Specimen then Subject';
-const pageURL = `http://127.0.0.1:30002/?project=${project}&explorer=${explorerId}&mode=builder`;
+const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
+const pageURL = `${uiOrigin}/?project=${project}&explorer=${explorerId}&mode=builder`;
 const startedAt = Date.now();
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const tableName = `CDA indirect route QA ${Date.now()}`;
 const report = {
   scenario: 'CDA Specimen → Observation → Patient.id related field journey',
-  target: { apiUrl: 'http://127.0.0.1:30002', project, explorerId, pageURL },
+  target: { apiUrl: uiOrigin, project, explorerId, pageURL },
   temporaryTable: tableName,
   performanceGateMs: 5000,
   oracle: undefined,
@@ -538,7 +539,7 @@ try {
   const savedRouteEditor = await browserEval(browser.cdp, `return document.querySelector('[data-testid="related-source-step-editor"]')?.innerText;`);
   report.savedRouteEditor = savedRouteEditor;
   addAssertion('Saved editor retained the exact two-hop route',
-    savedRouteEditor?.includes('Specimen') && savedRouteEditor?.includes('Observation') && savedRouteEditor?.includes('subject_Patient'),
+    savedRouteEditor?.includes('Current route: Specimen → Observation via Specimen · Observation → Patient via Subject'),
     savedRouteEditor,
   );
   const editedLabel = `Patient.id QA edit ${Date.now()}`;
