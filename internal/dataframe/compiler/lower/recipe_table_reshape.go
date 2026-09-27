@@ -98,6 +98,15 @@ func appendRecipeTableReshape(plan *ir.PhysicalPlan, output semantic.OutputPlan,
 	return schema, nil
 }
 
+type PivotReducerTypeError struct {
+	Policy      recipe.PivotDuplicatePolicy
+	ValueColumn string
+}
+
+func (e *PivotReducerTypeError) Error() string {
+	return fmt.Sprintf("duplicate reducer %q requires a numeric value column", e.Policy)
+}
+
 func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroupedPivot, inputProjections []ir.PhysicalProjection, schema map[string]CompiledOutputColumn, projections map[string]ir.PhysicalProjection, usedVariables map[string]bool) (ir.PhysicalGroupedPivot, []ir.PhysicalProjection, []CompiledOutputColumn, error) {
 	categoryColumn, err := requireTableScalarColumn(pivot.CategoryColumn, schema, projections)
 	if err != nil {
@@ -116,7 +125,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column %q has unsupported scalar type %q", pivot.ValueColumn, valueColumn.Kind)
 	}
 	if pivot.DuplicatePolicy != recipe.PivotDuplicateError && valueType != "INTEGER" && valueType != "DECIMAL" {
-		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("duplicate reducer %q requires a numeric value column", pivot.DuplicatePolicy)
+		return ir.PhysicalGroupedPivot{}, nil, nil, &PivotReducerTypeError{Policy: pivot.DuplicatePolicy, ValueColumn: pivot.ValueColumn}
 	}
 	constructionBind := nextTableReshapeBindKey(plan.BindVars, "reshape_construction")
 	plan.BindVars[constructionBind] = pivot.ConstructionID

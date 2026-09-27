@@ -103,7 +103,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(request.Project), SelectionProject: projectid.Canonical(request.Project), DatasetGeneration: snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode, SelectionMembersCollection: request.SelectionMembersCollection}
 	resolved, err := recipeEngine.CompileResolvedBundle(ctx, translated.Bundle, bindings)
 	if err != nil {
-		return nil, err
+		return nil, classifyReceiptRecipeError(err)
 	}
 	translated, err = reconcileFinalOutputMetadata(translated, resolved)
 	if err != nil {
@@ -169,6 +169,18 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		logger.Info("Explorer receipt compiled", "project", receipt.Project, "explorer_id", receipt.ExplorerID, "receipt_id", receipt.ID, "duration_ms", time.Since(started).Milliseconds(), "receipt_bytes", receiptBytes, "output_count", len(receipt.Bundle.Outputs), "column_count", len(receipt.EmittedColumns))
 	}
 	return stored, nil
+}
+
+func classifyReceiptRecipeError(err error) error {
+	var reducerType *lower.PivotReducerTypeError
+	if errors.As(err, &reducerType) {
+		return &explorercompilation.Error{
+			Stage: "construction", Code: "PIVOT_REDUCER_REQUIRES_NUMERIC",
+			Message: "Choose a numeric value field for this Pivot duplicate rule, or choose Show an error.",
+			Details: map[string]any{"duplicatePolicy": reducerType.Policy, "valueColumn": reducerType.ValueColumn}, Cause: err,
+		}
+	}
+	return err
 }
 
 // persistValidatedReceipt proves that the execution engine can reproduce the

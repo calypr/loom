@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -24,6 +25,22 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
 )
+
+func TestClassifyReceiptRecipeErrorPreservesPivotReducerValidation(t *testing.T) {
+	cause := fmt.Errorf("compile output: %w", &lower.PivotReducerTypeError{Policy: recipe.PivotDuplicateMin, ValueColumn: "specimen_id"})
+	classified := classifyReceiptRecipeError(cause)
+	var diagnostic *explorercompilation.Error
+	if !errors.As(classified, &diagnostic) || diagnostic.Code != "PIVOT_REDUCER_REQUIRES_NUMERIC" || diagnostic.Stage != "construction" {
+		t.Fatalf("classified error = %v, want construction validation diagnostic", classified)
+	}
+	if !errors.Is(classified, cause) {
+		t.Fatalf("classified error lost original cause: %v", classified)
+	}
+	unexpected := errors.New("storage failed")
+	if got := classifyReceiptRecipeError(unexpected); got != unexpected {
+		t.Fatalf("unrelated error = %v, want original error", got)
+	}
+}
 
 func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()

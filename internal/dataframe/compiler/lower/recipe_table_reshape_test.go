@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -73,6 +74,24 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 		t.Fatalf("pivot identity is not the construction ID plus a typed group-key tuple: %s", rendered.Query)
 	}
 	assertUnlistedCategoryScope(t, rendered.Query, pivot)
+}
+
+func TestGroupedPivotNonnumericReducerHasTypedError(t *testing.T) {
+	reshape := &recipe.TableReshape{
+		Kind: recipe.TableReshapeGroupedPivot,
+		GroupedPivot: &recipe.GroupedPivot{
+			ConstructionID: "pivot_reducer_type", GroupKeys: []string{"group"},
+			CategoryColumn: "category", ValueColumn: "keep",
+			Categories:      []recipe.GroupedPivotCategory{{Key: tableScalarInteger(0), Output: "out", Label: "Output"}},
+			DuplicatePolicy: recipe.PivotDuplicateMin, MissingCellPolicy: recipe.PivotMissingCellNull,
+			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+		},
+	}
+	_, err := compileDerivedTestBundle(t, tableReshapeTestOutput(reshape))
+	var reducerType *PivotReducerTypeError
+	if !errors.As(err, &reducerType) || reducerType.Policy != recipe.PivotDuplicateMin || reducerType.ValueColumn != "keep" {
+		t.Fatalf("compile error = %v, want typed Pivot reducer error", err)
+	}
 }
 
 func TestCompileGroupedTablePivotRendersDuplicateAndMissingErrors(t *testing.T) {

@@ -1406,8 +1406,9 @@ try {
     await writeFile(join(evidenceDirectory,'specimen-subject-group-performance.json'),JSON.stringify({pageURL,elapsedMs,gateMs:5000,state,proposal,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,elapsedMs,gateMs:5000,state,proposal},null,2));
     assert(elapsedMs<=5000,`Specimen subject group proposal took ${elapsedMs} ms`);
-  } else if (action === 'Discover Specimen pivot categories performance' || action === 'Preview Specimen pivot performance' || action === 'Preview Specimen nonunique pivot performance') {
-    const nonuniquePivot=action==='Preview Specimen nonunique pivot performance';
+  } else if (action === 'Discover Specimen pivot categories performance' || action === 'Preview Specimen pivot performance' || action === 'Preview Specimen nonunique pivot performance' || action === 'Reject Specimen nonnumeric pivot policy') {
+    const rejectNonnumeric=action==='Reject Specimen nonnumeric pivot policy';
+    const nonuniquePivot=action==='Preview Specimen nonunique pivot performance' || rejectNonnumeric;
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Turn categories into columns')`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
@@ -1462,6 +1463,13 @@ try {
         assert.equal(proposal.status,'ready',proposal.panel);
       }
       if (proposalBody?.preview?.partialValidation) assert(proposal.previewNotice?.includes('Only displayed groups were checked'), 'Pivot partial-validation notice is missing from the DOM');
+      if (rejectNonnumeric) {
+        const rejected=await browserEval(browser.cdp, `const request=${JSON.stringify(JSON.parse(proposalRequest.postData))};request.candidateConstruction.steps.at(-1).operation.pivot.duplicatePolicy='MIN';const response=await fetch('/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}/authoring/v2/construction-proposals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});return {status:response.status,body:await response.json()};`);
+        await writeFile(join(evidenceDirectory,'specimen-nonnumeric-pivot-policy.json'),JSON.stringify({pageURL,initial,proposal,rejected,responses},null,2));
+        assert.equal(rejected.status,422,JSON.stringify(rejected.body));
+        assert.equal(rejected.body?.error?.code,'PIVOT_REDUCER_REQUIRES_NUMERIC',JSON.stringify(rejected.body));
+        assert(rejected.body?.error?.message?.includes('Choose a numeric value field'),JSON.stringify(rejected.body));
+      }
       assert(elapsedMs<=5000,`Specimen pivot category discovery took ${elapsedMs} ms`);
       assert(proposalMs<=5000,`Specimen pivot proposal took ${proposalMs} ms`);
     }
