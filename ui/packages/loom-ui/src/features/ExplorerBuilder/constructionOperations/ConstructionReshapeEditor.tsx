@@ -37,6 +37,7 @@ export type ConstructionReshapePivotDiscovery = ConstructionReshapePivotDiscover
   | { readonly status: 'loading' }
   | { readonly status: 'failed'; readonly reason: string }
   | { readonly status: 'limit-exceeded'; readonly limit: number; readonly reason: string }
+  | { readonly status: 'missing-unsupported'; readonly reason: string }
   | { readonly status: 'complete'; readonly categories: ReadonlyArray<ConstructionReshapePivotCategory> }
 );
 
@@ -1923,8 +1924,9 @@ const PivotEditor = (props: {
           {props.discovery && discoveryMatches && props.discovery.status === 'loading' ? <p role="status" className="text-sm text-slate-600">Finding category values…</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason} (Maximum supported categories: {props.discovery.limit}.)</p> : null}
+          {props.discovery && discoveryMatches && props.discovery.status === 'missing-unsupported' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
           {props.discovery && !discoveryMatches ? <p role="status" className="text-sm text-amber-900">The available category list belongs to different fields. Find values for this category and values pair before applying.</p> : null}
-          {!categoriesKnown && !(props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded') ? <p role="status" className="text-sm text-amber-900">Find category values for the selected fields before applying this pivot.</p> : null}
+          {!categoriesKnown && !(props.discovery && discoveryMatches && (props.discovery.status === 'limit-exceeded' || props.discovery.status === 'missing-unsupported')) ? <p role="status" className="text-sm text-amber-900">Find category values for the selected fields before applying this pivot.</p> : null}
           {categoriesKnown ? (
             <>
               <p role="status" data-testid="construction-reshape-pivot-category-summary" className="rounded bg-slate-50 px-3 py-2 text-sm text-slate-700">

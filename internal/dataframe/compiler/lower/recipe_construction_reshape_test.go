@@ -86,6 +86,80 @@ func TestConstructionExpandThenGroupUsesTypedIntermediateColumns(t *testing.T) {
 	}
 }
 
+func TestConstructionPivotRejectsMissingAfterDirectNestedSourceProjection(t *testing.T) {
+	categoryValue := "BodyStructure/2f9db8e2-82b9-4f75-8c33-a5327192dfc8"
+	output := recipe.Output{
+		Name: "specimen_missing_category", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{
+			{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "body_site_reference", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.collection.bodySite.reference.reference"}},
+			{Name: "subject_reference", ColumnID: "value_id", Expr: recipe.Expression{Select: "root.subject.reference"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "specimen_id", Name: "specimen_id"},
+				{ID: "category_id", Name: "body_site_reference"},
+				{ID: "value_id", Name: "subject_reference"},
+			},
+			Steps: []recipe.ConstructionStep{{
+				ID: "pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+					ConstructionID: "specimen_pivot", GroupKeyIDs: []string{"specimen_id"},
+					CategoryColumnID: "category_id", ValueColumnID: "value_id",
+					Categories: []recipe.ConstructionPivotCategory{{
+						Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryValue}, OutputColumnID: "body_site_output",
+					}},
+					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				}},
+				Outputs: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id"}, {ID: "body_site_output", Name: "body_site"}},
+			}},
+		},
+	}
+
+	compiled := compileDerivedTestOutput(t, output)
+	var sourceCategory ir.PhysicalProjection
+	for _, operation := range compiled.Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "body_site_reference" {
+				sourceCategory = projection
+			}
+		}
+	}
+	if sourceCategory.Presence == nil {
+		t.Fatalf("direct nested source projection lost its presence proof: %#v", sourceCategory)
+	}
+	stage := compiled.Plan.StageSequence.Stages[0]
+	var pivotCategory ir.PhysicalProjection
+	for _, projection := range stage.GroupedPivot.InputProjections {
+		if projection.Name == "body_site_reference" {
+			pivotCategory = projection
+		}
+	}
+	if pivotCategory.Name == "" || pivotCategory.Presence != nil {
+		t.Fatalf("construction stage should expose the materialized column without source presence metadata: %#v", pivotCategory)
+	}
+
+	missing := output
+	construction := *output.Construction
+	construction.Steps = append([]recipe.ConstructionStep(nil), output.Construction.Steps...)
+	step := construction.Steps[0]
+	pivot := *step.Operation.Pivot
+	pivot.Categories = append([]recipe.ConstructionPivotCategory(nil), step.Operation.Pivot.Categories...)
+	pivot.Categories[0].Key = recipe.TableScalar{Kind: recipe.TableScalarMissing}
+	step.Operation.Pivot = &pivot
+	construction.Steps[0] = step
+	missing.Construction = &construction
+	_, err := compileDerivedTestBundle(t, missing)
+	if err == nil || !strings.Contains(err.Error(), "MISSING requires a simple scalar selector with preserved property presence") {
+		t.Fatalf("MISSING construction pivot error = %v", err)
+	}
+}
+
 func TestConstructionExpandExcludeUsesRequiredItemAndOrdinal(t *testing.T) {
 	output := recipe.Output{
 		Name: "construction_expand_exclude", RootResourceType: "Observation", RowGrain: "observation",

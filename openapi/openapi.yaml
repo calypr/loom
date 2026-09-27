@@ -3671,15 +3671,15 @@ components:
         stageId: {type: string, minLength: 1}
         categoryColumnId: {type: string, minLength: 1}
         valueColumnId: {type: string, minLength: 1}
-        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set.}
+        outcome: {type: string, enum: [COMPLETE, LIMIT_EXCEEDED, MISSING_UNSUPPORTED], description: COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.}
         complete: {type: boolean, description: True only when the full category set was returned.}
         proofFingerprint: {type: string, minLength: 1, description: Present only for COMPLETE.}
         categories:
           type: array
           items: {$ref: '#/components/schemas/ConstructionDiscoveredCategory'}
-          description: Empty for LIMIT_EXCEEDED; partial category values are never returned.
+          description: Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
         limit: {type: integer, minimum: 1, description: Present only for LIMIT_EXCEEDED; maximum supported number of categories.}
-        message: {type: string, minLength: 1, description: Present only for LIMIT_EXCEEDED; user-facing recovery guidance.}
+        message: {type: string, minLength: 1, description: Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.}
     ConstructionOperationCapability:
       type: object
       additionalProperties: false

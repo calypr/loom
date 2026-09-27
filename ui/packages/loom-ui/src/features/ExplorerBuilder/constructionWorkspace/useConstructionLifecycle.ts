@@ -359,6 +359,8 @@ export const useConstructionLifecycle = ({
           ? { ...request, status: 'failed', reason: 'Loom returned category values for a different stage or field pair.' }
           : response.outcome === 'LIMIT_EXCEEDED'
             ? { ...request, status: 'limit-exceeded', limit: response.limit, reason: response.message }
+            : response.outcome === 'MISSING_UNSUPPORTED'
+              ? { ...request, status: 'missing-unsupported', reason: response.message }
             : response.outcome === 'COMPLETE' && response.complete && response.proofFingerprint.trim() !== ''
               ? { ...request, status: 'complete', categories: response.categories }
               : { ...request, status: 'failed', reason: 'Loom returned category values without a complete compiler proof.' };

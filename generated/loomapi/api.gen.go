@@ -652,8 +652,9 @@ func (e ConfiguredColumnUnavailableResolutionState) Valid() bool {
 
 // Defines values for ConstructionCategoryDiscoveryResponseOutcome.
 const (
-	ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE      ConstructionCategoryDiscoveryResponseOutcome = "COMPLETE"
-	ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED ConstructionCategoryDiscoveryResponseOutcome = "LIMIT_EXCEEDED"
+	ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE           ConstructionCategoryDiscoveryResponseOutcome = "COMPLETE"
+	ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED      ConstructionCategoryDiscoveryResponseOutcome = "LIMIT_EXCEEDED"
+	ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED ConstructionCategoryDiscoveryResponseOutcome = "MISSING_UNSUPPORTED"
 )
 
 // Valid indicates whether the value is a known member of the ConstructionCategoryDiscoveryResponseOutcome enum.
@@ -662,6 +663,8 @@ func (e ConstructionCategoryDiscoveryResponseOutcome) Valid() bool {
 	case ConstructionCategoryDiscoveryResponseOutcomeCOMPLETE:
 		return true
 	case ConstructionCategoryDiscoveryResponseOutcomeLIMITEXCEEDED:
+		return true
+	case ConstructionCategoryDiscoveryResponseOutcomeMISSINGUNSUPPORTED:
 		return true
 	default:
 		return false
@@ -4024,7 +4027,7 @@ type ConstructionCategoryDiscoveryRequest struct {
 
 // ConstructionCategoryDiscoveryResponse defines model for ConstructionCategoryDiscoveryResponse.
 type ConstructionCategoryDiscoveryResponse struct {
-	// Categories Empty for LIMIT_EXCEEDED; partial category values are never returned.
+	// Categories Empty for LIMIT_EXCEEDED and MISSING_UNSUPPORTED; partial or unsupported category values are never returned.
 	Categories       []ConstructionDiscoveredCategory `json:"categories"`
 	CategoryColumnId string                           `json:"categoryColumnId"`
 
@@ -4036,10 +4039,10 @@ type ConstructionCategoryDiscoveryResponse struct {
 	// Limit Present only for LIMIT_EXCEEDED; maximum supported number of categories.
 	Limit *int `json:"limit,omitempty"`
 
-	// Message Present only for LIMIT_EXCEEDED; user-facing recovery guidance.
+	// Message Present for LIMIT_EXCEEDED or MISSING_UNSUPPORTED; user-facing recovery guidance.
 	Message *string `json:"message,omitempty"`
 
-	// Outcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set.
+	// Outcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
 	Outcome  ConstructionCategoryDiscoveryResponseOutcome `json:"outcome"`
 	OutputId string                                       `json:"outputId"`
 
@@ -4050,7 +4053,7 @@ type ConstructionCategoryDiscoveryResponse struct {
 	ValueColumnId    string  `json:"valueColumnId"`
 }
 
-// ConstructionCategoryDiscoveryResponseOutcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set.
+// ConstructionCategoryDiscoveryResponseOutcome COMPLETE includes a complete compiler proof; LIMIT_EXCEEDED is a compiler-proven overflow and carries no partial category set; MISSING_UNSUPPORTED means the selected stage contains MISSING values that a construction Pivot cannot preserve separately from NULL.
 type ConstructionCategoryDiscoveryResponseOutcome string
 
 // ConstructionChoice defines model for ConstructionChoice.

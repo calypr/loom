@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -50,6 +51,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	}
 
 	calls := 0
+	includeMissing := false
 	incomplete := false
 	overflow := false
 	invalidProof := false
@@ -79,8 +81,12 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		if invalidProof {
 			proof.Fingerprint = ""
 		}
+		values := []dataframeexecution.CategoryValue{{Present: true, Value: "final"}}
+		if includeMissing {
+			values = append(values, dataframeexecution.CategoryValue{Present: false})
+		}
 		return dataframeexecution.CategoryScanResult{
-			Values:   []dataframeexecution.CategoryValue{{Present: true, Value: "final"}, {Present: false}},
+			Values:   values,
 			Complete: !incomplete && !overflow,
 			Overflow: overflow,
 			Proof:    proof,
@@ -108,9 +114,17 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 	if calls != 1 || !response.Complete || response.StageID != request.StageID || response.CategoryColumnID != request.CategoryColumnID || response.ValueColumnID != request.ValueColumnID || response.ProofFingerprint == "" {
 		t.Fatalf("category discovery response = %#v; calls = %d", response, calls)
 	}
-	if len(response.Categories) != 2 || response.Categories[0].Label != "final" || response.Categories[0].Key.String == nil || *response.Categories[0].Key.String != "final" || response.Categories[1].Label != "Missing" || response.Categories[1].Key.Kind != authoringv2.TableScalarMissing {
+	if len(response.Categories) != 1 || response.Categories[0].Label != "final" || response.Categories[0].Key.String == nil || *response.Categories[0].Key.String != "final" {
 		t.Fatalf("typed category values = %#v", response.Categories)
 	}
+
+	includeMissing = true
+	unsupported, err := service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete ||
+		len(unsupported.Categories) != 0 || !strings.Contains(unsupported.Message, "filter out rows with missing categories") {
+		t.Fatalf("missing-category discovery = %#v, error = %v; want empty unsupported result with guidance", unsupported, err)
+	}
+	includeMissing = false
 
 	incomplete = true
 	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {

@@ -70,8 +70,9 @@ type ConstructionCategoryDiscoveryResponse struct {
 }
 
 const (
-	constructionCategoryDiscoveryComplete      = "COMPLETE"
-	constructionCategoryDiscoveryLimitExceeded = "LIMIT_EXCEEDED"
+	constructionCategoryDiscoveryComplete           = "COMPLETE"
+	constructionCategoryDiscoveryLimitExceeded      = "LIMIT_EXCEEDED"
+	constructionCategoryDiscoveryMissingUnsupported = "MISSING_UNSUPPORTED"
 )
 
 func (s *Service) DiscoverConstructionCategories(ctx context.Context, request ConstructionCategoryDiscoveryRequest) (ConstructionCategoryDiscoveryResponse, error) {
@@ -161,6 +162,21 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 			Categories: []ConstructionDiscoveredCategory{}, Limit: compiler.MaxCategoryScanValues,
 			Message: "This field has more than 256 category values in the current rows. Choose another category field or filter rows before pivoting.",
 		}, nil
+	}
+	// Construction pivot stages project their inputs through materialized stage
+	// rows. Those projections currently preserve values but not source property
+	// presence, so returning MISSING as a selectable category would produce a
+	// candidate that the compiler cannot execute without conflating it with NULL.
+	for _, item := range scan.Values {
+		if !item.Present {
+			return ConstructionCategoryDiscoveryResponse{
+				SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+				OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
+				ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryMissingUnsupported,
+				Categories: []ConstructionDiscoveredCategory{},
+				Message:    "This category field has MISSING values. Construction pivots cannot preserve MISSING separately from NULL for the selected stage; filter out rows with missing categories or choose a category field without missing values.",
+			}, nil
+		}
 	}
 	categories := make([]ConstructionDiscoveredCategory, 0, len(scan.Values))
 	for _, item := range scan.Values {

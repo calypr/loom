@@ -1472,6 +1472,12 @@ export const constructionCategoryDiscoveryResponseSchema = z.discriminatedUnion(
     limit: z.number().int().positive(),
     message: z.string().min(1),
   }).strict(),
+  constructionCategoryDiscoveryIdentitySchema.extend({
+    outcome: z.literal('MISSING_UNSUPPORTED'),
+    complete: z.literal(false),
+    categories: z.array(constructionDiscoveredCategorySchema).length(0),
+    message: z.string().min(1),
+  }).strict(),
 ]);
 export type ConstructionCategoryDiscoveryResponse = z.infer<typeof constructionCategoryDiscoveryResponseSchema>;
 
