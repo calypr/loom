@@ -127,6 +127,10 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 			path := strings.TrimPrefix(strings.TrimSpace(sourcePath), "root.")
 			choiceArm = choiceArmForPath(path)
 			if projectionMode == "INDEXED" {
+				if indexedProjectionOverlapsExpandedScope(document.Rows.Expanded, column.OccurrenceID, candidate.RepeatedBoundaries) {
+					scopePath := strings.TrimPrefix(strings.TrimSpace(document.Rows.Expanded.ScopePath), "root.")
+					return Result{}, fail("capability", "INDEXED_PROJECTION_OVERLAPS_EXPANDED_SCOPE", fmt.Sprintf("$.columns[%d].source.projectionMode", index), "this INDEXED column addresses an owner-level repeated position that also defines the expanded rows; choose a non-indexed projection or restore one row per source record", map[string]any{"fieldPath": path, "scopePath": scopePath, "projectionMode": projectionMode}, nil)
+				}
 				indexed, counts, expandErr := expandIndexedProjection(leaf, path, candidate.RepeatedBoundaries)
 				if expandErr != nil {
 					code := "INDEXED_BOUNDARY_INVALID"

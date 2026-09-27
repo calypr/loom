@@ -89,6 +89,7 @@ func TestCompileExpandedRowsRebasesDirectFieldsWithinSelectedScope(t *testing.T)
 		authoringv2.Column{Column: "given_all", Label: "Given all", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}},
 		authoringv2.Column{Column: "family_first", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}},
 		authoringv2.Column{Column: "related_given", Label: "Related given", OccurrenceID: "second_patient", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
+		authoringv2.Column{Column: "related_given_slots", Label: "Related given slots", OccurrenceID: "second_patient", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}}},
 	)
 	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
 	if err != nil {
@@ -123,9 +124,65 @@ func TestCompileExpandedRowsRebasesDirectFieldsWithinSelectedScope(t *testing.T)
 			relatedFields = traversal.Traversals[0].Fields
 		}
 	}
-	if len(relatedFields) != 1 || relatedFields[0].Expr.Select != "second_patient.name[].given[]" || relatedFields[0].FieldRef != "name[].given[]" {
+	var relatedGiven, relatedIndexed recipe.Field
+	for _, field := range relatedFields {
+		switch field.Name {
+		case "related_given":
+			relatedGiven = field
+		case "related_given_slots__0__0":
+			relatedIndexed = field
+		}
+	}
+	if relatedGiven.Expr.Select != "second_patient.name[].given[]" || relatedGiven.FieldRef != "name[].given[]" || relatedIndexed.Expr.Select != "second_patient.name[0].given[0]" || relatedIndexed.FieldRef != "name[].given[]" {
 		t.Fatalf("same field path on a different occurrence was rebound to the expanded owner: %#v", relatedFields)
 	}
+}
+
+func TestCompileExpandedRowsRejectsIndexedProjectionThatConsumesExpandedBoundary(t *testing.T) {
+	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+	document.Columns = append(document.Columns, authoringv2.Column{
+		Column: "given_slots", Label: "Given slots", OccurrenceID: authoringv2.RootOccurrenceID,
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "INDEXED"}},
+	})
+
+	_, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
+	var compileErr *Error
+	if !errors.As(err, &compileErr) || compileErr.Code != "INDEXED_PROJECTION_OVERLAPS_EXPANDED_SCOPE" {
+		t.Fatalf("expanded-row INDEXED compile error = %v, want an explicit unsupported overlap", err)
+	}
+	if compileErr.Details["scopePath"] != "name[]" || compileErr.Details["fieldPath"] != "name[].given[]" {
+		t.Fatalf("overlap error details = %#v", compileErr.Details)
+	}
+}
+
+func TestCompileExpandedRowsKeepsIndexedProjectionOnUnrelatedBoundary(t *testing.T) {
+	snapshot := expandedRowsSnapshot()
+	snapshot.Candidates = append(snapshot.Candidates, capability.Candidate{
+		ID: "c_patient_telecom_value", NodeID: "n_patient", ResourceType: "Patient", FieldPath: "telecom[].value",
+		LogicalType: "string", Cardinality: "many", RepeatedBoundaries: []capability.RepeatedBoundary{{Path: "telecom[]", MaxItems: 2}},
+		ProjectionModes:     []capability.ProjectionMode{capability.ProjectionIndexed, capability.ProjectionFirst, capability.ProjectionArray},
+		SupportedOperations: []capability.Operation{capability.OperationSelect},
+	})
+	snapshot = capability.NewSnapshot(snapshot.Identity, snapshot.Policy, snapshot.Status, snapshot.Complete, snapshot.Truncated, snapshot.Nodes, snapshot.Edges, snapshot.Candidates, snapshot.Diagnostics)
+	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+	document.Columns = append(document.Columns, authoringv2.Column{
+		Column: "telecom_value", Label: "Telecom value", OccurrenceID: authoringv2.RootOccurrenceID,
+		Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "telecom[].value", ProjectionMode: "INDEXED"}},
+	})
+
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, snapshot)
+	if err != nil {
+		t.Fatalf("nonoverlapping INDEXED field compile error = %v", err)
+	}
+	for _, field := range compiled.Bundle.Outputs[0].Fields {
+		if field.Name == "telecom_value__0" {
+			if field.Expr.Select != "root.telecom[0].value" || field.FieldRef != "telecom[].value" {
+				t.Fatalf("unrelated indexed field = %#v", field)
+			}
+			return
+		}
+	}
+	t.Fatalf("compiled fields do not contain unrelated INDEXED column: %#v", compiled.Bundle.Outputs[0].Fields)
 }
 
 func TestCompileExpandedRowsBindsRootOccurrenceAndMapsEmptyPolicies(t *testing.T) {

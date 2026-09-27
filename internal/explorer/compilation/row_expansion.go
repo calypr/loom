@@ -26,6 +26,23 @@ func expandedItemFieldSuffix(expanded *authoringv2.ExpandedRows, occurrenceID, f
 	return suffix, suffix != ""
 }
 
+func indexedProjectionOverlapsExpandedScope(expanded *authoringv2.ExpandedRows, occurrenceID string, boundaries []capability.RepeatedBoundary) bool {
+	if expanded == nil || expanded.OccurrenceID != occurrenceID {
+		return false
+	}
+	scopePath := strings.TrimPrefix(strings.TrimSpace(expanded.ScopePath), "root.")
+	if scopePath == "" {
+		return false
+	}
+	for _, boundary := range boundaries {
+		boundaryPath := strings.TrimPrefix(strings.TrimSpace(boundary.Path), "root.")
+		if boundaryPath != "" && (scopePath == boundaryPath || strings.HasPrefix(scopePath, boundaryPath+".")) {
+			return true
+		}
+	}
+	return false
+}
+
 func compileExpandedRows(expanded *authoringv2.ExpandedRows, route authoringv2.RouteNode, occurrences map[string]semanticOccurrence, snapshot capability.Snapshot) (recipe.Expansion, error) {
 	if expanded == nil {
 		return recipe.Expansion{}, fail("intent", "INVALID_ROW_EXPANSION", "$.rows.expanded", "expanded row definition is missing", nil, nil)
