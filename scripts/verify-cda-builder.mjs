@@ -957,6 +957,10 @@ try {
       state.choice=await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText.slice(0,4000),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),text:input.closest('label')?.innerText,disabled:input.disabled}))};`);
       if (action === 'Verify bounded Observation concept') {
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="primary_disease_type: Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled))`, 30000);
+        state.choiceProposal=await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`);
+        assert(state.choiceProposal.includes(expected), 'Coded concept proposal did not show the CDA value before Apply');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
         state.added=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),remove:[...document.querySelectorAll('button[aria-label^="Remove "]')].map(button=>button.getAttribute('aria-label')).filter(label=>label.includes('primary_disease')),body:document.body.innerText.slice(0,1000)};`);
         let previewStarted=Date.now();

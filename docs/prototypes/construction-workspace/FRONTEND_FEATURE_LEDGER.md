@@ -24,12 +24,24 @@ advance features 06, 06a, 07, and 07a only for the paths stated here:
 | 06, ready paired value column | The visible suggestion is an Add column button that opens route and result-form choices. | `days_to_collection` matched its raw CDA code/value component. | Apply, reload, and remove passed. | Preview API 121 ms. |
 | 06a, related route choice | Subject and Focus paths explain their relationship and show zero, one, and many matches for displayed Patient rows before selection. | Subject showed 38 matches and Focus 1 for the same Patient, matching the raw CDA oracle. | Route selection persisted through the related-column lifecycle. | Match counts rendered in 836 ms. |
 | 07 and 07a, related Observation forms | COUNT, ALL, and PRESENCE choices are operable in one Add columns flow. | A Patient with 38 matches and one with zero produced the expected count, list length, and presence values. | Apply, reload, saved-step edit, removal, and cleanup passed. | Related proposal preview rendered in 707 ms. |
+| 09, expand related records | The route chooser shows Subject and Focus meanings and defaults to retaining a parent with no match. Optional policies are under Advanced. | Two bounded Patients produced 38 matching Observation rows and one retained no-match row; changing the policy removed that row. | Apply, reload, edit, remove, and restoration passed. | Default proposal rendered in 631 ms. |
+| 12, group rows | Group keys and count summary are available with a collapsed Advanced section. | Bounded BodyStructure rows grouped into one checked source-system category with count 135. | Apply, reload, edit label, remove, and restoration passed. | Group proposal rendered in 816 ms. |
+| 13, expand repeated values | Repeated BodyStructure values are selectable in Reshape, with no-match behavior visible. | Expanded rows and values matched the raw CDA nested array oracle. | Apply, reload, edit, remove, and restoration passed. | Expansion proposal rendered in 657 ms. |
+| 14, numeric Pivot | Category, value, group, duplicate-value policy, and accepted categories are operable. | Observation sums matched raw CDA source groups; a separate two-record publication matched its ClickHouse row. | Apply, reload, edit, remove, restoration, and bounded publication passed. | Category discovery took 5,140 and 5,092 ms on the larger source, above the five-second target; proposal previews took 1,858 and 1,689 ms. The performance gate remains open. |
 
 Browser evidence: `.artifacts/cda-builder/2026-09-27T22-02-23.178Z/` and
-`.artifacts/cda-builder/2026-09-27T22-07-07.266Z/`. These are bounded
-browser paths, not a full release acceptance or a published ClickHouse check.
-The CDA QA UI responded with HTTP 200 on 2026-09-25 at
-`http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=cda-current-builder-qa-20260925&mode=builder`.
+`.artifacts/cda-builder/2026-09-27T22-07-07.266Z/`,
+`.artifacts/cda-builder/2026-09-27T22-16-03.957Z/`,
+`.artifacts/cda-builder/2026-09-27T22-17-14.432Z/`,
+`.artifacts/cda-builder/2026-09-27T22-17-38.906Z/`, and the two numeric
+Pivot runs at `2026-09-27T22-12-19.503Z` and `2026-09-27T22-13-37.987Z`,
+and bounded ClickHouse publication at `2026-09-27T22-18-59.320Z`.
+The ready paired-column flow passed again at
+`.artifacts/cda-builder/2026-09-27T22-30-27.979Z/`: its rendered value
+matched the raw CDA Observation, and Apply, reload, and removal succeeded.
+These paths do not constitute full release acceptance. The current CDA Builder
+is available at
+`http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=cda-builder-full-qa-1790440983382&mode=builder`.
 That Explorer is a fresh QA draft. Its builder API reports 159,047 Patient,
 815,261 Observation, and 742,505 Specimen records. Those are authorized
 source-record counts, not the row count of an authored table. The earlier
