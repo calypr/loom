@@ -16,18 +16,36 @@ type RelatedExpandOperation = Extract<ConstructionOperation, { readonly kind: 'R
 type RelatedExpandStep = Omit<ConstructionStep, 'operation'> & { readonly operation: RelatedExpandOperation };
 type RouteChoice = RelatedExpandChoiceSearchResponse['choices'][number];
 type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId'>;
-type EmptyPolicy = RelatedExpandOperation['relatedExpand']['emptyPolicy'];
+type EmptyPolicy = NonNullable<RelatedExpandOperation['relatedExpand']['emptyPolicy']>;
 
 const newId = (prefix: string): string => `${prefix}_${globalThis.crypto.randomUUID()}`;
 
-const routeLabel = (choice: RouteChoice): string =>
-  choice.route.map((hop) => `${hop.toResourceType} via ${hop.relationship}`).join(' → ');
+const humanizeIdentifier = (value: string): string => value
+  .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+  .replace(/[_\-.]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const routeLabel = (choice: RouteChoice): string => choice.route.map((hop) => {
+  const resourceSuffix = [hop.fromResourceType, hop.toResourceType]
+    .find((resourceType) => hop.relationship.endsWith(`_${resourceType}`));
+  const relationship = resourceSuffix
+    ? hop.relationship.slice(0, -(resourceSuffix.length + 1))
+    : hop.relationship;
+  return `${hop.fromResourceType} to ${hop.toResourceType} through ${humanizeIdentifier(relationship) || 'relationship'}`;
+}).join(' then ');
 
 const availableColumnName = (base: string, columns: ReadonlyArray<{ readonly name: string }>): string => {
   const used = new Set(columns.map((column) => column.name.toLowerCase()));
   let name = base;
   for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) name = `${base}_${suffix}`;
   return name;
+};
+
+const emptyMatchEffect: Record<EmptyPolicy, string> = {
+  PRESERVE_PARENT: 'A parent with no match stays as one row with no related record ID.',
+  EXCLUDE: 'A parent with no match is left out.',
+  ERROR: 'The preview stops if a parent has no match.',
 };
 
 const choicesMatchRequest = (
@@ -54,13 +72,13 @@ const candidateFor = (
   choice: RouteChoice | undefined,
   anchorColumnId: string,
   condition: ContributorCondition,
-  emptyPolicy: EmptyPolicy | undefined,
+  emptyPolicy: EmptyPolicy,
   outputName: string,
   outputLabel: string,
 ): CandidateIntent | undefined => {
   const name = outputName.trim();
   const label = outputLabel.trim();
-  if (!anchorColumnId || !choice || choice.anchorColumnId !== anchorColumnId || !emptyPolicy ||
+  if (!anchorColumnId || !choice || choice.anchorColumnId !== anchorColumnId ||
       condition.kind === 'CHOOSE' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !label) return undefined;
   if (condition.kind === 'EQUALS' && !condition.value.trim()) return undefined;
   if (stage.columns.some((column) => column.name.toLowerCase() === name.toLowerCase())) return undefined;
@@ -190,11 +208,20 @@ export const RelatedExpandEditor = ({
   const requestVersion = useRef(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy | undefined>(saved?.emptyPolicy);
+  const [emptyPolicy, setEmptyPolicy] = useState<EmptyPolicy>(saved?.emptyPolicy ?? 'PRESERVE_PARENT');
   const savedOutput = step?.outputs.find((column) => column.id === outputColumnId);
   const [outputName, setOutputName] = useState(savedOutput?.name ?? '');
   const [outputLabel, setOutputLabel] = useState(savedOutput?.label ?? '');
   const targetTypes = [...new Set(catalog.nodes.map((node) => node.resourceType))].sort();
+  const selectedAnchor = anchors.find((anchor) => anchor.anchorColumnId === anchorColumnId);
+  const matchingRowEffect = condition.kind === 'ALL'
+    ? `Each matching ${targetResourceType} record gets its own row.`
+    : `Each ${targetResourceType} record that meets your condition gets its own row.`;
+  const expansionEffect = !targetResourceType
+    ? 'Each matching related record gets its own row. Multiple matches produce multiple rows.'
+    : condition.kind === 'CHOOSE'
+      ? 'Choose a condition in Advanced options to preview the expansion.'
+      : `${matchingRowEffect} Multiple matches produce multiple rows. Existing columns stay on each row. ${emptyMatchEffect[emptyPolicy]}`;
 
   useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
 
@@ -271,26 +298,11 @@ export const RelatedExpandEditor = ({
     <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor">
       <div>
         <h4 className="font-semibold text-slate-900">One row per related record</h4>
-        <p className="mt-1 text-sm text-slate-600">Choose a related record type and path. Each matching source record becomes one row with its parent retained.</p>
+        <p className="mt-1 text-sm text-slate-600">Choose a related record type and path. Every matching record becomes a row.</p>
       </div>
       {anchors.length === 0 ? <p role="status" className="text-sm text-slate-600">
         Loom has not confirmed a starting record for this stage. Reload the table to check available paths.
       </p> : null}
-      {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">
-        Start from
-        <select value={anchorColumnId} disabled={disabled} onChange={(event) => {
-          requestVersion.current += 1;
-          moreController.current?.abort();
-          setAnchorColumnId(event.target.value);
-          setChoice(undefined);
-          setCondition({ kind: 'ALL' });
-          setChoices([]);
-          setCursor(undefined);
-          onCandidateChange(undefined);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2">
-          {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
-        </select>
-      </label> : null}
       <label className="grid gap-1 text-sm font-medium text-slate-800">
         Related record type
         <select value={targetResourceType} disabled={disabled || anchors.length === 0} onChange={(event) => {
@@ -329,40 +341,62 @@ export const RelatedExpandEditor = ({
           {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">Load more paths</button> : null}
         </fieldset>
       ) : null}
-      {choice ? <RelatedExpandContributorEditor
-        key={choice.choiceId}
-        project={project} explorerId={explorerId} authResourcePath={authResourcePath}
-        snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
-        outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
-        targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
-        condition={condition} disabled={disabled}
-        onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
-      /> : null}
-      <label className="grid gap-1 text-sm font-medium text-slate-800">
-        When a parent has no matching record
-        <select value={emptyPolicy ?? ''} disabled={disabled} onChange={(event) => {
-          const next = event.target.value as EmptyPolicy | '';
-          setEmptyPolicy(next || undefined);
-          emit(choice, next || undefined);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2">
-          <option value="">Choose what happens</option>
-          <option value="EXCLUDE">Omit that parent</option>
-          <option value="PRESERVE_PARENT">Keep one row with no related record</option>
-          <option value="ERROR">Stop if any parent has no match</option>
-        </select>
-      </label>
-      <label className="grid gap-1 text-sm font-medium text-slate-800">Related FHIR resource ID column
-        <input value={outputName} disabled={disabled} onChange={(event) => {
-          setOutputName(event.target.value);
-          emit(choice, emptyPolicy, event.target.value);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2" />
-      </label>
-      <label className="grid gap-1 text-sm font-medium text-slate-800">Column label
-        <input value={outputLabel} disabled={disabled} onChange={(event) => {
-          setOutputLabel(event.target.value);
-          emit(choice, emptyPolicy, outputName, event.target.value);
-        }} className="rounded border border-slate-300 bg-white px-3 py-2" />
-      </label>
+      <p role="status" data-testid="construction-related-expand-effect" className="text-sm text-slate-600">
+        {selectedAnchor ? `Starting from ${selectedAnchor.label}. ` : ''}{expansionEffect}
+      </p>
+      <details data-testid="construction-related-expand-advanced" className="rounded-lg border border-slate-200">
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
+        <div className="grid gap-3 p-3 pt-0">
+          {anchors.length > 1 ? <label className="grid gap-1 text-sm font-medium text-slate-800">
+            Start from
+            <select value={anchorColumnId} disabled={disabled} onChange={(event) => {
+              requestVersion.current += 1;
+              moreController.current?.abort();
+              setAnchorColumnId(event.target.value);
+              setChoice(undefined);
+              setCondition({ kind: 'ALL' });
+              setChoices([]);
+              setCursor(undefined);
+              onCandidateChange(undefined);
+            }} className="rounded border border-slate-300 bg-white px-3 py-2">
+              {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
+            </select>
+          </label> : null}
+          {choice ? <RelatedExpandContributorEditor
+            key={choice.choiceId}
+            project={project} explorerId={explorerId} authResourcePath={authResourcePath}
+            snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
+            outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
+            targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
+            condition={condition} disabled={disabled}
+            onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
+          /> : null}
+          <label className="grid gap-1 text-sm font-medium text-slate-800">
+            When a parent has no matching record
+            <select value={emptyPolicy} disabled={disabled} onChange={(event) => {
+              const next = event.target.value as EmptyPolicy;
+              setEmptyPolicy(next);
+              emit(choice, next);
+            }} className="rounded border border-slate-300 bg-white px-3 py-2">
+              <option value="EXCLUDE">Omit that parent</option>
+              <option value="PRESERVE_PARENT">Keep one row with no related record</option>
+              <option value="ERROR">Stop if any parent has no match</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-slate-800">Related FHIR resource ID column
+            <input value={outputName} disabled={disabled} onChange={(event) => {
+              setOutputName(event.target.value);
+              emit(choice, emptyPolicy, event.target.value);
+            }} className="rounded border border-slate-300 bg-white px-3 py-2" />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-slate-800">Column label
+            <input value={outputLabel} disabled={disabled} onChange={(event) => {
+              setOutputLabel(event.target.value);
+              emit(choice, emptyPolicy, outputName, event.target.value);
+            }} className="rounded border border-slate-300 bg-white px-3 py-2" />
+          </label>
+        </div>
+      </details>
       <p className="text-xs text-slate-600">The proposal preview shows the new rows before Apply.</p>
     </div>
   );
