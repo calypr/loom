@@ -2,6 +2,7 @@ package aql
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -9,7 +10,7 @@ import (
 
 const constructionSourceVariable = "__loom_construction_source_projection"
 
-func renderPhysicalStageSequence(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhysicalPlan, error) {
+func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOptions) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("physical construction stage sequence is required")
@@ -19,30 +20,89 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, rootIndexHint string) (Re
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
 	pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
-	source, err := renderPhysicalPlan(sourcePlan, rootIndexHint)
-	if err != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
-	}
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
-	bindVars := make(map[string]any, len(source.BindVars)+len(plan.BindVars))
-	for key, value := range source.BindVars {
-		bindVars[key] = value
+	reservedVars := stageSequenceVariableNames(plan)
+	selectedGroupKeysVariable := ""
+	groupKeySourceVariable := ""
+	groupIdentityVariable := ""
+	groupKeyVariables := []string(nil)
+	var groupKeyQuery RenderedPhysicalPlan
+	if options.twoScanPivotPreview {
+		pivot, ok := terminalPreviewPivot(sequence)
+		if !ok {
+			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires one simple terminal Pivot")
+		}
+		allocator := physicalPlanRenderer{
+			bindVars:       runtimePhysicalBindVars(plan.BindVars, collectionKeys),
+			collectionKeys: collectionKeys,
+			reservedVars:   reservedVars,
+			internalPrefix: "construction_",
+		}
+		selectedGroupKeysVariable = allocator.newInternalVariable("reshape_preview_selected_group_keys")
+		groupKeySourceVariable = allocator.newInternalVariable("reshape_preview_key_row")
+		groupIdentityVariable = allocator.newInternalVariable("reshape_preview_identity")
+		groupKeyVariables = make([]string, len(pivot.GroupKeys))
+		for index := range groupKeyVariables {
+			groupKeyVariables[index] = allocator.newInternalVariable(fmt.Sprintf("reshape_preview_group_key_%d", index+1))
+		}
+		keyPlan, keyErr := terminalPivotGroupKeySourcePlan(sourcePlan, pivot)
+		if keyErr != nil {
+			return RenderedPhysicalPlan{}, keyErr
+		}
+		groupKeyQuery, err = renderPhysicalPlanWithOptions(keyPlan, physicalRenderOptions{
+			rootIndexHint:  options.rootIndexHint,
+			internalPrefix: "preview_key_",
+		})
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render terminal Pivot group-key scan: %w", err)
+		}
+		options.pivotGroupTupleFilter = &pivotGroupTupleFilter{
+			SelectedGroupKeysVariable: selectedGroupKeysVariable,
+			SourcePaths:               options.pivotGroupKeySourcePaths,
+		}
 	}
-	for key, value := range runtimePhysicalBindVars(plan.BindVars, collectionKeys) {
-		bindVars[key] = value
+	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
+		rootIndexHint:         options.rootIndexHint,
+		pivotGroupTupleFilter: options.pivotGroupTupleFilter,
+	})
+	if err != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
+	}
+	bindVars := make(map[string]any, len(source.BindVars)+len(groupKeyQuery.BindVars)+len(plan.BindVars))
+	for _, values := range []map[string]any{
+		groupKeyQuery.BindVars,
+		source.BindVars,
+		runtimePhysicalBindVars(plan.BindVars, collectionKeys),
+	} {
+		if err := mergeRenderedBindVars(bindVars, values); err != nil {
+			return RenderedPhysicalPlan{}, err
+		}
 	}
 	renderer := physicalPlanRenderer{
 		bindVars:       bindVars,
 		collectionKeys: collectionKeys,
 		setVariables:   map[string]string{},
-		reservedVars:   stageSequenceVariableNames(plan),
+		reservedVars:   reservedVars,
 		internalPrefix: "construction_",
 	}
 
-	lines := []string{fmt.Sprintf("LET %s = (", constructionSourceVariable)}
+	lines := make([]string, 0, 16)
+	if options.twoScanPivotPreview {
+		pivot, _ := terminalPreviewPivot(sequence)
+		groupLines, groupErr := renderTerminalPivotGroupIdentitySelection(
+			groupKeyQuery.Query, *pivot, selectedGroupKeysVariable,
+			groupKeySourceVariable, groupKeyVariables, groupIdentityVariable, renderer.bindVars,
+			collectionKeys, sequence.PreviewLimitBindKey,
+		)
+		if groupErr != nil {
+			return RenderedPhysicalPlan{}, groupErr
+		}
+		lines = append(lines, groupLines...)
+	}
+	lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
 	for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
 		lines = append(lines, "  "+line)
 	}
@@ -70,7 +130,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, rootIndexHint string) (Re
 			// The final construction query sorts on row identity after all stages.
 			// A one-input-per-group pivot needs no intermediate group-key sort.
 			previewLimitBindKey := ""
-			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 {
+			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivotPreview {
 				previewLimitBindKey = sequence.PreviewLimitBindKey
 			}
 			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
@@ -332,6 +392,112 @@ func appendIndented(target, rendered []string) []string {
 		target = append(target, "  "+line)
 	}
 	return target
+}
+
+func terminalPreviewPivot(sequence *ir.PhysicalStageSequence) (*ir.PhysicalGroupedPivot, bool) {
+	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		return nil, false
+	}
+	stage := sequence.Stages[0]
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
+		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
+		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
+		return nil, false
+	}
+	return stage.GroupedPivot, true
+}
+
+func terminalPivotGroupKeySourcePlan(sourcePlan ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot) (ir.PhysicalPlan, error) {
+	if pivot == nil {
+		return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan is missing its Pivot")
+	}
+	sourcePlan = ir.ClonePhysicalPlan(sourcePlan)
+	keyColumns := make(map[string]bool, len(pivot.GroupKeys))
+	for _, key := range pivot.GroupKeys {
+		keyColumns[key.Column] = false
+	}
+	found := false
+	for index := range sourcePlan.Operations {
+		operation := &sourcePlan.Operations[index]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		found = true
+		projections := make([]ir.PhysicalProjection, 0, len(keyColumns))
+		for _, projection := range operation.Return.Projections {
+			if _, required := keyColumns[projection.Name]; required {
+				projections = append(projections, projection)
+				keyColumns[projection.Name] = true
+			}
+		}
+		missing := make([]string, 0, len(keyColumns))
+		for _, key := range pivot.GroupKeys {
+			if !keyColumns[key.Column] {
+				missing = append(missing, key.Column)
+			}
+		}
+		if len(missing) != 0 {
+			return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan is missing source projections %v", missing)
+		}
+		operation.Return.Projections = projections
+		break
+	}
+	if !found {
+		return ir.PhysicalPlan{}, fmt.Errorf("terminal Pivot group-key scan has no source RETURN")
+	}
+	return sourcePlan, nil
+}
+
+func renderTerminalPivotGroupIdentitySelection(sourceQuery string, pivot ir.PhysicalGroupedPivot, selectedGroupKeysVariable, sourceVariable string, groupKeyVariables []string, identityVariable string, bindVars map[string]any, collectionKeys map[string]struct{}, limitBindKey string) ([]string, error) {
+	if len(groupKeyVariables) != len(pivot.GroupKeys) {
+		return nil, fmt.Errorf("terminal Pivot group-key variables = %d, want %d", len(groupKeyVariables), len(pivot.GroupKeys))
+	}
+	groupKeyValues := make([]string, 0, len(pivot.GroupKeys))
+	collectKeys := make([]string, 0, len(pivot.GroupKeys))
+	renderer := physicalPlanRenderer{bindVars: bindVars, collectionKeys: collectionKeys, internalPrefix: "construction_"}
+	for index, key := range pivot.GroupKeys {
+		groupKeyValues = append(groupKeyValues, groupKeyVariables[index])
+		columnBind := renderer.newInternalBindKey("reshape_preview_group_column")
+		renderer.bindVars[columnBind] = key.Column
+		collectKeys = append(collectKeys, fmt.Sprintf("%s = %s[@%s]", groupKeyVariables[index], sourceVariable, columnBind))
+	}
+	identity, err := renderer.renderGroupedPivotIdentity(pivot, groupKeyValues)
+	if err != nil {
+		return nil, fmt.Errorf("render terminal Pivot group identity selection: %w", err)
+	}
+	groupTuple := groupKeyValues[0]
+	if len(groupKeyValues) > 1 {
+		groupTuple = "[" + strings.Join(groupKeyValues, ", ") + "]"
+	}
+	lines := []string{
+		fmt.Sprintf("LET %s = (", selectedGroupKeysVariable),
+		fmt.Sprintf("  FOR %s IN (", sourceVariable),
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(sourceQuery, "\n"), "\n") {
+		lines = append(lines, "    "+line)
+	}
+	lines = append(lines,
+		"  )",
+		"  COLLECT "+strings.Join(collectKeys, ", "),
+		"  LET "+identityVariable+" = "+identity,
+		"  SORT "+identityVariable+" ASC",
+		"  LIMIT @"+limitBindKey,
+		"  RETURN "+groupTuple,
+		")",
+	)
+	return lines, nil
+}
+
+func mergeRenderedBindVars(target, source map[string]any) error {
+	for key, value := range source {
+		if existing, found := target[key]; found && !reflect.DeepEqual(existing, value) {
+			return fmt.Errorf("physical plan bind variable %q has conflicting values across source scans", key)
+		}
+		target[key] = value
+	}
+	return nil
 }
 
 func stageSequenceVariableNames(plan ir.PhysicalPlan) map[string]struct{} {

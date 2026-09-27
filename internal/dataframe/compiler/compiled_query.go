@@ -10,9 +10,10 @@ import (
 // index that can cover one terminal nonunique Pivot preview source scan.
 // Runtime owners may provision this index before executing the hinted query.
 type PreviewCoveringIndexSpec struct {
-	Collection string
-	Name       string
-	Fields     []string
+	Collection         string
+	Name               string
+	Fields             []string
+	pivotGroupKeyPaths [][]string
 }
 
 // CompiledQuery is the executable result of the canonical recipe compiler.

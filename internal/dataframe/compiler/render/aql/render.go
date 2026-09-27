@@ -22,6 +22,7 @@ type RenderedPhysicalPlan struct {
 }
 
 var rootIndexHintPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
+var previewSourcePathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // RenderPhysicalPlan renders a validated physical plan to deterministic AQL.
 // It keeps data and metadata values out of the generated AQL source.
@@ -29,22 +30,92 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlan(plan, "")
 }
 
-// RenderPhysicalPlanWithRootIndexHint adds a non-forcing index hint to the
-// root scan of an eligible terminal Pivot preview. The optimizer remains free
-// to use another index when the hinted index is unavailable or unsuitable.
-func RenderPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexHint string) (RenderedPhysicalPlan, error) {
+// RenderPhysicalPlanWithTwoScanPivotPreview renders a terminal Pivot preview
+// by selecting complete group tuples before reading their contributing source
+// rows. The caller must prove the source projection is a direct, terminal
+// Pivot projection before enabling this path.
+func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint string, groupKeySourcePaths [][]string) (RenderedPhysicalPlan, error) {
 	if !rootIndexHintPattern.MatchString(indexHint) {
 		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint %q is not a safe index name", indexHint)
 	}
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil {
-		return RenderedPhysicalPlan{}, fmt.Errorf("root index hint requires a terminal Pivot preview")
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a terminal Pivot preview")
 	}
-	return renderPhysicalPlan(plan, indexHint)
+	stage := sequence.Stages[0]
+	if stage.ID != sequence.FinalStageID || stage.InputStageID != sequence.SourceStageID ||
+		stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil ||
+		stage.GroupedPivot.OneInputRowPerGroup || len(stage.GroupedPivot.GroupKeys) == 0 ||
+		stage.GroupedPivot.CategoryPresence != nil || stage.GroupedPivot.CategoryPresenceColumn != "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a simple nonunique terminal Pivot")
+	}
+	if len(groupKeySourcePaths) != len(stage.GroupedPivot.GroupKeys) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview has %d group-key source paths for %d Pivot keys", len(groupKeySourcePaths), len(stage.GroupedPivot.GroupKeys))
+	}
+	for index, path := range groupKeySourcePaths {
+		if len(path) == 0 {
+			return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d is empty", index)
+		}
+		for _, segment := range path {
+			if segment == "" {
+				return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview group-key source path %d has an empty segment", index)
+			}
+		}
+	}
+	if len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil ||
+		plan.Operations[0].RootScan.Population != nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a direct root source scan")
+	}
+	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
+		rootIndexHint:            indexHint,
+		twoScanPivotPreview:      true,
+		pivotGroupKeySourcePaths: groupKeySourcePaths,
+	})
+}
+
+type physicalRenderOptions struct {
+	rootIndexHint            string
+	internalPrefix           string
+	twoScanPivotPreview      bool
+	pivotGroupKeySourcePaths [][]string
+	pivotGroupTupleFilter    *pivotGroupTupleFilter
+}
+
+type pivotGroupTupleFilter struct {
+	SelectedGroupKeysVariable string
+	SourcePaths               [][]string
+}
+
+func (r *physicalPlanRenderer) renderPivotGroupTupleFilter(filter *pivotGroupTupleFilter, rootVariable string) (string, error) {
+	if filter == nil || filter.SelectedGroupKeysVariable == "" || rootVariable == "" || len(filter.SourcePaths) == 0 {
+		return "", fmt.Errorf("selected Pivot group tuple filter is incomplete")
+	}
+	keyValues := make([]string, 0, len(filter.SourcePaths))
+	for pathIndex, path := range filter.SourcePaths {
+		if len(path) == 0 {
+			return "", fmt.Errorf("selected Pivot group tuple source path %d is empty", pathIndex)
+		}
+		segments := make([]string, 0, len(path))
+		for _, segment := range path {
+			if !previewSourcePathSegmentPattern.MatchString(segment) {
+				return "", fmt.Errorf("selected Pivot group tuple source path %d has an unsafe segment %q", pathIndex, segment)
+			}
+			segments = append(segments, segment)
+		}
+		keyValues = append(keyValues, rootVariable+"."+strings.Join(segments, "."))
+	}
+	if len(keyValues) == 1 {
+		return "FILTER " + keyValues[0] + " IN " + filter.SelectedGroupKeysVariable, nil
+	}
+	return "FILTER POSITION(" + filter.SelectedGroupKeysVariable + ", [" + strings.Join(keyValues, ", ") + "])", nil
 }
 
 func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhysicalPlan, error) {
+	return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{rootIndexHint: rootIndexHint})
+}
+
+func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderOptions) (RenderedPhysicalPlan, error) {
 	if plan.Engine == ir.PhysicalEngineClickHouse {
 		return RenderedPhysicalPlan{}, fmt.Errorf("ClickHouse physical plan cannot be rendered as AQL")
 	}
@@ -55,7 +126,7 @@ func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhy
 		if err := ir.ValidateGenericPhysicalPlanScope(plan); err != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("verify construction source scope: %w", err)
 		}
-		return renderPhysicalStageSequence(plan, rootIndexHint)
+		return renderPhysicalStageSequence(plan, options)
 	}
 	if len(plan.Operations) == 1 && plan.Operations[0].Kind == ir.PhysicalGroupRowsOp {
 		return renderPhysicalGroupRows(plan, *plan.Operations[0].GroupRows)
@@ -88,7 +159,8 @@ func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhy
 	renderer := physicalPlanRenderer{
 		bindVars:            runtimePhysicalBindVars(plan.BindVars, collectionKeys),
 		collectionKeys:      collectionKeys,
-		rootIndexHint:       rootIndexHint,
+		rootIndexHint:       options.rootIndexHint,
+		internalPrefix:      options.internalPrefix,
 		setVariables:        map[string]string{},
 		reservedVars:        physicalPlanVariableNames(plan),
 		rootVariable:        layout.root.Variable,
@@ -187,6 +259,13 @@ func renderPhysicalPlan(plan ir.PhysicalPlan, rootIndexHint string) (RenderedPhy
 		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
 		if returnErr != nil {
 			return RenderedPhysicalPlan{}, fmt.Errorf("render RETURN: %w", returnErr)
+		}
+		if options.pivotGroupTupleFilter != nil {
+			filter, filterErr := renderer.renderPivotGroupTupleFilter(options.pivotGroupTupleFilter, layout.root.Variable)
+			if filterErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render selected Pivot group tuple filter: %w", filterErr)
+			}
+			lines = append(lines, filter)
 		}
 		lines = append(lines, "RETURN "+returnExpression)
 	}

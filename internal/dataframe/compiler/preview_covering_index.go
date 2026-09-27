@@ -43,8 +43,39 @@ func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
 	if !pivotInputsPassThroughSourceColumns(stage, sourceReturn.Projections) {
 		return nil
 	}
+	groupKeyPaths, ok := previewCoveringPivotGroupKeyPaths(stage.GroupedPivot, sourceReturn.Projections, rootScan.Variable)
+	if !ok {
+		return nil
+	}
 
-	return previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+	spec := previewCoveringIndexSpecForSourcePaths(collection, projectionPaths)
+	if spec != nil {
+		spec.pivotGroupKeyPaths = groupKeyPaths
+	}
+	return spec
+}
+
+func previewCoveringPivotGroupKeyPaths(pivot *ir.PhysicalGroupedPivot, projections []ir.PhysicalProjection, rootVariable string) ([][]string, bool) {
+	if pivot == nil || len(pivot.GroupKeys) == 0 {
+		return nil, false
+	}
+	byName := make(map[string]ir.PhysicalProjection, len(projections))
+	for _, projection := range projections {
+		byName[projection.Name] = projection
+	}
+	paths := make([][]string, 0, len(pivot.GroupKeys))
+	for _, key := range pivot.GroupKeys {
+		projection, found := byName[key.Column]
+		if !found {
+			return nil, false
+		}
+		path, ok := previewCoveringProjectionPath(projection, rootVariable)
+		if !ok {
+			return nil, false
+		}
+		paths = append(paths, strings.Split(path, "."))
+	}
+	return paths, true
 }
 
 func previewCoveringIndexSpecForSourcePaths(collection string, projectionPaths []string) *PreviewCoveringIndexSpec {

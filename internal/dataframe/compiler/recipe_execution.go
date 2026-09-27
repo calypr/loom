@@ -60,7 +60,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	previewCoveringIndex := previewCoveringIndexSpec(physical)
 	var rendered aql.RenderedPhysicalPlan
 	if previewCoveringIndex != nil {
-		rendered, err = aql.RenderPhysicalPlanWithRootIndexHint(physical, previewCoveringIndex.Name)
+		rendered, err = aql.RenderPhysicalPlanWithTwoScanPivotPreview(physical, previewCoveringIndex.Name, previewCoveringIndex.pivotGroupKeyPaths)
 	} else {
 		rendered, err = aql.RenderPhysicalPlan(physical)
 	}

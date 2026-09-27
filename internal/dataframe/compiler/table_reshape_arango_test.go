@@ -124,6 +124,127 @@ var reshapeOraclePivotSumWant = []reshapeOraclePivotWant{
 	},
 }
 
+func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstArango(t *testing.T) {
+	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
+	if url == "" || database == "" {
+		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	client, err := store.Open(ctx, url, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background())
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	project := "loom_pivot_two_scan_" + uuid.NewString()
+	const generation = "generation-pivot-two-scan"
+	documents := make([]json.RawMessage, 0, 60)
+	for group := 0; group < 30; group++ {
+		birthDate := fmt.Sprintf("2000-02-%02d", group+1)
+		for _, category := range []string{"female", "male"} {
+			resourceID := fmt.Sprintf("patient-%02d-%s", group, category)
+			value := group
+			if category == "male" {
+				value += 100
+			}
+			payload := map[string]any{
+				"id": resourceID, "resourceType": "Patient", "birthDate": birthDate,
+				"gender": category, "multipleBirthInteger": value,
+			}
+			if group%3 != 0 {
+				payload["active"] = group%2 == 0
+			}
+			document, err := json.Marshal(map[string]any{
+				"_key": project + "_" + resourceID, "id": resourceID,
+				"project": project, "project_id": project,
+				"dataset_generation": generation, "resourceType": "Patient", "payload": payload,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			documents = append(documents, document)
+		}
+	}
+	if err := client.InsertBatchRaw(ctx, "Patient", documents, false, "document"); err != nil {
+		t.Fatalf("insert two-scan Pivot fixture: %v", err)
+	}
+
+	output := constructionPreviewMultiKeyPivotOutput()
+	compile := func(limit int) CompiledQuery {
+		t.Helper()
+		bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+		bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
+		plan, err := semantic.BuildRecipePlan(bundle, bindings)
+		if err != nil {
+			t.Fatalf("build two-scan Pivot fixture plan: %v", err)
+		}
+		resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+		if err != nil {
+			t.Fatalf("resolve two-scan Pivot fixture plan: %v", err)
+		}
+		queries, err := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("compile two-scan Pivot fixture: %v", err)
+		}
+		return queries[0]
+	}
+	full := compile(0)
+	preview := compile(25)
+	if preview.PreviewCoveringIndex == nil || !preview.PartialValidation || full.PreviewCoveringIndex != nil || full.PartialValidation {
+		t.Fatalf("preview/full execution metadata mismatch: preview=%+v full=%+v", preview, full)
+	}
+	fullRows := executeReshapeOracleQuery(t, ctx, client, full)
+	previewRows := executeReshapeOracleQuery(t, ctx, client, preview)
+	if len(fullRows) != 30 || len(previewRows) != 25 {
+		t.Fatalf("full/preview row counts = %d/%d, want 30/25", len(fullRows), len(previewRows))
+	}
+	if !reflect.DeepEqual(previewRows, fullRows[:25]) {
+		t.Fatalf("two-scan preview rows differ from the canonical first 25 rows:\npreview=%#v\ncanonical=%#v", previewRows, fullRows[:25])
+	}
+}
+
+func constructionPreviewMultiKeyPivotOutput() recipe.Output {
+	categoryFemale, categoryMale := "female", "male"
+	return recipe.Output{
+		Name: "two_scan_multi_key_preview", RootResourceType: "Patient", RowGrain: "patient",
+		Fields: []recipe.Field{
+			{Name: "birth_date", ColumnID: "birth_date_id", Expr: recipe.Expression{Select: "root.birthDate"}},
+			{Name: "active", ColumnID: "active_id", Expr: recipe.Expression{Select: "root.active"}},
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
+		},
+		Construction: &recipe.Construction{
+			Version: 1,
+			SourceColumns: []recipe.StageColumn{
+				{ID: "birth_date_id", Name: "birth_date"}, {ID: "active_id", Name: "active"},
+				{ID: "category_id", Name: "category"}, {ID: "amount_id", Name: "amount"},
+			},
+			Steps: []recipe.ConstructionStep{{
+				ID:     "pivot_two_scan_multi_key_rows",
+				Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+					ConstructionID: "two_scan_multi_key_pivot", GroupKeyIDs: []string{"birth_date_id", "active_id"},
+					CategoryColumnID: "category_id", ValueColumnID: "amount_id",
+					Categories: []recipe.ConstructionPivotCategory{
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryFemale}, OutputColumnID: "female_amount_id"},
+						{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &categoryMale}, OutputColumnID: "male_amount_id"},
+					},
+					DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				}},
+				Outputs: []recipe.StageColumn{
+					{ID: "birth_date_id", Name: "birth_date"}, {ID: "active_id", Name: "active"},
+					{ID: "female_amount_id", Name: "female_amount"}, {ID: "male_amount_id", Name: "male_amount"},
+				},
+			}},
+		},
+	}
+}
+
 func reshapeOracleFloat(value float64) *float64 { return &value }
 
 func reshapeOracleValue(value *float64) any {

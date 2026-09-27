@@ -6,7 +6,8 @@ import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev
 
 const action = process.argv[2] ?? 'Keep rows';
 const explorerId = process.argv[3] ?? 'cda-builder-full-qa-1790439585678';
-const pageURL = `http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
+const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
+const pageURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const browser = await launchBrowser('/private/tmp');
 if (action === 'Verify related source chooser' || action === 'Inspect selected Patient route') {
@@ -40,7 +41,7 @@ try {
   await navigate(browser.cdp, pageURL);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
   if (action === 'Verify bounded published Viewer') {
-    const targetURL='http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=cda-bounded-publish-qa-1790471259754&mode=viewer';
+    const targetURL=`${uiOrigin}/?project=loom_dev_cda_fhir&explorer=cda-bounded-publish-qa-1790471259754&mode=viewer`;
     const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
     await navigate(browser.cdp,targetURL);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(sourceID)})`, 30000);
@@ -52,7 +53,7 @@ try {
     const targetExplorer='cda-bounded-publish-qa-1790471259754';
     const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
     const selectionID='selection_7e68d46dc2f2f6c6f4c37f2ef943f50d0018051f1401f875c19c4356830d44f5';
-    const targetURL=`http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder&selection=${selectionID}`;
+    const targetURL=`${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder&selection=${selectionID}`;
     await navigate(browser.cdp,targetURL);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
@@ -74,7 +75,7 @@ try {
     assert.equal(published.status,200,JSON.stringify(result));
   } else if (action === 'Verify bounded publication') {
     const targetExplorer='cda-bounded-publish-qa-1790471259754';
-    const targetURL=`http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder`;
+    const targetURL=`${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder`;
     const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
     const state={targetExplorer,targetURL,sourceID};
     await navigate(browser.cdp,targetURL);
