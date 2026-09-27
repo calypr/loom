@@ -129,7 +129,7 @@ it('prioritizes a direct same-resource route and distinguishes meaningful altern
     selectionRevisionId: request.selectionRevisionId,
     complete: false,
     truncated: true,
-    choices: [requiredOutboundChoice, optionalInboundChoice, duplicateDirectChoice, directChoice],
+    choices: [requiredOutboundChoice, optionalInboundChoice, directChoice, duplicateDirectChoice],
   }));
   const onAttach = vi.fn();
   render(<PopulationPanel table={table} selection={{ ...selection, resourceType: 'Specimen' }} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={onAttach} onClear={vi.fn()} />);
@@ -140,8 +140,8 @@ it('prioritizes a direct same-resource route and distinguishes meaningful altern
   expect(options[1]?.textContent).not.toBe(options[2]?.textContent);
   expect(options[1]).toHaveTextContent('documentation');
   expect(options[2]).toHaveTextContent('documentation');
-  expect(options[1]?.textContent).toMatch(/outbound|required/i);
-  expect(options[2]?.textContent).toMatch(/inbound|optional/i);
+  expect(options[1]?.textContent).toMatch(/outgoing|required/i);
+  expect(options[2]?.textContent).toMatch(/incoming|available/i);
   expect(screen.queryByText(/automatic route-search limit/)).toBeNull();
 
   fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
