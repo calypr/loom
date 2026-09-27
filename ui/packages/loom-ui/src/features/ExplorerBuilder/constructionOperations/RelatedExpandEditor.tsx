@@ -284,6 +284,18 @@ export const RelatedExpandEditor = ({
     }
   };
 
+  const listedRoutes = [...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])];
+  const shortestRoute = Math.min(...listedRoutes.map((item) => item.route.length));
+  const visibleRoutes = listedRoutes.filter((item) => item.route.length === shortestRoute || item.choiceId === choice?.choiceId);
+  const otherRoutes = listedRoutes.filter((item) => item.route.length > shortestRoute && item.choiceId !== choice?.choiceId);
+  const renderRoute = (item: RouteChoice) => (
+    <label key={item.choiceId} className="flex gap-2 rounded border border-slate-200 bg-white p-2">
+      <input type="radio" name={`related-expand-route-${stepId}`} checked={choice?.choiceId === item.choiceId}
+        disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
+      <span>{routeLabel(item)}</span>
+    </label>
+  );
+
   return (
     <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid="construction-related-expand-editor">
       <div>
@@ -321,13 +333,13 @@ export const RelatedExpandEditor = ({
       {choices.length > 0 || choice || cursor ? (
         <fieldset className="grid gap-2 text-sm">
           <legend className="font-medium text-slate-800">Relationship path</legend>
-          {[...choices, ...(choice && !choices.some((item) => item.choiceId === choice.choiceId) ? [choice] : [])].map((item) => (
-            <label key={item.choiceId} className="flex gap-2 rounded border border-slate-200 bg-white p-2">
-              <input type="radio" name={`related-expand-route-${stepId}`} checked={choice?.choiceId === item.choiceId}
-                disabled={disabled} onChange={() => { setChoice(item); setCondition({ kind: 'ALL' }); emit(item, emptyPolicy, outputName, outputLabel, { kind: 'ALL' }); }} />
-              <span>{routeLabel(item)}</span>
-            </label>
-          ))}
+          {visibleRoutes.map(renderRoute)}
+          {otherRoutes.length > 0 ? (
+            <details data-testid="construction-related-expand-other-routes" className="rounded border border-slate-200 bg-white p-2">
+              <summary className="cursor-pointer font-medium text-blue-800">Other relationship paths ({otherRoutes.length})</summary>
+              <div className="mt-2 grid gap-2">{otherRoutes.map(renderRoute)}</div>
+            </details>
+          ) : null}
           {cursor ? <button type="button" disabled={disabled || loading} onClick={() => void loadMore()} className="justify-self-start text-blue-800">Load more paths</button> : null}
         </fieldset>
       ) : null}
