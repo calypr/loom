@@ -1064,7 +1064,7 @@ func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *test
 				t.Fatalf("message = %q", lifecycleErr.Message)
 			}
 			if code == dataframeerrors.CodeConstructionExpansionEmpty &&
-				(!strings.Contains(lifecycleErr.Message, "EXCLUDE") || !strings.Contains(lifecycleErr.Message, "PRESERVE_PARENT")) {
+				(!strings.Contains(lifecycleErr.Message, "Drop the original row") || !strings.Contains(lifecycleErr.Message, "Keep the row with a missing item")) {
 				t.Fatalf("empty expansion message = %q, want both supported empty-list policies", lifecycleErr.Message)
 			}
 		})

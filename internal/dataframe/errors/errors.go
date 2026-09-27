@@ -396,7 +396,7 @@ func defaultMessage(code ErrorCode) string {
 	case CodeUnitDimensionIncompatible:
 		return "a measurement unit is dimensionally incompatible with the feature target"
 	case CodeConstructionExpansionEmpty:
-		return "an expanded list is empty for at least one row; choose EXCLUDE or PRESERVE_PARENT, or populate the list"
+		return "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
 	default:
 		return "internal server error"
 	}

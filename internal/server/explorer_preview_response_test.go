@@ -129,7 +129,7 @@ func TestConstructionExpansionEmptyPreviewErrorIsActionable(t *testing.T) {
 	if !errors.As(previewRouteError(dataframeerrors.NewError(dataframeerrors.CodeConstructionExpansionEmpty, "")), &got) {
 		t.Fatal("previewRouteError() did not return an authoring error")
 	}
-	want := "an expanded list is empty for at least one row; choose EXCLUDE or PRESERVE_PARENT, or populate the list"
+	want := "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
 	if got.Status != http.StatusUnprocessableEntity || got.Diagnostic.Code != string(dataframeerrors.CodeConstructionExpansionEmpty) || got.Diagnostic.Message != want {
 		t.Fatalf("diagnostic = %#v, want 422 %s with actionable message", got.Diagnostic, dataframeerrors.CodeConstructionExpansionEmpty)
 	}
