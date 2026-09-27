@@ -2191,6 +2191,8 @@ try {
 
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Filter rows:"]:not(:disabled)')) && !document.body.innerText.includes('Loading the preview…')`, 120000);
       await clickDOM('button[aria-label^="Filter rows:"]', 'Open Patient ID filter');
+      await waitForBrowser(browser.cdp,
+        'Boolean([...document.querySelector("select[aria-label=\\"Column\\"]")?.options??[]].find(option=>/^Patient ID\\b/i.test(option.textContent)))', 30000);
       results.filterStart = await browserEval(browser.cdp,
         'return {text:document.body.innerText.slice(0,6500),controls:[...document.querySelectorAll("select,input,button")].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute("aria-label"),text:element.innerText.slice(0,70),disabled:element.disabled,value:element.value})).filter(item=>item.label||item.text.includes("Filter")||item.text.includes("Column")).slice(0,80),editors:[...document.querySelectorAll("[data-testid]")].map(element=>element.getAttribute("data-testid")).filter(value=>value.includes("filter")||value.includes("construction"))};');
       const filterOptions = await browserEval(browser.cdp,
@@ -2351,6 +2353,8 @@ try {
         results.subjectHistoryBeforeEdit = await browserEval(browser.cdp,
           'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText})).at(-1)??null;');
         assert(results.subjectHistoryBeforeEdit, 'Saved Subject COUNT history step is missing');
+        assert.match(results.subjectHistoryBeforeEdit.text, /via Subject\b/, 'Saved route history should use a readable relationship label');
+        assert.doesNotMatch(results.subjectHistoryBeforeEdit.text, /subject_Patient/, 'Saved route history exposes a storage edge name');
         await clickDOM('[data-testid=' + JSON.stringify(results.subjectHistoryBeforeEdit.testId) + ']', 'Select saved Subject COUNT step');
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid^=\\"construction-edit-step-\\"]"))', 30000);
         await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit saved Subject COUNT step');
@@ -2426,6 +2430,8 @@ try {
         results.focusHistoryAfterReload = await browserEval(browser.cdp,
           'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText})).at(-1)??null;');
         assert(results.focusHistoryAfterReload, 'Saved Focus COUNT history step is missing after reload');
+        assert.match(results.focusHistoryAfterReload.text, /via Focus\b/, 'Reloaded route history should use a readable relationship label');
+        assert.doesNotMatch(results.focusHistoryAfterReload.text, /focus_Patient/, 'Reloaded route history exposes a storage edge name');
         results.focus = await previewFor(manyPatientId);
         assert.equal(results.focus.rowCount, 1);
         assert.equal(results.focus.count, focusConditionExpected, 'Applied/reloaded Focus COUNT differs from the independent Arango edge and condition count');

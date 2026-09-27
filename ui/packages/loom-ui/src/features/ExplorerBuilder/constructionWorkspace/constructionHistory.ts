@@ -1,5 +1,6 @@
 import type {
   Construction,
+  ConstructionRouteStep,
   ConstructionStageColumn,
   ConstructionTableScalar,
 } from '../../../types';
@@ -28,6 +29,19 @@ const operationLabel = (operation: string): string => {
     case 'DIVIDE': return '÷';
     default: return operation;
   }
+};
+
+const relationshipLabel = (edge: ConstructionRouteStep): string => {
+  const relationship = [edge.fromResourceType, edge.toResourceType].reduce((name, resourceType) => {
+    if (name.endsWith(`_${resourceType}`) || name.endsWith(`-${resourceType}`)) {
+      return name.slice(0, -resourceType.length - 1);
+    }
+    return name;
+  }, edge.relationship);
+  return relationship
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/^./, (first) => first.toUpperCase());
 };
 
 const formatStep = (
@@ -174,7 +188,7 @@ const formatStep = (
       const output = step.outputs.find((column) => column.id === related.outputColumnId)?.label ?? 'a related field';
       const source = `${related.source.resourceType}.${related.source.path}`;
       const route = related.route.length > 0
-        ? ` via ${related.route.map((edge) => edge.relationship).join(' → ')}`
+        ? ` via ${related.route.map(relationshipLabel).join(' → ')}`
         : '';
       const action = related.form === 'COUNT'
         ? `Count matching ${related.source.resourceType} records`
