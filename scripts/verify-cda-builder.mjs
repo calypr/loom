@@ -717,13 +717,19 @@ try {
         await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
       }
     }
-  } else if (action === 'Inspect bounded pivot' || action === 'Verify bounded pivot') {
+  } else if (action === 'Inspect bounded pivot' || action === 'Verify bounded pivot' || action === 'Publish bounded direct-ID pivot') {
     const oracleOutput=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string','var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.filter(d=>["abdomen","colon"].some(v=>(d.payload.includedStructure||[]).some(x=>(x.structure?.coding||[]).some(c=>c.code===v)))).map(d=>({id:d.id,code:d.payload.includedStructure[0].structure.coding[0].code,resourceType:d.payload.resourceType}))))'],{encoding:'utf8',maxBuffer:200000});
     const sourceRows=JSON.parse(oracleOutput.slice(oracleOutput.indexOf('['))).sort((a,b)=>a.code.localeCompare(b.code));
     assert.deepEqual(sourceRows.map(row=>row.code),['abdomen','colon']);
     assert(sourceRows.every(row=>row.resourceType==='BodyStructure'));
     const tableName=`BodyStructure pivot QA ${Date.now()}`;
+    const publishDirectID=action==='Publish bounded direct-ID pivot';
+    const groupLabel=publishDirectID?'BodyStructure ID':'resourceType';
     const state={tableName,sourceRows};
+    if (publishDirectID) {
+      state.beforeWorkspace=await browserEval(browser.cdp, `const builder=await (await fetch('/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}/authoring/v2/builder')).json();return {documents:(builder.workspace?.documents??[]).map(document=>({name:document.name,outputId:document.outputId,rowResourceType:document.rowResourceType}))};`);
+      assert.equal(state.beforeWorkspace.documents.length,1,`Publish would include other tables: ${JSON.stringify(state.beforeWorkspace)}`);
+    }
     let created=false;
     try {
       state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-pivot-${Date.now()}',source:{kind:'resources',resources:{refs:${JSON.stringify(sourceRows.map(row=>row.id))}.map(id=>({project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'BodyStructure',id}))}}})});return {status:response.status,body:await response.json()};`);
@@ -744,7 +750,7 @@ try {
       await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select BodyStructure.includedStructure[].structure.coding[].code"]').click();[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
       state.codeChoice=await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText.slice(0,1200),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled}))};`);
-      if (action === 'Verify bounded pivot') {
+      if (action === 'Verify bounded pivot' || publishDirectID) {
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="includedStructure[].structure.coding[].code: Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
         state.afterCode=await browserEval(browser.cdp, `return {editorOpen:Boolean(document.querySelector('[aria-label="Add columns editor"]')),buttons:[...document.querySelectorAll('[aria-label="Add columns editor"] button')].slice(-8).map(button=>button.innerText),body:document.body.innerText.slice(0,1600)};`);
@@ -759,17 +765,25 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Turn categories into columns')).click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"]'))`, 30000);
         state.pivotEditor=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2000),groups:[...editor.querySelectorAll('input[aria-label^="Pivot group"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled,checked:input.checked})),categories:[...editor.querySelector('select[aria-label="Pivot category field"]').options].map(option=>({label:option.textContent,value:option.value})),values:[...editor.querySelector('select[aria-label="Pivot values field"]').options].map(option=>({label:option.textContent,value:option.value})),discoverDisabled:[...editor.querySelectorAll('button')].find(button=>button.innerText==='Find category values')?.disabled};`);
-        await browserEval(browser.cdp, `document.querySelector('input[aria-label="Pivot group resourceType"]').click();return true;`);
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot category field"]');select.value=[...select.options].find(option=>option.textContent==='includedStructure[].structure.coding[].code').value;select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
-        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot values field"]');select.value=[...select.options].find(option=>option.textContent.startsWith('BodyStructure ID')).value;select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Pivot values field"]');select.value=[...select.options].find(option=>option.textContent.startsWith(${JSON.stringify(publishDirectID?'resourceType':'BodyStructure ID')})).value;select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(`input[aria-label="Pivot group ${groupLabel}"]:not(:disabled)`)}))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(`input[aria-label="Pivot group ${groupLabel}"]`)}).click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values'&&!button.disabled))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] button')].find(button=>button.innerText==='Find category values').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] fieldset input[aria-label^="Include category"]')) || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('No categories were found') || document.querySelector('[data-testid="construction-reshape-pivot"]')?.innerText.includes('Category discovery for this stage')`, 30000);
-        state.discovery=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2500),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked})),group:editor.querySelector('input[aria-label="Pivot group resourceType"]')?.checked,category:editor.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:editor.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700)};`);
+        state.discovery=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {text:editor.innerText.slice(0,2500),categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked})),group:editor.querySelector(${JSON.stringify(`input[aria-label="Pivot group ${groupLabel}"]`)})?.checked,category:editor.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:editor.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,proposal:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700)};`);
         assert.deepEqual(state.discovery.categories.map(item=>item.label).sort(),['Include category abdomen','Include category colon']);
         await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category abdomen"]').click();return true;`);
         await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include category colon"]').click();return true;`);
-        await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+        try {
+          await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, publishDirectID?5000:30000);
+        } catch (error) {
+          state.proposalFailure=await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-pivot"]');return {editor:editor?.innerText.slice(0,3000),group:[...editor.querySelectorAll('input[aria-label^="Pivot group"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked})),category:editor.querySelector('select[aria-label="Pivot category field"]')?.selectedOptions[0]?.textContent,value:editor.querySelector('select[aria-label="Pivot values field"]')?.selectedOptions[0]?.textContent,categories:[...editor.querySelectorAll('input[aria-label^="Include category"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked})),panel:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`);
+          await mkdir(evidenceDirectory,{recursive:true});
+          await writeFile(join(evidenceDirectory,'bounded-pivot-proposal-failure.json'),JSON.stringify({pageURL,state,responses,error:String(error)},null,2));
+          throw error;
+        }
         state.proposal=await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,900),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1200),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,outputs:[...document.querySelectorAll('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output label"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value}))};`);
         assert.equal(state.proposal.status,'ready',state.proposal.text);
         assert.equal(state.proposal.applyDisabled,false);
@@ -781,9 +795,32 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')===${JSON.stringify(publishDirectID?'3':'2')}`, 30000);
         state.saved=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText};`);
-        assert.deepEqual(new Set(state.saved.headers),new Set(['RESOURCETYPE','ABDOMEN','COLON']));
+        assert.deepEqual(new Set(state.saved.headers),new Set([publishDirectID?'BODYSTRUCTURE ID':'RESOURCETYPE','ABDOMEN','COLON']));
+        if (publishDirectID) {
+          assert.equal(state.saved.rows.length,2);
+          const savedPivotRows=state.saved.rows.map(row=>Object.fromEntries(state.saved.headers.map((header,index)=>[header,row[index]])));
+          assert.deepEqual(new Set(savedPivotRows.map(row=>row['BODYSTRUCTURE ID'])),new Set(sourceRows.map(row=>row.id)));
+          const before=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(item=>item.textContent?.trim()==='Publish');return {disabled:button?.disabled,visible:Boolean(button)};`);
+          assert.equal(before.disabled,false);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish').click();return true;`);
+          const deadline=Date.now()+180000;
+          while (!responses.some(response=>response.path.endsWith('/publish')) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,250));
+          const published=responses.find(response=>response.path.endsWith('/publish'));
+          assert(published,'Bounded direct-ID Pivot Publish did not return');
+          const result=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:published.requestId})).body);
+          state.publication={published,result};
+          assert.equal(published.status,200,JSON.stringify(result));
+          const materialized=result.outputs.map(output=>{
+            const table=`loom_dev.loom_bundle_${output.materializationId.replaceAll('-','')}_${output.outputId}`;
+            const raw=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-clickhouse-1','clickhouse-client','--query',`SELECT * FROM ${table} FORMAT JSONEachRow`],{encoding:'utf8',maxBuffer:200000});
+            return {outputId:output.outputId,table,rows:raw.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line))};
+          });
+          state.materialized=materialized;
+          const pivotTable=materialized.find(output=>output.rows.length===2 && sourceRows.every(source=>JSON.stringify(output.rows).includes(source.id)));
+          assert(pivotTable,`Published ClickHouse rows do not contain both bounded Pivot source IDs: ${JSON.stringify(materialized)}`);
+        } else {
         assert.equal(state.saved.rows.length,1);
         const savedPivotRow=Object.fromEntries(state.saved.headers.map((header,index)=>[header,state.saved.rows[0][index]]));
         assert.deepEqual(savedPivotRow,{RESOURCETYPE:'BodyStructure',ABDOMEN:sourceRows[0].id,COLON:sourceRows[1].id});
@@ -821,6 +858,7 @@ try {
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'`, 30000);
         state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert.deepEqual(new Set(state.restored.rows.map(row=>row[0])),new Set(sourceRows.map(row=>row.id)));
+        }
       }
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,'bounded-pivot-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
