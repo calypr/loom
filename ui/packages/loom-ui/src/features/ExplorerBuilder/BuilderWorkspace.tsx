@@ -21,6 +21,7 @@ import type {
   ExplorerBuilderCatalog,
   ExplorerBuilderCommand,
   ExplorerBuilderCompileResult,
+  ExplorerBuilderPreviewResult,
   ExplorerBuilderState,
   ConstructionRouteStep,
   Construction,
@@ -46,6 +47,7 @@ import {
 import { DataframeContractPanel } from './components/DataframeContractPanel';
 import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
+import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPanel';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
@@ -279,6 +281,19 @@ type PendingRowChange = {
   readonly assessment: Extract<RowChangeAssessment, { readonly status: 'BLOCKED' }>;
 };
 
+type RowChangePreviewContext = {
+  readonly assessment: Extract<RowChangeAssessment, { readonly status: 'READY' }>;
+  readonly outputId: string;
+  readonly snapshotToken: string;
+  readonly draftVersion: number;
+  readonly draftDigest: string;
+};
+
+type PendingRowChangePreview =
+  | (RowChangePreviewContext & { readonly status: 'loading' })
+  | (RowChangePreviewContext & { readonly status: 'ready'; readonly preview: ExplorerBuilderPreviewResult })
+  | (RowChangePreviewContext & { readonly status: 'error'; readonly error: string });
+
 type InterpretationContextLoad =
   | { readonly key: string; readonly status: 'loading' }
   | { readonly key: string; readonly status: 'ready'; readonly response: ConfiguredColumnContextResponse }
@@ -419,6 +434,9 @@ const BuilderWorkspaceContent = ({
   const [message, setMessage] = useState<string>();
   const [pendingRowChange, setPendingRowChange] =
     useState<PendingRowChange>();
+  const [pendingRowChangePreview, setPendingRowChangePreview] =
+    useState<PendingRowChangePreview>();
+  const rowChangePreviewRequest = useRef<AbortController | undefined>(undefined);
   const [lastPublished, setLastPublished] = useState<{
     readonly ownerKey: string;
     readonly draftDigest: string;
@@ -684,6 +702,10 @@ const BuilderWorkspaceContent = ({
   useDirtyBeforeUnload(state.dirty);
 
   const table = selectedTable(state);
+  useEffect(() => {
+    rowChangePreviewRequest.current?.abort();
+    setPendingRowChangePreview(undefined);
+  }, [state.explorerId, table?.outputId, state.catalog.snapshotToken, state.draftVersion, state.draftDigest]);
   useEffect(() => {
     choiceProposalRequest.current?.abort();
     choiceProposalRequest.current = undefined;
@@ -1265,6 +1287,8 @@ const BuilderWorkspaceContent = ({
 
   const changeTableRoot = useCallback(
     async (nodeId: string, resolution: RowChangeResolution = {}) => {
+      rowChangePreviewRequest.current?.abort();
+      setPendingRowChangePreview(undefined);
       const current = latestState.current;
       const currentTable = selectedTable(current);
       if (!currentTable) return;
@@ -1301,17 +1325,53 @@ const BuilderWorkspaceContent = ({
           return;
         }
         setPendingRowChange(undefined);
-        const target = current.catalog.nodes.find(
-          (node) => node.nodeId === nodeId,
-        )?.resourceType ?? 'the selected resource';
-        const featureCount = assessment.preservedFeatureKeys.length;
-        if (!window.confirm(
-          `Make each ${target} one row? Loom can preserve ${featureCount} configured ${featureCount === 1 ? 'feature' : 'features'}, the selected population, filters, and actions.`,
-        )) return;
-        await applyCommands([{
-          type: 'APPLY_TABLE_ROOT_REBASE',
-          rowChange: assessment.proposal,
-        }]);
+        if (!assessment.candidateReceiptId) {
+          setMessage('Loom cannot preview the proposed rows. The current table has not changed.');
+          return;
+        }
+        const context: RowChangePreviewContext = {
+          assessment,
+          outputId: currentTable.outputId,
+          snapshotToken: current.catalog.snapshotToken,
+          draftVersion: serverDraft.current.version,
+          draftDigest: serverDraft.current.digest,
+        };
+        setPendingRowChangePreview({ ...context, status: 'loading' });
+        const controller = new AbortController();
+        rowChangePreviewRequest.current = controller;
+        try {
+          const candidatePreview = await loomClient.preview({
+            project: projectId,
+            explorerId: current.explorerId,
+            authResourcePath,
+            receiptId: assessment.candidateReceiptId,
+            outputId: currentTable.outputId,
+            limit: previewLimit,
+            requestId: `row-change-preview-${window.crypto.randomUUID()}`,
+          }, controller.signal);
+          const latest = latestState.current;
+          if (controller.signal.aborted) return;
+          if (candidatePreview.receiptId !== assessment.candidateReceiptId ||
+            candidatePreview.outputId !== currentTable.outputId ||
+            candidatePreview.rows === null ||
+            latest.catalog.snapshotToken !== context.snapshotToken ||
+            latest.selectedOutputId !== context.outputId ||
+            serverDraft.current.version !== context.draftVersion ||
+            serverDraft.current.digest !== context.draftDigest) {
+            throw new Error('The proposed rows could not be matched to the current table. Review the change again.');
+          }
+          setPendingRowChangePreview({ ...context, status: 'ready', preview: candidatePreview });
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            setPendingRowChangePreview({
+              ...context,
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Loom could not preview the proposed rows.',
+            });
+          }
+        } finally {
+          if (rowChangePreviewRequest.current === controller) rowChangePreviewRequest.current = undefined;
+        }
       } catch (error) {
         const apiError = error as ExplorerAuthoringApiError;
         if (isDraftDesynchronized(apiError.code) || isStaleSnapshot(apiError.code)) {
@@ -1324,14 +1384,34 @@ const BuilderWorkspaceContent = ({
       }
     },
     [
-      applyCommands,
       assessRowChange,
       authResourcePath,
+      loomClient,
+      previewLimit,
       projectId,
       refetchBuilder,
       syncBuilderData,
     ],
   );
+
+  const applyRowChangePreview = useCallback(async () => {
+    const pending = pendingRowChangePreview;
+    if (pending?.status !== 'ready') return;
+    const current = latestState.current;
+    if (current.catalog.snapshotToken !== pending.snapshotToken ||
+      current.selectedOutputId !== pending.outputId ||
+      serverDraft.current.version !== pending.draftVersion ||
+      serverDraft.current.digest !== pending.draftDigest) {
+      setPendingRowChangePreview(undefined);
+      setMessage('The table changed. Review the proposed rows again.');
+      return;
+    }
+    const applied = await applyCommands([{
+      type: 'APPLY_TABLE_ROOT_REBASE',
+      rowChange: pending.assessment.proposal,
+    }]);
+    if (applied) setPendingRowChangePreview(undefined);
+  }, [applyCommands, pendingRowChangePreview]);
 
   const resolveRowChange = useCallback(
     (
@@ -2779,6 +2859,20 @@ const BuilderWorkspaceContent = ({
             onCancel={() => setPendingRowChange(undefined)}
           />
         ) : null}
+        {pendingRowChangePreview && table?.outputId === pendingRowChangePreview.outputId ? (
+          <RowChangePreviewPanel
+            candidateRoot={pendingRowChangePreview.assessment.candidateRootResourceType}
+            status={pendingRowChangePreview.status}
+            preview={pendingRowChangePreview.status === 'ready' ? pendingRowChangePreview.preview : undefined}
+            error={pendingRowChangePreview.status === 'error' ? pendingRowChangePreview.error : undefined}
+            disabled={pendingCommands > 0}
+            onApply={() => void applyRowChangePreview()}
+            onCancel={() => {
+              rowChangePreviewRequest.current?.abort();
+              setPendingRowChangePreview(undefined);
+            }}
+          />
+        ) : null}
         {state.tables.length === 0 ? tableCreatorPanel : (
           <>
             <span key={suggestionIdentity} ref={suggestionHostRef} hidden />
@@ -2829,6 +2923,7 @@ const BuilderWorkspaceContent = ({
                   pendingCommands > 0 ||
                   state.reconciliation === 'pending' ||
                   Boolean(pendingRowChange) ||
+                  Boolean(pendingRowChangePreview) ||
                   constructionLifecycle.proposal.status === 'applying'
                 }
                 activeFamily={activeConstructionFamily}

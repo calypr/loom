@@ -2247,6 +2247,7 @@ export const rowChangeAssessmentSchema = z.discriminatedUnion('status', [
   rowChangeAssessmentBaseSchema.extend({
     status: z.literal('READY'),
     proposal: rowChangeProposalSchema,
+    candidateReceiptId: opaqueIdSchema.optional(),
     unresolved: z.array(rowChangeUnresolvedReferenceSchema).length(0),
   }).strict(),
   rowChangeAssessmentBaseSchema.extend({

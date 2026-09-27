@@ -4,8 +4,10 @@ import { formatPreviewCell, previewCellTitle } from '../components/PreviewTable'
 
 export const ConstructionProposalPreview = ({
   preview,
+  partialValidationMessage = 'Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.',
 }: {
   readonly preview: ExplorerBuilderPreviewResult;
+  readonly partialValidationMessage?: string;
 }) => (
   <div
     data-testid="construction-proposal-preview"
@@ -60,7 +62,7 @@ export const ConstructionProposalPreview = ({
     )}
     <p className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
       {preview.partialValidation
-        ? 'Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.'
+        ? partialValidationMessage
         : preview.sampled === false
         ? `Showing all ${preview.rowCount} rows in this proposal.`
         : `Showing ${preview.rows?.length ?? 0} preview rows. Full-output coverage is unavailable before publication.`}

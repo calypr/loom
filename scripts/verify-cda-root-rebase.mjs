@@ -50,6 +50,20 @@ const waitForRowAssessment = async (after) => {
   throw new Error('The row-change assessment did not return');
 };
 
+const applyReviewedRowChange = async (stage, after) => {
+  const started = Date.now();
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="row-change-preview-panel"] button')?.textContent?.includes('Apply row change')`, 30_000);
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="row-change-preview-panel"] button')?.disabled`, 30_000);
+  state.timingsMs[stage] = Date.now() - started;
+  assert(state.timingsMs[stage] < 5000, `${stage} candidate preview took ${state.timingsMs[stage]} ms`);
+  state[stage] = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="row-change-preview-panel"]');return {text:panel?.innerText,rows:[...panel.querySelectorAll('table tr')].map(row=>[...row.querySelectorAll('th,td')].map(cell=>cell.innerText.trim()))};`);
+  assert(state[stage].rows.length > 1, `${stage} did not render proposed rows`);
+  const requestsBeforeApply = state.responses.slice(after).map(({ path, status }) => ({ path, status }));
+  assert(requestsBeforeApply.some((response) => response.path.endsWith('/preview') && response.status === 200), `${stage} did not request a successful candidate preview`);
+  assert(!requestsBeforeApply.some((response) => response.path.endsWith('/commands')), `${stage} changed the saved table before Apply`);
+  await click(`[...document.querySelectorAll('[data-testid="row-change-preview-panel"] button')].find(button=>button.textContent?.trim()==='Apply row change'&&!button.disabled).click();return true;`, `Apply ${stage}`);
+};
+
 const command = async (commands) => {
   const before = await builder();
   const response = await fetch(`${authoringURL}/commands`, {
@@ -146,7 +160,6 @@ try {
   const originalPreview = await preview('patientPreview');
   assert.deepEqual(originalPreview.headers, ['PATIENT ID']);
   assert.deepEqual(new Set(originalPreview.rows.map((row) => row[0])), new Set(rawPatients(originalPreview.rows.map((row) => row[0]))));
-  await browserEval(browser.cdp, `window.confirm=()=>true;return true;`);
   const assessmentStart = state.responses.length;
   await click(`const select=document.querySelector('select[aria-label="One row per"]');select.value=${JSON.stringify(observationChoice.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`, 'Choose Observation rows');
   state.observationAssessment = await waitForRowAssessment(assessmentStart);
@@ -159,6 +172,7 @@ try {
     await click(`[...document.querySelectorAll('section button')].find(button=>button.innerText.trim()===${JSON.stringify(repairButton.text)}).click();return true;`, 'Preserve Patient ID through Observation Subject');
     state.repairedAssessment = await waitForRowAssessment(repairStarted);
   }
+  await applyReviewedRowChange('observationRootProposal', assessmentStart);
   const changed = await waitForRoot(outputId, 'Observation');
   state.rootChangeRequests = state.responses.slice(assessmentStart).map(({ path, status }) => ({ path, status }));
   state.changed = { draftVersion: changed.draftVersion, document: changed.workspace.documents.find((document) => document.output.id === outputId) };
@@ -201,7 +215,6 @@ try {
   state.afterControl = afterControl;
   const patientChoice = afterControl.options.find((option) => option.label.includes('Patient'));
   assert(patientChoice && !patientChoice.disabled, 'Patient rows cannot be restored');
-  await browserEval(browser.cdp, `window.confirm=()=>true;return true;`);
   const restorationStart = state.responses.length;
   await click(`const select=document.querySelector('select[aria-label="One row per"]');select.value=${JSON.stringify(patientChoice.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`, 'Restore Patient rows');
   state.patientAssessment = await waitForRowAssessment(restorationStart);
@@ -214,6 +227,7 @@ try {
     await click(`[...document.querySelectorAll('section button')].find(button=>button.innerText.trim()===${JSON.stringify(repairButton.text)}).click();return true;`, 'Restore Subject relationship');
     state.restorationRepairedAssessment = await waitForRowAssessment(repairStarted);
   }
+  await applyReviewedRowChange('patientRootProposal', restorationStart);
   await waitForRoot(outputId, 'Patient');
   state.restorationRequests = state.responses.slice(restorationStart).map(({ path, status }) => ({ path, status }));
   await navigate(browser.cdp, pageURL);
