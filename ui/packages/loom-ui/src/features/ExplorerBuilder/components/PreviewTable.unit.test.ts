@@ -230,6 +230,45 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByText('patient-42')).toBeInTheDocument();
   });
 
+  it('uses the saved authored label when a preview emission still has its default label', () => {
+    const authoredLabel = 'CDA primary disease';
+    const configuredTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [
+          { ...firstColumn, column: 'primary_disease_type', label: authoredLabel },
+        ],
+      },
+    };
+    const stalePreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [{
+        column: 'primary_disease_type',
+        label: 'primary_disease_type',
+        logicalType: 'string',
+        filterable: true,
+        chartable: true,
+      }],
+      rows: [{ primary_disease_type: 'Nevi and melanomas' }],
+    };
+
+    render(
+      React.createElement(PreviewTable, {
+        preview: stalePreview,
+        table: configuredTable,
+        limit: 25,
+        onLimitChange: vi.fn(),
+        onColumnChange: vi.fn(),
+        onColumnsChange: vi.fn(),
+      }),
+    );
+
+    expect(screen.getByRole('columnheader', { name: authoredLabel })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'primary_disease_type' })).not.toBeInTheDocument();
+    expect(screen.getByText('Nevi and melanomas')).toBeInTheDocument();
+  });
+
   it('shows copied source columns only once and keeps their authored labels authoritative', () => {
     const copiedSourceOutputs = specimenSourceColumns.map((sourceColumn, index) => ({
       id: sourceColumn.columnId,
