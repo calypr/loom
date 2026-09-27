@@ -430,15 +430,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		ExplicitGroupRepository:            explorerStore,
 		TableShapeCapabilities:             tableShapeCapabilities,
 		ScanCategories: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
+			// Leave time for Arango's server-side preview runtime limit to stop
+			// work that continues after a canceled discovery request.
+			scanCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			defer cancel()
 			if receipt == nil {
 				return dataframeexecution.CategoryScanResult{}, fmt.Errorf("compilation receipt is missing")
 			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			resolved, err := compileValidatedReceiptResolution(scanCtx, recipeEngine, receipt, bindings)
 			if err != nil {
 				logger.Error("Explorer table-shape category scan resolution failed", "receipt_id", receipt.ID, "error", err)
 				return dataframeexecution.CategoryScanResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
 			}
-			return recipeEngine.ScanCategories(ctx, resolved, request)
+			return recipeEngine.ScanCategories(scanCtx, resolved, request)
 		},
 		CompileReceipt: compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {

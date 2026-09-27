@@ -65,7 +65,11 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	}
 	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
 	overflow := false
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	queryRows := e.queryRows
+	if e.previewQueryRows != nil {
+		queryRows = e.previewQueryRows
+	}
+	err := queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -124,6 +125,9 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 		ValueColumnID: request.ValueColumnID, MaxValues: compiler.MaxCategoryScanValues,
 	})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return ConstructionCategoryDiscoveryResponse{}, unavailable("construction-category-discovery", "CATEGORY_SCAN_TIMEOUT", "finding all category values exceeded the preview time limit; filter the source rows and try again", err)
+		}
 		code := "CATEGORY_SCAN_REFUSED"
 		if refusal, ok := compiler.CategoryScanRefusalCodeOf(err); ok {
 			code = string(refusal)

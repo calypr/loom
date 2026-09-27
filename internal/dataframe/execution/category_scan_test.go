@@ -92,6 +92,27 @@ func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
+	called := false
+	engine := &Engine{
+		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			t.Fatal("category discovery used the unbounded execution query path")
+			return nil
+		},
+		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			called = true
+			if query != "scan" {
+				t.Fatalf("query = %q", query)
+			}
+			return visit(map[string]any{"present": true, "value": "category"})
+		},
+	}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiledCategoryScan(256))
+	if err != nil || !called || !result.Complete || len(result.Values) != 1 {
+		t.Fatalf("bounded scan called=%t result=%#v error=%v", called, result, err)
+	}
+}
+
 func TestScanCategoriesReturnsTypedCompilerRefusalForUnsupportedColumn(t *testing.T) {
 	resolved := Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
 		Name: "output",
