@@ -2,6 +2,7 @@ import type {
   Construction,
   ConstructionStageColumn,
   ConstructionTableScalar,
+  ContributorPredicate,
 } from '../../../types';
 import type { ConstructionHistoryStep } from './ConstructionWorkspace';
 import { relationshipLabel } from './routeDisplay';
@@ -29,6 +30,17 @@ const operationLabel = (operation: string): string => {
     case 'DIVIDE': return '÷';
     default: return operation;
   }
+};
+
+const contributorCondition = (predicate: ContributorPredicate | undefined, path: string): string => {
+  if (!predicate) return '';
+  if (predicate.operator === 'EXISTS') return `; only records with ${path}`;
+  const value = predicate.value?.kind === 'STRING'
+    ? `“${predicate.value.string}”`
+    : predicate.value?.kind === 'CODE'
+      ? `code “${predicate.value.code.code}”`
+      : 'the selected value';
+  return `; only records where ${path} equals ${value}`;
 };
 
 const formatStep = (
@@ -185,7 +197,7 @@ const formatStep = (
       return {
         id: step.id,
         title: 'Related source',
-        summary: `${action}${route} as ${output}.`,
+        summary: `${action}${route}${contributorCondition(related.contributorRule.predicate, related.source.path)} as ${output}.`,
         editable: true,
       };
     }
@@ -200,7 +212,7 @@ const formatStep = (
       return {
         id: step.id,
         title: 'Expand related records',
-        summary: `One row per distinct ${expansion.targetResourceType} via ${path}; ${empty}.`,
+        summary: `One row per distinct ${expansion.targetResourceType} via ${path}${contributorCondition(expansion.contributorRule.predicate, expansion.contributorSource?.path ?? 'the selected field')}; ${empty}.`,
         editable: true,
       };
     }

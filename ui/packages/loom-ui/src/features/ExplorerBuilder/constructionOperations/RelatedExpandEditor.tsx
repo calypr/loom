@@ -192,6 +192,7 @@ export const RelatedExpandEditor = ({
     }
     return { kind: 'ALL' };
   });
+  const [contributorOptionsOpen, setContributorOptionsOpen] = useState(condition.kind !== 'ALL');
   const [choices, setChoices] = useState<ReadonlyArray<RouteChoice>>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const moreController = useRef<AbortController | undefined>(undefined);
@@ -210,7 +211,7 @@ export const RelatedExpandEditor = ({
   const expansionEffect = !targetResourceType
     ? 'Each matching related record gets its own row. Multiple matches produce multiple rows.'
     : condition.kind === 'CHOOSE'
-      ? 'Choose a condition in Advanced options to preview the expansion.'
+      ? 'Choose a condition in Which related records count? to preview the expansion.'
       : `${matchingRowEffect} Multiple matches produce multiple rows. Existing columns stay on each row. ${emptyMatchEffect[emptyPolicy]}`;
 
   useEffect(() => () => moreController.current?.abort(), [targetResourceType, stage.id, anchorColumnId]);
@@ -349,6 +350,29 @@ export const RelatedExpandEditor = ({
       <p role="status" data-testid="construction-related-expand-effect" className="text-sm text-slate-600">
         {selectedAnchor ? `Starting from ${selectedAnchor.label}. ` : ''}{expansionEffect}
       </p>
+      {choice ? (
+        <details
+          key={choice.choiceId}
+          data-testid="construction-related-expand-contributor-options"
+          open={contributorOptionsOpen}
+          onToggle={(event) => setContributorOptionsOpen(event.currentTarget.open)}
+          className="rounded-lg border border-slate-200 bg-white"
+        >
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-800">
+            Which related records count? · {condition.kind === 'ALL' ? 'All matching records' : 'Only records meeting a condition'}
+          </summary>
+          <div className="p-3 pt-0">
+            <RelatedExpandContributorEditor
+              project={project} explorerId={explorerId} authResourcePath={authResourcePath}
+              snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
+              outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
+              targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
+              condition={condition} disabled={disabled}
+              onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
+            />
+          </div>
+        </details>
+      ) : null}
       <details data-testid="construction-related-expand-advanced" className="rounded-lg border border-slate-200">
         <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
         <div className="grid gap-3 p-3 pt-0">
@@ -367,15 +391,6 @@ export const RelatedExpandEditor = ({
               {anchors.map((anchor) => <option key={anchor.anchorColumnId} value={anchor.anchorColumnId}>{anchor.label}</option>)}
             </select>
           </label> : null}
-          {choice ? <RelatedExpandContributorEditor
-            key={choice.choiceId}
-            project={project} explorerId={explorerId} authResourcePath={authResourcePath}
-            snapshotToken={snapshotToken} draftVersion={capabilities.draftVersion} draftDigest={capabilities.draftDigest}
-            outputId={outputId} stageId={stage.id} routeChoiceId={choice.choiceId}
-            targetNodeId={choice.targetNodeId} targetResourceType={choice.targetResourceType}
-            condition={condition} disabled={disabled}
-            onChange={(nextCondition) => { setCondition(nextCondition); emit(choice, emptyPolicy, outputName, outputLabel, nextCondition); }}
-          /> : null}
           <label className="grid gap-1 text-sm font-medium text-slate-800">
             When a parent has no matching record
             <select value={emptyPolicy} disabled={disabled} onChange={(event) => {
