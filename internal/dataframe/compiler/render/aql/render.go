@@ -34,13 +34,28 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 // validated terminal construction stage while preserving every intermediate
 // stage projection needed to evaluate the plan.
 func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
+	return renderPhysicalPlanWithTerminalProjection(plan, columnName, false)
+}
+
+// RenderPhysicalPlanWithUnorderedTerminalProjection returns one public column
+// from a validated terminal construction stage without sorting the terminal
+// rows by identity. The caller must impose any ordering its result contract
+// requires.
+func RenderPhysicalPlanWithUnorderedTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
+	return renderPhysicalPlanWithTerminalProjection(plan, columnName, true)
+}
+
+func renderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string, omitTerminalRowSort bool) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil || columnName == "" {
 		return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection requires a construction stage and column")
 	}
 	for _, column := range sequence.FinalColumns {
 		if column.Name == columnName && !column.Internal {
-			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{terminalProjectionColumn: columnName})
+			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{
+				terminalProjectionColumn: columnName,
+				omitTerminalRowSort:      omitTerminalRowSort,
+			})
 		}
 	}
 	return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection column %q is not public in the final stage", columnName)
@@ -113,6 +128,7 @@ type physicalRenderOptions struct {
 	rootIndexHint            string
 	internalPrefix           string
 	terminalProjectionColumn string
+	omitTerminalRowSort      bool
 	twoScanPivotPreview      bool
 	dynamicPivotPreview      bool
 	pivotGroupKeySourcePaths [][]string

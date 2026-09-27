@@ -178,6 +178,19 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	if !strings.Contains(terminal, "status") || strings.Contains(terminal, "amount") || strings.Contains(terminal, "total") {
 		t.Fatalf("terminal category projection was not narrowed safely:\n%s", terminal)
 	}
+	if strings.Contains(terminal, "SORT __loom_construction_final_row.") {
+		t.Fatalf("category scan retained an unneeded terminal row sort:\n%s", terminal)
+	}
+	categoryOutput := scanned.Query[categoryAt:]
+	for _, required := range []string{
+		"COLLECT __loom_category_group_present = __loom_category_present, __loom_category_group_value = __loom_category_value",
+		"SORT __loom_category_group_present ASC, TYPENAME(__loom_category_group_value) ASC, __loom_category_group_value ASC",
+		"LIMIT @__loom_category_limit",
+	} {
+		if !strings.Contains(categoryOutput, required) {
+			t.Errorf("category scan lost its ordered complete-category contract %q:\n%s", required, categoryOutput)
+		}
+	}
 	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
 		t.Fatalf("narrowed category return lost the source authorization scope:\n%s", scanned.Query)
 	}
@@ -191,6 +204,13 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	}
 	if scanned.Proof.OutputSchemaDigest != wantSchemaDigest {
 		t.Fatalf("category proof was narrowed with the query return: got %q, want full stage schema %q", scanned.Proof.OutputSchemaDigest, wantSchemaDigest)
+	}
+	wantQueryDigest, err := categoryQueryFingerprint(scanned.Query, scanned.BindVars)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Proof.QueryFingerprint != wantQueryDigest {
+		t.Fatalf("category proof does not bind the unordered query: got %q, want %q", scanned.Proof.QueryFingerprint, wantQueryDigest)
 	}
 }
 

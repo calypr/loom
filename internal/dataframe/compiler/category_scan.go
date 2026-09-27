@@ -193,7 +193,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	}
 	var rendered aql.RenderedPhysicalPlan
 	if physical.StageSequence != nil {
-		rendered, err = aql.RenderPhysicalPlanWithTerminalProjection(physical, column.Name)
+		rendered, err = aql.RenderPhysicalPlanWithUnorderedTerminalProjection(physical, column.Name)
 	} else {
 		rendered, err = aql.RenderPhysicalPlan(physical)
 	}

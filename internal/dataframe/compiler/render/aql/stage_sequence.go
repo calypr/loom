@@ -194,7 +194,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}
 	finalRow := "__loom_construction_final_row"
 	lines = append(lines, fmt.Sprintf("FOR %s IN %s", finalRow, priorRows))
-	if len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp {
+	if !options.omitTerminalRowSort && (len(stages) == 0 || stages[len(stages)-1].Kind != ir.PhysicalStageGroupOp) {
 		lines = append(lines, fmt.Sprintf("SORT %s.%s ASC", finalRow, sequence.FinalRowIdentity))
 	}
 	if sequence.PreviewLimitBindKey != "" {
