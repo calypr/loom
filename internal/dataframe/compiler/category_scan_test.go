@@ -192,6 +192,36 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("category scan covering-index metadata = %+v, want collection Patient fields %#v", index, wantFields)
 	}
+	projectionCount := 0
+	for key, value := range scanned.BindVars {
+		if !strings.HasPrefix(key, "__loom_physical_projection_") || !strings.HasSuffix(key, "_name") {
+			continue
+		}
+		projectionCount++
+		if value != "category" {
+			t.Fatalf("source category scan retained projection %q=%#v", key, value)
+		}
+	}
+	if projectionCount != 1 || !strings.Contains(scanned.Query, "root.payload.gender") || strings.Contains(scanned.Query, "root.payload.id") || strings.Contains(scanned.Query, "root.payload.multipleBirthInteger") {
+		t.Fatalf("source category scan should return only the selected source field (found %d projection names):\n%s", projectionCount, scanned.Query)
+	}
+	sourceStage, found := compiledStageByID(output.Stages, recipe.ConstructionSourceProjectionID)
+	if !found {
+		t.Fatal("compiled output lost its source projection stage")
+	}
+	wantSchemaDigest, err := categoryHash(sourceStage.Columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Proof.OutputSchemaDigest != wantSchemaDigest || scanned.Proof.Version != 2 ||
+		scanned.Proof.StageID != recipe.ConstructionSourceProjectionID || scanned.Proof.ColumnID != "category_id" ||
+		scanned.Proof.ValueColumnID != "amount_id" || scanned.Proof.PlanFingerprint == "" ||
+		scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
+		t.Fatalf("narrowed source scan lost its complete stage/pair proof: %#v", scanned.Proof)
+	}
+	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
+		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)
+	}
 	if strings.Contains(scanned.Query, "indexHint:") {
 		t.Fatalf("category scan should expose prewarm metadata without changing its query:\n%s", scanned.Query)
 	}

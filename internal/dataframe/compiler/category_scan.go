@@ -184,6 +184,9 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		return CompiledCategoryScanQuery{}, err
 	}
 	previewCoveringIndex := categoryScanPreviewCoveringIndexSpec(physical, schema, stageID, categoryColumnID, valueColumnID)
+	if stageID == recipe.ConstructionSourceProjectionID {
+		physical = narrowSourceCategoryScanProjection(physical, column.Name)
+	}
 	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
@@ -239,6 +242,33 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, PreviewCoveringIndex: previewCoveringIndex,
 	}, nil
+}
+
+func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, categoryColumn string) ir.PhysicalPlan {
+	if plan.StageSequence != nil || len(plan.Operations) == 0 {
+		return plan
+	}
+	returnIndex := -1
+	for index, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp {
+			continue
+		}
+		if returnIndex >= 0 || operation.Return == nil || index != len(plan.Operations)-1 {
+			return plan
+		}
+		returnIndex = index
+	}
+	if returnIndex < 0 {
+		return plan
+	}
+	for _, projection := range plan.Operations[returnIndex].Return.Projections {
+		if projection.Name != categoryColumn || projection.Hidden {
+			continue
+		}
+		plan.Operations[returnIndex].Return.Projections = []ir.PhysicalProjection{projection}
+		return plan
+	}
+	return plan
 }
 
 func categoryScanPreviewCoveringIndexSpec(plan ir.PhysicalPlan, schema []lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string) *PreviewCoveringIndexSpec {
