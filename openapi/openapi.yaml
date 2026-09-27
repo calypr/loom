@@ -706,7 +706,7 @@ paths:
               $ref: '#/components/schemas/AssessRowChangeRequest'
       responses:
         '200':
-          description: Read-only assessment of one row-root change against an exact draft.
+          description: Non-mutating assessment of one row-root change against an exact draft. READY includes a compiled candidateReceiptId for preview before applying the change.
           content:
             application/json:
               schema:
@@ -2707,6 +2707,10 @@ components:
         currentRootResourceType: {type: string, minLength: 1}
         candidateRootResourceType: {type: string, minLength: 1}
         proposal: {$ref: '#/components/schemas/RowChangeProposal'}
+        candidateReceiptId:
+          type: string
+          minLength: 1
+          description: Present only when status is READY. Preview this candidate receipt before applying the row-root rebase.
         preservedFeatureKeys:
           type: array
           items: {type: string, minLength: 1}

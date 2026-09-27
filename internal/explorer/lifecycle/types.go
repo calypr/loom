@@ -247,10 +247,11 @@ type AssessRowChangeRequest struct {
 }
 
 type AssessRowChangeResult struct {
-	SnapshotToken string
-	DraftVersion  int64
-	DraftDigest   string
-	Assessment    authoringv2.RowChangeAssessment
+	SnapshotToken      string
+	DraftVersion       int64
+	DraftDigest        string
+	CandidateReceiptID string
+	Assessment         authoringv2.RowChangeAssessment
 }
 
 type PreviewRequest struct {

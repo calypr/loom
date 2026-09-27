@@ -9,6 +9,8 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -53,9 +55,24 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{
-		Token:   func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+		Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil },
+		ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		},
+		ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}}, nil
+		},
 		Catalog: authoringV2Catalog,
-	}}
+	},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return persistTestNativeReceipt(ctx, t, domain, request, snapshot)
+		},
+		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if err := visit(map[string]any{"__loom_row_id": "row-1", "c_patient": "encounter-1"}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Output: "patients", Columns: []string{"c_patient"}, RowCount: 1, Complete: true}, nil
+		}}
 	app := fiber.New()
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
 
@@ -68,8 +85,20 @@ func TestAssessAndApplyRowChangeThroughPublicAPI(t *testing.T) {
 	if err := json.Unmarshal([]byte(assessed.Body), &assessment); err != nil {
 		t.Fatal(err)
 	}
-	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Proposal == nil || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
+	if assessment.Status != loomapi.RowChangeAssessmentResponseStatusREADY || assessment.Proposal == nil || assessment.CandidateReceiptId == nil || *assessment.CandidateReceiptId == "" || len(assessment.PreservedFeatureKeys) != 1 || assessment.PreservedFeatureKeys[0] != "patient_id" {
 		t.Fatalf("assessment=%#v", assessment)
+	}
+	previewBody := fmt.Sprintf(`{"receiptId":%q,"outputId":"patients"}`, *assessment.CandidateReceiptId)
+	previewed := requestJSON(t, app, http.MethodPost, "/api/v1/projects/project-a/explorers/patients/authoring/v2/preview", previewBody)
+	if previewed.StatusCode != http.StatusOK {
+		t.Fatalf("candidate preview status=%d body=%s", previewed.StatusCode, previewed.Body)
+	}
+	var preview loomapi.PreviewResponse
+	if err := json.Unmarshal([]byte(previewed.Body), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.ReceiptId != *assessment.CandidateReceiptId || preview.OutputId != "patients" || len(preview.Rows) != 1 {
+		t.Fatalf("candidate preview=%#v", preview)
 	}
 	proposal, err := json.Marshal(assessment.Proposal)
 	if err != nil {
