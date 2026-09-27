@@ -27,7 +27,7 @@ advance features 06, 06a, 07, and 07a only for the paths stated here:
 | 09, expand related records | The route chooser shows Subject and Focus meanings and defaults to retaining a parent with no match. Optional policies are under Advanced. | Two bounded Patients produced 38 matching Observation rows and one retained no-match row; changing the policy removed that row. | Apply, reload, edit, remove, and restoration passed. | Default proposal rendered in 631 ms. |
 | 12, group rows | Group keys and count summary are available with a collapsed Advanced section. | Bounded BodyStructure rows grouped into one checked source-system category with count 135. | Apply, reload, edit label, remove, and restoration passed. | Group proposal rendered in 816 ms. |
 | 13, expand repeated values | Repeated BodyStructure values are selectable in Reshape, with no-match behavior visible. | Expanded rows and values matched the raw CDA nested array oracle. | Apply, reload, edit, remove, and restoration passed. | Expansion proposal rendered in 657 ms. |
-| 14, numeric Pivot | Category, value, group, duplicate-value policy, and accepted categories are operable. | Observation sums matched raw CDA source groups; a separate two-record publication matched its ClickHouse row. | Apply, reload, edit, remove, restoration, and bounded publication passed. | Category discovery took 5,140 and 5,092 ms on the larger source, above the five-second target; proposal previews took 1,858 and 1,689 ms. The performance gate remains open. |
+| 14, numeric Pivot | Category, value, group, duplicate-value policy, and accepted categories are operable. | Observation sums matched raw CDA source groups; a separate two-record publication matched its ClickHouse row. | Apply, reload, edit, remove, restoration, and bounded publication passed. | After removing the redundant source-row sort, full-CDA category discovery rendered in 4,083, 4,092, and 4,085 ms, below the five-second gate; the prior median was 5,140 ms. Proposal previews stayed under two seconds. |
 
 Browser evidence: `.artifacts/cda-builder/2026-09-27T22-02-23.178Z/` and
 `.artifacts/cda-builder/2026-09-27T22-07-07.266Z/`,
@@ -36,6 +36,9 @@ Browser evidence: `.artifacts/cda-builder/2026-09-27T22-02-23.178Z/` and
 `.artifacts/cda-builder/2026-09-27T22-17-38.906Z/`, and the two numeric
 Pivot runs at `2026-09-27T22-12-19.503Z` and `2026-09-27T22-13-37.987Z`,
 and bounded ClickHouse publication at `2026-09-27T22-18-59.320Z`.
+The full-source numeric Pivot performance reruns passed at
+`2026-09-27T22-37-47.665Z`, `2026-09-27T22-38-37.910Z`, and
+`2026-09-27T22-39-21.216Z`; each repeated the CDA value and lifecycle checks.
 The ready paired-column flow passed again at
 `.artifacts/cda-builder/2026-09-27T22-30-27.979Z/`: its rendered value
 matched the raw CDA Observation, and Apply, reload, and removal succeeded.

@@ -325,6 +325,9 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	if projectionCount != 1 || !strings.Contains(scanned.Query, "root.payload.gender") || strings.Contains(scanned.Query, "root.payload.id") || strings.Contains(scanned.Query, "root.payload.multipleBirthInteger") {
 		t.Fatalf("source category scan should return only the selected source field (found %d projection names):\n%s", projectionCount, scanned.Query)
 	}
+	if strings.Contains(scanned.Query, "SORT root._key") {
+		t.Fatalf("complete category discovery must not sort source rows before grouping categories:\n%s", scanned.Query)
+	}
 	sourceStage, found := compiledStageByID(output.Stages, recipe.ConstructionSourceProjectionID)
 	if !found {
 		t.Fatal("compiled output lost its source projection stage")

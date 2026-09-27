@@ -193,6 +193,9 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 	}
+	if stageID == recipe.ConstructionSourceProjectionID {
+		physical = withoutCategoryScanRootIdentitySort(physical)
+	}
 	var rendered aql.RenderedPhysicalPlan
 	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
 	if physical.StageSequence != nil {
@@ -308,6 +311,24 @@ func narrowSourceCategoryScanProjection(plan ir.PhysicalPlan, categoryColumn str
 		}
 		plan.Operations[returnIndex].Return.Projections = []ir.PhysicalProjection{projection}
 		return plan
+	}
+	return plan
+}
+
+func withoutCategoryScanRootIdentitySort(plan ir.PhysicalPlan) ir.PhysicalPlan {
+	if plan.StageSequence != nil || len(plan.Operations) == 0 || plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return plan
+	}
+	root := plan.Operations[0].RootScan.Variable
+	for index, operation := range plan.Operations {
+		if operation.Kind != ir.PhysicalSortOp || operation.Sort == nil || len(operation.Sort.Keys) != 1 {
+			continue
+		}
+		key := operation.Sort.Keys[0]
+		if key.Variable == root && len(key.Path) == 1 && key.Path[0] == "_key" && key.BindKey == "" {
+			plan.Operations = append(plan.Operations[:index], plan.Operations[index+1:]...)
+			break
+		}
 	}
 	return plan
 }
