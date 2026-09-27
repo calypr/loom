@@ -191,7 +191,12 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
+	var rendered aql.RenderedPhysicalPlan
+	if physical.StageSequence != nil {
+		rendered, err = aql.RenderPhysicalPlanWithTerminalProjection(physical, column.Name)
+	} else {
+		rendered, err = aql.RenderPhysicalPlan(physical)
+	}
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("render category scan output plan: %w", err)
 	}

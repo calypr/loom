@@ -30,6 +30,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	return renderPhysicalPlan(plan, "")
 }
 
+// RenderPhysicalPlanWithTerminalProjection returns one public column from a
+// validated terminal construction stage while preserving every intermediate
+// stage projection needed to evaluate the plan.
+func RenderPhysicalPlanWithTerminalProjection(plan ir.PhysicalPlan, columnName string) (RenderedPhysicalPlan, error) {
+	sequence := plan.StageSequence
+	if sequence == nil || columnName == "" {
+		return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection requires a construction stage and column")
+	}
+	for _, column := range sequence.FinalColumns {
+		if column.Name == columnName && !column.Internal {
+			return renderPhysicalPlanWithOptions(plan, physicalRenderOptions{terminalProjectionColumn: columnName})
+		}
+	}
+	return RenderedPhysicalPlan{}, fmt.Errorf("terminal projection column %q is not public in the final stage", columnName)
+}
+
 // RenderPhysicalPlanWithDynamicCategoryPivotPreview renders a terminal
 // nonunique Pivot preview with category specifications supplied as one bind
 // array. Full execution continues to use the canonical static renderer.
@@ -96,6 +112,7 @@ func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint s
 type physicalRenderOptions struct {
 	rootIndexHint            string
 	internalPrefix           string
+	terminalProjectionColumn string
 	twoScanPivotPreview      bool
 	dynamicPivotPreview      bool
 	pivotGroupKeySourcePaths [][]string

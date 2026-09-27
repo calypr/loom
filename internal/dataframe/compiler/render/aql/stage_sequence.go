@@ -200,8 +200,15 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if sequence.PreviewLimitBindKey != "" {
 		lines = append(lines, "LIMIT @"+sequence.PreviewLimitBindKey)
 	}
-	projections := make([]ir.PhysicalProjection, 0, len(sequence.FinalColumns))
+	projectionCapacity := len(sequence.FinalColumns)
+	if options.terminalProjectionColumn != "" {
+		projectionCapacity = 1
+	}
+	projections := make([]ir.PhysicalProjection, 0, projectionCapacity)
 	for _, column := range sequence.FinalColumns {
+		if options.terminalProjectionColumn != "" && column.Name != options.terminalProjectionColumn {
+			continue
+		}
 		if column.Name == "auth_resource_path" && sequence.OutputAuthResourcePathBindKey != "" {
 			return RenderedPhysicalPlan{}, fmt.Errorf("final stage already declares the reserved authorization path column")
 		}
@@ -210,7 +217,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			Value: ir.PhysicalValue{Variable: finalRow, Path: []string{column.Name}},
 		})
 	}
-	if sequence.OutputAuthResourcePathBindKey != "" {
+	if sequence.OutputAuthResourcePathBindKey != "" && options.terminalProjectionColumn == "" {
 		projections = append(projections, ir.PhysicalProjection{
 			Name: "auth_resource_path", Hidden: true,
 			Value: ir.PhysicalValue{BindKey: sequence.OutputAuthResourcePathBindKey},

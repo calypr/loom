@@ -160,6 +160,40 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	}
 }
 
+func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T) {
+	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalAt := strings.Index(scanned.Query, "FOR __loom_construction_final_row IN")
+	categoryAt := strings.Index(scanned.Query, "FOR __loom_category_row IN __loom_category_rows")
+	if finalAt < 0 || categoryAt <= finalAt {
+		t.Fatalf("category scan is missing its terminal output boundary:\n%s", scanned.Query)
+	}
+	terminal := scanned.Query[finalAt:categoryAt]
+	if !strings.Contains(scanned.Query[:finalAt], "total") || !strings.Contains(scanned.Query, "__loom_construction_stage_1") || !strings.Contains(scanned.Query, "__loom_construction_stage_2") {
+		t.Fatalf("category scan dropped the prior derived filter or exact stage prefix:\n%s", scanned.Query)
+	}
+	if !strings.Contains(terminal, "status") || strings.Contains(terminal, "amount") || strings.Contains(terminal, "total") {
+		t.Fatalf("terminal category projection was not narrowed safely:\n%s", terminal)
+	}
+	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
+		t.Fatalf("narrowed category return lost the source authorization scope:\n%s", scanned.Query)
+	}
+	stage, found := compiledStageByID(output.Stages, "keep_positive")
+	if !found {
+		t.Fatal("compiled output lost the scanned stage schema")
+	}
+	wantSchemaDigest, err := categoryHash(stage.Columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Proof.OutputSchemaDigest != wantSchemaDigest {
+		t.Fatalf("category proof was narrowed with the query return: got %q, want full stage schema %q", scanned.Proof.OutputSchemaDigest, wantSchemaDigest)
+	}
+}
+
 func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotPair(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "pre_pivot_category_discovery", RootResourceType: "Patient", RowGrain: "patient",
