@@ -2473,8 +2473,12 @@ try {
       await writeFile(join(evidenceDirectory,'observation-numeric-pivot-controls.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,fields:state.fields?.filter(field=>/status|subject|valueQuantity/.test(field.label)),responses:responses.filter(response=>response.status>=400)},null,2));
     }
-  } else if (action === 'Preview Observation numeric nonunique Pivot') {
+  } else if (action === 'Preview Observation numeric nonunique Pivot' || action === 'Publish bounded Observation numeric Pivot') {
     const tableName='CDA numeric pivot QA';
+    const publishBounded=action==='Publish bounded Observation numeric Pivot';
+    const targetExplorer=publishBounded?'cda-bounded-publish-qa-1790471259754':explorerId;
+    const targetPageURL=`${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder`;
+    const boundedIDs=['3f2d03d6-8289-5628-b65a-35341eeb5db3','b6ab4f2d-16a5-565a-8c4b-2b92d1a2827a'];
     const state={clicks:[],timingsMs:{},errors:[]};
     let created=false;
     const clickText=async(textValue,scope='document')=>{
@@ -2482,6 +2486,10 @@ try {
       state.clicks.push(textValue);
     };
     try{
+      if(publishBounded){
+        await navigate(browser.cdp,targetPageURL);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
+      }
       assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));`),'Temporary numeric Pivot table already exists');
       await clickText('New table');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`,30000);
@@ -2489,6 +2497,19 @@ try {
       state.clicks.push('Choose Observation rows');
       created=true;
       await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+      if(publishBounded){
+        state.selection=await browserEval(browser.cdp, `const base=${JSON.stringify(`/api/v1/projects/loom_dev_cda_fhir/explorers/${targetExplorer}`)};const builder=await(await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-numeric-pivot-${Date.now()}',source:{kind:'resources',resources:{refs:${JSON.stringify(boundedIDs)}.map(id=>({project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'Observation',id}))}}})});return {status:response.status,body:await response.json()};`);
+        assert.equal(state.selection.status,201,JSON.stringify(state.selection));
+        await navigate(browser.cdp,`${targetPageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`,30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
+        state.clicks.push('Use two selected CDA Observations');
+        await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Observation')`,30000);
+      }
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label^="Add columns:"]:not(:disabled)'))`,30000);
       await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
       state.clicks.push('Add columns');
@@ -2508,6 +2529,7 @@ try {
       await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
       state.timingsMs.baseline=Date.now()-baselineStarted;
       state.baseline=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+      if(publishBounded)assert.deepEqual(new Set(state.baseline.rows.map(row=>row[0])),new Set(boundedIDs),'Starting collection did not limit the table to two CDA Observations');
       await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
       state.clicks.push('Reshape');
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.startsWith('Turn categories into columns')&&!button.disabled)`,30000);
@@ -2543,9 +2565,9 @@ try {
       assert.equal(state.proposal.status,'ready',state.proposal.text);
       assert.equal(state.proposal.applyDisabled,false);
       const pivotRows=state.proposalRows.tables[0]?.rows;
-      assert.equal(pivotRows?.length,25,'Numeric Pivot did not render 25 proposal rows');
+      assert.equal(pivotRows?.length,publishBounded?1:25,'Numeric Pivot rendered an unexpected proposal row count');
       const patients=pivotRows.map(row=>row[0]);
-      const aql=`FOR d IN Observation FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.payload.subject.reference IN ${JSON.stringify(patients)} COLLECT patient=d.payload.subject.reference AGGREGATE records=COUNT(d),numeric=SUM(IS_NUMBER(d.payload.valueQuantity.value)?1:0),total=SUM(IS_NUMBER(d.payload.valueQuantity.value)?d.payload.valueQuantity.value:0) RETURN {patient,records,numeric,total}`;
+      const aql=`FOR d IN Observation FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.payload.subject.reference IN ${JSON.stringify(patients)} ${publishBounded?`AND d.id IN ${JSON.stringify(boundedIDs)}`:''} COLLECT patient=d.payload.subject.reference AGGREGATE records=COUNT(d),numeric=SUM(IS_NUMBER(d.payload.valueQuantity.value)?1:0),total=SUM(IS_NUMBER(d.payload.valueQuantity.value)?d.payload.valueQuantity.value:0) RETURN {patient,records,numeric,total}`;
       const script=`print(JSON.stringify(db._query(${JSON.stringify(aql)}).toArray()))`;
       const output=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',script],{encoding:'utf8',maxBuffer:200000});
       state.sourceGroups=JSON.parse(output.slice(output.indexOf('[')));
@@ -2556,7 +2578,7 @@ try {
       state.clicks.push('Apply numeric Pivot');
       await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`,30000);
       const loadTable=async()=>{
-        await navigate(browser.cdp,pageURL);
+        await navigate(browser.cdp,targetPageURL);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
@@ -2581,6 +2603,32 @@ try {
       state.saved=await preview('savedPreview');
       assert.deepEqual(state.saved.headers,['SUBJECT.REFERENCE','FINAL']);
       assertPivotValues(state.saved,'Saved Pivot');
+      if(publishBounded){
+        assert.equal(state.saved.rows.length,1,'Bounded numeric Pivot should produce one patient row');
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish'&&!button.disabled))`,30000);
+        const publishStarted=Date.now();
+        await clickText('Publish');
+        const deadline=Date.now()+180000;
+        while(!responses.some(response=>response.path.endsWith('/publish'))&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,250));
+        const published=responses.find(response=>response.path.endsWith('/publish'));
+        assert(published,'Bounded numeric Pivot Publish did not return');
+        state.timingsMs.publish=Date.now()-publishStarted;
+        const result=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:published.requestId})).body);
+        state.publication={published,result};
+        assert.equal(published.status,200,JSON.stringify(result));
+        assert.equal(result.state,'ACTIVE');
+        state.materialized=result.outputs.map(item=>{
+          const table=`loom_dev.loom_bundle_${item.materializationId.replaceAll('-','')}_${item.outputId}`;
+          const raw=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-clickhouse-1','clickhouse-client','--query',`SELECT * FROM ${table} FORMAT JSONEachRow`],{encoding:'utf8',maxBuffer:200000});
+          return {outputId:item.outputId,table,rows:raw.trim().split('\n').filter(Boolean).map(line=>JSON.parse(line))};
+        });
+        const patient=state.sourceGroups[0].patient;
+        const total=state.sourceGroups[0].total;
+        const pivotOutput=state.materialized.find(item=>item.rows.length===1&&Object.values(item.rows[0]).includes(patient));
+        assert(pivotOutput,`Published ClickHouse outputs have no patient ${patient}: ${JSON.stringify(state.materialized)}`);
+        assert(Object.values(pivotOutput.rows[0]).some(value=>Number(value)===total),`Published Pivot has no CDA sum ${total}: ${JSON.stringify(pivotOutput)}`);
+        state.publishedPivot={outputId:pivotOutput.outputId,patient,total,row:pivotOutput.rows[0]};
+      }else{
       await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
       state.clicks.push('Open saved Pivot step');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`,30000);
@@ -2612,11 +2660,12 @@ try {
       await loadTable();
       state.restored=await preview('restoredPreview');
       assert.deepEqual(state.restored,state.baseline,'Removing Pivot did not restore original Observation columns and rows');
-      assert(Object.values(state.timingsMs).every(elapsed=>elapsed<=5000),`A numeric Pivot browser stage exceeded five seconds: ${JSON.stringify(state.timingsMs)}`);
+      }
+      assert(Object.entries(state.timingsMs).filter(([stage])=>stage!=='publish').every(([,elapsed])=>elapsed<=5000),`A numeric Pivot preview stage exceeded five seconds: ${JSON.stringify(state.timingsMs)}`);
     }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
     }finally{
       if(created){
-        await navigate(browser.cdp,pageURL);
+        await navigate(browser.cdp,targetPageURL);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
@@ -2624,7 +2673,7 @@ try {
         await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
       }
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,'observation-numeric-nonunique-pivot.json'),JSON.stringify({pageURL,state,responses},null,2));
+      await writeFile(join(evidenceDirectory,publishBounded?'bounded-observation-numeric-pivot-publish.json':'observation-numeric-nonunique-pivot.json'),JSON.stringify({targetPageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,timingsMs:state.timingsMs,proposal:state.proposal,errors:state.errors,httpErrors:responses.filter(response=>response.status>=400)},null,2));
     }
   } else if (action === 'Verify sparse column removal') {
