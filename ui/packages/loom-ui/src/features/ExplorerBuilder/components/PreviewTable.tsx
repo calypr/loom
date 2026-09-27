@@ -171,7 +171,7 @@ export const PreviewTable = ({
         .find((value) => value !== undefined);
       return {
         ...column,
-        label: constructionOutputByName.get(column.column)?.label ?? column.label,
+        label: constructionOutputByName.get(column.column)?.label ?? authoredByColumn.get(column.column)?.label ?? column.label,
         outputId: preview?.outputId ?? table?.outputId ?? '',
         candidateId: column.column,
         occurrenceId: authored?.occurrenceId ?? 'base',
