@@ -2383,6 +2383,67 @@ try {
       await writeFile(join(evidenceDirectory,'direct-scalar-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
     }
+  } else if (action === 'Verify populated row type lifecycle') {
+    const tableName='CDA row type QA';
+    const state={clicks:[],controls:[],previews:{},errors:[]};
+    let created=false;
+    const selectTable=async()=>{
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
+      state.clicks.push('Select temporary table');
+    };
+    const preview=async(stage)=>{
+      const started=Date.now();
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      const result=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+      state.previews[stage]={...result,elapsedMs:Date.now()-started};
+      state.clicks.push(`Preview ${stage}`);
+      return result;
+    };
+    try{
+      assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));`),'Temporary row-type table already exists');
+      state.initialTables=await browserEval(browser.cdp, `return [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      state.clicks.push('New table');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose BodyStructure rows"]'))`,30000);
+      state.controls=await browserEval(browser.cdp, `return [...document.querySelectorAll('button[aria-label^="Choose "][aria-label$=" rows"]')].map(button=>({label:button.getAttribute('aria-label'),disabled:button.disabled,visible:button.offsetParent!==null,text:button.innerText.slice(0,100)}));`);
+      assert(state.controls.some(control=>control.label==='Choose BodyStructure rows'&&!control.disabled&&control.visible),'Populated BodyStructure row choice is unavailable');
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+      state.clicks.push('Choose BodyStructure rows');
+      created=true;
+      await selectTable();
+      const first=await preview('afterCreate');
+      assert.deepEqual(first.headers,['BODYSTRUCTURE ID']);
+      assert(first.rows.length>0,'BodyStructure produced no CDA rows');
+      const ids=first.rows.map(row=>row[0]);
+      const script=`print(JSON.stringify(db._query(${JSON.stringify(`FOR d IN BodyStructure FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN d.id`)}).toArray()))`;
+      const output=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',script],{encoding:'utf8',maxBuffer:200000});
+      state.sourceIDs=JSON.parse(output.slice(output.indexOf('[')));
+      assert.deepEqual(new Set(ids),new Set(state.sourceIDs),'Visible BodyStructure IDs differ from raw CDA');
+      await navigate(browser.cdp,pageURL);
+      await selectTable();
+      const saved=await preview('afterReload');
+      assert.deepEqual(saved,first,'BodyStructure rows changed after reload');
+      assert(Object.values(state.previews).every(item=>item.elapsedMs<=5000),'A row-type preview exceeded five seconds');
+    }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
+    }finally{
+      if(created){
+        await navigate(browser.cdp,pageURL);
+        await selectTable();
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
+        state.clicks.push('Delete temporary table');
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`,30000);
+        state.restoredTables=await browserEval(browser.cdp, `return [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
+        assert.deepEqual(state.restoredTables,state.initialTables,'Temporary row-type table was not fully removed');
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
+    }
   } else if (action === 'Verify sparse column removal') {
     const copyName='Specimen copy';
     assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen copy'));`),'An existing Specimen copy would make cleanup ambiguous');
