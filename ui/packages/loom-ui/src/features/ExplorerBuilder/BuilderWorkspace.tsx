@@ -674,7 +674,8 @@ const BuilderWorkspaceContent = ({
   const editingConstructionStep = construction?.steps.find(
     (step) => step.id === editingConstructionStepId,
   );
-  const capabilitiesRequest = !hasUnsupportedSavedSourceColumns && table?.document.rootResourceType &&
+  const capabilitiesRequest = firstTableProgress.kind !== 'running' &&
+    !hasUnsupportedSavedSourceColumns && table?.document.rootResourceType &&
     state.catalog.snapshotToken &&
     state.draftVersion > 0 &&
     state.draftDigest

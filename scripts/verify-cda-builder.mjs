@@ -16,6 +16,7 @@ if (action === 'Verify related source chooser' || action === 'Inspect selected P
 const responses = [];
 const requests = [];
 const proposalRequests = [];
+const capabilityRequests = [];
 const requestStartedAt = new Map();
 const chooseRelatedSource = async (resourceType) => {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
@@ -30,6 +31,7 @@ browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/')) requestStartedAt.set(event.requestId,Date.now());
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
+  if (event.request.url.includes('/authoring/v2/construction-capabilities')) capabilityRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
 browser.cdp.on('Network.responseReceived', (event) => {
   if (event.response.url.includes('/authoring/v2/')) {
@@ -2440,8 +2442,14 @@ try {
         state.restoredTables=await browserEval(browser.cdp, `return [...document.querySelectorAll('button[data-testid^="construction-table-"]')].map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
         assert.deepEqual(state.restoredTables,state.initialTables,'Temporary row-type table was not fully removed');
       }
+      state.capabilityFailures=[];
+      for(const response of responses.filter(item=>item.path.endsWith('/construction-capabilities')&&item.status>=400)){
+        let body;
+        try{body=(await browser.cdp.send('Network.getResponseBody',{requestId:response.requestId})).body;}catch(error){body=String(error);}
+        state.capabilityFailures.push({response,request:capabilityRequests.find(item=>item.requestId===response.requestId),body});
+      }
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
+      await writeFile(join(evidenceDirectory,'populated-row-type-lifecycle.json'),JSON.stringify({pageURL,state,requests,capabilityRequests,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks.length,previews:Object.fromEntries(Object.entries(state.previews).map(([key,value])=>[key,value.elapsedMs])),errors:state.errors},null,2));
     }
   } else if (action === 'Inspect Observation numeric Pivot controls') {
