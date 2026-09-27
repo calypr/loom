@@ -460,6 +460,14 @@ try {
         assert(state.rawOracle.multi.length > 0, 'No source record has multiple extension URLs');
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
+        const repeatedPreviewStarted = Date.now();
+        await browserEval(browser.cdp, `const select=[...document.querySelectorAll('select')].find(item=>[...item.options].some(option=>option.value==='500')&&[...item.options].some(option=>option.value==='25'));if(!select)throw new Error('Preview row limit missing');select.value='500';select.dispatchEvent(new Event('change',{bubbles:true}));[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='136'`, 30000);
+        state.timingsMs.repeatedFieldPreview = Date.now() - repeatedPreviewStarted;
+        state.repeatedFieldPreview = await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowCount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),targetRows:[...rows.values()].filter(cells=>cells[0]===${JSON.stringify(state.rawOracle.multi[0].id)})};`);
+        assert.equal(state.repeatedFieldPreview.targetRows.length, 1, 'A source record with three values should remain one row before Expand');
+        const renderedValues = state.repeatedFieldPreview.targetRows[0][1].split('; ');
+        assert.deepEqual(renderedValues, state.rawOracle.multi[0].urls, 'The repeated field cell differs from the raw CDA list, including duplicate values');
         await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')))`, 30000);
         state.expandChoice = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value'));return {disabled:button?.disabled,text:button?.innerText};`);
@@ -523,7 +531,21 @@ try {
           state.restored = await browserEval(browser.cdp, `return {rowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),historyCount:document.querySelectorAll('[data-testid^="construction-history-step-"]').length};`);
           assert.equal(state.restored.historyCount, 0);
           assert(state.restored.headers.includes('EXTENSION[].URL') && !state.restored.headers.includes('CDA EXTENSION URL'));
-          state.interactions = { clicksAndSelections: 30, textEdits: 1, includesRowChoiceInspection: true, includesTemporaryTableCleanup: true };
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+          state.repeatedFieldControls = await browserEval(browser.cdp, `return {buttons:[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].map(button=>({text:button.innerText,aria:button.getAttribute('aria-label'),disabled:button.disabled})),text:document.querySelector('[data-testid="construction-source-setup"]')?.innerText.slice(0,1800)};`);
+          const removeRepeated = state.repeatedFieldControls.buttons.find(button=>button.aria==='Remove extension[].url');
+          assert(removeRepeated && !removeRepeated.disabled, 'The saved repeated field cannot be removed');
+          await browserEval(browser.cdp, `document.querySelector('button[aria-label="Remove extension[].url"]').click();return true;`);
+          await navigate(browser.cdp,pageURL);
+          await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+          await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+          await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="columnheader"]')?.innerText==='BODYSTRUCTURE ID' && document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`, 30000);
+          state.afterRepeatedRemoval = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
+          assert.deepEqual(state.afterRepeatedRemoval.headers,['BODYSTRUCTURE ID']);
+          assert(state.afterRepeatedRemoval.rows.every(row=>rawRows.some(raw=>raw.id===row[0])));
+          state.interactions = { clicksAndSelections: 32, textEdits: 1, includesRowChoiceInspection: true, includesTemporaryTableCleanup: true };
           state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
           state.errors = responses.filter(response=>response.status>=400);
           await writeFile(join(evidenceDirectory,'bounded-bodystructure-expansion.json'),JSON.stringify({pageURL,state,responses},null,2));
@@ -1580,12 +1602,14 @@ try {
     }
     await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
-  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form') {
+  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form' || action === 'Verify saved Observation route edit') {
     const changeSavedForm = action === 'Verify saved Observation result form';
-    const includeAllAndPresence = action !== 'Verify direct Observation COUNT many and zero';
+    const changeSavedRoute = action === 'Verify saved Observation route edit';
+    const includeAllAndPresence = action !== 'Verify direct Observation COUNT many and zero' && !changeSavedRoute;
     const targetExplorer = 'cda-builder-full-qa-1790440983382';
     const manyPatientId = '02f8e963-73b8-50ea-b840-c4a80719a06a';
     const zeroPatientId = '54b50ad3-aa10-5483-85e2-5382aac7d374';
+    assert(!changeSavedRoute || process.env.LOOM_CDA_FOCUS_ORACLE_PATH, 'Saved route edit needs LOOM_CDA_FOCUS_ORACLE_PATH from the independent Arango query');
     const rawOracle = {
       source: 'Arango loom_dev, project loom_dev_cda_fhir, generation cda-fhir-v1, direct subject_Patient edges',
       evidencePath: '.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-oracle.json',
@@ -1593,7 +1617,38 @@ try {
       manyObservationEdges: 38,
       zeroPatientId,
       zeroObservationEdges: 0,
+      ...(changeSavedRoute ? { focusOraclePath: process.env.LOOM_CDA_FOCUS_ORACLE_PATH } : {}),
     };
+    const focusOracle = changeSavedRoute
+      ? JSON.parse(await readFile(process.env.LOOM_CDA_FOCUS_ORACLE_PATH, 'utf8'))
+      : undefined;
+    const focusOracleResult = focusOracle?.result?.[0];
+    const focusOracleCounts = Object.fromEntries((focusOracleResult?.relationshipCounts ?? []).map(item => [item.relationship, item.edgeCount]));
+    const focusOracleEdges = focusOracleResult?.edges ?? [];
+    let focusObservationId;
+    let subjectConditionExpected;
+    let focusConditionExpected;
+    if (changeSavedRoute) {
+      assert(focusOracleResult?.patientKey, 'Arango focus oracle is missing the Patient key');
+      assert.equal(focusOracleCounts.subject_Patient, rawOracle.manyObservationEdges, 'Fresh Arango Subject count differs from the retained raw oracle');
+      assert(Array.isArray(focusOracleEdges), 'Arango focus oracle is missing bounded direct Observation edge details');
+      const focusIDs = [...new Set(focusOracleEdges
+        .filter(edge => edge.relationship === 'focus_Patient')
+        .map(edge => edge.observationId)
+        .filter(Boolean))];
+      assert.equal(focusIDs.length, 1, 'Expected one distinct direct Focus Observation.id for the known Patient');
+      focusObservationId = focusIDs[0];
+      subjectConditionExpected = new Set(focusOracleEdges
+        .filter(edge => edge.relationship === 'subject_Patient' && edge.observationId === focusObservationId)
+        .map(edge => edge.observationId)).size;
+      focusConditionExpected = new Set(focusOracleEdges
+        .filter(edge => edge.relationship === 'focus_Patient' && edge.observationId === focusObservationId)
+        .map(edge => edge.observationId)).size;
+      assert.equal(focusConditionExpected, 1, 'Focus edge oracle does not include the selected Observation.id');
+      rawOracle.focusObservationId = focusObservationId;
+      rawOracle.subjectConditionCount = subjectConditionExpected;
+      rawOracle.focusConditionCount = focusConditionExpected;
+    }
     const rawValues = includeAllAndPresence
       ? JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json', 'utf8'))
       : undefined;
@@ -1635,6 +1690,11 @@ try {
         'input.dispatchEvent(new Event("change",{bubbles:true}));return true;');
       timings[label] = Date.now() - started;
     };
+    const captureScreenshot = async filename => {
+      const screenshot = await browser.cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await mkdir(evidenceDirectory, { recursive: true });
+      await writeFile(join(evidenceDirectory, filename), Buffer.from(screenshot.data, 'base64'));
+    };
     const selectTemporaryTable = async () => {
       await waitForBrowser(browser.cdp,
         '[...document.querySelectorAll("button")].some(button=>button.innerText.trim().endsWith(' + JSON.stringify(temporaryTableTitle) + '))', 90000);
@@ -1643,7 +1703,7 @@ try {
       await waitForBrowser(browser.cdp,
         'document.body.innerText.includes("DATASET WORKSPACE\\n\\n' + temporaryTableTitle + '")', 30000);
     };
-    const previewFor = async (patientId) => {
+    const previewFor = async (patientId, output = results.relatedOutput) => {
       const previous = responses.filter(response => response.path.endsWith('/preview')).length;
       const previewStartedAt = Date.now();
       await clickButtonText('Preview', 'Preview table');
@@ -1663,18 +1723,21 @@ try {
       const payload = JSON.parse(body.body);
       const row = payload.rows?.find(candidate => Object.values(candidate ?? {}).includes(patientId));
       assert(row, 'Preview did not return Patient.id ' + patientId);
-      const outputName = results.relatedOutput?.name;
-      const countColumn = payload.columns?.find(column =>
-        column.column === outputName || column.name === outputName || column.id === results.relatedOutput?.id);
+      const outputName = output?.name;
+      const countColumn = outputName ? payload.columns?.find(column =>
+        column.column === outputName || column.name === outputName || column.id === output?.id) : undefined;
       const countKey = countColumn?.column ?? countColumn?.name ?? outputName;
       const visibleRow = visible.rows.find(cells => cells.includes(patientId));
       assert(visibleRow, 'Rendered preview did not show Patient.id ' + patientId);
-      assert(visibleRow.includes(String(row[countKey])), 'Rendered preview did not show related COUNT ' + row[countKey]);
+      if (output) {
+        assert(countColumn, 'Preview did not return related COUNT column ' + outputName);
+        assert(visibleRow.includes(String(row[countKey])), 'Rendered preview did not show related COUNT ' + row[countKey]);
+      }
       return {
         patientId,
         rowCount: payload.rowCount,
         countKey,
-        count: row[countKey],
+        count: output ? row[countKey] : undefined,
         row,
         columns: payload.columns,
         visible,
@@ -1782,6 +1845,10 @@ try {
       await waitForBrowser(browser.cdp,
         'document.body.innerText.includes("DATASET WORKSPACE") && document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length>=1',
         60000);
+      if (changeSavedRoute) {
+        results.originalFilteredPreview = await previewFor(manyPatientId, null);
+        assert.equal(results.originalFilteredPreview.rowCount, 1);
+      }
 
       await clickDOM('button[aria-label^="Add columns:"]', 'Open related columns');
       const relatedSource = await chooseRelatedSource('Observation');
@@ -1849,6 +1916,162 @@ try {
       results.many = await previewFor(manyPatientId);
       assert.equal(results.many.rowCount, 1);
       assert.equal(results.many.count, rawOracle.manyObservationEdges, 'many Patient COUNT differs from raw CDA Oracle');
+      if (changeSavedRoute) {
+        const historyForCondition = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText})).at(-1)??null;');
+        assert(historyForCondition, 'Saved Subject COUNT step is missing before condition edit');
+        await clickDOM('[data-testid=' + JSON.stringify(historyForCondition.testId) + ']', 'Select saved Subject COUNT for EQUALS rule');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid^=\\"construction-edit-step-\\"]"))', 30000);
+        await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit saved Subject COUNT condition');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid=\\"related-source-step-editor\\"] input[aria-label=\\"Select Observation.id\\"]"))', 30000);
+        await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id to add EQUALS');
+        await clickButtonText('Add 1 selected feature', 'Open saved Subject COUNT matching rules');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+        await browserEval(browser.cdp,
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Only records where id equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Observation.id EQUALS condition is unavailable");input.click();return true;');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]"))', 30000);
+        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', focusObservationId, 'Set saved Observation.id EQUALS value');
+        await waitForBrowser(browser.cdp,
+          '[...document.querySelectorAll("[role=\\"dialog\\"] button")].some(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled)', 30000);
+        const subjectConditionStartedAt = Date.now();
+        await clickButtonText('Add 1 column', 'Preview saved Subject COUNT EQUALS proposal');
+        await waitForBrowser(browser.cdp, 'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"', 180000);
+        timings.subjectConditionProposalPreviewMs = Date.now() - subjectConditionStartedAt;
+        const subjectConditionRequest = JSON.parse(proposalRequests.filter(item => item.postData).at(-1)?.postData ?? '{}');
+        const subjectConditionStep = subjectConditionRequest.candidateConstruction?.steps?.find(step =>
+          step.operation?.kind === 'RELATED_SOURCE' &&
+          step.operation.relatedSource?.source?.resourceType === 'Observation' &&
+          step.operation.relatedSource?.source?.path === 'id');
+        assert(subjectConditionStep, 'Saved Subject condition proposal omitted Observation.id');
+        const subjectConditionRelated = subjectConditionStep.operation.relatedSource;
+        assert.equal(subjectConditionRelated.form, 'COUNT');
+        assert(/subject/i.test(JSON.stringify(subjectConditionRelated.route)), 'EQUALS setup proposal changed the Subject route');
+        assert.equal(subjectConditionRelated.contributorRule?.predicate?.operator, 'EQUALS');
+        assert.equal(subjectConditionRelated.contributorRule?.predicate?.value?.string, focusObservationId);
+        results.subjectConditionProposal = await browserEval(browser.cdp,
+          'const preview=document.querySelector("[data-testid=\\"construction-proposal-preview\\"]");return {text:preview?.innerText,headers:[...preview?.querySelectorAll("thead th")??[]].map(cell=>cell.innerText.trim()),rows:[...preview?.querySelectorAll("[data-testid=\\"construction-proposal-preview-row\\"]")??[]].map(row=>[...row.querySelectorAll("td")].map(cell=>cell.innerText.trim())),applyDisabled:document.querySelector("[data-testid=\\"construction-apply-proposal\\"]")?.disabled};');
+        await captureScreenshot('saved-observation-subject-equals-proposal.png');
+        const subjectConditionRow = results.subjectConditionProposal.rows.find(cells => cells.includes(manyPatientId));
+        assert(subjectConditionRow, 'Rendered Subject EQUALS proposal omitted the known Patient');
+        const subjectConditionColumn = results.subjectConditionProposal.headers.findIndex(header => header.startsWith(results.relatedOutput.label));
+        assert.notEqual(subjectConditionColumn, -1, 'Rendered Subject EQUALS proposal omitted the COUNT column');
+        assert.equal(subjectConditionRow[subjectConditionColumn], String(subjectConditionExpected));
+        assert.equal(results.subjectConditionProposal.applyDisabled, false);
+        await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply saved Subject COUNT EQUALS condition');
+        await navigate(browser.cdp, pageURL);
+        await selectTemporaryTable();
+        results.subjectCondition = await previewFor(manyPatientId);
+        assert.equal(results.subjectCondition.count, subjectConditionExpected, 'Applied Subject EQUALS count differs from direct Arango edges');
+
+        results.subjectHistoryBeforeEdit = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText})).at(-1)??null;');
+        assert(results.subjectHistoryBeforeEdit, 'Saved Subject COUNT history step is missing');
+        await clickDOM('[data-testid=' + JSON.stringify(results.subjectHistoryBeforeEdit.testId) + ']', 'Select saved Subject COUNT step');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid^=\\"construction-edit-step-\\"]"))', 30000);
+        await clickDOM('[data-testid^="construction-edit-step-"]', 'Edit saved Subject COUNT step');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid=\\"related-source-step-editor\\"] input[aria-label=\\"Select Observation.id\\"]"))', 30000);
+        await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id');
+        await clickButtonText('Add 1 selected feature', 'Open saved Observation route choices');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
+        results.savedRouteChoices = await browserEval(browser.cdp,
+          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"id exact value\\"]")?.value,controls:[...dialog?.querySelectorAll("input,button")??[]].map(input=>({tag:input.tagName,label:input.getAttribute("aria-label")??input.closest("label")?.innerText??input.innerText,checked:input.checked??null,disabled:input.disabled??false}))};');
+        const savedSubjectChoice = results.savedRouteChoices.radios.find(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? ''));
+        const focusChoice = results.savedRouteChoices.radios.find(choice => /Direct relationship: Patient to Observation via Focus/i.test(choice.label ?? ''));
+        const savedCountChoice = results.savedRouteChoices.radios.find(choice => /Count matching records/i.test(choice.label ?? ''));
+        assert(savedSubjectChoice?.checked && !savedSubjectChoice.disabled, 'Saved Subject route is not selected or is disabled');
+        assert(focusChoice && !focusChoice.disabled, 'Direct Focus route is unavailable for the saved Observation.id step');
+        assert(savedCountChoice?.checked && !savedCountChoice.disabled, 'Saved COUNT form is not selected or is disabled');
+        const savedEqualsCondition = results.savedRouteChoices.conditions.find(choice => /Only records where id equals/i.test(choice.label ?? ''));
+        assert(savedEqualsCondition?.checked, 'Saved Observation.id EQUALS condition did not reopen as selected');
+        assert.equal(results.savedRouteChoices.exactValue, focusObservationId, 'Saved Observation.id EQUALS value was not restored');
+        await captureScreenshot('saved-observation-route-edit-controls.png');
+        await clickDOM('[role="dialog"] input[type="radio"][aria-label=' + JSON.stringify(focusChoice.label) + ']', 'Choose direct Focus route');
+        results.savedRouteControls = await browserEval(browser.cdp,
+          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"id exact value\\"]")?.value,alerts:[...dialog?.querySelectorAll("[role=\\"alert\\"]")??[]].map(element=>element.innerText),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
+        const selectedFocusChoice = results.savedRouteControls.radios.find(choice => /Direct relationship: Patient to Observation via Focus/i.test(choice.label ?? ''));
+        const selectedCountChoice = results.savedRouteControls.radios.find(choice => /Count matching records/i.test(choice.label ?? ''));
+        const selectedEqualsCondition = results.savedRouteControls.conditions.find(choice => /Only records where id equals/i.test(choice.label ?? ''));
+        const focusAddChoice = results.savedRouteControls.buttons.find(button => /^Add 1 (column|selected feature)$/i.test(button.text));
+        assert(selectedFocusChoice?.checked && !selectedFocusChoice.disabled, 'Direct Focus route did not become selected');
+        assert(selectedCountChoice?.checked && !selectedCountChoice.disabled, 'Saved COUNT form changed or became disabled');
+        assert(selectedEqualsCondition?.checked, 'Saved EQUALS condition did not transfer to the Focus route');
+        assert.equal(results.savedRouteControls.exactValue, focusObservationId, 'Saved EQUALS value changed when the route changed');
+        assert.deepEqual(results.savedRouteControls.alerts, [], 'Supported EQUALS condition was marked invalid after route change');
+        assert(focusAddChoice && !focusAddChoice.disabled, 'Apply action is disabled for saved Focus COUNT');
+        await captureScreenshot('saved-observation-focus-choice.png');
+        const focusProposalStartedAt = Date.now();
+        await clickButtonText(focusAddChoice.text, 'Preview saved Focus COUNT proposal');
+        await waitForBrowser(browser.cdp, 'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"', 180000);
+        timings.savedFocusProposalPreviewMs = Date.now() - focusProposalStartedAt;
+        const focusProposalRequest = JSON.parse(proposalRequests.filter(item => item.postData).at(-1)?.postData ?? '{}');
+        const focusStep = focusProposalRequest.candidateConstruction?.steps?.find(step =>
+          step.operation?.kind === 'RELATED_SOURCE' &&
+          step.operation.relatedSource?.source?.resourceType === 'Observation' &&
+          step.operation.relatedSource?.source?.path === 'id');
+        assert(focusStep, 'Saved route proposal omitted Observation.id');
+        const focusRelated = focusStep.operation.relatedSource;
+        assert.equal(focusRelated.form, 'COUNT', 'Saved route edit changed the COUNT form');
+        assert.equal(focusRelated.contributorRule?.predicate?.operator, 'EQUALS', 'Saved route edit dropped the EQUALS rule');
+        assert.equal(focusRelated.contributorRule?.predicate?.candidateId, focusRelated.source.candidateId);
+        assert.equal(focusRelated.contributorRule?.predicate?.value?.string, focusObservationId, 'Saved route edit changed the EQUALS value');
+        assert.equal(focusRelated.route?.length, 1, 'Saved route edit is not a direct edge');
+        results.focusRoute = focusRelated.route[0];
+        assert.notEqual(results.focusRoute.relationship, results.relatedRoute[0]?.relationship, 'Saved route edit did not change the relationship');
+        assert(/focus/i.test(results.focusRoute.relationship), 'Saved route metadata does not identify the Focus relationship');
+        assert(Object.hasOwn(focusOracleCounts, results.focusRoute.relationship), `Independent Arango oracle has no count for ${results.focusRoute.relationship}`);
+        results.focusExpected = focusOracleCounts[results.focusRoute.relationship];
+        assert(Number.isSafeInteger(results.focusExpected), `Independent Arango oracle count is invalid for ${results.focusRoute.relationship}`);
+        assert.equal(results.focusExpected, focusConditionExpected, 'Focus COUNT oracle differs from the exact Observation.id condition count');
+        rawOracle.focusObservationEdges = results.focusExpected;
+        rawOracle.focusConditionCount = focusConditionExpected;
+        results.relatedOutput = focusStep.outputs?.find(output => output.id === focusRelated.outputColumnId);
+        assert(results.relatedOutput, 'Edited Focus COUNT output is missing');
+        results.savedFocusProposal = await browserEval(browser.cdp,
+          'const preview=document.querySelector("[data-testid=\\"construction-proposal-preview\\"]");return {text:preview?.innerText,headers:[...preview?.querySelectorAll("thead th")??[]].map(cell=>cell.innerText.trim()),rows:[...preview?.querySelectorAll("[data-testid=\\"construction-proposal-preview-row\\"]")??[]].map(row=>[...row.querySelectorAll("td")].map(cell=>cell.innerText.trim())),applyDisabled:document.querySelector("[data-testid=\\"construction-apply-proposal\\"]")?.disabled};');
+        await captureScreenshot('saved-observation-focus-proposal.png');
+        const focusProposalRow = results.savedFocusProposal.rows.find(cells => cells.includes(manyPatientId));
+        assert(focusProposalRow, 'Rendered Focus proposal does not include the known Patient');
+        const focusCountColumn = results.savedFocusProposal.headers.findIndex(header => header.startsWith(results.relatedOutput.label));
+        assert.notEqual(focusCountColumn, -1, 'Rendered Focus proposal omitted the related COUNT column');
+        assert.equal(focusProposalRow[focusCountColumn], String(focusConditionExpected), 'Rendered Focus proposal differs from the independent Arango edge and condition count');
+        assert.equal(results.savedFocusProposal.applyDisabled, false);
+        await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply saved Focus COUNT route edit');
+        await navigate(browser.cdp, pageURL);
+        await selectTemporaryTable();
+        results.focusHistoryAfterReload = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText})).at(-1)??null;');
+        assert(results.focusHistoryAfterReload, 'Saved Focus COUNT history step is missing after reload');
+        results.focus = await previewFor(manyPatientId);
+        assert.equal(results.focus.rowCount, 1);
+        assert.equal(results.focus.count, focusConditionExpected, 'Applied/reloaded Focus COUNT differs from the independent Arango edge and condition count');
+        await clickDOM('[data-testid=' + JSON.stringify(results.focusHistoryAfterReload.testId) + ']', 'Select saved Focus COUNT step');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[data-testid^=\\"construction-remove-step-\\"]"))', 30000);
+        results.removeControl = await browserEval(browser.cdp,
+          'const button=document.querySelector("[data-testid^=\\"construction-remove-step-\\"]");return button?{testId:button.getAttribute("data-testid"),label:button.getAttribute("aria-label"),text:button.innerText,disabled:button.disabled}:null;');
+        assert(results.removeControl && !results.removeControl.disabled, 'Saved Focus step removal is unavailable');
+        await clickDOM('[data-testid=' + JSON.stringify(results.removeControl.testId) + ']', 'Remove saved Focus COUNT step');
+        await waitForBrowser(browser.cdp, 'document.querySelector("[data-testid=\\"construction-proposal-panel\\"]")?.getAttribute("data-proposal-status")==="ready"', 120000);
+        results.removeProposal = await browserEval(browser.cdp,
+          'return {text:document.querySelector("[data-testid=\\"construction-proposal-preview\\"]")?.innerText,applyDisabled:document.querySelector("[data-testid=\\"construction-apply-proposal\\"]")?.disabled};');
+        assert.equal(results.removeProposal.applyDisabled, false, 'Remove Focus step proposal cannot be applied');
+        await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply saved Focus COUNT removal');
+        await navigate(browser.cdp, pageURL);
+        await selectTemporaryTable();
+        const restoredSteps = await browserEval(browser.cdp,
+          'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].length;');
+        assert.equal(restoredSteps, 1, 'Removing the Focus step did not restore the filtered Patient table');
+        results.restored = await previewFor(manyPatientId, null);
+        const visibleState = preview => ({rowCount:preview.rowCount,columns:preview.columns,row:preview.row,headers:preview.visible.headers,rows:preview.visible.rows});
+        assert.deepEqual(visibleState(results.restored), visibleState(results.originalFilteredPreview), 'Removing the Focus step did not restore the pre-step Patient table');
+        results.assertions = [
+          'Created and selected a temporary Patient root through Builder DOM controls.',
+          'Added Observation.id COUNT on the direct Subject route; the proposal and reloaded row matched 38 Arango subject_Patient edges.',
+          `Saved COUNT with EQUALS survived the Subject-to-Focus edit; the rendered proposal and reloaded row matched ${focusConditionExpected} direct Focus edges for the selected Observation.id.`,
+          'Removed the saved Focus step and restored the original filtered Patient rows and columns.',
+          'The temporary table was deleted and the original table list was restored.',
+          'No publication action was invoked.',
+        ];
+      }
       if (includeAllAndPresence) {
         results.allForm = await addRelatedForm('ALL', /Keep all matching values/i);
         results.presenceForm = await addRelatedForm('PRESENCE', /Show whether a match exists/i);
@@ -1940,6 +2163,7 @@ try {
         assert(results.editedContributor.visible.headers.some(header => header.toLowerCase().includes(expectedIDs[1].toLowerCase())), 'Edited contributor label was not restored');
       }
 
+      if (!changeSavedRoute) {
       const filterStep = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map((element,index)=>({index,testId:element.getAttribute("data-testid"),text:element.innerText})).find(step=>/Filter rows|Keep rows/i.test(step.text))??null;');
       assert(filterStep, 'Saved Patient ID filter step is missing');
@@ -1973,6 +2197,9 @@ try {
         assert.equal(results.zero.row[results.filteredForm.output.name], 0);
       }
 
+      }
+
+      if (!changeSavedRoute) {
       results.assertions = [
         'Created and selected a temporary Patient root through Builder DOM controls.',
         'Selected the Observation related source and the Observation.id COUNT form through Builder DOM controls.',
@@ -1990,6 +2217,7 @@ try {
             : 'PRESENCE returned true for the many Patient and false for the zero Patient.',
           'A contributor rule limited related Observation.id to one raw CDA ID and changed COUNT from 38 to 1 for the many Patient; the zero Patient remained at 0.',
         );
+      }
       }
     } catch (error) {
       scenarioError = { message: error.message, stack: error.stack };
@@ -2029,10 +2257,13 @@ try {
     results.error = scenarioError;
     results.cleanupError = cleanupError;
     await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, changeSavedForm ? 'saved-observation-result-form.json' : includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
+    await writeFile(join(evidenceDirectory, changeSavedRoute ? 'saved-observation-route-edit.json' : changeSavedForm ? 'saved-observation-result-form.json' : includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
     console.log(JSON.stringify({
       evidenceDirectory,
       many: results.many && { patientId: results.many.patientId, count: results.many.count },
+      focus: results.focus && { patientId: results.focus.patientId, count: results.focus.count, expected: results.focusExpected },
+      savedFocusRoute: results.focusRoute,
+      savedHistory: results.focusHistoryAfterReload,
       zero: results.zero && { patientId: results.zero.patientId, count: results.zero.count },
       all: results.allForm && { output: results.allForm.output.name, manyValues: results.manyForms?.row[results.allForm.output.name]?.length, zeroValues: results.zero?.row[results.allForm.output.name]?.length },
       presence: results.presenceForm && { output: results.presenceForm.output.name, many: results.manyForms?.row[results.presenceForm.output.name], zero: results.zero?.row[results.presenceForm.output.name] },

@@ -13,6 +13,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
+import type { CatalogInitialSelection } from './CatalogSelectionDialog';
 import {
   ConceptCatalog,
   type CatalogRelatedSourceAvailability,
@@ -214,6 +215,7 @@ const renderCatalog = (
   catalogOverride: ExplorerBuilderCatalog = catalog,
   relatedSourceAvailability?: CatalogRelatedSourceAvailability,
   suppressUnavailableNotices = false,
+  initialSelection?: CatalogInitialSelection,
 ) => {
     render(
       <LoomProvider client={createLoomClient({ fetch })}>
@@ -230,6 +232,7 @@ const renderCatalog = (
           sourceProjectionAvailability={sourceProjectionAvailability}
           relatedSourceAvailability={relatedSourceAvailability}
           suppressUnavailableNotices={suppressUnavailableNotices}
+          initialSelection={initialSelection}
           onAddSelected={onAddSelected}
         />
       </LoomProvider>,
@@ -241,6 +244,7 @@ const renderCatalogAtRoute = (
   fetch: typeof globalThis.fetch,
   routeContext: CatalogRouteContext,
   onAddSelected = vi.fn().mockResolvedValue(undefined),
+  initialSelection?: CatalogInitialSelection,
 ) => {
   render(
     <LoomProvider client={createLoomClient({ fetch })}>
@@ -254,6 +258,7 @@ const renderCatalogAtRoute = (
         routeContext={routeContext}
         layout="panel"
         catalog={catalog}
+        initialSelection={initialSelection}
         onAddSelected={onAddSelected}
       />
     </LoomProvider>,
@@ -1002,6 +1007,83 @@ describe('ConceptCatalog', () => {
     expect(JSON.stringify(routeRequest)).not.toContain('edgeId');
     const nextRouteRequest = JSON.parse(String(fetch.mock.calls[2]?.[1]?.body)) as Record<string, unknown>;
     expect(nextRouteRequest).toEqual({ ...routeRequest, cursor: 'route-cursor-2' });
+  });
+
+  it('preserves a saved result form when switching to another route that supports it', async () => {
+    const related = item('route-count', 'Route count', 8, 'Observation');
+    const countOption: ConstructionChoice['options'][number] = {
+      form: 'COUNT',
+      shape: 'SCALAR',
+      decision: 'REQUIRES_DECISION',
+      preservation: 'REDUCING',
+      rowEffect: 'PRESERVES_ROW_GRAIN',
+      support: 'SUPPORTED',
+      reason: 'Loom proves this route supports distinct related record counts.',
+    };
+    const subjectChoice: ConstructionChoice = {
+      ...semanticChoice('saved-subject-route', related, [countOption]),
+      route: [{
+        edgeId: 'patient-observation-subject',
+        fromNodeId: 'patient-node',
+        toNodeId: 'observation-node',
+        fromResourceType: 'Patient',
+        toResourceType: 'Observation',
+        relationship: 'subject_Patient',
+        storageDirection: 'INBOUND',
+        matchMode: 'OPTIONAL',
+      }],
+    };
+    const focusChoice: ConstructionChoice = {
+      ...subjectChoice,
+      choiceId: 'saved-focus-route',
+      route: [{
+        ...subjectChoice.route[0]!,
+        edgeId: 'patient-observation-focus',
+        relationship: 'focus_Patient',
+      }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      const response = url.endsWith('/semantic-inventory')
+        ? page([related])
+        : url.endsWith('/construction-choices')
+          ? {
+              snapshotToken: 'snapshot-a',
+              outputId: 'patients',
+              complete: true,
+              truncated: false,
+              choices: [subjectChoice, focusChoice],
+            }
+          : undefined;
+      if (!response) throw new Error(`Unexpected request: ${url}`);
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const onAddSelected = renderCatalogAtRoute(
+      fetch,
+      { occurrenceId: 'observations', nodeId: 'observation-node' },
+      vi.fn().mockResolvedValue(undefined),
+      { choiceId: subjectChoice.choiceId, form: 'COUNT' },
+    );
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Route count' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    const countRadio = within(dialog).getByRole('radio', { name: 'Route count: Count matching records' });
+    expect(countRadio).toHaveProperty('checked', true);
+    fireEvent.click(within(dialog).getByRole('radio', {
+      name: 'Route count: Direct relationship: Patient to Observation via Focus',
+    }));
+    expect(countRadio).toHaveProperty('checked', true);
+    expect(within(dialog).getByRole('button', { name: 'Add 1 column' })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+
+    await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: focusChoice.choiceId, form: 'COUNT' },
+      title: 'Route count',
+    }]));
   });
 
   it('pins node-local code selection to the selected authored occurrence route', async () => {

@@ -129,15 +129,20 @@ export const CatalogSelectionDialog = ({
       ? new Map([[initialSelection.choiceId, initialSelection.condition]])
       : new Map(),
   );
+  const [unresolvedConditions, setUnresolvedConditions] = useState<ReadonlyMap<string, ConditionDraft>>(
+    () => new Map(),
+  );
 
   const complete = groups.every((group) => {
+    const itemKey = catalogItemKey(group.item);
     const choice = group.choices.find(
-      (candidate) => candidate.choiceId === choiceIDs.get(catalogItemKey(group.item)),
+      (candidate) => candidate.choiceId === choiceIDs.get(itemKey),
     );
     const form = choice ? forms.get(choice.choiceId) : undefined;
     const option = choice?.options.find((candidate) => candidate.form === form);
     const condition = choice ? conditions.get(choice.choiceId) : undefined;
     return Boolean(
+      !unresolvedConditions.has(itemKey) &&
       choice &&
       form &&
       option &&
@@ -215,6 +220,13 @@ export const CatalogSelectionDialog = ({
             const selectedForm = choice ? forms.get(choice.choiceId) : undefined;
             const selectedOption = choice?.options.find((option) => option.form === selectedForm);
             const predicateOperators = selectedOption?.contributorPredicateOperators ?? [];
+            const unresolvedCondition = unresolvedConditions.get(key);
+            const selectedCondition = choice ? conditions.get(choice.choiceId) : undefined;
+            const invalidCondition = unresolvedCondition ?? (
+              selectedCondition && selectedCondition.mode !== 'ALL' && !predicateOperators.includes(selectedCondition.mode)
+                ? selectedCondition
+                : undefined
+            );
             return (
               <article key={key} className="rounded-lg border border-slate-200 p-3">
                 <h3 className="font-semibold text-slate-900">
@@ -248,11 +260,43 @@ export const CatalogSelectionDialog = ({
                                 aria-label={`${catalogItemLabel(item)}: ${label}`}
                                 checked={choice?.choiceId === routeChoice.choiceId}
                                 onChange={() => {
+                                  const currentForm = choice ? forms.get(choice.choiceId) : undefined;
+                                  const retainedForm = currentForm && routeChoice.options.some(
+                                    (option) => option.form === currentForm && option.support === 'SUPPORTED',
+                                  )
+                                    ? currentForm
+                                    : undefined;
+                                  const nextForm = retainedForm ?? catalogItemDefaultForm(routeChoice);
+                                  const currentCondition = unresolvedCondition ?? (choice ? conditions.get(choice.choiceId) : undefined);
+                                  const nextOption = routeChoice.options.find((option) => option.form === nextForm);
+                                  const canTransferCondition = !currentCondition ||
+                                    currentCondition.mode === 'ALL' ||
+                                    Boolean(nextOption?.contributorPredicateOperators?.includes(currentCondition.mode));
                                   setChoiceIDs((current) => new Map(current).set(key, routeChoice.choiceId));
-                                  const defaultForm = catalogItemDefaultForm(routeChoice);
-                                  if (defaultForm) {
-                                    setForms((current) => new Map(current).set(routeChoice.choiceId, defaultForm));
-                                  }
+                                  setForms((current) => {
+                                    const next = new Map(current);
+                                    if (nextForm) next.set(routeChoice.choiceId, nextForm);
+                                    else next.delete(routeChoice.choiceId);
+                                    return next;
+                                  });
+                                  setConditions((current) => {
+                                    const next = new Map(current);
+                                    if (currentCondition && canTransferCondition) {
+                                      next.set(routeChoice.choiceId, currentCondition);
+                                    } else {
+                                      next.delete(routeChoice.choiceId);
+                                    }
+                                    return next;
+                                  });
+                                  setUnresolvedConditions((current) => {
+                                    const next = new Map(current);
+                                    if (currentCondition && currentCondition.mode !== 'ALL' && !canTransferCondition) {
+                                      next.set(key, currentCondition);
+                                    } else {
+                                      next.delete(key);
+                                    }
+                                    return next;
+                                  });
                                 }}
                                 className="mt-1 h-4 w-4 border-slate-300 text-blue-700"
                               />
@@ -341,7 +385,17 @@ export const CatalogSelectionDialog = ({
                             name={`construction-choice-${choice.choiceId}`}
                             aria-label={`${catalogItemLabel(item)}: ${label}`}
                             checked={selectedForm === option.form}
-                            onChange={() => setForms((current) => new Map(current).set(choice.choiceId, option.form))}
+                            onChange={() => {
+                              setForms((current) => new Map(current).set(choice.choiceId, option.form));
+                              if (unresolvedCondition && (unresolvedCondition.mode === 'ALL' || option.contributorPredicateOperators?.includes(unresolvedCondition.mode))) {
+                                setConditions((current) => new Map(current).set(choice.choiceId, unresolvedCondition));
+                                setUnresolvedConditions((current) => {
+                                  const next = new Map(current);
+                                  next.delete(key);
+                                  return next;
+                                });
+                              }
+                            }}
                             className="mt-1 h-4 w-4 border-slate-300 text-blue-700"
                           />
                           <span className="min-w-0 flex-1">
@@ -370,7 +424,27 @@ export const CatalogSelectionDialog = ({
                     );
                   })}
                 </fieldset> : null}
-                {choice?.route.length && item.kind === 'FIELD' && predicateOperators.length > 0 ? (
+                {invalidCondition ? (
+                  <p role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                    The {invalidCondition.mode === 'EQUALS'
+                      ? `exact-value condition for ${catalogItemLabel(item)} (${invalidCondition.value})`
+                      : `${catalogItemLabel(item)} value-exists condition`} is not supported by this route and result form. Choose a supported matching rule or use all related records before adding this field.
+                    <button
+                      type="button"
+                      className="ml-2 font-semibold underline"
+                      onClick={() => {
+                        if (!choice) return;
+                        setConditions((current) => new Map(current).set(choice.choiceId, { mode: 'ALL', value: '' }));
+                        setUnresolvedConditions((current) => {
+                          const next = new Map(current);
+                          next.delete(key);
+                          return next;
+                        });
+                      }}
+                    >Use all related records</button>
+                  </p>
+                ) : null}
+                {choice?.route.length && item.kind === 'FIELD' && (predicateOperators.length > 0 || invalidCondition) ? (
                   <fieldset className="mt-3 space-y-2" disabled={busy}>
                     <legend className="text-sm font-medium text-slate-800">Matching records</legend>
                     <p className="text-xs text-slate-600">This condition selects related records. It does not remove table rows.</p>
@@ -388,10 +462,17 @@ export const CatalogSelectionDialog = ({
                           type="radio"
                           name={`construction-condition-${choice.choiceId}`}
                           checked={(conditions.get(choice.choiceId)?.mode ?? 'ALL') === mode}
-                          onChange={() => setConditions((current) => new Map(current).set(choice.choiceId, {
-                            mode,
-                            value: current.get(choice.choiceId)?.value ?? '',
-                          }))}
+                          onChange={() => {
+                            setConditions((current) => new Map(current).set(choice.choiceId, {
+                              mode,
+                              value: current.get(choice.choiceId)?.value ?? '',
+                            }));
+                            setUnresolvedConditions((current) => {
+                              const next = new Map(current);
+                              next.delete(key);
+                              return next;
+                            });
+                          }}
                         />
                         {label}
                       </label>

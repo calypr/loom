@@ -163,6 +163,42 @@ describe('ConstructionWorkspace', () => {
     ]);
   });
 
+  it('describes the saved related result form accurately', () => {
+    for (const [form, summary] of [
+      ['ALL', 'Add all matching values from Observation.status as Observation result.'],
+      ['COUNT', 'Count matching Observation records as Observation result.'],
+      ['PRESENCE', 'Show whether matching Observation records exist as Observation result.'],
+    ] as const) {
+      const construction: Construction = {
+        version: 1,
+        steps: [{
+          id: 'related-observation',
+          inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: {
+            kind: 'RELATED_SOURCE',
+            relatedSource: {
+              anchorColumnId: 'patient-id',
+              choiceId: 'observation-choice',
+              sourceOccurrenceId: 'observation-node',
+              source: {
+                kind: 'FIELD', candidateId: 'observation-status', nodeId: 'observation-node',
+                resourceType: 'Observation', path: 'status', cardinality: 'optional_one', logicalType: 'string',
+              },
+              route: [],
+              contributorRule: { policy: 'ALL_MATCHES' },
+              form,
+              outputColumnId: 'observation-result',
+            },
+          },
+          outputs: [{ id: 'observation-result', name: 'observation_result', label: 'Observation result' }],
+        }],
+      };
+      expect(constructionHistorySteps(construction, [])).toEqual([
+        { id: 'related-observation', title: 'Related source', summary, editable: true },
+      ]);
+    }
+  });
+
   it('summarizes and exposes saved Group and Expand steps while describing Combine inputs', () => {
     const construction: Construction = {
       version: 1,

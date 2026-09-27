@@ -176,10 +176,15 @@ const formatStep = (
       const route = related.route.length > 0
         ? ` via ${related.route.map((edge) => edge.relationship).join(' → ')}`
         : '';
+      const action = related.form === 'COUNT'
+        ? `Count matching ${related.source.resourceType} records`
+        : related.form === 'PRESENCE'
+          ? `Show whether matching ${related.source.resourceType} records exist`
+          : `Add all matching values from ${source}`;
       return {
         id: step.id,
         title: 'Related source',
-        summary: `Add all matching values from ${source}${route} as ${output}.`,
+        summary: `${action}${route} as ${output}.`,
         editable: true,
       };
     }
