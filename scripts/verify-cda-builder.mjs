@@ -37,7 +37,80 @@ browser.cdp.on('Network.responseReceived', (event) => {
 try {
   await navigate(browser.cdp, pageURL);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-  if (action === 'Publish current dataset') {
+  if (action === 'Verify bounded published Viewer') {
+    const targetURL='http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=cda-bounded-publish-qa-1790471259754&mode=viewer';
+    const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
+    await navigate(browser.cdp,targetURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(sourceID)})`, 30000);
+    const state=await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,2500),tables:[...document.querySelectorAll('[role="table"],table')].map(table=>({text:table.innerText.slice(0,900),rows:table.getAttribute('aria-rowcount')})),buttons:[...document.querySelectorAll('button')].filter(button=>button.offsetParent!==null).map(button=>button.innerText.slice(0,70)).filter(Boolean).slice(0,35)};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'bounded-published-viewer.json'),JSON.stringify({targetURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Publish bounded CDA dataset') {
+    const targetExplorer='cda-bounded-publish-qa-1790471259754';
+    const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
+    const selectionID='selection_7e68d46dc2f2f6c6f4c37f2ef943f50d0018051f1401f875c19c4356830d44f5';
+    const targetURL=`http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder&selection=${selectionID}`;
+    await navigate(browser.cdp,targetURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(sourceID)})`, 30000);
+    const before=await browserEval(browser.cdp, `const publish=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish');return {preview:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,500),publishDisabled:publish?.disabled};`);
+    assert.equal(before.publishDisabled,false);
+    const started=Date.now();
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish').click();return true;`);
+    const deadline=Date.now()+180000;
+    while (!responses.some(response=>response.path.endsWith('/publish')) && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,250));
+    const published=responses.find(response=>response.path.endsWith('/publish'));
+    assert(published,'Bounded CDA Publish did not return');
+    let result;
+    try { result=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:published.requestId})).body); } catch { result=undefined; }
+    const after=await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,2300),buttons:[...document.querySelectorAll('button')].filter(button=>['Publish','Viewer'].includes(button.textContent?.trim())).map(button=>({text:button.innerText,disabled:button.disabled}))};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'bounded-publication.json'),JSON.stringify({targetURL,before,published,publishElapsedMs:Date.now()-started,result,after,requests,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,before,published,publishElapsedMs:Date.now()-started,result,after,responses:responses.filter(response=>response.status>=400)},null,2));
+    assert.equal(published.status,200,JSON.stringify(result));
+  } else if (action === 'Verify bounded publication') {
+    const targetExplorer='cda-bounded-publish-qa-1790471259754';
+    const targetURL=`http://127.0.0.1:30002/?project=loom_dev_cda_fhir&explorer=${targetExplorer}&mode=builder`;
+    const sourceID='9a651f6b-6b9b-54a5-8294-31a42a6df35f';
+    const state={targetExplorer,targetURL,sourceID};
+    await navigate(browser.cdp,targetURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Build your first table')`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`, 30000);
+    state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${targetExplorer}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-bounded-publish-${Date.now()}',source:{kind:'resources',resources:{refs:[{project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'BodyStructure',id:${JSON.stringify(sourceID)}}]}}})});return {status:response.status,body:await response.json()};`);
+    assert.equal(state.selection.status,201,JSON.stringify(state.selection.body));
+    await navigate(browser.cdp,`${targetURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per BodyStructure')`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+    state.before=await browserEval(browser.cdp, `const publish=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish');return {preview:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,600),publishDisabled:publish?.disabled,body:document.body.innerText.slice(0,1200)};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'bounded-publication-preflight.json'),JSON.stringify({targetURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Inspect bounded publication') {
+    const explorerName=`CDA bounded publish QA ${Date.now()}`;
+    const state={explorerName};
+    await browserEval(browser.cdp, `[...document.querySelectorAll('summary')].find(item=>item.innerText.trim()==='New explorer').click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('#new-explorer-name'))`, 30000);
+    await browserEval(browser.cdp, `const input=document.querySelector('#new-explorer-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(explorerName)});input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Create blank'&&!button.disabled))`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='Create blank').click();return true;`);
+    await new Promise(resolve=>setTimeout(resolve,1200));
+    state.afterCreate=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim(),body:document.body.innerText.slice(0,2500),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`);
+    console.log(JSON.stringify({explorerName,afterCreate:state.afterCreate},null,2));
+    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Explorer"] option:checked')?.textContent.trim()===${JSON.stringify(explorerName)}`, 30000);
+    state.explorerId=await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Explorer"]')?.value;`);
+    state.initial=await browserEval(browser.cdp, `return {text:document.body.innerText.slice(0,1800),buttons:[...document.querySelectorAll('button')].filter(button=>button.offsetParent!==null).map(button=>({text:button.innerText.slice(0,65),disabled:button.disabled})).slice(0,25)};`);
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(join(evidenceDirectory,'bounded-publication-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+  } else if (action === 'Publish current dataset') {
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview')?.click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="table"]'))`, 30000);
     const before=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Publish');return {disabled:button?.disabled,text:document.body.innerText.slice(0,800),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(element=>element.innerText)};`);
@@ -112,12 +185,19 @@ try {
     await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Download dataset')?.click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]')) || document.body.innerText.includes('Dataset download failed')`, 30000);
     const state=await browserEval(browser.cdp, `return {text:document.body.innerText.slice(0,2500),dialogs:[...document.querySelectorAll('[role="dialog"]')].map(dialog=>dialog.innerText),buttons:[...document.querySelectorAll('button')].filter(button=>button.offsetParent!==null).map(button=>({text:button.innerText.trim(),disabled:button.disabled})).filter(button=>button.text).slice(0,25)};`);
-    const download=await browserEval(browser.cdp, `const link=document.querySelector('[role="dialog"] a[download]');if(!link)return null;const response=await fetch(link.href);const bytes=new Uint8Array(await response.arrayBuffer());return {status:response.status,contentType:response.headers.get('content-type'),bytes:bytes.length,signature:[...bytes.slice(0,4)]};`);
+    const download=await browserEval(browser.cdp, `const link=document.querySelector('[role="dialog"] a[download]');if(!link)return null;const response=await fetch(link.href);const bytes=new Uint8Array(await response.arrayBuffer());return {status:response.status,contentType:response.headers.get('content-type'),bytes:bytes.length,signature:[...bytes.slice(0,4)],base64:btoa(String.fromCharCode(...bytes))};`);
     await mkdir(evidenceDirectory,{recursive:true});
-    await writeFile(join(evidenceDirectory,'export-options.json'),JSON.stringify({pageURL,state,download,responses},null,2));
-    console.log(JSON.stringify({evidenceDirectory,dialogs:state.dialogs,download,responses:responses.filter(response=>response.status>=400)},null,2));
+    const archivePath=join(evidenceDirectory,'published-dataset.zip');
+    await writeFile(archivePath,Buffer.from(download.base64,'base64'));
+    const archiveEntries=execFileSync('unzip',['-Z','-1',archivePath],{encoding:'utf8'}).trim().split('\n');
+    const csvEntry=archiveEntries.find(entry=>entry.endsWith('.csv'));
+    assert(csvEntry,`Export is missing a CSV: ${archiveEntries.join(', ')}`);
+    const csv=execFileSync('unzip',['-p',archivePath,csvEntry],{encoding:'utf8'});
+    await writeFile(join(evidenceDirectory,'export-options.json'),JSON.stringify({pageURL,state,download:{status:download.status,contentType:download.contentType,bytes:download.bytes,signature:download.signature},archiveEntries,csv,responses},null,2));
+    console.log(JSON.stringify({evidenceDirectory,dialogs:state.dialogs,download:{status:download.status,contentType:download.contentType,bytes:download.bytes,signature:download.signature},archiveEntries,csv,responses:responses.filter(response=>response.status>=400)},null,2));
     assert.equal(download?.status,200);
     assert.deepEqual(download?.signature,[80,75,3,4]);
+    if(explorerId==='cda-bounded-publish-qa-1790471259754') assert(csv.includes('9a651f6b-6b9b-54a5-8294-31a42a6df35f'),`Export lacks bounded CDA source ID: ${csv}`);
   } else if (action === 'Switch explorers') {
     const first=await browserEval(browser.cdp, `return {selected:document.querySelector('select[aria-label="Explorer"]')?.value,tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
     const target=explorerId==='cda-builder-full-qa-1790439585678'?'cda-builder-full-qa-1790440983382':'cda-builder-full-qa-1790439585678';
@@ -522,6 +602,100 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
       }
+    }
+  } else if (action === 'Inspect bounded Observation concept' || action === 'Verify bounded Observation concept') {
+    const observationID='008a5c3c-b733-506f-ad82-9ca42070d1be';
+    const oracleOutput=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',`var rows=db._query("FOR d IN Observation FILTER d.id == @id LIMIT 1 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,component:d.payload.component}",{id:"${observationID}"}).toArray();print(JSON.stringify(rows))`],{encoding:'utf8',maxBuffer:200000});
+    const rawRows=JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
+    assert.equal(rawRows.length,1);
+    assert.equal(rawRows[0].project,'loom_dev_cda_fhir');
+    assert.equal(rawRows[0].generation,'cda-fhir-v1');
+    const expected=rawRows[0].component.find(component=>component.code?.coding?.some(code=>code.code==='primary_disease_type'))?.valueString;
+    assert(expected,'The bounded CDA Observation has no primary_disease_type value');
+    const tableName=`Observation concept QA ${Date.now()}`;
+    const state={tableName,observationID,expected,rawOracle:rawRows[0]};
+    let created=false;
+    try {
+      state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-concept-${Date.now()}',source:{kind:'resources',resources:{refs:[{project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'Observation',id:${JSON.stringify(observationID)}}]}}})});return {status:response.status,body:await response.json()};`);
+      assert.equal(state.selection.status,201,JSON.stringify(state.selection.body));
+      await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`, 30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Observation rows"]').click();return true;`);
+      created=true;
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)})`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Observation')`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select primary_disease_type"]:not(:disabled)'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select primary_disease_type"]').click();[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
+      state.choice=await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText.slice(0,4000),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),text:input.closest('label')?.innerText,disabled:input.disabled}))};`);
+      if (action === 'Verify bounded Observation concept') {
+        await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="primary_disease_type: Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
+        state.added=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),remove:[...document.querySelectorAll('button[aria-label^="Remove "]')].map(button=>button.getAttribute('aria-label')).filter(label=>label.includes('primary_disease')),body:document.body.innerText.slice(0,1000)};`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
+        state.preview=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        assert(state.preview.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected)})`, 30000);
+        state.saved=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        assert(state.saved.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
+        state.editEntry=await browserEval(browser.cdp, `return {mode:document.querySelector('[aria-label="Add columns editor"]')?'catalog':'graph',input:document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')?.offsetParent!==null,buttons:[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].filter(button=>button.offsetParent!==null).map(button=>button.innerText.slice(0,80)).filter(Boolean).slice(0,14)};`);
+        if (!state.editEntry.input) await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured primary_disease_type"]:not(:disabled)'))`, 30000);
+        await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Display name for configured primary_disease_type"]');input.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA primary disease');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')?.value==='CDA primary disease'`, 30000);
+        const commandsBeforeLabelEdit=responses.filter(response=>response.path.endsWith('/commands')).length;
+        await browserEval(browser.cdp, `document.querySelector('input[aria-label="Display name for configured primary_disease_type"]').blur();return true;`);
+        const labelEditDeadline=Date.now()+30000;
+        while (responses.filter(response=>response.path.endsWith('/commands')).length===commandsBeforeLabelEdit && Date.now()<labelEditDeadline) await new Promise(resolve=>setTimeout(resolve,100));
+        assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,'Concept label edit failed');
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='CDA PRIMARY DISEASE')`, 30000);
+        state.edited=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        assert(state.edited.rows.some(row=>row.includes(observationID)&&row.includes(expected)));
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Remove primary_disease_type"]:not(:disabled)'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Remove primary_disease_type"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes('1 configured')`, 30000);
+        await navigate(browser.cdp,`${pageURL}&selection=${encodeURIComponent(state.selection.body.id)}`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1'`, 30000);
+        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        assert.deepEqual(state.restored.headers,['OBSERVATION ID']);
+        assert.deepEqual(state.restored.rows,[[observationID]]);
+      }
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'bounded-observation-concept-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
+      console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+    } catch (error) {
+      state.failure={message:error instanceof Error?error.message:String(error),dom:await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,2500),inputs:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,focused:document.activeElement===input})),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`)};
+      await mkdir(evidenceDirectory,{recursive:true});
+      await writeFile(join(evidenceDirectory,'bounded-observation-concept-failure.json'),JSON.stringify({pageURL,state,responses},null,2));
+      throw error;
+    } finally {
+      if (created) await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))?.click();[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Delete')?.click();return true;`);
     }
   } else if (action === 'Inspect bounded pivot' || action === 'Verify bounded pivot') {
     const oracleOutput=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string','var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.filter(d=>["abdomen","colon"].some(v=>(d.payload.includedStructure||[]).some(x=>(x.structure?.coding||[]).some(c=>c.code===v)))).map(d=>({id:d.id,code:d.payload.includedStructure[0].structure.coding[0].code,resourceType:d.payload.resourceType}))))'],{encoding:'utf8',maxBuffer:200000});
