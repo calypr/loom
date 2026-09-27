@@ -22,6 +22,7 @@ const (
 	CodeInvalidFilter                    ErrorCode = "INVALID_FILTER"
 	CodeUnboundedPivot                   ErrorCode = "UNBOUNDED_PIVOT"
 	CodeInvalidPivotColumn               ErrorCode = "INVALID_PIVOT_COLUMN"
+	CodeTablePivotUnlistedCategory       ErrorCode = "TABLE_PIVOT_UNLISTED_CATEGORY"
 	CodeInvalidSlice                     ErrorCode = "INVALID_SLICE"
 	CodePlanTooExpensive                 ErrorCode = "PLAN_TOO_EXPENSIVE"
 	CodeInvalidCursor                    ErrorCode = "INVALID_CURSOR"
@@ -79,7 +80,7 @@ const (
 // Builder user can resolve without an operator or a retry.
 func IsFeatureResolutionCode(code string) bool {
 	switch ErrorCode(code) {
-	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty:
+	case CodeRelationshipCardinalityViolation, CodeTemporalAnchorInvalid, CodeTemporalPrecisionUnsupported, CodeTemporalTieAmbiguous, CodeUnitIdentityUnknown, CodeUnitDimensionIncompatible, CodeConstructionExpansionEmpty, CodeTablePivotUnlistedCategory:
 		return true
 	default:
 		return false
@@ -397,6 +398,8 @@ func defaultMessage(code ErrorCode) string {
 		return "a measurement unit is dimensionally incompatible with the feature target"
 	case CodeConstructionExpansionEmpty:
 		return "a list is empty for at least one row; choose 'Drop the original row' or 'Keep the row with a missing item', or populate the list"
+	case CodeTablePivotUnlistedCategory:
+		return "Pivot found an unlisted category; select all discovered categories or filter rows before Pivot."
 	default:
 		return "internal server error"
 	}

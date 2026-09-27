@@ -1050,6 +1050,7 @@ func TestPublishRejectsRelationshipCardinalityViolationWithoutPublishing(t *test
 func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *testing.T) {
 	for _, code := range []dataframeerrors.ErrorCode{
 		dataframeerrors.CodeConstructionExpansionEmpty,
+		dataframeerrors.CodeTablePivotUnlistedCategory,
 		dataframeerrors.CodeTemporalAnchorInvalid,
 		dataframeerrors.CodeTemporalPrecisionUnsupported,
 		dataframeerrors.CodeTemporalTieAmbiguous,
@@ -1066,6 +1067,9 @@ func TestClassifyMaterializationErrorPreservesTemporalResolutionFailures(t *test
 			if code == dataframeerrors.CodeConstructionExpansionEmpty &&
 				(!strings.Contains(lifecycleErr.Message, "Drop the original row") || !strings.Contains(lifecycleErr.Message, "Keep the row with a missing item")) {
 				t.Fatalf("empty expansion message = %q, want both supported empty-list policies", lifecycleErr.Message)
+			}
+			if code == dataframeerrors.CodeTablePivotUnlistedCategory && !strings.Contains(lifecycleErr.Message, "select all discovered categories or filter rows before Pivot") {
+				t.Fatalf("unlisted pivot category message = %q, want category-selection guidance", lifecycleErr.Message)
 			}
 		})
 	}

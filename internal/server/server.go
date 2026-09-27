@@ -78,6 +78,8 @@ func classifyDataframeQueryError(err error) error {
 		return err
 	}
 	switch {
+	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionExpansionEmpty, "")
 	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
