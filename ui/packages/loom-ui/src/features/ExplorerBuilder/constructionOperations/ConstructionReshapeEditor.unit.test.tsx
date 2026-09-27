@@ -371,16 +371,20 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByLabelText('Summary output label 1')).toBeDisabled();
   });
 
-  it('requires an explicit empty-list policy and offers a zero-based position column', () => {
+  it('keeps empty-list parent rows by default and offers a zero-based position column in Advanced options', () => {
     const onCandidateChange = vi.fn();
     renderEditor({ onCandidateChange });
     fireEvent.click(screen.getByTestId('construction-reshape-choice-expand'));
 
     expect(controlValue('Repeated field')).toBe('tags-id');
-    expect(controlValue('Empty list policy')).toBe('');
+    expect(controlValue('Empty list policy')).toBe('PRESERVE_PARENT');
+    expect(screen.getByTestId('construction-reshape-expand-empty-effect')).toHaveTextContent('keep the original row with an empty item');
+    const advanced = screen.getByTestId('construction-reshape-expand-advanced');
+    expect(advanced).not.toHaveAttribute('open');
     expect(controlChecked('Include item position')).toBe(false);
+    fireEvent.click(screen.getByText('Advanced options'));
+    expect(advanced).toHaveAttribute('open');
     fireEvent.click(screen.getByLabelText('Include item position'));
-    fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
     fireEvent.change(screen.getByLabelText('Expanded item name'), { target: { value: 'tag_item' } });
 
     const intent = onCandidateChange.mock.lastCall?.[0];
@@ -398,6 +402,8 @@ describe('ConstructionReshapeEditor', () => {
       },
     });
     expect(parsed.steps.at(-1)?.outputs).toContainEqual(expect.objectContaining({ name: 'tag_item' }));
+    fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'EXCLUDE' } });
+    expect(screen.getByTestId('construction-reshape-expand-empty-effect')).toHaveTextContent('leave out the original row');
   });
 
   it('expands only list-cardinality columns at an intermediate stage and preserves output IDs', () => {
@@ -425,7 +431,6 @@ describe('ConstructionReshapeEditor', () => {
     const repeatedField = screen.getByLabelText('Repeated field');
     expect(repeatedField.querySelectorAll('option')).toHaveLength(1);
     expect(controlValue('Repeated field')).toBe('tags-id');
-    fireEvent.change(screen.getByLabelText('Empty list policy'), { target: { value: 'PRESERVE_PARENT' } });
     const firstIntent = onCandidateChange.mock.lastCall?.[0];
     expect(firstIntent).toBeDefined();
     if (!firstIntent) throw new Error('Expected an expand proposal candidate');
@@ -436,6 +441,7 @@ describe('ConstructionReshapeEditor', () => {
       : undefined;
     const outputIds = firstExpand?.outputs.map((column) => column.id);
 
+    fireEvent.click(screen.getByText('Advanced options'));
     fireEvent.change(screen.getByLabelText('Expanded item label'), { target: { value: 'Observed tag' } });
     const editedIntent = onCandidateChange.mock.lastCall?.[0];
     expect(editedIntent).toBeDefined();
@@ -499,6 +505,8 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     expect(controlValue('Repeated field')).toBe('tags-id');
+    expect(screen.getByTestId('construction-reshape-expand-advanced')).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Advanced options'));
     expect(controlValue('Expanded item name')).toBe('tag_value');
     expect(controlValue('Position column name')).toBe('tag_position');
     expect(controlValue('Empty list policy')).toBe('PRESERVE_PARENT');

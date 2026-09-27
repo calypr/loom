@@ -759,7 +759,7 @@ const initialExpandForm = (
     outputName: firstList ? `${normalizedName(firstList.name)}_item` : 'item',
     outputLabel: firstList ? `${firstList.label} item` : 'Item',
     ordinal: { kind: 'none' },
-    emptyPolicy: undefined,
+    emptyPolicy: 'PRESERVE_PARENT',
   };
 };
 
@@ -1662,63 +1662,77 @@ const ExpandEditor = (props: {
               {columns.map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown item type'})</option>)}
             </select>
           </label>
-          <div className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Item column name
-              <input aria-label="Expanded item name" value={props.form.outputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-            </label>
-            <label className="grid gap-1 text-sm font-medium text-slate-700">
-              Item column label
-              <input aria-label="Expanded item label" value={props.form.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
-            </label>
-          </div>
-          <label className="flex items-start gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
-            <input
-              type="checkbox"
-              aria-label="Include item position"
-              checked={props.form.ordinal.kind === 'include'}
-              disabled={props.disabled || !props.supported}
-              onChange={(event) => props.onChange({
-                ...props.form,
-                ordinal: event.currentTarget.checked
-                  ? { kind: 'include', outputColumnId: createOpaqueId('expand-ordinal'), outputName: uniqueName(`${normalizedName(input?.name ?? 'item')}_position`, new Set(outputColumns.map((column) => column.name.toLowerCase()))), outputLabel: 'Item position, zero-based' }
-                  : { kind: 'none' },
-              })}
-              className="mt-0.5"
-            />
-            <span><span className="block font-medium text-slate-800">Include item position</span><span className="block text-xs text-slate-500">Add a zero-based position column for each item.</span></span>
-          </label>
-          {props.form.ordinal.kind === 'include' ? (
-            <div className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-2">
-              <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Position column name
-                <input aria-label="Position column name" value={props.form.ordinal.outputName} disabled={props.disabled || !props.supported} onChange={(event) => {
-                  const ordinal = props.form.ordinal;
-                  if (ordinal.kind === 'include') props.onChange({ ...props.form, ordinal: { ...ordinal, outputName: event.currentTarget.value } });
-                }} className="rounded border border-slate-300 px-2 py-1.5" />
+          <p data-testid="construction-reshape-expand-empty-effect" className="text-sm text-slate-600">
+            For an empty or missing list, {props.form.emptyPolicy === 'PRESERVE_PARENT'
+              ? 'keep the original row with an empty item.'
+              : props.form.emptyPolicy === 'EXCLUDE'
+                ? 'leave out the original row.'
+                : props.form.emptyPolicy === 'ERROR'
+                  ? 'stop the operation with an error.'
+                  : 'choose how to handle the original row in Advanced options.'}
+          </p>
+          <details data-testid="construction-reshape-expand-advanced" className="rounded-lg border border-slate-200">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700">Advanced options</summary>
+            <div className="grid gap-3 p-3 pt-0">
+              <div className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Item column name
+                  <input aria-label="Expanded item name" value={props.form.outputName} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputName: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                </label>
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Item column label
+                  <input aria-label="Expanded item label" value={props.form.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, outputLabel: event.currentTarget.value })} className="rounded border border-slate-300 px-2 py-1.5" />
+                </label>
+              </div>
+              <label className="flex items-start gap-2 rounded border border-slate-200 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label="Include item position"
+                  checked={props.form.ordinal.kind === 'include'}
+                  disabled={props.disabled || !props.supported}
+                  onChange={(event) => props.onChange({
+                    ...props.form,
+                    ordinal: event.currentTarget.checked
+                      ? { kind: 'include', outputColumnId: createOpaqueId('expand-ordinal'), outputName: uniqueName(`${normalizedName(input?.name ?? 'item')}_position`, new Set(outputColumns.map((column) => column.name.toLowerCase()))), outputLabel: 'Item position, zero-based' }
+                      : { kind: 'none' },
+                  })}
+                  className="mt-0.5"
+                />
+                <span><span className="block font-medium text-slate-800">Include item position</span><span className="block text-xs text-slate-500">Add a zero-based position column for each item.</span></span>
               </label>
+              {props.form.ordinal.kind === 'include' ? (
+                <div className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Position column name
+                    <input aria-label="Position column name" value={props.form.ordinal.outputName} disabled={props.disabled || !props.supported} onChange={(event) => {
+                      const ordinal = props.form.ordinal;
+                      if (ordinal.kind === 'include') props.onChange({ ...props.form, ordinal: { ...ordinal, outputName: event.currentTarget.value } });
+                    }} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                  <label className="grid gap-1 text-sm font-medium text-slate-700">
+                    Position column label
+                    <input aria-label="Position column label" value={props.form.ordinal.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => {
+                      const ordinal = props.form.ordinal;
+                      if (ordinal.kind === 'include') props.onChange({ ...props.form, ordinal: { ...ordinal, outputLabel: event.currentTarget.value } });
+                    }} className="rounded border border-slate-300 px-2 py-1.5" />
+                  </label>
+                </div>
+              ) : null}
               <label className="grid gap-1 text-sm font-medium text-slate-700">
-                Position column label
-                <input aria-label="Position column label" value={props.form.ordinal.outputLabel} disabled={props.disabled || !props.supported} onChange={(event) => {
-                  const ordinal = props.form.ordinal;
-                  if (ordinal.kind === 'include') props.onChange({ ...props.form, ordinal: { ...ordinal, outputLabel: event.currentTarget.value } });
-                }} className="rounded border border-slate-300 px-2 py-1.5" />
+                When a list is empty
+                <select aria-label="Empty list policy" value={props.form.emptyPolicy ?? ''} disabled={props.disabled || !props.supported} onChange={(event) => {
+                  const policy = emptyListPolicyFromInput(event.currentTarget.value);
+                  if (policy) props.onChange({ ...props.form, emptyPolicy: policy });
+                }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+                  <option value="">Choose what happens</option>
+                  <option value="ERROR">Stop with an error</option>
+                  <option value="EXCLUDE">Drop the original row</option>
+                  <option value="PRESERVE_PARENT">Keep the row with a missing item</option>
+                </select>
+                <span className="text-xs font-normal text-slate-500">This also applies when the repeated value is missing.</span>
               </label>
             </div>
-          ) : null}
-          <label className="grid gap-1 text-sm font-medium text-slate-700">
-            When a list is empty
-            <select aria-label="Empty list policy" value={props.form.emptyPolicy ?? ''} disabled={props.disabled || !props.supported} onChange={(event) => {
-              const policy = emptyListPolicyFromInput(event.currentTarget.value);
-              if (policy) props.onChange({ ...props.form, emptyPolicy: policy });
-            }} className="rounded border border-slate-300 bg-white px-2 py-1.5">
-              <option value="">Choose what happens</option>
-              <option value="ERROR">Stop with an error</option>
-              <option value="EXCLUDE">Drop the original row</option>
-              <option value="PRESERVE_PARENT">Keep the row with a missing item</option>
-            </select>
-            <span className="text-xs font-normal text-slate-500">This also applies when the repeated value is missing.</span>
-          </label>
+          </details>
         </>
       )}
       {nameConflict || !outputNamesValid ? (

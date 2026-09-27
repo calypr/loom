@@ -558,6 +558,8 @@ try {
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
         state.componentFieldChoice = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,2200),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked}))};`);
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
         await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')))`, 30000);
@@ -565,11 +567,12 @@ try {
         if (!state.expandChoice.disabled) {
           await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')).click();return true;`);
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Empty list policy"]'))`, 30000);
-          state.expandEditor = await browserEval(browser.cdp, `return {fields:[...document.querySelector('select[aria-label="Repeated field"]').options].map(option=>({label:option.textContent,selected:option.selected})),text:document.querySelector('[data-testid="construction-reshape-expand"]')?.innerText.slice(0,1200)};`);
-          await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='PRESERVE_PARENT';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          state.expandEditor = await browserEval(browser.cdp, `return {fields:[...document.querySelector('select[aria-label="Repeated field"]').options].map(option=>({label:option.textContent,selected:option.selected})),text:document.querySelector('[data-testid="construction-reshape-expand"]')?.innerText.slice(0,1200),emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value,advancedClosed:!document.querySelector('[data-testid="construction-reshape-expand-advanced"]')?.open};`);
+          assert(state.expandEditor.advancedClosed && state.expandEditor.emptyPolicy==='PRESERVE_PARENT' && state.expandEditor.text.includes('keep the original row'), 'Empty-list default must be clear without opening Advanced options');
           await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
           state.preserveProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,850),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1300),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
           assert(state.preserveProposal.preview.includes('3ea21633-23e1-599b-91fc-b7666953ea26') && state.preserveProposal.preview.includes('—'));
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-expand-advanced"] summary').click();return true;`);
           await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='EXCLUDE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
           await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.includes('0 rows')`, 30000);
           state.excludeProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,850),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,900),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
@@ -595,7 +598,7 @@ try {
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Empty list policy"]'))`, 30000);
           state.savedPolicy = await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Empty list policy"]').value;`);
           assert.equal(state.savedPolicy,'PRESERVE_PARENT');
-          await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='EXCLUDE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-expand-advanced"] summary').click();const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='EXCLUDE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
           await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.includes('0 rows')`, 30000);
           state.editExclude = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,600),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
           assert.equal(state.editExclude.applyDisabled,false);
@@ -605,7 +608,7 @@ try {
           await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
           await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
           await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-          await new Promise(resolve=>setTimeout(resolve,5000));
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='1'`, 30000);
           state.savedExclude = await browserEval(browser.cdp, `return {rowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),body:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,500),page:document.body.innerText.slice(0,2000),alerts:[...document.querySelectorAll('[role="alert"]')].map(item=>item.innerText)};`);
           await writeFile(join(evidenceDirectory,'bounded-observation-components.json'),JSON.stringify({pageURL,state,responses},null,2));
           assert.equal(state.savedExclude.rowCount,'1','Saved zero-row preview did not render an empty table');
@@ -726,6 +729,8 @@ try {
         state.rawOracle = { sourceRecords: rawRows.length, expandedRows: rawRows.reduce((sum, row) => sum + row.urls.length, 0), multi: rawRows.filter(row => row.urls.length > 1) };
         assert(state.rawOracle.multi.length > 0, 'No source record has multiple extension URLs');
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
         const repeatedPreviewStarted = Date.now();
         await browserEval(browser.cdp, `const select=[...document.querySelectorAll('select')].find(item=>[...item.options].some(option=>option.value==='500')&&[...item.options].some(option=>option.value==='25'));if(!select)throw new Error('Preview row limit missing');select.value='500';select.dispatchEvent(new Event('change',{bubbles:true}));[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
@@ -741,11 +746,15 @@ try {
         if (!state.expandChoice.disabled) {
           await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand a repeated value')).click();return true;`);
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="Repeated field"]'))`, 30000);
-          state.expandEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-expand"]')?.innerText.slice(0,1600),fields:[...document.querySelector('select[aria-label="Repeated field"]').options].map(option=>({label:option.textContent,value:option.value,selected:option.selected})),emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value};`);
+          state.expandEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-expand"]')?.innerText.slice(0,1600),fields:[...document.querySelector('select[aria-label="Repeated field"]').options].map(option=>({label:option.textContent,value:option.value,selected:option.selected})),emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value,advancedClosed:!document.querySelector('[data-testid="construction-reshape-expand-advanced"]')?.open,effect:document.querySelector('[data-testid="construction-reshape-expand-empty-effect"]')?.innerText};`);
           assert.equal(state.expandEditor.fields.length, 1);
           assert(state.expandEditor.fields[0].selected && state.expandEditor.fields[0].label.startsWith('extension[].url'));
+          assert(state.expandEditor.advancedClosed && state.expandEditor.emptyPolicy==='PRESERVE_PARENT' && state.expandEditor.effect?.includes('keep the original row'), 'Expand must show a safe default with Advanced options closed');
+          await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+          state.defaultExpandProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,900)};`);
+          assert.equal(state.defaultExpandProposal.status, 'ready', 'The Expand default must produce a preview without Advanced choices');
           const proposalStarted = Date.now();
-          await browserEval(browser.cdp, `document.querySelector('input[aria-label="Include item position"]').click();const select=document.querySelector('select[aria-label="Empty list policy"]');select.value='PRESERVE_PARENT';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-expand-advanced"] summary').click();document.querySelector('input[aria-label="Include item position"]').click();return true;`);
           await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
           state.timingsMs.expandProposal = Date.now() - proposalStarted;
           state.expandProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,900),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1500),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
@@ -770,9 +779,9 @@ try {
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
           await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
           await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-expand"]'))`, 30000);
-          state.savedEditor = await browserEval(browser.cdp, `return {field:document.querySelector('select[aria-label="Repeated field"]')?.selectedOptions[0]?.textContent,position:document.querySelector('input[aria-label="Include item position"]')?.checked,emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value};`);
+          state.savedEditor = await browserEval(browser.cdp, `return {field:document.querySelector('select[aria-label="Repeated field"]')?.selectedOptions[0]?.textContent,position:document.querySelector('input[aria-label="Include item position"]')?.checked,emptyPolicy:document.querySelector('select[aria-label="Empty list policy"]')?.value,advancedClosed:!document.querySelector('[data-testid="construction-reshape-expand-advanced"]')?.open};`);
           assert(state.savedEditor.field?.startsWith('extension[].url') && state.savedEditor.position && state.savedEditor.emptyPolicy==='PRESERVE_PARENT');
-          await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Expanded item label"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA extension URL');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
+          await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-expand-advanced"] summary').click();const input=document.querySelector('input[aria-label="Expanded item label"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA extension URL');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
           await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
           state.editProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled,text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,700)};`);
           assert.equal(state.editProposal.applyDisabled, false);
