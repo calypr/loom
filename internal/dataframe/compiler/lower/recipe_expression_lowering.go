@@ -23,6 +23,19 @@ func recipeFieldProjectionLowerer(output semantic.OutputPlan) semanticFieldProje
 	contexts := recipeExpressionContexts(output)
 	return func(physical *ir.PhysicalPlan, node semantic.SemanticNode, index int, field semantic.SemanticField, source ir.PhysicalValue, bindings map[string]physicalSemanticBinding) (ir.PhysicalProjection, error) {
 		if field.Expr.Expression.Selector != nil {
+			selector := field.Expr.Expression.Selector
+			context := strings.TrimSpace(selector.Context)
+			if context == "" {
+				context = "root"
+			}
+			if expansion := recipeRowExpansion(output); expansion != nil && context == expansion.ItemBinding {
+				binding, ok := bindings[context]
+				if !ok {
+					return ir.PhysicalProjection{}, fmt.Errorf("field %q expansion item context %q is not in physical scope", field.Name, context)
+				}
+				itemNode := semantic.SemanticNode{Alias: context, ResourceType: binding.ResourceType}
+				return lowerSemanticFieldProjection(physical, itemNode, index, field, binding.Source, bindings, nil)
+			}
 			return lowerSemanticFieldProjection(physical, node, index, field, source, bindings, nil)
 		}
 		lowered, err := lowerRecipeExpressionScoped(field.Expr.Expression, physical.BindVars, output.RootResourceType, contexts)

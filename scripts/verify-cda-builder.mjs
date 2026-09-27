@@ -414,6 +414,8 @@ try {
         state.expandedPreview.rawValuesInEachRow = state.expandedPreview.rowValues.map(value => value.split(/\s*;\s*/).filter(Boolean));
         state.expandedPreview.rowValuesMatchRawSourceOrder = JSON.stringify(state.expandedPreview.rowValues) === JSON.stringify(rowValues.map(item => item.value));
         state.expandedPreview.perItemValueVisible = state.expandedPreview.rowValuesMatchRawSourceOrder;
+        assert.deepEqual(state.expandedPreview.rowValues, rowValues.map(item => item.value),
+          `${outputForm} expansion did not display the selected CDA coding value in each row`);
         state.expandedPreview.alignmentNote = state.expandedPreview.rowValuesMatchRawSourceOrder
           ? 'Each expanded row displays one raw coding value.'
           : outputForm === 'FIRST'

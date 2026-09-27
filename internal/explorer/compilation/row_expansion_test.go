@@ -76,6 +76,58 @@ func TestCompileExpandedRowsBindsDeepExactOccurrenceAndIdentity(t *testing.T) {
 	}
 }
 
+func TestCompileExpandedRowsRebasesDirectFieldsWithinSelectedScope(t *testing.T) {
+	document := expandedRowsDocument(authoringv2.RootOccurrenceID, "name[]")
+	document.Route.Children = []authoringv2.RouteNode{{
+		OccurrenceID: "first_condition", ResourceType: "Condition", Relationship: "subject_Patient", CatalogEdgeID: "e_condition",
+		Children: []authoringv2.RouteNode{{
+			OccurrenceID: "second_patient", ResourceType: "Patient", Relationship: "subject_Patient", CatalogEdgeID: "e_patient_return",
+		}},
+	}}
+	document.Columns = append(document.Columns,
+		authoringv2.Column{Column: "given_first", Label: "Given first", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
+		authoringv2.Column{Column: "given_all", Label: "Given all", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "ALL"}}},
+		authoringv2.Column{Column: "family_first", Label: "Family", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].family", ProjectionMode: "FIRST"}}},
+		authoringv2.Column{Column: "related_given", Label: "Related given", OccurrenceID: "second_patient", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "name[].given[]", ProjectionMode: "FIRST"}}},
+	)
+	compiled, err := Compile(context.Background(), "project-a", "explorer-a", document, expandedRowsSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := compiled.Bundle.Outputs[0].Fields
+	got := make(map[string]recipe.Field, len(fields))
+	for _, field := range fields {
+		got[field.Name] = field
+	}
+	for name, want := range map[string]struct {
+		selectPath string
+		fieldRef   string
+		valueMode  recipe.ValueMode
+	}{
+		"patient_id":   {selectPath: "root.id", fieldRef: "id", valueMode: recipe.ValueModeAuto},
+		"given_first":  {selectPath: "__loom_expanded_item.given[]", fieldRef: "name[].given[]", valueMode: recipe.ValueModeFirst},
+		"given_all":    {selectPath: "__loom_expanded_item.given[]", fieldRef: "name[].given[]", valueMode: recipe.ValueModeAll},
+		"family_first": {selectPath: "__loom_expanded_item.family", fieldRef: "name[].family", valueMode: recipe.ValueModeFirst},
+	} {
+		field, ok := got[name]
+		if !ok {
+			t.Fatalf("compiled recipe is missing field %q: %#v", name, fields)
+		}
+		if field.Expr.Select != want.selectPath || field.FieldRef != want.fieldRef || field.ValueMode != want.valueMode {
+			t.Errorf("field %q = selector %q, FieldRef %q, value mode %q; want %q, %q, %q", name, field.Expr.Select, field.FieldRef, field.ValueMode, want.selectPath, want.fieldRef, want.valueMode)
+		}
+	}
+	var relatedFields []recipe.Field
+	for _, traversal := range compiled.Bundle.Outputs[0].Traversals {
+		if traversal.OccurrenceID == "first_condition" && len(traversal.Traversals) > 0 && traversal.Traversals[0].OccurrenceID == "second_patient" {
+			relatedFields = traversal.Traversals[0].Fields
+		}
+	}
+	if len(relatedFields) != 1 || relatedFields[0].Expr.Select != "second_patient.name[].given[]" || relatedFields[0].FieldRef != "name[].given[]" {
+		t.Fatalf("same field path on a different occurrence was rebound to the expanded owner: %#v", relatedFields)
+	}
+}
+
 func TestCompileExpandedRowsBindsRootOccurrenceAndMapsEmptyPolicies(t *testing.T) {
 	policies := []struct {
 		authored authoringv2.EmptyCollectionPolicy

@@ -223,6 +223,17 @@ func expansionItemScope(ownerScope scopeFrame, expansion SemanticRowExpansion) (
 	if err != nil {
 		return scopeFrame{}, err
 	}
+	path := strings.TrimPrefix(strings.TrimSpace(selector.Path), ".")
+	if binding.Prefix != "" {
+		path = binding.Prefix + "." + path
+	}
+	if semantics, ok := fhirschema.ResolveFieldSemantics(binding.ResourceType, path); ok && semantics.Kind == fhirschema.FieldKindArray && semantics.Reference != "" {
+		// Once UNNEST has selected an object item, resolve item-relative
+		// selectors against that item's generated FHIR definition. Keeping the
+		// owner resource and array prefix here makes e.g. item.code resolve as
+		// Observation.code instead of Coding.code.
+		return ownerScope.child(expansion.ItemBinding, scopeBinding{ResourceType: semantics.Reference, ExpandedItem: true})
+	}
 	prefix := binding.Prefix
 	if prefix != "" {
 		prefix += "."

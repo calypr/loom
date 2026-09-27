@@ -129,6 +129,53 @@ func TestCompileRecipeRootExpansionBuildsOccurrenceIdentity(t *testing.T) {
 	}
 }
 
+func TestExpandedItemProjectionUsesItemDefinitionAndPreservesModes(t *testing.T) {
+	output := compileExpansionRecipeOutput(t, recipe.Output{
+		Name: "ExpandedObservationCodings", RootResourceType: "Observation", RootOccurrenceID: "observation-root", RowGrain: "expanded",
+		Fields: []recipe.Field{
+			{Name: "first_code", FieldRef: "component[].code.coding[].code", Expr: recipe.Expression{Select: "item.code"}, ValueMode: recipe.ValueModeFirst},
+			{Name: "all_codes", FieldRef: "component[].code.coding[].code", Expr: recipe.Expression{Select: "item.code"}, ValueMode: recipe.ValueModeAll},
+			{Name: "observation_id", FieldRef: "id", Expr: recipe.Expression{Select: "root.id"}, ValueMode: recipe.ValueModeFirst},
+		},
+		Expand:   &recipe.Expansion{OwnerOccurrenceID: "observation-root", From: recipe.Expression{Select: "root.component[].code.coding[]"}, As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent},
+		Identity: &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}},
+	})
+	projections := map[string]ir.PhysicalProjection{}
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			projections[projection.Name] = projection
+		}
+	}
+	for name, want := range map[string]struct {
+		cardinality  ir.PhysicalCardinality
+		nullBehavior ir.PhysicalNullBehavior
+		resource     string
+		selector     string
+	}{
+		"first_code": {cardinality: ir.PhysicalScalarCardinality, nullBehavior: ir.PhysicalPreserveNull, resource: "Coding", selector: "code"},
+		"all_codes":  {cardinality: ir.PhysicalArrayCardinality, nullBehavior: ir.PhysicalEmptyOnNull, resource: "Coding", selector: "code"},
+	} {
+		projection, ok := projections[name]
+		if !ok || projection.Expression == nil || projection.Expression.Extract == nil {
+			t.Fatalf("projection %q is not a physical extract: %#v", name, projection)
+		}
+		extract := projection.Expression.Extract
+		if projection.Expression.Cardinality != want.cardinality || projection.Expression.NullBehavior != want.nullBehavior || extract.ResourceType != want.resource || extract.Source.Variable != "item" || len(extract.Source.Path) != 0 || extract.Selector.CanonicalPath() != want.selector {
+			t.Errorf("projection %q = cardinality %q/null %q, resource %q, source %#v, selector %q; want %q/%q, %q, item, %q", name, projection.Expression.Cardinality, projection.Expression.NullBehavior, extract.ResourceType, extract.Source, extract.Selector.CanonicalPath(), want.cardinality, want.nullBehavior, want.resource, want.selector)
+		}
+	}
+	if unnest := findRecipeUnnest(t, output.Plan); unnest.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+		t.Fatalf("expanded empty/missing policy = %q, want preserve parent", unnest.EmptyPolicy)
+	}
+	id, ok := projections["observation_id"]
+	if !ok || id.Expression == nil || id.Expression.Extract == nil || id.Expression.Extract.ResourceType != "Observation" || id.Expression.Extract.Source.Variable != "root" || id.Expression.Extract.Selector.CanonicalPath() != "id" {
+		t.Fatalf("unrelated root field was rebound to expanded item: %#v", id)
+	}
+}
+
 func TestCompileRecipeRelatedExpansionReusesDeepOwnerRoute(t *testing.T) {
 	output := compileExpansionRecipeOutput(t, recipe.Output{
 		Name: "ExpandedDocuments", RootResourceType: "Patient", RootOccurrenceID: "patient-root", RowGrain: "expanded",

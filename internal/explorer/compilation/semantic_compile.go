@@ -189,7 +189,13 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 				mappings = append(mappings, explorer.IdentityMapping{OutputID: document.Output.ID, CandidateID: candidateID, OccurrenceID: column.OccurrenceID, ProjectionMode: projectionMode, EmissionIDs: emissionIDs})
 				continue
 			}
-			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: sourcePath, Expr: recipe.Expression{Select: alias + "." + path}, ValueMode: projectionValueMode(projectionMode)})
+			selector := alias + "." + path
+			if document.Rows.Kind == authoringv2.RowDefinitionExpanded && document.Rows.Expanded != nil {
+				if suffix, rebased := expandedItemFieldSuffix(document.Rows.Expanded, column.OccurrenceID, sourcePath); rebased && expansion != nil {
+					selector = expansion.As + "." + suffix
+				}
+			}
+			nodes[column.OccurrenceID].fields = append(nodes[column.OccurrenceID].fields, recipe.Field{Name: leaf, ColumnID: column.ColumnID, Label: column.Label, FieldRef: sourcePath, Expr: recipe.Expression{Select: selector}, ValueMode: projectionValueMode(projectionMode)})
 		case authoringv2.SourceProjectID:
 			logicalType = "string"
 			literal, _ := json.Marshal(project)

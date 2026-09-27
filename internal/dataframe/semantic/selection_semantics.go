@@ -60,8 +60,8 @@ type SelectionSemanticSpec struct {
 
 // ResolveSemanticField resolves a single field and all fallback selectors.
 func ResolveSemanticField(resourceType, nodeAlias string, index int, field SemanticField) (SelectionSemanticSpec, error) {
-	if !fhirschema.HasResource(resourceType) {
-		return SelectionSemanticSpec{}, fmt.Errorf("field %q: resource type %q is not in the active FHIR schema", field.Name, resourceType)
+	if !fhirschema.DefinitionExists(resourceType) {
+		return SelectionSemanticSpec{}, fmt.Errorf("field %q: FHIR definition %q is not in the active schema", field.Name, resourceType)
 	}
 	selector, err := field.PrimarySelector()
 	if err != nil {
