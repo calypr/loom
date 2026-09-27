@@ -108,6 +108,47 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 	}
 }
 
+func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {
+	var ordinaryCalls, previewCalls int
+	ordinaryQuery := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		ordinaryCalls++
+		return visit(map[string]any{"id": "ordinary", "_key": "ordinary-key"})
+	}
+	previewQuery := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		previewCalls++
+		return visit(map[string]any{"id": "preview"})
+	}
+	e, err := New(Config{
+		Registry:         invalidRecipeRegistry{},
+		ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows:        ordinaryQuery,
+		PreviewQueryRows: previewQuery,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := e.CompileResolvedBundle(context.Background(), testResolvedBundle([]string{}), recipe.RuntimeBindings{Project: "P1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Patient", Limit: 1}, func(map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if previewCalls != 1 || ordinaryCalls != 0 {
+		t.Fatalf("after preview: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
+	}
+	stream, _, err := e.streamForOutput(resolved, "Patient", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Stream(context.Background(), func(map[string]any) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if previewCalls != 1 || ordinaryCalls != 1 {
+		t.Fatalf("after ordinary stream: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
+	}
+}
+
 func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T) {
 	e := testEngine(func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
 		return visit(map[string]any{"id": "p1", "__loom_row_id": "stable-p1"})

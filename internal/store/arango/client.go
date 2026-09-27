@@ -26,6 +26,8 @@ type Client struct {
 	client *http.Client
 }
 
+const previewCursorCleanupTimeout = time.Second
+
 // RowQueryer is the narrow row-query surface shared by Arango adapters. It is
 // also the only capability exposed to transaction callbacks.
 type RowQueryer interface {
@@ -215,6 +217,25 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
+// QueryRowsWithMaxRuntime executes a row query with an ArangoDB server-side
+// runtime limit. It is intended for bounded previews whose client request may
+// be canceled while the server is still evaluating the query.
+func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
+	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
+}
+
+func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
+	if maxRuntime <= 0 {
+		return fmt.Errorf("arango query max runtime must be positive")
+	}
+	options := &driver.QueryOptions{
+		BatchSize: batchSize,
+		BindVars:  bindVars,
+		Options:   driver.QuerySubOptions{MaxRuntime: maxRuntime.Seconds()},
+	}
+	return queryRowsWithOptions(ctx, queryer, query, options, visit, previewCursorCleanupTimeout)
+}
+
 func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
 	if fn == nil {
 		return fmt.Errorf("Arango transaction callback is required")
@@ -236,15 +257,27 @@ func (t transactionClient) QueryRows(ctx context.Context, query string, batchSiz
 }
 
 func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) (resultErr error) {
+	options := &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars}
+	return queryRowsWithOptions(ctx, queryer, query, options, visit, 0)
+}
+
+func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, query string, options *driver.QueryOptions, visit RowVisitor, closeTimeout time.Duration) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cursor, err := queryer.Query(ctx, query, &driver.QueryOptions{BatchSize: batchSize, BindVars: bindVars})
+	cursor, err := queryer.Query(ctx, query, options)
 	if err != nil {
 		return fmt.Errorf("arango query: %w", err)
 	}
 	defer func() {
-		closeErr := cursor.Close()
+		var closeErr error
+		if closeTimeout > 0 {
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
+			defer cancel()
+			closeErr = cursor.CloseWithContext(closeCtx)
+		} else {
+			closeErr = cursor.Close()
+		}
 		if closeErr != nil {
 			wrapped := fmt.Errorf("close arango query cursor: %w", closeErr)
 			resultErr = errors.Join(resultErr, wrapped)

@@ -407,8 +407,10 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 			limit = -1
 		}
 	}
+	previewCtx, cancel := context.WithTimeout(ctx, explorerPreviewTimeout)
+	defer cancel()
 	var finish func() ([]byte, error)
-	preview, err := h.application.Preview(ctx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
+	preview, err := h.application.Preview(previewCtx, lifecycle.PreviewRequest{Project: project, ExplorerID: explorerID, ReceiptID: body.ReceiptId, OutputID: body.OutputId, Limit: limit, SinkFactory: func(receipt *explorer.CompilationReceipt, columns []explorer.EmittedColumn) (func(map[string]any) error, error) {
 		encoder, encoderErr := newPreviewResponseEncoder(receipt, body.OutputId, columns, maxExplorerPreviewResponseBytes)
 		if encoderErr != nil {
 			return nil, encoderErr

@@ -79,6 +79,7 @@ type Config struct {
 	Revisions               recipe.RevisionStore
 	ResolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	QueryRows               QueryRows
+	PreviewQueryRows        QueryRows
 	ClickHouseQueryRows     ClickHouseQueryRows
 	ResolveClickHouseInputs ResolveClickHouseInputs
 	WithExecutionReadPins   WithExecutionReadPins
@@ -94,6 +95,7 @@ type Engine struct {
 	revisions               recipe.RevisionStore
 	resolveBundle           func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	queryRows               QueryRows
+	previewQueryRows        QueryRows
 	clickHouseQueryRows     ClickHouseQueryRows
 	resolveClickHouseInputs ResolveClickHouseInputs
 	withExecutionReadPins   WithExecutionReadPins
@@ -187,7 +189,7 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, clickHouseQueryRows: cfg.ClickHouseQueryRows,
 		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
 		scopeDigest: cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
 	}, nil
@@ -659,6 +661,9 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	}
 	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
+	}
+	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
+		stream.stream = e.previewQueryRows
 	}
 	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true}
 	count := 0

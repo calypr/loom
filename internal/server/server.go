@@ -233,10 +233,14 @@ func run(ctx context.Context, serverConfig Config) error {
 		withExecutionReadPins = materializationReader.WithExecutionReadPins
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:                recipeRegistry,
-		Revisions:               recipeRevisions,
-		ResolveBundle:           recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
-		ClickHouseQueryRows:     clickHouseQueryRows,
+		Registry:            recipeRegistry,
+		Revisions:           recipeRevisions,
+		ResolveBundle:       recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
+		ClickHouseQueryRows: clickHouseQueryRows,
+		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			err := lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, visit)
+			return classifyDataframeQueryError(err)
+		},
 		ResolveClickHouseInputs: resolveClickHouseInputs,
 		WithExecutionReadPins:   withExecutionReadPins,
 		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
