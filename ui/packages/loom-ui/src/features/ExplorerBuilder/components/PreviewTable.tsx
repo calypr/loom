@@ -108,7 +108,7 @@ export const PreviewTable = ({
   const [dropIndex, setDropIndex] = useState<number>();
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
-  const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string }>();
+  const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; startingRecord?: string }>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -204,6 +204,18 @@ export const PreviewTable = ({
           constructionOutputByName.get(right.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
         ),
     );
+  const sourceIdentityPreserved = !table?.document.tableShape &&
+    table?.document.rows.kind === 'RECORDS' &&
+    (table.document.construction?.steps.every((step) =>
+      ['DERIVE', 'FILTER', 'RELATED_SOURCE', 'RELATED_FIELD', 'RELATED_ELIGIBILITY'].includes(step.operation.kind)) ?? true);
+  const startingIDColumn = sourceIdentityPreserved ? orderedColumns.find((column) =>
+    authoredColumnsFor(column).some((authored) =>
+      authored.occurrenceId === table?.document.route.occurrenceId &&
+      authored.source.kind === 'field' &&
+      authored.source.field.path === 'id' &&
+      authored.valueTransformation === undefined) &&
+    (column.sourceResourceType === undefined || column.sourceResourceType === table?.document.rootResourceType),
+  ) : undefined;
   const columns = orderedColumns.filter((column) => {
     const authoredColumns = authoredColumnsFor(column);
     if (authoredColumns.length === 0) {
@@ -473,7 +485,15 @@ export const PreviewTable = ({
                       aria-label={`Inspect row ${rowIndex + 1} identity`}
                       className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
                       style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
-                      onClick={() => setInspectedRow({ number: rowIndex + 1, identity: row.__loom_row_id as string })}
+                      onClick={() => {
+                        const startingID = startingIDColumn && row[startingIDColumn.publicColumn];
+                        setInspectedRow({
+                          number: rowIndex + 1,
+                          identity: row.__loom_row_id as string,
+                          startingRecord: typeof startingID === 'string' && startingID.trim()
+                            ? `${table?.document.rootResourceType}/${startingID}` : undefined,
+                        });
+                      }}
                     >
                       {rowIndex + 1}
                     </button>
@@ -537,6 +557,12 @@ export const PreviewTable = ({
               </div>
               <button type="button" className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={() => setInspectedRow(undefined)}>Close</button>
             </div>
+            {inspectedRow.startingRecord ? (
+              <div className="mt-4 rounded-md border border-slate-200 p-3 text-sm">
+                <p className="font-medium text-slate-800">Starting FHIR record</p>
+                <p className="mt-1 break-all text-slate-700">{inspectedRow.startingRecord}</p>
+              </div>
+            ) : null}
             <details className="mt-4 rounded-md border border-slate-200 p-3 text-sm text-slate-700">
               <summary className="cursor-pointer font-medium">Technical row ID</summary>
               <p className="mt-2 break-all font-mono text-xs">{inspectedRow.identity}</p>

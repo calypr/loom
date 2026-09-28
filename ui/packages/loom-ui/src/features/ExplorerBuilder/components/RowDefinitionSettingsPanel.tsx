@@ -332,7 +332,7 @@ export const RowDefinitionSettingsPanel = ({
             <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Choose what one row represents</h3>
             <p className="mt-1 text-sm text-slate-600">Starting row shape: {describeCurrentRows(table.document.rows)}</p>
             {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
-              <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning}. Changing the starting rows may affect later steps.</p>
+              <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning.trim().replace(/\.+$/, '')}. Changing the starting rows may affect later steps.</p>
             ) : null}
             {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
             {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
@@ -385,9 +385,6 @@ export const RowDefinitionSettingsPanel = ({
                     To make one row per distinct field value, use Reshape → Group rows. This row menu cannot apply field grouping directly yet.
                   </p>
                 ) : null}
-                {settings.choices.explicitGroups.length === 0 ? (
-                  <p className="mt-2 text-xs text-slate-500">The server has no complete explicit group revisions for this table.</p>
-                ) : null}
                 {groupAuthoringOpen && selection ? (
                   <ExplicitGroupAuthoring
                     client={client}
@@ -401,8 +398,8 @@ export const RowDefinitionSettingsPanel = ({
                   />
                 ) : null}
                 {!groupAuthoringOpen ? (
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <h4 className="font-semibold text-slate-900">Author explicit groups</h4>
+                  <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3" open={Boolean(selection && explicitGroupRootMatches)}>
+                    <summary className="cursor-pointer font-semibold text-slate-900">Create named groups from a saved selection</summary>
                     {selection && explicitGroupRootMatches ? (
                       <>
                         <p className="mt-1 text-xs text-slate-600">Use the current Explorer selection of {selection.memberCount} {selection.resourceType} records as the starting set.</p>
@@ -415,7 +412,7 @@ export const RowDefinitionSettingsPanel = ({
                     ) : (
                       <p className="mt-1 text-xs text-slate-600">Choose an existing Explorer selection in the starting-collection controls before creating groups.</p>
                     )}
-                  </div>
+                  </details>
                 ) : null}
                 <div className="mt-4 flex flex-wrap justify-end gap-2">
                   <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>

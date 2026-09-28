@@ -265,7 +265,8 @@ try {
       await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
       await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows');if(!button)throw new Error('Configure rows missing');button.click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
-      const state = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText,options:[...document.querySelector('select[aria-label="New row shape"]').options].map(option=>({value:option.value,label:option.textContent,disabled:option.disabled,selected:option.selected})),tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
+      const state = await browserEval(browser.cdp, `return {dialog:document.querySelector('[role="dialog"]')?.innerText,namedGroupsCollapsed:![...document.querySelectorAll('[role="dialog"] details')].find(item=>item.querySelector('summary')?.innerText.includes('Create named groups from a saved selection'))?.open,options:[...document.querySelector('select[aria-label="New row shape"]').options].map(option=>({value:option.value,label:option.textContent,disabled:option.disabled,selected:option.selected})),tables:[...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim())};`);
+      assert(state.namedGroupsCollapsed && !state.dialog.includes('The server has no complete explicit group revisions'), 'The default row dialog should keep optional named-group controls collapsed and avoid server terminology');
       state.tablesBefore = tablesBefore;
       state.timingsMs = { rowChoices: Date.now() - journeyStarted };
       if (action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity') {
@@ -700,6 +701,7 @@ try {
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary').click();return true;`);
         state.savedGroup.identityDialog = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
         assert(state.savedGroup.identityDialog.includes(state.savedGroup.rowIdentity), 'Row identity inspector differs from the preview response');
+        assert(!state.savedGroup.identityDialog.includes('Starting FHIR record'), 'Grouped row inspector must not claim a single starting record');
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] button').click();return true;`);
         assert(state.savedGroup.rows[0]?.includes('135') && state.savedGroup.rows[0]?.some(cell=>cell.includes('https://cda.readthedocs.io/')), 'Saved group values differ from raw CDA');
         assert.equal(state.savedGroup.rowMeaning, 'One row per distinct combination of Included Structure Structure Coding System.');
@@ -751,6 +753,7 @@ try {
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary').click();return true;`);
         state.restored.identityDialog = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
         assert(state.restored.identityDialog.includes(state.restored.rowIdentity), 'Restored row inspector differs from the preview response');
+        assert(state.restored.identityDialog.includes(`BodyStructure/${state.restored.rows[0][0]}`), 'Restored source row inspector did not identify its starting FHIR record');
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] button').click();return true;`);
         state.interactions = { clicks: 28, textEdits: 1, includesRowChoiceInspection: true, includesTemporaryTableCleanup: true };
         state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;

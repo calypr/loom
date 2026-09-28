@@ -193,6 +193,26 @@ describe('PreviewTable column controls', () => {
     expect(screen.queryByRole('dialog', { name: 'Row 1 identity' })).not.toBeInTheDocument();
   });
 
+  it('shows the starting FHIR record only when a root ID field proves it', () => {
+    const rootID = { ...column('source_id', 'Source ID', 0), source: { kind: 'field' as const, field: { path: 'id', projectionMode: 'FIRST' as const } } };
+    const sourceTable: DraftTable = { ...table, document: { ...table.document, columns: [rootID] } };
+    const sourcePreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [{ column: 'source_id', label: 'Source ID', logicalType: 'string', filterable: true, chartable: false, sourceResourceType: 'Specimen' }],
+      rows: [{ source_id: 'specimen-1', __loom_row_id: 'stable-specimen-row' }],
+    };
+    const props = { preview: sourcePreview, table: sourceTable, limit: 25, onLimitChange: vi.fn(), onColumnChange: vi.fn(), onColumnsChange: vi.fn() };
+    const view = render(React.createElement(PreviewTable, props));
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    expect(screen.getByText('Starting FHIR record')).toBeInTheDocument();
+    expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    view.rerender(React.createElement(PreviewTable, { ...props, table }));
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    expect(screen.queryByText('Starting FHIR record')).not.toBeInTheDocument();
+  });
+
   it('shows related construction outputs in the preview after applying a saved construction', () => {
     const relatedTable: DraftTable = {
       ...table,
