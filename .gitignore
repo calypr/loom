@@ -6,6 +6,8 @@
 .codex/config.toml
 .audit/
 /docs/prototypes/construction-workspace/
+/docs/product/ml-dataframer/evidence/J04_UI04.md
+/docs/product/ml-dataframer/evidence/S05_UI05.md
 /TODO.md
 /CDA-FHIR/
 /META_SMALL/
