@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
   ExplicitGroupRevisionSummary,
@@ -180,11 +180,15 @@ export const RowDefinitionSettingsPanel = ({
   draftDigest,
   table,
   currentRowMeaning,
+  startingCollectionSummary,
+  renderRootSettings,
+  startingCollectionSettings,
   selection,
   disabled,
   onApply,
   relatedRows,
   onChooseRelatedRows,
+  onChangeRootOccurrence,
 }: {
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
   readonly project: string;
@@ -195,15 +199,20 @@ export const RowDefinitionSettingsPanel = ({
   readonly draftDigest: string;
   readonly table: DraftTable;
   readonly currentRowMeaning: string;
+  readonly startingCollectionSummary: string;
+  readonly renderRootSettings: (onRootChange: (nodeId: string, occurrenceId: string) => void) => ReactNode;
+  readonly startingCollectionSettings: ReactNode;
   readonly selection?: SelectionRevision;
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly onChooseRelatedRows: () => void;
+  readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
+  const settingsRequestEpoch = useRef(0);
 
   useEffect(() => {
     setProposalState((current) => current.kind === 'fresh' && !isCurrentProposal(
@@ -212,12 +221,14 @@ export const RowDefinitionSettingsPanel = ({
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
+    const requestEpoch = ++settingsRequestEpoch.current;
     setSettings({ kind: 'loading' });
     setProposalState({ kind: 'none' });
     try {
       const choices = await client.listRowDefinitionChoices({
         project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
       });
+      if (requestEpoch !== settingsRequestEpoch.current) return;
       if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken) {
         setSettings({ kind: 'error', message: 'The server returned row choices for a different table or catalog snapshot.' });
         return;
@@ -225,6 +236,7 @@ export const RowDefinitionSettingsPanel = ({
       const options = selectionOptions(choices);
       setSettings({ kind: 'editing', choices, options, selectionId: options[0].value });
     } catch (error) {
+      if (requestEpoch !== settingsRequestEpoch.current) return;
       setSettings({
         kind: 'error',
         message: requestFailureMessage(error, 'Loom could not load row-definition choices. Reload the Builder and try again.'),
@@ -274,8 +286,14 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const cancel = () => {
+    settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
     setProposalState({ kind: 'none' });
+  };
+
+  const chooseRelatedRows = () => {
+    cancel();
+    onChooseRelatedRows();
   };
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
@@ -304,53 +322,50 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   return (
-    <section aria-label="Row definition settings" className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-semibold text-slate-900">What does one row represent?</h2>
-          <p className="mt-1 text-xs text-slate-600">Current table rows: {currentRowMeaning}</p>
-        </div>
-        <button
-          type="button"
-          className="rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          disabled={disabled || settings.kind === 'loading'}
-          onClick={() => void openSettings()}
-        >
-          Configure rows
-        </button>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-        <button
-          type="button"
-          className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:border-slate-300 disabled:text-slate-400"
-          disabled={disabled || !relatedRows.supported}
-          onClick={onChooseRelatedRows}
-        >
-          One row per related record
-        </button>
-        <p className="text-xs text-slate-600">
-          {relatedRows.supported
-            ? 'Choose a relationship, which records qualify, and what happens when there is no match.'
-            : relatedRows.reason ?? 'Checking available related row paths…'}
-        </p>
-      </div>
+    <>
+      <button
+        type="button"
+        data-testid="construction-rows-settings-trigger"
+        aria-label="Configure rows"
+        aria-haspopup="dialog"
+        aria-expanded={settings.kind !== 'closed'}
+        className="flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-800 shadow-sm hover:border-blue-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled || settings.kind === 'loading'}
+        onClick={() => void openSettings()}
+      >
+        <span className="min-w-0">
+          <span className="block font-semibold text-slate-900">Rows</span>
+          <span className="mt-1 block truncate text-xs text-slate-600">Current table rows: {currentRowMeaning}</span>
+          <span className="mt-1 block truncate text-xs text-slate-500">{startingCollectionSummary}</span>
+        </span>
+        <span className="shrink-0 font-medium text-blue-800">Configure <span aria-hidden="true">→</span></span>
+      </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="row-definition-dialog-title" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
-            <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Choose what one row represents</h3>
-            <p className="mt-1 text-sm text-slate-600">Starting row shape: {describeCurrentRows(table.document.rows)}</p>
-            {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
-              <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning.trim().replace(/\.+$/, '')}. Changing the starting rows may affect later steps.</p>
-            ) : null}
-            {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
-            {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
-            {settings.kind === 'error' ? (
-              <div className="mt-4 flex justify-end">
-                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Close</button>
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Rows</h3>
+                <p className="mt-1 text-sm text-slate-600">Current table rows: {currentRowMeaning}</p>
               </div>
-            ) : null}
-            {settings.kind === 'editing' ? (
-              <>
+              <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Close</button>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="min-w-0 space-y-4">
+                {renderRootSettings((nodeId, occurrenceId) => {
+                  cancel();
+                  onChangeRootOccurrence(nodeId, occurrenceId);
+                })}
+                <section aria-label="Row shape settings" className="rounded-lg border border-slate-200 p-3 text-sm text-slate-800">
+                  <h4 className="font-semibold text-slate-900">Row shape</h4>
+                  <p className="mt-1 text-xs text-slate-600">Starting row shape: {describeCurrentRows(table.document.rows)}</p>
+                  {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
+                    <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning.trim().replace(/\.+$/, '')}. Changing the starting rows may affect later steps.</p>
+                  ) : null}
+                  {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
+                  {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
+                  {settings.kind === 'editing' ? (
+                    <>
                 <label className="mt-4 block text-sm font-medium text-slate-800">
                   <span>New row shape</span>
                   <select
@@ -428,12 +443,27 @@ export const RowDefinitionSettingsPanel = ({
                     Preview row change
                   </button>
                 </div>
-              </>
-            ) : null}
-            {proposalState.kind === 'proposing' ? <p className="mt-4" role="status">Compiling and comparing row membership…</p> : null}
-            {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This proposal is stale. Preview the row change again before applying it.</p> : null}
-            {proposalState.kind === 'applying' ? <p className="mt-4" role="status">Applying row definition…</p> : null}
-            {comparison ? (
+                    </>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+                    <button
+                      type="button"
+                      className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:border-slate-300 disabled:text-slate-400"
+                      disabled={disabled || !relatedRows.supported}
+                      onClick={chooseRelatedRows}
+                    >
+                      One row per related record
+                    </button>
+                    <p className="text-xs text-slate-600">
+                      {relatedRows.supported
+                        ? 'Choose a relationship, which records qualify, and what happens when there is no match.'
+                        : relatedRows.reason ?? 'Checking available related row paths…'}
+                    </p>
+                  </div>
+                  {proposalState.kind === 'proposing' ? <p className="mt-4" role="status">Compiling and comparing row membership…</p> : null}
+                  {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This proposal is stale. Preview the row change again before applying it.</p> : null}
+                  {proposalState.kind === 'applying' ? <p className="mt-4" role="status">Applying row definition…</p> : null}
+                  {comparison ? (
               <section aria-label="Row definition preview" className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <h4 className="font-semibold text-slate-900">Preview</h4>
                 <p className="mt-1">Base rows: {comparison.base?.rowCount ?? 'Unavailable'}{comparison.base?.sampled ? ' (sampled)' : ''}</p>
@@ -451,21 +481,27 @@ export const RowDefinitionSettingsPanel = ({
                 ) : null}
                 {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
               </section>
-            ) : null}
-            {proposalState.kind === 'fresh' && !currentProposal?.proposalId ? (
+                  ) : null}
+                  {proposalState.kind === 'fresh' && !currentProposal?.proposalId ? (
               <p role="status" className="mt-3 text-amber-900">{comparison?.status === 'UNAVAILABLE' ? comparison.reason : 'The server did not issue an applicable proposal.'}</p>
-            ) : null}
-            {proposalState.kind === 'fresh' && currentProposal?.proposalId ? (
+                  ) : null}
+                  {proposalState.kind === 'fresh' && currentProposal?.proposalId ? (
               <div className="mt-4 flex justify-end gap-2">
                 <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
                 <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
                   Apply row definition
                 </button>
               </div>
-            ) : null}
+                  ) : null}
+                </section>
+              </div>
+              <section aria-label="Starting collection settings" className="min-w-0">
+                {startingCollectionSettings}
+              </section>
+            </div>
           </div>
         </div>
       ) : null}
-    </section>
+    </>
   );
 };

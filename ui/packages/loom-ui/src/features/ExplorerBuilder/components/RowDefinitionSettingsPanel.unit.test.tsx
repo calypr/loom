@@ -85,8 +85,16 @@ const sourceSelection: SelectionRevision = {
 
 const relatedRowProps = {
   currentRowMeaning: 'One row per source record',
+  startingCollectionSummary: 'Starting collection: All authorized Patient records',
+  renderRootSettings: (onRootChange: (nodeId: string, occurrenceId: string) => void) => (
+    <section aria-label="Row occurrence settings">
+      <button type="button" onClick={() => onRootChange('patient', 'patient-root')}>Change row occurrence</button>
+    </section>
+  ),
+  startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
   relatedRows: { supported: false, reason: 'No executable route' },
   onChooseRelatedRows: vi.fn(),
+  onChangeRootOccurrence: vi.fn(),
 };
 
 const selectionPage = {
@@ -104,6 +112,7 @@ const renderSettings = (overrides: {
   proposalValue?: RowDefinitionProposal;
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
+  onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -111,9 +120,11 @@ const renderSettings = (overrides: {
   const createExplicitGroupRevision = vi.fn();
   const onApply = vi.fn().mockResolvedValue(true);
   const onChooseRelatedRows = vi.fn();
+  const onChangeRootOccurrence = overrides.onChangeRootOccurrence ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
       {...relatedRowProps}
+      onChangeRootOccurrence={onChangeRootOccurrence}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
       onChooseRelatedRows={onChooseRelatedRows}
       client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
@@ -127,21 +138,52 @@ const renderSettings = (overrides: {
       onApply={onApply}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows, onChangeRootOccurrence };
 };
 
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
-  it('opens executable related rows from the row decision card', () => {
+  it('shows one compact Rows card and opens its row and starting-collection settings', async () => {
+    renderSettings();
+
+    const trigger = screen.getByTestId('construction-rows-settings-trigger');
+    expect(trigger).toHaveTextContent('Rows');
+    expect(trigger).toHaveTextContent('Current table rows: One row per source record');
+    expect(trigger).toHaveTextContent('Starting collection: All authorized Patient records');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    expect(dialog.contains(screen.getByRole('region', { name: 'Row occurrence settings' }))).toBe(true);
+    expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
+    expect(dialog.contains(await screen.findByRole('combobox', { name: 'New row shape' }))).toBe(true);
+  });
+
+  it('opens executable related rows from the Rows settings dialog', async () => {
     const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    await screen.findByRole('button', { name: 'One row per related record' });
     fireEvent.click(screen.getByRole('button', { name: 'One row per related record' }));
     expect(onChooseRelatedRows).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('explains when the backend has no executable related row path', () => {
+  it('closes row settings before changing the root occurrence', async () => {
+    const onChangeRootOccurrence = vi.fn();
+    const { onChangeRootOccurrence: onChangeRoot } = renderSettings({ onChangeRootOccurrence });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change row occurrence' }));
+
+    expect(onChangeRoot).toHaveBeenCalledWith('patient', 'patient-root');
+    expect(dialog).not.toBeInTheDocument();
+  });
+
+  it('explains when the backend has no executable related row path', async () => {
     const { onChooseRelatedRows } = renderSettings();
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     expect(screen.getByRole('button', { name: 'One row per related record' })).toBeDisabled();
     expect(screen.getByText('No executable route')).toBeInTheDocument();
     expect(onChooseRelatedRows).not.toHaveBeenCalled();

@@ -51,6 +51,21 @@ describe('ConstructionWorkspace', () => {
     };
     expect(constructionRowMeaning('One row per Patient.', expanded, sourceColumns))
       .toBe('One row per value in Diagnosis codes from each input row.');
+    const coded: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-codes', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'CODED_GROUP', codedGroup: {
+          constructionId: 'group-codes',
+          source: { occurrenceId: 'base', resourceType: 'Observation', codingPath: 'component[].code.coding[]', fhirType: 'Coding', cardinality: 'MANY', shape: 'ARRAY', route: [] },
+          missingKeyPolicy: 'GROUP',
+          systemOutputColumnId: 'system', versionOutputColumnId: 'version', codeOutputColumnId: 'code', distinctSourceCountOutputColumnId: 'count',
+        } },
+        outputs: [{ id: 'system', name: 'system', label: 'Code system' }, { id: 'version', name: 'version', label: 'Code version' }, { id: 'code', name: 'code', label: 'Code' }, { id: 'count', name: 'count', label: 'Source records' }],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Observation record.', coded, sourceColumns))
+      .toBe('One row per distinct code, including its system and version.');
   });
 
   it('shows executable operation families and omits Calculate and Combine creation actions', () => {
@@ -151,6 +166,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Preview rows')).toBeInTheDocument();
     expect(screen.getByText('25')).toBeInTheDocument();
     expect(screen.getByText('Full count not measured')).toBeInTheDocument();
+    expect(screen.queryByText('One row per patient.')).toBeNull();
     expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
       screen.getByTestId('construction-action-add-columns'),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

@@ -374,7 +374,7 @@ export const ConstructionWorkspace = ({
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
           <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-slate-950">{title}</h1>
-          <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p>
+          {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
         </div>
         <div className="flex items-center gap-4">
           <dl className="flex gap-5 text-right text-xs text-slate-500">

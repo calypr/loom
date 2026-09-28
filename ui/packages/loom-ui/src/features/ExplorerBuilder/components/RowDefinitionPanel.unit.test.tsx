@@ -61,13 +61,13 @@ describe('RowDefinitionPanel', () => {
     expect(onChange).toHaveBeenCalledWith('observation', 'labs');
   });
 
-  it('disables the selector when the current root is the only safe row definition', () => {
+  it('omits the occurrence picker when there is only one eligible row definition', () => {
     const rootOnly = {
       ...table,
       document: { ...table.document, route: { occurrenceId: 'base', resourceType: 'Specimen' } },
     } as DraftTable;
     render(<RowDefinitionPanel catalog={catalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
-    expect(screen.getByRole('combobox', { name: 'One row per' })).toBeDisabled();
-    expect(screen.getByText(/Add a related resource/)).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'One row per' })).toBeNull();
+    expect(screen.queryByLabelText('Row occurrence settings')).toBeNull();
   });
 });

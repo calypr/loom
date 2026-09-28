@@ -306,6 +306,9 @@ export const constructionRowMeaning = (
           : 'One row summarizing all input rows.';
         break;
       }
+      case 'CODED_GROUP':
+        meaning = 'One row per distinct code, including its system and version.';
+        break;
       case 'PIVOT': {
         const keys = step.operation.pivot.groupKeyIds.map(column);
         meaning = keys.length > 0

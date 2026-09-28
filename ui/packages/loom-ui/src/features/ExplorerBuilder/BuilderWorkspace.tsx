@@ -2391,6 +2391,18 @@ const BuilderWorkspaceContent = ({
     type: column.logicalType,
   }));
   const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
+  const attachedPopulationSelection = table?.document.population?.selectionRevisionId === activePopulationSelection?.id
+    ? activePopulationSelection
+    : undefined;
+  const startingCollectionSummary = table?.document.population
+    ? attachedPopulationSelection
+      ? `Starting collection: ${attachedPopulationSelection.memberCount.toLocaleString()} ${attachedPopulationSelection.resourceType} resources attached`
+      : 'Starting collection: Attached selection details are loading'
+    : activePopulationSelection
+      ? `Starting collection: ${activePopulationSelection.memberCount.toLocaleString()} ${activePopulationSelection.resourceType} selected, not attached`
+      : table?.document.rootResourceType
+        ? `Starting collection: All authorized ${table.document.rootResourceType} records`
+        : 'Starting collection: Choose a starting record type first';
   const persistedConstructionHistory = constructionHistorySteps(
     table?.document.construction,
     sourceColumns,
@@ -3016,57 +3028,59 @@ const BuilderWorkspaceContent = ({
                 title={table.title}
                 rowMeaning={rowMeaning}
                 rowSetup={(
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <div className="space-y-3">
+                  <RowDefinitionSettingsPanel
+                    client={loomClient}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    draftVersion={state.draftVersion}
+                    draftDigest={state.draftDigest}
+                    table={table}
+                    currentRowMeaning={rowMeaning}
+                    startingCollectionSummary={startingCollectionSummary}
+                    renderRootSettings={(onRootChange) => (
                       <RowDefinitionPanel
                         catalog={state.catalog}
                         table={table}
                         disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
-                        onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                        onChange={onRootChange}
                       />
-                      <RowDefinitionSettingsPanel
-                        client={loomClient}
+                    )}
+                    startingCollectionSettings={(
+                      <PopulationPanel
+                        table={table}
+                        selection={activePopulationSelection}
+                        loading={populationSelectionLoading || activePopulationSelectionLoading}
+                        error={populationVariantError ?? populationSelectionError}
                         project={projectId}
                         explorerId={state.explorerId}
                         authResourcePath={authResourcePath}
                         snapshotToken={state.catalog.snapshotToken}
-                        draftVersion={state.draftVersion}
-                        draftDigest={state.draftDigest}
-                        table={table}
-                        currentRowMeaning={rowMeaning}
-                        selection={activePopulationSelection}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                        relatedRows={relatedRowsAvailability}
-                        onChooseRelatedRows={chooseRelatedRows}
-                        onApply={(proposalId) => applyCommands([{
-                          type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
+                        receiptId={state.receipt?.receiptId}
+                        disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                        onAttach={(routeChoiceId) => void applyCommands([{
+                          type: 'SET_TABLE_POPULATION',
+                          outputId: table.outputId,
+                          selectionRevisionId: activePopulationSelection?.id,
+                          routeChoiceId,
                         }])}
+                        onClear={() => void applyCommands([{
+                          type: 'CLEAR_TABLE_POPULATION',
+                          outputId: table.outputId,
+                        }])}
+                        onExclude={(ref, route) => void excludePopulationMember(ref, route)}
                       />
-                    </div>
-                    <PopulationPanel
-                      table={table}
-                      selection={activePopulationSelection}
-                      loading={populationSelectionLoading || activePopulationSelectionLoading}
-                      error={populationVariantError ?? populationSelectionError}
-                      project={projectId}
-                      explorerId={state.explorerId}
-                      authResourcePath={authResourcePath}
-                      snapshotToken={state.catalog.snapshotToken}
-                      receiptId={state.receipt?.receiptId}
-                      disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                      onAttach={(routeChoiceId) => void applyCommands([{
-                        type: 'SET_TABLE_POPULATION',
-                        outputId: table.outputId,
-                        selectionRevisionId: activePopulationSelection?.id,
-                        routeChoiceId,
-                      }])}
-                      onClear={() => void applyCommands([{
-                        type: 'CLEAR_TABLE_POPULATION',
-                        outputId: table.outputId,
-                      }])}
-                      onExclude={(ref, route) => void excludePopulationMember(ref, route)}
-                    />
-                  </div>
+                    )}
+                    selection={activePopulationSelection}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                    relatedRows={relatedRowsAvailability}
+                    onChooseRelatedRows={chooseRelatedRows}
+                    onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                    onApply={(proposalId) => applyCommands([{
+                      type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
+                    }])}
+                  />
                 )}
                 onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
                 undoDisabled={
