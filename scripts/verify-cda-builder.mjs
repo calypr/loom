@@ -298,9 +298,8 @@ try {
           return { fieldPath: identity.path, label: option.label, value: option.value, disabled: option.disabled, selected: option.selected };
         });
         state.rowChoices = decodedRowChoices;
-        const expandedChoice = decodedRowChoices.find(option =>
-          option.fieldPath === 'component[].code.coding[]' && option.value.endsWith(':PRESERVE_PARENT'));
-        assert(expandedChoice, 'Configure rows does not offer the raw repeated component coding path with preserve-parent policy');
+        const expandedChoice = decodedRowChoices.find(option => option.fieldPath === 'component[].code.coding[]');
+        assert(expandedChoice, 'Configure rows does not offer the raw repeated component coding path');
         assert(expandedChoice.label.includes('Component → Code → Coding') && expandedChoice.label.includes('(component[].code.coding[])'),
           'Configure rows does not distinguish this choice by breadcrumb and exact FHIR path');
         assert.equal(expandedChoice.disabled, false, 'The component coding row choice is disabled');
@@ -366,17 +365,18 @@ try {
         const expectedBaselineCodes = outputForm === 'FIRST' ? [rowValues[0].value] : rowValues.map(item => item.value);
         assert.deepEqual(state.sourceRecordPreview.codeValues, expectedBaselineCodes, `The baseline ${outputForm} cell differs from its raw CDA projection`);
 
-        const sourceSetup = await browserEval(browser.cdp, `const details=document.querySelector('[data-testid="construction-source-setup"]');return {open:details?.open,configureDisabled:[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows')?.disabled};`);
-        if (!sourceSetup.open) await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
-        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
-        assert.equal(sourceSetup.configureDisabled, false, 'Configure rows is disabled before changing the row definition');
-        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
+        const rowSetup = await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-row-setup"]');return {visible:Boolean(panel?.getClientRects().length),configureDisabled:[...panel.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows')?.disabled};`);
+        assert(rowSetup.visible, 'Row decisions are not visible above table actions');
+        assert.equal(rowSetup.configureDisabled, false, 'Configure rows is disabled before changing the row definition');
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-row-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         state.rowShapeControls = await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,1800),options:[...select.options].map(option=>({label:option.textContent,value:option.value,disabled:option.disabled,selected:option.selected})),buttons:[...document.querySelectorAll('[role="dialog"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
-        const selectedShape = state.rowShapeControls.options.find(option => option.label.includes('component[].code.coding[]') && option.label.includes('Keep records with no values as one empty row'));
+        const selectedShape = state.rowShapeControls.options.find(option => option.label.includes('component[].code.coding[]'));
         assert(selectedShape && !selectedShape.disabled, 'The repeated component code option is missing or disabled in Configure rows');
         state.selectedShape = { label: selectedShape.label, disabled: selectedShape.disabled, selected: selectedShape.selected, policy: 'PRESERVE_PARENT' };
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(selectedShape.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        const defaultPolicy = await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]')?.selectedOptions[0]?.textContent;`);
+        assert.equal(defaultPolicy, 'Keep records with no values as one empty row');
         const rowProposalStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
@@ -438,10 +438,9 @@ try {
           if (!isOpen) await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
           await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
         };
-        await openSourceSetup();
         state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,400);`);
         assert(state.expandedRowSetting.includes('component[].code.coding[]'), 'The expanded row meaning was not restored after reload');
-        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-row-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         state.editBackControls = await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');return {current:select.selectedOptions[0]?.textContent,records:[...select.options].map(option=>({label:option.textContent,value:option.value,disabled:option.disabled})).find(option=>option.value==='records'),buttons:[...document.querySelectorAll('[role="dialog"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
         assert(state.editBackControls.records && !state.editBackControls.records.disabled);
@@ -473,10 +472,10 @@ try {
         assert.deepEqual(state.restoredRecordPreview.rows[0][restoredCodeColumn].split(/\s*;\s*/).filter(Boolean), expectedRestoredCodes);
 
         await openSourceSetup();
-        state.columnRemoveControl = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[data-testid="construction-source-setup"] button[aria-label^="Remove "]')].find(item=>item.getAttribute('aria-label')?.includes('component[].code.coding[].code'));return button?{label:button.getAttribute('aria-label'),disabled:button.disabled}:null;`);
+        state.columnRemoveControl = await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[data-testid="construction-source-setup"] button[aria-label^="Remove "]')].find(item=>/component.*code.*coding.*code/i.test(item.getAttribute('aria-label')||''));return button?{label:button.getAttribute('aria-label'),disabled:button.disabled}:null;`);
         assert(state.columnRemoveControl && !state.columnRemoveControl.disabled, 'The temporary component code column cannot be removed');
         await browserEval(browser.cdp, `document.querySelector('button[aria-label=${JSON.stringify(state.columnRemoveControl.label)}]').click();return true;`);
-        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('[data-testid="construction-source-setup"] button[aria-label^="Remove "]')].some(button=>button.getAttribute('aria-label')?.includes('component[].code.coding[].code'))`, 30000);
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('[data-testid="construction-source-setup"] button[aria-label^="Remove "]')].some(button=>/component.*code.*coding.*code/i.test(button.getAttribute('aria-label')||''))`, 30000);
         await navigate(browser.cdp, pageURL);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
@@ -844,9 +843,10 @@ try {
         const rawBodyStructures = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
         const rawIDs = new Set(rawBodyStructures.map(row => row.id));
         state.rawOracle = { sourceRecords: rawBodyStructures.length, maximumIncludedValues: Math.max(...rawBodyStructures.map(row => row.includedCount)) };
-        const expanded = state.options.find(option => option.label.includes('Included anatomic location(s)') && option.label.includes('Keep records with no values'));
+        const expanded = state.options.find(option => option.label.includes('(includedStructure[])'));
         assert(expanded, 'BodyStructure included locations row shape is missing');
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(expanded.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        assert.equal(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]')?.selectedOptions[0]?.textContent;`), 'Keep records with no values as one empty row');
         const expandedProposalStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);

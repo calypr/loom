@@ -122,22 +122,57 @@ const renderSettings = (overrides: {
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('defaults repeated values to preserving unmatched records and allows an explicit policy change', async () => {
+    const { proposeRowDefinition } = renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'New row shape' });
+    fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
+    expect(screen.getByText(/^When a source record has no matching values: Keep records with no values as one empty row$/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' } },
+    })));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
+      target: { value: 'expanded:expanded-choice:EXCLUDE' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({
+      selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } },
+    })));
+  });
+
+  it('explains that field grouping belongs in Reshape while its direct row proposal is unavailable', async () => {
+    renderSettings({ choicesValue: {
+      ...choices,
+      choices: [...choices.choices, {
+        choiceId: 'field-group-choice', fieldPath: 'status', label: 'Status', description: '',
+        occurrenceSummary: 'Root occurrence', routeSummary: 'Root', kind: 'FIELD_GROUP', valueType: 'STRING',
+        policies: [{ name: 'missingKeyPolicy', options: ['ERROR', 'EXCLUDE', 'GROUP_AS_MISSING'] }],
+      }],
+    } });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row shape' });
+    expect(screen.getByText(/To make one row per distinct field value, use Reshape/)).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Status/ })).toBeNull();
+  });
+
   it('previews and applies only the server-issued explicit-group proposal', async () => {
     const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
     expect(screen.getByText('Current rows: One row per source record')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     const select = await screen.findByRole('combobox', { name: 'New row shape' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();
-    expect(screen.getAllByRole('option', { name: /One row per value in Name \(name\[\]\)/ })).toHaveLength(2);
-    expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(3);
-    expect(screen.getByRole('option', { name: /Leave out records with no values/ })).toBeTruthy();
-    expect(screen.getByRole('option', { name: /Keep records with no values as one empty row/ })).toBeTruthy();
-    expect(screen.getByRole('option', { name: /Put records without a group in their own group/ })).toBeTruthy();
+    expect(screen.getAllByRole('option', { name: /One row per value in Name \(name\[\]\)/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(1);
     expect(listRowDefinitionChoices).toHaveBeenCalledWith(expect.objectContaining({
       project: 'project-a', explorerId: 'explorer-a', outputId: 'patients', snapshotToken: 'snapshot-1',
     }));
 
-    fireEvent.change(select, { target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' } });
+    fireEvent.change(select, { target: { value: 'explicit:grouprev_0123456789abcdef' } });
+    expect(screen.getByText(/^When a source record has no matching values: Put records without a group in their own group$/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
+      target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     expect(await screen.findByText('Base rows: 4')).toBeTruthy();
     expect(screen.getByText('Candidate rows: 2')).toBeTruthy();
@@ -167,8 +202,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
 
-    expect(screen.getAllByRole('option', { name: /Component → Code → Coding \(component\[\]\.code\.coding\[\]\)/ })).toHaveLength(2);
-    expect(screen.getAllByRole('option', { name: /Category → Coding \(category\[\]\.coding\[\]\)/ })).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: /Component → Code → Coding \(component\[\]\.code\.coding\[\]\)/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /Category → Coding \(category\[\]\.coding\[\]\)/ })).toHaveLength(1);
   });
 
   it('distinguishes the same path on different route occurrences', async () => {
@@ -183,8 +218,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
 
-    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence first via Subject/ })).toHaveLength(2);
-    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence second via Focus/ })).toHaveLength(2);
+    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence first via Subject/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence second via Focus/ })).toHaveLength(1);
   });
 
   it('authors exact overlapping groups from the owned selection before previewing and applying the receipt-backed proposal', async () => {
@@ -256,7 +291,7 @@ describe('RowDefinitionSettingsPanel', () => {
       { label: 'Group B', memberIds: ['opaque-member-b', 'opaque-member-c'] },
     ]);
     expect(JSON.stringify(createRequest.groups)).not.toContain('resourceType');
-    expect(await screen.findAllByRole('option', { name: /grouprev_new/ })).toHaveLength(3);
+    expect(await screen.findAllByRole('option', { name: /grouprev_new/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await screen.findByRole('button', { name: 'Apply row definition' });
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({

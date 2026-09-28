@@ -2928,6 +2928,56 @@ const BuilderWorkspaceContent = ({
                 onMoveTable={reorderTable}
                 title={table.title}
                 rowMeaning={rowMeaning}
+                rowSetup={(
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="space-y-3">
+                      <RowDefinitionPanel
+                        catalog={state.catalog}
+                        table={table}
+                        disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
+                        onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
+                      />
+                      <RowDefinitionSettingsPanel
+                        client={loomClient}
+                        project={projectId}
+                        explorerId={state.explorerId}
+                        authResourcePath={authResourcePath}
+                        snapshotToken={state.catalog.snapshotToken}
+                        draftVersion={state.draftVersion}
+                        draftDigest={state.draftDigest}
+                        table={table}
+                        selection={activePopulationSelection}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                        onApply={(proposalId) => applyCommands([{
+                          type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
+                        }])}
+                      />
+                    </div>
+                    <PopulationPanel
+                      table={table}
+                      selection={activePopulationSelection}
+                      loading={populationSelectionLoading || activePopulationSelectionLoading}
+                      error={populationVariantError ?? populationSelectionError}
+                      project={projectId}
+                      explorerId={state.explorerId}
+                      authResourcePath={authResourcePath}
+                      snapshotToken={state.catalog.snapshotToken}
+                      receiptId={state.receipt?.receiptId}
+                      disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
+                      onAttach={(routeChoiceId) => void applyCommands([{
+                        type: 'SET_TABLE_POPULATION',
+                        outputId: table.outputId,
+                        selectionRevisionId: activePopulationSelection?.id,
+                        routeChoiceId,
+                      }])}
+                      onClear={() => void applyCommands([{
+                        type: 'CLEAR_TABLE_POPULATION',
+                        outputId: table.outputId,
+                      }])}
+                      onExclude={(ref, route) => void excludePopulationMember(ref, route)}
+                    />
+                  </div>
+                )}
                 onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
                 undoDisabled={
                   pendingCommands > 0 ||
@@ -3052,60 +3102,10 @@ const BuilderWorkspaceContent = ({
               <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 marker:hidden">
                 <span>Source and column setup</span>
                 <span className="ml-2 text-xs font-normal text-slate-500">
-                  Set the row meaning, browse available data, or edit source columns.
+                  Browse available data or edit source columns.
                 </span>
               </summary>
               <div className="space-y-3 border-t border-slate-200 p-3">
-            {table ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <RowDefinitionPanel
-                    catalog={state.catalog}
-                    table={table}
-                    disabled={rowChangeStatus.isLoading || pendingCommands > 0 || state.reconciliation === 'pending'}
-                    onChange={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
-                  />
-                  <RowDefinitionSettingsPanel
-                    client={loomClient}
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    draftVersion={state.draftVersion}
-                    draftDigest={state.draftDigest}
-                    table={table}
-                    selection={activePopulationSelection}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                    onApply={(proposalId) => applyCommands([{
-                      type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
-                    }])}
-                  />
-                </div>
-                <PopulationPanel
-                  table={table}
-                  selection={activePopulationSelection}
-                  loading={populationSelectionLoading || activePopulationSelectionLoading}
-                  error={populationVariantError ?? populationSelectionError}
-                  project={projectId}
-                  explorerId={state.explorerId}
-                  authResourcePath={authResourcePath}
-                  snapshotToken={state.catalog.snapshotToken}
-                  receiptId={state.receipt?.receiptId}
-                  disabled={populationSelectionLoading || activePopulationSelectionLoading || populationVariantPending || pendingCommands > 0 || state.reconciliation === 'pending'}
-                  onAttach={(routeChoiceId) => void applyCommands([{
-                    type: 'SET_TABLE_POPULATION',
-                    outputId: table.outputId,
-                    selectionRevisionId: activePopulationSelection?.id,
-                    routeChoiceId,
-                  }])}
-                  onClear={() => void applyCommands([{
-                    type: 'CLEAR_TABLE_POPULATION',
-                    outputId: table.outputId,
-                  }])}
-                  onExclude={(ref, route) => void excludePopulationMember(ref, route)}
-                />
-              </div>
-            ) : null}
             <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>

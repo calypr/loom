@@ -90,6 +90,7 @@ describe('ConstructionWorkspace', () => {
         rowMeaning="One row per patient."
         activeFamily="CALCULATE"
         onSelectFamily={onSelectFamily}
+        rowSetup={<button type="button">Configure rows</button>}
         preview={<div role="table">Current rows</div>}
         editor={<div>Calculate editor</div>}
         previewStatus="ready"
@@ -107,6 +108,9 @@ describe('ConstructionWorkspace', () => {
     expect(preview).toHaveAttribute('data-preview-proposal-id', 'proposal-456');
     expect(preview).toHaveAttribute('data-current-draft-version', '7');
     expect(preview).toHaveAttribute('data-current-draft-digest', 'digest-789');
+    expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
+      screen.getByTestId('construction-action-add-columns'),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {

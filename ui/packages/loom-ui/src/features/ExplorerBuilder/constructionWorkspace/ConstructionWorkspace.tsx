@@ -305,6 +305,7 @@ export const ConstructionWorkspace = ({
   activeFamily,
   onSelectFamily,
   history,
+  rowSetup,
   preview,
   editor,
   setup,
@@ -334,6 +335,7 @@ export const ConstructionWorkspace = ({
   readonly activeFamily?: ConstructionOperationFamily;
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
+  readonly rowSetup?: React.ReactNode;
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
   readonly setup?: React.ReactNode;
@@ -397,6 +399,8 @@ export const ConstructionWorkspace = ({
           ) : null}
         </div>
       </header>
+
+      {rowSetup ? <section aria-label="Define table rows" data-testid="construction-row-setup" className="min-w-0">{rowSetup}</section> : null}
 
       <ConstructionActionBar
         activeFamily={activeFamily}

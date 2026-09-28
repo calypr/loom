@@ -13,7 +13,9 @@ import { ExplicitGroupAuthoring } from './ExplicitGroupAuthoring';
 
 type SelectionOption = {
   readonly value: string;
-  readonly label: string;
+  readonly shapeValue: string;
+  readonly shapeLabel: string;
+  readonly policyLabel?: string;
   readonly selection: RowDefinitionSelection;
 };
 
@@ -68,7 +70,8 @@ type ProposalState =
 const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
   const options: SelectionOption[] = [{
     value: 'records',
-    label: 'One row per source record',
+    shapeValue: 'records',
+    shapeLabel: 'One row per source record',
     selection: { kind: 'RECORDS' },
   }];
   const pathCounts = new Map<string, number>();
@@ -78,27 +81,45 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
   for (const choice of choices.choices) {
     if (choice.kind !== 'EXPANDED') continue;
     const occurrence = (pathCounts.get(choice.fieldPath) ?? 0) > 1 ? ` · ${choice.occurrenceSummary}` : '';
+    const shapeValue = `expanded:${choice.choiceId}`;
+    const shapeLabel = `One row per value in ${fieldPathLabel(choice.fieldPath)} (${choice.fieldPath})${occurrence}`;
     for (const policy of choice.policies) {
       if (policy.name !== 'emptyCollectionPolicy') continue;
-      for (const emptyCollectionPolicy of policy.options) {
+      for (const emptyCollectionPolicy of [...policy.options].sort((left, right) =>
+        Number(right === 'PRESERVE_PARENT') - Number(left === 'PRESERVE_PARENT'))) {
         options.push({
           value: `expanded:${choice.choiceId}:${emptyCollectionPolicy}`,
-          label: `One row per value in ${fieldPathLabel(choice.fieldPath)} (${choice.fieldPath})${occurrence} · ${emptyCollectionLabel(emptyCollectionPolicy)}`,
+          shapeValue,
+          shapeLabel,
+          policyLabel: emptyCollectionLabel(emptyCollectionPolicy),
           selection: { kind: 'EXPANDED', expanded: { rowChoiceId: choice.choiceId, emptyCollectionPolicy } },
         });
       }
     }
   }
   for (const group of choices.explicitGroups) {
-    for (const unassignedMemberPolicy of group.unassignedMemberPolicies) {
+    for (const unassignedMemberPolicy of [...group.unassignedMemberPolicies].sort((left, right) =>
+      Number(right === 'GROUP_AS_UNASSIGNED') - Number(left === 'GROUP_AS_UNASSIGNED'))) {
+      const shapeLabel = `One row per saved group (${group.revisionId.slice(0, 12)}) · ${group.groupCount} groups, ${group.memberCount} members`;
       options.push({
         value: `explicit:${group.revisionId}:${unassignedMemberPolicy}`,
-        label: `One row per saved group (${group.revisionId.slice(0, 12)}) · ${group.groupCount} groups, ${group.memberCount} members · ${unassignedMemberLabel(unassignedMemberPolicy)}`,
+        shapeValue: `explicit:${group.revisionId}`,
+        shapeLabel,
+        policyLabel: unassignedMemberLabel(unassignedMemberPolicy),
         selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: group.revisionId, unassignedMemberPolicy } },
       });
     }
   }
   return options;
+};
+
+const shapeOptions = (options: ReadonlyArray<SelectionOption>): ReadonlyArray<SelectionOption> => {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.shapeValue)) return false;
+    seen.add(option.shapeValue);
+    return true;
+  });
 };
 
 const describeCurrentRows = (rows: ExplorerRowDefinition): string => {
@@ -245,6 +266,12 @@ export const RowDefinitionSettingsPanel = ({
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
   const comparison = currentProposal?.comparison;
+  const selectedOption = settings.kind === 'editing'
+    ? settings.options.find((option) => option.value === settings.selectionId)
+    : undefined;
+  const selectedPolicies = settings.kind === 'editing' && selectedOption
+    ? settings.options.filter((option) => option.shapeValue === selectedOption.shapeValue && option.policyLabel)
+    : [];
   const explicitGroupRootMatches = selection?.resourceType === table.document.rootResourceType;
   const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
     const choices = await client.listRowDefinitionChoices({
@@ -297,16 +324,43 @@ export const RowDefinitionSettingsPanel = ({
                   <select
                     aria-label="New row shape"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                    value={settings.selectionId}
+                    value={selectedOption?.shapeValue ?? 'records'}
                     disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
                     onChange={(event) => {
-                      setSettings({ ...settings, selectionId: event.currentTarget.value });
+                      const next = settings.options.find((option) => option.shapeValue === event.currentTarget.value);
+                      if (!next) return;
+                      setSettings({ ...settings, selectionId: next.value });
                       setProposalState({ kind: 'none' });
                     }}
                   >
-                    {settings.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    {shapeOptions(settings.options).map((option) => <option key={option.shapeValue} value={option.shapeValue}>{option.shapeLabel}</option>)}
                   </select>
                 </label>
+                {selectedPolicies.length > 1 ? (
+                  <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2">
+                    <summary className="cursor-pointer text-sm font-medium text-slate-800">When a source record has no matching values: {selectedOption?.policyLabel}</summary>
+                    <label className="mt-2 block text-xs text-slate-700">
+                      <span>Change how unmatched records are handled</span>
+                      <select
+                        aria-label="Unmatched record policy"
+                        className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        value={settings.selectionId}
+                        disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
+                        onChange={(event) => {
+                          setSettings({ ...settings, selectionId: event.currentTarget.value });
+                          setProposalState({ kind: 'none' });
+                        }}
+                      >
+                        {selectedPolicies.map((option) => <option key={option.value} value={option.value}>{option.policyLabel}</option>)}
+                      </select>
+                    </label>
+                  </details>
+                ) : null}
+                {settings.choices.choices.some((choice) => choice.kind === 'FIELD_GROUP') ? (
+                  <p className="mt-3 text-xs text-slate-600">
+                    To make one row per distinct field value, use Reshape → Group rows. This row menu cannot apply field grouping directly yet.
+                  </p>
+                ) : null}
                 {settings.choices.explicitGroups.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500">The server has no complete explicit group revisions for this table.</p>
                 ) : null}
