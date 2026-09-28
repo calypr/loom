@@ -191,6 +191,10 @@ func TestPreviewSourceClassificationDoesNotRecoverSingleAfterGroup(t *testing.T)
 	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
 		t.Fatalf("GROUPS source mode = %q, want COMPOSITE", got)
 	}
+	output = lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{Operation: string(recipe.ConstructionRelatedExpandOp)}}}
+	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
+		t.Fatalf("RELATED_EXPAND source mode = %q, want COMPOSITE", got)
+	}
 }
 
 func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {

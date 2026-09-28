@@ -1418,6 +1418,9 @@ try {
         await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value==='100'`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='40'`, 30000);
+        const relatedPreviewRequest=responses.filter(response=>response.path.endsWith('/preview')).at(-1);
+        state.relatedPreviewCapability=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:relatedPreviewRequest.requestId})).body).rowLineageCapability;
+        assert.equal(state.relatedPreviewCapability?.status,'AVAILABLE',`Related row lineage unavailable: ${JSON.stringify(state.relatedPreviewCapability)}`);
         state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()],rowMeaning:document.querySelector('[aria-label="Row definition settings"] p')?.innerText};`);
         assert.match(state.saved.rowMeaning, /One row per matching Observation for each input row; rows with no match remain/);
         const oracle=JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json','utf8'));
@@ -1428,6 +1431,25 @@ try {
         assert.deepEqual(new Set(manyRows.map(row=>row[1])),observed);
         assert.equal(zeroRows.length,1);
         assert.equal(zeroRows[0][1],'—');
+        const inspectRelatedRow=async(parentID,relatedID,position)=>{
+          const started=Date.now();
+          await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');scroll.scrollTop=${position==='bottom'?'scroll.scrollHeight':'0'};await new Promise(resolve=>setTimeout(resolve,80));const row=[...scroll.querySelectorAll('[role="row"]')].find(row=>{const cells=[...row.querySelectorAll('[role="cell"]')];return cells[0]?.innerText.trim()===${JSON.stringify(parentID)}&&cells[1]?.innerText.trim()===${JSON.stringify(relatedID)}});if(!row)throw new Error('Related row is not rendered for inspection');const button=row.querySelector('button[aria-label^="Inspect row "]');if(!button)throw new Error('Related row has no identity control');button.click();return true;`);
+          try {
+            await waitForBrowser(browser.cdp, `document.querySelector('[role="dialog"][aria-label^="Row "]')?.querySelectorAll('li').length===${relatedID==='—'?1:2}`,5000);
+          } catch (error) {
+            const dialog=await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"][aria-label^="Row "]');return dialog?.innerText.slice(0,1200)??'No row dialog';`);
+            throw new Error(`Related row inspection failed: ${dialog}`,{cause:error});
+          }
+          const result=await browserEval(browser.cdp, `const dialog=document.querySelector('[role="dialog"][aria-label^="Row "]');return {sources:[...dialog.querySelectorAll('li')].map(item=>item.innerText.trim()),text:dialog.innerText.slice(0,1200)};`);
+          result.elapsedMs=Date.now()-started;
+          assert(result.elapsedMs<5000,`Related row lineage took ${result.elapsedMs} ms`);
+          const expected=relatedID==='—'?[`Patient/${parentID}`]:[`Patient/${parentID}`,`Observation/${relatedID}`];
+          assert.deepEqual(new Set(result.sources),new Set(expected),`Related row lineage differs from CDA records: ${JSON.stringify(result)}`);
+          await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label^="Row "] button').click();return true;`);
+          return result;
+        };
+        state.relatedLineageMany=await inspectRelatedRow(patientIDs[0],manyRows[0][1],'top');
+        state.relatedLineageZero=await inspectRelatedRow(patientIDs[1],'—','bottom');
         await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
         await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);

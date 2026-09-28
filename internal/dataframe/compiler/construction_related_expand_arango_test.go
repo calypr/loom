@@ -79,6 +79,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		document(project+"_p1", "Patient", generation, map[string]any{"id": "p1", "resourceType": "Patient", "active": true}),
 		document(project+"_p2", "Patient", generation, map[string]any{"id": "p2", "resourceType": "Patient", "active": true}),
 		document(project+"_p3", "Patient", generation, map[string]any{"id": "p3", "resourceType": "Patient", "active": false}),
+		document(project+"_p4", "Patient", generation, map[string]any{"id": "p4", "resourceType": "Patient", "active": false}),
 	}
 	observations := []json.RawMessage{
 		document(project+"_o1", "Observation", generation, map[string]any{"id": "o1", "resourceType": "Observation", "status": "registered"}),
@@ -103,9 +104,78 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		}
 		edges = append(edges, encoded)
 	}
+	encoded, err := json.Marshal(map[string]any{
+		"_key": project + "_edge_p4", "_from": "Observation/" + project + "_o2", "_to": "Patient/" + project + "_p4",
+		"project": project, "project_id": project, "dataset_generation": generation,
+		"label": "subject_Patient", "from_type": "Observation", "to_type": "Patient",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edges = append(edges, encoded)
 	if err := client.InsertBatchRaw(ctx, "fhir_edge", edges, false, "document"); err != nil {
 		t.Fatalf("insert related-expansion edges: %v", err)
 	}
+
+	t.Run("row lineage source contributors", func(t *testing.T) {
+		bindings := recipe.RuntimeBindings{
+			Project: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeUnrestricted,
+		}
+		directOutput := lowerConstructionOutput(t, directRelatedExpandOutput(recipe.ExpansionPreserveParent), bindings)
+		previewQuery, err := CompileRecipeOutputWithPolicy(directOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := executeReshapeOracleQuery(t, ctx, client, previewQuery)
+		byParent := make(map[string][]map[string]any)
+		for _, row := range rows {
+			parent, _ := row["patient_id"].(string)
+			byParent[parent] = append(byParent[parent], row)
+		}
+		if len(byParent["p1"]) != 2 || len(byParent["p2"]) != 1 || len(byParent["p3"]) != 1 || len(byParent["p4"]) != 1 {
+			t.Fatalf("direct related rows by parent = %#v, want many/zero/zero/one matches", byParent)
+		}
+		for parent, parentRows := range byParent {
+			for _, row := range parentRows {
+				rowID, _ := row["__loom_row_id"].(string)
+				compiled, err := CompileRowLineageOutput(directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+				if err != nil {
+					t.Fatalf("compile row lineage for %s: %v", parent, err)
+				}
+				result := executeRowLineageOracleQuery(t, ctx, client, compiled)
+				contributors := result["contributors"].([]any)
+				want := 2
+				if parent == "p2" || parent == "p3" {
+					want = 1
+				}
+				if result["found"] != true || len(contributors) != want {
+					t.Fatalf("%s row lineage = %#v, want %d source contributors", parent, result, want)
+				}
+				root := contributors[0].(map[string]any)
+				if root["resourceType"] != "Patient" || root["resourceId"] != parent || root["occurrenceKey"] != project+"_"+parent {
+					t.Errorf("%s root contributor = %#v", parent, root)
+				}
+				if want == 2 {
+					target := contributors[1].(map[string]any)
+					if target["resourceType"] != "Observation" || target["resourceId"] != row["observation_id"] {
+						t.Errorf("%s terminal contributor = %#v, row target %#v", parent, target, row["observation_id"])
+					}
+				}
+			}
+		}
+
+		stage := directOutput.Plan.StageSequence.Stages[0]
+		constructionID := directOutput.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
+		forgedRowID := relatedExpandRowID(t, project+"_p1", constructionID, "Observation/"+project+"_forged")
+		forged, err := CompileRowLineageOutput(directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+		forgedResult := executeRowLineageOracleQuery(t, ctx, client, forged)
+		if forgedResult["found"] != false || len(forgedResult["contributors"].([]any)) != 0 {
+			t.Fatalf("forged related row identity disclosed contributors: %#v", forgedResult)
+		}
+	})
 
 	for _, policy := range []recipe.ExpansionEmptyPolicy{recipe.ExpansionExclude, recipe.ExpansionPreserveParent} {
 		t.Run(string(policy), func(t *testing.T) {
@@ -397,6 +467,21 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 		t.Fatalf("compile related-expansion query: %v", err)
 	}
 	return compiled.Outputs[0], query
+}
+
+func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledRowLineageQuery) map[string]any {
+	t.Helper()
+	rows := make([]map[string]any, 0, 1)
+	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, query.Query)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
+	}
+	return rows[0]
 }
 
 func relatedExpandCountOutput(groupByPresence bool) recipe.Output {

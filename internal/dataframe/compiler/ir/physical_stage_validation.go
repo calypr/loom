@@ -227,9 +227,42 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 		return fmt.Errorf("row lineage requires exactly one construction stage")
 	}
 	stage := sequence.Stages[0]
-	if stage.Kind != PhysicalStageGroupOp || stage.Group == nil || stage.InputStageID != sequence.SourceStageID ||
-		stage.ID != sequence.FinalStageID || stage.RowIdentityColumn != sequence.FinalRowIdentity {
-		return fmt.Errorf("row lineage requires a terminal Group over the direct source projection")
+	if stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID || stage.RowIdentityColumn != sequence.FinalRowIdentity {
+		return fmt.Errorf("row lineage requires one terminal construction stage over the direct source projection")
+	}
+	switch stage.Kind {
+	case PhysicalStageGroupOp:
+		if stage.Group == nil || terminal.ParentKeyBindKey != "" || terminal.RelatedTerminalIDBindKey != "" || terminal.RelatedRowKind != "" {
+			return fmt.Errorf("row lineage Group payload or terminal bindings are invalid")
+		}
+	case PhysicalStageRelatedExpandOp:
+		related := stage.RelatedExpand
+		if related == nil || related.AnchorKind != "root" || related.AnchorColumnID != "_key" ||
+			sequence.SourceRowIdentity != "_key" || related.ParentIdentityColumn != "_key" || len(related.Route) != 1 {
+			return fmt.Errorf("row lineage RELATED_EXPAND requires one direct root-anchored hop")
+		}
+		if terminal.ParentKeyBindKey == "" || terminal.RelatedTerminalIDBindKey == "" ||
+			(terminal.RelatedRowKind != "RELATED" && terminal.RelatedRowKind != "EMPTY") {
+			return fmt.Errorf("row lineage RELATED_EXPAND requires exact parent and terminal identity bindings")
+		}
+		if related.EmptyPolicy != PhysicalUnnestPreserveParent && terminal.RelatedRowKind == "EMPTY" {
+			return fmt.Errorf("row lineage empty row requires PRESERVE_PARENT")
+		}
+		if _, ok := bindVars[terminal.ParentKeyBindKey]; ok {
+			if value := bindVars[terminal.ParentKeyBindKey]; value != nil {
+				if _, stringOK := value.(string); !stringOK {
+					return fmt.Errorf("row lineage parent key bind %q must be a string or null", terminal.ParentKeyBindKey)
+				}
+			}
+		} else {
+			return fmt.Errorf("row lineage parent key bind %q is required", terminal.ParentKeyBindKey)
+		}
+		terminalID, terminalIDOK := bindVars[terminal.RelatedTerminalIDBindKey].(string)
+		if !terminalIDOK || terminal.RelatedRowKind == "RELATED" && bindVars[terminal.ParentKeyBindKey] != nil && terminalID == "" {
+			return fmt.Errorf("row lineage related terminal ID bind %q must be a string and nonempty for a valid parent", terminal.RelatedTerminalIDBindKey)
+		}
+	default:
+		return fmt.Errorf("row lineage requires a terminal Group or RELATED_EXPAND over the direct source projection")
 	}
 	if terminal.ResourceType == "" || terminal.ResourceIDColumn == "" || terminal.OccurrenceKeyColumn == "" {
 		return fmt.Errorf("resource type, source resource ID, and occurrence key columns are required")

@@ -31,16 +31,20 @@ type PhysicalStageSequence struct {
 }
 
 // PhysicalRowLineageReturn selects source records for one final construction
-// row. It is a diagnostic terminal over the canonical source and Group stage;
-// it never attaches contributor arrays to ordinary preview rows.
+// row. It is a diagnostic terminal over the canonical source and terminal
+// Group or RELATED_EXPAND stage; it never attaches contributors to ordinary
+// preview rows.
 type PhysicalRowLineageReturn struct {
-	RowIDBindKey        string
-	OffsetBindKey       string
-	LimitBindKey        string
-	FetchLimitBindKey   string
-	ResourceType        string
-	ResourceIDColumn    string
-	OccurrenceKeyColumn string
+	RowIDBindKey             string
+	OffsetBindKey            string
+	LimitBindKey             string
+	FetchLimitBindKey        string
+	ParentKeyBindKey         string
+	RelatedTerminalIDBindKey string
+	RelatedRowKind           string
+	ResourceType             string
+	ResourceIDColumn         string
+	OccurrenceKeyColumn      string
 }
 
 type PhysicalStageColumn struct {

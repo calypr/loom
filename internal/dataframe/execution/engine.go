@@ -754,7 +754,8 @@ func previewSourceIdentityMode(output lower.CompiledRecipeOutput, querySchema []
 		}
 	}
 	for _, stage := range output.Stages {
-		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) {
+		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) ||
+			stage.Operation == string(recipe.ConstructionRelatedExpandOp) {
 			return previewSourceComposite
 		}
 	}

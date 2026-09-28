@@ -8,6 +8,9 @@ import (
 )
 
 func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, stage ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
+	if stage.Kind == ir.PhysicalStageRelatedExpandOp {
+		return r.renderRelatedExpandRowLineage(sourceQuery, stage, terminal)
+	}
 	group := stage.Group
 	if group == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage Group payload is required")
@@ -129,6 +132,101 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		"  LIMIT @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey,
 		"  RETURN {resourceType: @"+resourceTypeBind+", resourceId: "+contributor+"[@"+resourceIDBind+"], occurrenceKey: "+contributor+"[@"+occurrenceKeyBind+"]}",
 		")",
+		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
+	)
+	query := strings.Join(lines, "\n") + "\n"
+	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
+}
+
+func (r *physicalPlanRenderer) renderRelatedExpandRowLineage(sourceQuery string, stage ir.PhysicalConstructionStage, terminal ir.PhysicalRowLineageReturn) (RenderedPhysicalPlan, error) {
+	related := stage.RelatedExpand
+	if related == nil {
+		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage RELATED_EXPAND payload is required")
+	}
+	input := stage.InputRowVariable
+	item := r.newInternalVariable("row_lineage_related_item")
+	identity := r.newInternalVariable("row_lineage_related_identity")
+	selected := r.newInternalVariable("row_lineage_related_selected")
+	page := r.newInternalVariable("row_lineage_related_page")
+	resourceIDColumnBind := r.newInternalBindKey("row_lineage_resource_id_column")
+	r.bindVars[resourceIDColumnBind] = terminal.ResourceIDColumn
+	occurrenceKeyColumnBind := r.newInternalBindKey("row_lineage_occurrence_key_column")
+	r.bindVars[occurrenceKeyColumnBind] = terminal.OccurrenceKeyColumn
+	parentIdentityColumnBind := r.newInternalBindKey("row_lineage_parent_identity_column")
+	r.bindVars[parentIdentityColumnBind] = related.ParentIdentityColumn
+	rootResourceTypeBind := r.newInternalBindKey("row_lineage_root_resource_type")
+	r.bindVars[rootResourceTypeBind] = terminal.ResourceType
+	targetResourceTypeBind := r.newInternalBindKey("row_lineage_target_resource_type")
+	r.bindVars[targetResourceTypeBind] = related.TargetResourceType
+	requestedRowID := "@" + terminal.RowIDBindKey
+	constructionID := "@" + related.ConstructionIDBindKey
+	var lines []string
+	var contributorExpressions []string
+
+	subplan := related.RelatedRecords
+	subplan.Sort, subplan.Unique = nil, false
+	if terminal.RelatedRowKind == "EMPTY" {
+		if related.EmptyPolicy != ir.PhysicalUnnestPreserveParent {
+			return RenderedPhysicalPlan{}, fmt.Errorf("row lineage empty RELATED_EXPAND row requires PRESERVE_PARENT")
+		}
+		matches, err := r.renderSubplan(subplan, "    ", true)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render bounded exact related-route existence check: %w", err)
+		}
+		lines = append(lines,
+			"LET "+selected+" = FIRST(",
+			"  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
+			"  LET "+item+" = FIRST("+matches+")",
+			"  FILTER "+item+" == null",
+			"  LET "+identity+" = TO_STRING([[\"input\", "+input+"[@"+parentIdentityColumnBind+"]], [\"construction\", "+constructionID+"], [\"empty\"]])",
+			"  FILTER "+identity+" == "+requestedRowID,
+			"  RETURN {rootID: "+input+"[@"+resourceIDColumnBind+"], rootKey: "+input+"[@"+occurrenceKeyColumnBind+"]}",
+			")",
+		)
+		contributorExpressions = append(contributorExpressions,
+			"{resourceType: @"+rootResourceTypeBind+", resourceId: "+selected+".rootID, occurrenceKey: "+selected+".rootKey}",
+		)
+	} else {
+		terminalVariable := ""
+		for _, operation := range subplan.Operations {
+			if operation.Kind == ir.PhysicalTraversalOp && operation.Traversal != nil {
+				terminalVariable = operation.Traversal.TargetVariable
+			}
+		}
+		if terminalVariable == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("row lineage RELATED_EXPAND route has no terminal traversal")
+		}
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind: ir.PhysicalFilterOp,
+			Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS", Left: ir.PhysicalValue{Variable: terminalVariable, Path: []string{"_id"}},
+				Right: &ir.PhysicalValue{BindKey: terminal.RelatedTerminalIDBindKey},
+			}},
+		})
+		match, err := r.renderSubplan(subplan, "    ", true)
+		if err != nil {
+			return RenderedPhysicalPlan{}, fmt.Errorf("render exact authorized related-route lookup: %w", err)
+		}
+		lines = append(lines,
+			"LET "+selected+" = FIRST(",
+			"  FOR "+input+" IN (\n"+indentQuery(sourceQuery, "    ")+"\n  )",
+			"  LET "+item+" = FIRST("+match+")",
+			"  FILTER "+item+" != null",
+			"  LET "+identity+" = TO_STRING([[\"input\", "+input+"[@"+parentIdentityColumnBind+"]], [\"construction\", "+constructionID+"], [\"related\", "+item+".terminal_id]])",
+			"  FILTER "+identity+" == "+requestedRowID,
+			"  RETURN {rootID: "+input+"[@"+resourceIDColumnBind+"], rootKey: "+input+"[@"+occurrenceKeyColumnBind+"], terminalID: "+item+".terminal_id, relatedID: "+item+".resource_id}",
+			")",
+		)
+		targetOccurrenceKey := "PARSE_IDENTIFIER(" + selected + ".terminalID).key"
+		contributorExpressions = append(contributorExpressions,
+			"{resourceType: @"+rootResourceTypeBind+", resourceId: "+selected+".rootID, occurrenceKey: "+selected+".rootKey}",
+			"{resourceType: @"+targetResourceTypeBind+", resourceId: "+selected+".relatedID, occurrenceKey: "+targetOccurrenceKey+"}",
+		)
+	}
+	allContributors := r.newInternalVariable("row_lineage_related_contributors")
+	lines = append(lines,
+		"LET "+allContributors+" = ("+selected+" == null ? [] : ["+strings.Join(contributorExpressions, ", ")+"])",
+		"LET "+page+" = SLICE("+allContributors+", @"+terminal.OffsetBindKey+", @"+terminal.FetchLimitBindKey+")",
 		"RETURN {found: "+selected+" != null, contributors: SLICE("+page+", 0, @"+terminal.LimitBindKey+"), hasMore: LENGTH("+page+") > @"+terminal.LimitBindKey+"}",
 	)
 	query := strings.Join(lines, "\n") + "\n"
