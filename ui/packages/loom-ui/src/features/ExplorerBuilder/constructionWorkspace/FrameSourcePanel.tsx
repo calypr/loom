@@ -123,7 +123,7 @@ const CategoryPicker = ({
     try {
       await onAddSelected(choices);
       setSelected(new Map());
-      setMessage('Review the proposed columns and row preview, then apply.');
+      setMessage('Coded-value columns added to this table.');
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -182,7 +182,7 @@ const CategoryPicker = ({
       ) : null}
       <button type="button" disabled={disabled || adding || selected.size === 0} onClick={() => void addColumns()}
         className="mt-3 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
-        Preview {selected.size || ''} {selected.size === 1 ? 'column' : 'columns'}
+        Add {selected.size || ''} {selected.size === 1 ? 'column' : 'columns'}
       </button>
       {message ? <p className="mt-2 text-xs text-slate-700" role="status">{message}</p> : null}
     </div>
@@ -191,7 +191,7 @@ const CategoryPicker = ({
 
 export const FrameSourcePanel = ({
   project, explorerId, authResourcePath, snapshotToken, outputId, rowRoot, frames, columns, disabled,
-  onSet, onReplace, onRemove, onAddSelected,
+  onSet, onReplace, onRemove, onAddSelected, onRemoveColumn,
 }: {
   readonly project: string;
   readonly explorerId: string;
@@ -200,12 +200,13 @@ export const FrameSourcePanel = ({
   readonly outputId: string;
   readonly rowRoot: string;
   readonly frames: ReadonlyArray<FrameDefinition>;
-  readonly columns: ReadonlyArray<{ readonly label: string; readonly frameId?: string }>;
+  readonly columns: ReadonlyArray<{ readonly column: string; readonly label: string; readonly frameId?: string }>;
   readonly disabled: boolean;
   readonly onSet: (choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onReplace: (frameId: string, choice: FrameSourceOption, form: FrameDefinition['form']) => Promise<boolean>;
   readonly onRemove: (frameId: string) => Promise<boolean>;
   readonly onAddSelected: (selections: ReadonlyArray<CatalogChoiceIntent>) => Promise<unknown>;
+  readonly onRemoveColumn: (column: string) => Promise<boolean>;
 }) => {
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');
@@ -302,6 +303,18 @@ export const FrameSourcePanel = ({
     }
   };
 
+  const removeColumn = async (column: string) => {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      if (await onRemoveColumn(column)) setMessage('Coded-value column removed.');
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const usedSources = new Set(frames.filter((frame) => frame.id !== editingFrame).map(frameIdentity));
   const visibleSources = state.kind === 'ready'
     ? state.value.sources.filter((source, index, all) =>
@@ -358,6 +371,13 @@ export const FrameSourcePanel = ({
               </div>
             </div>
           ) : null}
+          {columns.filter((column) => column.frameId === frame.id).map((column) => (
+            <div key={column.column} className="mt-2 flex items-center justify-between gap-2 rounded bg-white px-2 py-1.5 text-xs">
+              <span className="min-w-0 truncate text-slate-800">{column.label}</span>
+              <button type="button" disabled={disabled || busy} onClick={() => void removeColumn(column.column)}
+                aria-label={`Remove ${column.label} column`} className="shrink-0 font-semibold text-red-800 disabled:opacity-40">Remove column</button>
+            </div>
+          ))}
           {openFrame === frame.id ? <CategoryPicker frame={frame} project={project} explorerId={explorerId}
             authResourcePath={authResourcePath} snapshotToken={snapshotToken} outputId={outputId} rowRoot={rowRoot}
             disabled={disabled || busy} onAddSelected={onAddSelected} /> : null}
@@ -396,7 +416,7 @@ export const FrameSourcePanel = ({
                         </select>
                       </label>
                     ) : <p className="mt-2 text-xs text-slate-600">{routeChoiceLabel(source)}</p>}
-                    <p className="mt-1 text-[11px] text-slate-500">Matching rows are measured in the column preview.</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Loom checks matching rows when you add a column.</p>
                     {source.forms.length > 1 ? (
                       <details className="mt-2 text-xs text-slate-600">
                         <summary className="cursor-pointer">When a row has several values</summary>

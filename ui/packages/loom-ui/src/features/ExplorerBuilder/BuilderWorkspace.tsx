@@ -1227,6 +1227,7 @@ const BuilderWorkspaceContent = ({
   };
   const addSelectedFeatures = async (
     selections: ReadonlyArray<CatalogChoiceIntent>,
+    saveImmediately = false,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
     const relatedSelections = selections.filter((selection) => selection.relatedSource);
@@ -1245,7 +1246,7 @@ const BuilderWorkspaceContent = ({
     choiceProposalRequest.current?.abort();
     const controller = new AbortController();
     choiceProposalRequest.current = controller;
-    setChoiceProposal({ status: 'previewing' });
+    if (!saveImmediately) setChoiceProposal({ status: 'previewing' });
     try {
       const response = await loomClient.proposeConstructionChoices({
         project: projectId,
@@ -1274,11 +1275,21 @@ const BuilderWorkspaceContent = ({
       if (response.preview.rows === null || response.preview.outputId !== table.outputId) {
         throw new Error('Loom did not render rows for these columns. The table was not changed.');
       }
+      if (saveImmediately) {
+        const applied = await applyCommands(response.constructionChoices.map((choice) => ({
+          type: 'APPLY_CONSTRUCTION_CHOICE',
+          outputId: response.outputId,
+          constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}) },
+          ...(choice.title ? { title: choice.title } : {}),
+        } satisfies ExplorerBuilderCommand)), response.commandId);
+        if (!applied) throw new Error('Loom could not save these coded-value columns. The table was not changed.');
+        return;
+      }
       setChoiceProposal({ status: 'ready', selections, response });
       return 'preview-ready' as const;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Loom could not preview the selected columns.';
-      if (!controller.signal.aborted) setChoiceProposal({ status: 'error', message });
+      if (!controller.signal.aborted && !saveImmediately) setChoiceProposal({ status: 'error', message });
       throw error;
     } finally {
       if (choiceProposalRequest.current === controller) choiceProposalRequest.current = undefined;
@@ -3094,7 +3105,10 @@ const BuilderWorkspaceContent = ({
                     onRemove={(frameId) => applyCommands([{
                       type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
                     }])}
-                    onAddSelected={addSelectedFeatures}
+                    onAddSelected={(selections) => addSelectedFeatures(selections, true)}
+                    onRemoveColumn={(column) => applyCommands([{
+                      type: 'REMOVE_COLUMN', outputId: table.outputId, column,
+                    }])}
                   />
                 ) : undefined}
                 onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
