@@ -68,7 +68,7 @@ describe('ConstructionWorkspace', () => {
       .toBe('One row per distinct code, including its system and version.');
   });
 
-  it('shows executable operation families and omits Calculate and Combine creation actions', () => {
+  it('keeps column and filter actions above the table while row reshaping lives in Rows', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -76,7 +76,6 @@ describe('ConstructionWorkspace', () => {
     const actions = [
       ['ADD_COLUMNS', 'Add columns'],
       ['KEEP_ROWS', 'Filter rows'],
-      ['RESHAPE', 'Reshape'],
     ] as const;
     for (const [family, label] of actions) {
       const button = screen.getByTestId(
@@ -88,6 +87,7 @@ describe('ConstructionWorkspace', () => {
     }
     expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
     expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
   });
 
   it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {
@@ -125,6 +125,16 @@ describe('ConstructionWorkspace', () => {
     fireEvent.click(screen.getByTestId('construction-new-table'));
     expect(onNewTable).toHaveBeenCalledOnce();
     expect(screen.queryByTestId('construction-history')).not.toBeInTheDocument();
+  });
+
+  it('keeps the table history compact until a step is selected', () => {
+    const step = { id: 'filter', title: 'Filter rows', summary: 'Keep matching observations.', editable: true };
+    const view = render(<ConstructionHistory steps={[step]} selected={{ kind: 'source' }} onSelect={vi.fn()} onEditStep={vi.fn()} />);
+    expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
+    expect(screen.queryByText(step.summary)).toBeNull();
+    view.rerender(<ConstructionHistory steps={[step]} selected={{ kind: 'step', stepId: 'filter' }} onSelect={vi.fn()} onEditStep={vi.fn()} />);
+    expect(screen.getByText(step.summary)).toBeInTheDocument();
+    expect(screen.getByTestId('construction-edit-step-filter')).toBeInTheDocument();
   });
 
   it('exposes preview status and its receipt identity separately from the current draft', () => {
@@ -166,6 +176,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Preview rows')).toBeInTheDocument();
     expect(screen.getByText('25')).toBeInTheDocument();
     expect(screen.getByText('Full count not measured')).toBeInTheDocument();
+    expect(screen.getByText('Calculate editor').closest('[aria-label="Change editor"]')).toBeInTheDocument();
     expect(screen.queryByText('One row per patient.')).toBeNull();
     expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
       screen.getByTestId('construction-action-add-columns'),

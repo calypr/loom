@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { LoomClient } from '../../../api';
 import type {
   ExplicitGroupRevisionSummary,
-  ExplorerRowDefinition,
   RowDefinitionChoicesResponse,
   RowDefinitionProposal,
   RowDefinitionSelection,
@@ -45,6 +44,13 @@ export const rowScopeLabel = (path: string): string => path
   .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
   .join(' → ');
 
+const expandedRowLabel = (path: string): string => {
+  const label = rowScopeLabel(path);
+  return label.endsWith(' → Coding')
+    ? `One row per code in ${label.slice(0, -' → Coding'.length)}`
+    : `One row per value in ${label}`;
+};
+
 type SettingsState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'loading' }
@@ -86,7 +92,7 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
   for (const choice of choices.choices) {
     if (choice.kind !== 'EXPANDED') continue;
     pathCounts.set(choice.fieldPath, (pathCounts.get(choice.fieldPath) ?? 0) + 1);
-    const label = rowScopeLabel(choice.fieldPath);
+    const label = expandedRowLabel(choice.fieldPath);
     const paths = labelPaths.get(label) ?? new Set<string>();
     paths.add(choice.fieldPath);
     labelPaths.set(label, paths);
@@ -95,9 +101,9 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
     if (choice.kind !== 'EXPANDED') continue;
     const occurrence = (pathCounts.get(choice.fieldPath) ?? 0) > 1 ? ` · ${choice.occurrenceSummary}` : '';
     const shapeValue = `expanded:${choice.choiceId}`;
-    const label = rowScopeLabel(choice.fieldPath);
+    const label = expandedRowLabel(choice.fieldPath);
     const disambiguation = (labelPaths.get(label)?.size ?? 0) > 1 ? ` (${choice.fieldPath})` : '';
-    const shapeLabel = `One row per value in ${label}${disambiguation}${occurrence}`;
+    const shapeLabel = `${label}${disambiguation}${occurrence}`;
     for (const policy of choice.policies) {
       if (policy.name !== 'emptyCollectionPolicy') continue;
       for (const emptyCollectionPolicy of [...policy.options].sort((left, right) =>
@@ -137,30 +143,6 @@ const shapeOptions = (options: ReadonlyArray<SelectionOption>): ReadonlyArray<Se
   });
 };
 
-const describeCurrentRows = (rows: ExplorerRowDefinition): string => {
-  switch (rows.kind) {
-    case 'RECORDS':
-      return 'One row per source record';
-    case 'GROUPS':
-      switch (rows.groups.source.kind) {
-        case 'FIELD':
-          return `One row per value of ${rows.groups.source.field.fieldPath}`;
-        case 'EXPLICIT':
-          return `One row per saved group · ${unassignedMemberLabel(rows.groups.source.explicit.unassignedMemberPolicy)}`;
-        default: {
-          const _exhaustive: never = rows.groups.source;
-          return _exhaustive;
-        }
-      }
-    case 'EXPANDED':
-      return `One row per value in ${rowScopeLabel(rows.expanded.scopePath)} · ${emptyCollectionLabel(rows.expanded.emptyCollectionPolicy)}`;
-    default: {
-      const _exhaustive: never = rows;
-      return _exhaustive;
-    }
-  }
-};
-
 const isCurrentProposal = (
   proposal: RowDefinitionProposal,
   table: DraftTable,
@@ -195,6 +177,7 @@ export const RowDefinitionSettingsPanel = ({
   onApply,
   relatedRows,
   onChooseRelatedRows,
+  onChooseReshape,
   onChangeRootOccurrence,
 }: {
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
@@ -214,6 +197,7 @@ export const RowDefinitionSettingsPanel = ({
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly onChooseRelatedRows: () => void;
+  readonly onChooseReshape: () => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
@@ -349,6 +333,10 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
+  const chooseReshape = () => {
+    cancel();
+    onChooseReshape();
+  };
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
   const comparison = currentProposal?.comparison;
@@ -383,45 +371,35 @@ export const RowDefinitionSettingsPanel = ({
         aria-label="Configure rows"
         aria-haspopup="dialog"
         aria-expanded={settings.kind !== 'closed'}
-        className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:border-blue-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs text-slate-700 hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || settings.kind === 'loading'}
         onClick={() => void openSettings()}
       >
-        <span className="min-w-0">
-          <span className="block font-semibold text-slate-900">Rows</span>
-          <span className="block truncate text-xs text-slate-600">Current table rows: {currentRowMeaning}</span>
-          <span className="block truncate text-xs text-slate-500">{startingCollectionSummary}</span>
-        </span>
-        <span className="shrink-0 font-medium text-blue-800">Configure <span aria-hidden="true">→</span></span>
+        <span className="shrink-0 font-semibold text-slate-900">Rows</span>
+        <span className="truncate text-slate-600">{currentRowMeaning}</span>
+        <span className="shrink-0 font-medium text-blue-800">Change <span aria-hidden="true">→</span></span>
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Rows</h3>
-                <p className="mt-1 text-xs text-slate-600">{currentRowMeaning}</p>
+                <h3 className="text-lg font-semibold text-slate-900">Change rows</h3>
+                <p className="mt-1 text-xs text-slate-600">Currently: {currentRowMeaning}</p>
               </div>
               <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Close</button>
             </div>
             <div className="mt-3 space-y-3">
               <div className="min-w-0">
-                {renderRootSettings((nodeId, occurrenceId) => {
-                  cancel();
-                  onChangeRootOccurrence(nodeId, occurrenceId);
-                })}
                 <section aria-label="Row shape settings" className="text-sm text-slate-800">
-                  {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
-                    <p className="text-xs text-slate-500">Changing the starting rows may affect later steps.</p>
-                  ) : null}
                   {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
                   {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
                   {settings.kind === 'editing' ? (
                     <>
                 <label className="block text-sm font-medium text-slate-800">
-                  <span>New row shape</span>
+                  <span>What should each row represent?</span>
                   <select
-                    aria-label="New row shape"
+                    aria-label="What should each row represent?"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
                     value={selectedOption?.shapeValue ?? 'records'}
                     disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
@@ -456,9 +434,6 @@ export const RowDefinitionSettingsPanel = ({
                       </select>
                     </label>
                   </details>
-                ) : null}
-                {settings.choices.choices.some((choice) => choice.kind === 'FIELD_GROUP') ? (
-                  <p className="mt-3 text-xs text-slate-600">Grouping source records by a field is not executable yet. You can summarize the current table under Reshape.</p>
                 ) : null}
                 {groupAuthoringOpen && selection ? (
                   <ExplicitGroupAuthoring
@@ -497,7 +472,12 @@ export const RowDefinitionSettingsPanel = ({
                 </div>
                     </>
                   ) : null}
-                  <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button type="button" data-testid="construction-action-reshape" disabled={disabled}
+                      onClick={chooseReshape}
+                      className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
+                      Group or reshape rows
+                    </button>
                     <button
                       type="button"
                       className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:border-slate-300 disabled:text-slate-400"
@@ -506,11 +486,7 @@ export const RowDefinitionSettingsPanel = ({
                     >
                       One row per related record
                     </button>
-                    <p className="text-xs text-slate-600">
-                      {relatedRows.supported
-                        ? 'Choose a relationship, which records qualify, and what happens when there is no match.'
-                        : relatedRows.reason ?? 'Checking available related row paths…'}
-                    </p>
+                    {!relatedRows.supported ? <p className="text-xs text-slate-600">{relatedRows.reason ?? 'Checking available related row paths…'}</p> : null}
                   </div>
                   {proposalState.kind === 'proposing' ? <p className="mt-4" role="status">Compiling and comparing row membership…</p> : null}
                   {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This proposal is stale. Preview the row change again before applying it.</p> : null}
@@ -554,6 +530,13 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </section>
               </div>
+              <details className="min-w-0 border-t border-slate-200 pt-3">
+                <summary className="cursor-pointer text-sm font-medium text-blue-800">Use another record type as rows</summary>
+                <div className="mt-3">{renderRootSettings((nodeId, occurrenceId) => {
+                  cancel();
+                  onChangeRootOccurrence(nodeId, occurrenceId);
+                })}</div>
+              </details>
               <details className="min-w-0 border-t border-slate-200 pt-3">
                 <summary className="cursor-pointer text-sm font-medium text-blue-800">{startingCollectionSummary}</summary>
                 <section aria-label="Starting collection settings" className="mt-3">{startingCollectionSettings}</section>

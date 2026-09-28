@@ -215,7 +215,7 @@ export const FrameSourcePanel = ({
   const [state, setState] = useState<LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }>>({ kind: 'loading' });
   const [editingFrame, setEditingFrame] = useState<string>();
   const [openFrame, setOpenFrame] = useState<string>();
-  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(frames.length === 0);
   const previousFrameIds = useRef(new Set(frames.map((frame) => frame.id)));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -327,16 +327,15 @@ export const FrameSourcePanel = ({
   }, new Map<string, FrameSourceOption[]>())];
 
   return (
-    <section aria-label="Frame coded values into columns" data-testid="frame-source-panel"
-      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+    <section aria-label="Frame coded values into columns" data-testid="frame-source-panel" className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900">Frame coded values</h2>
-          <p className="text-xs text-slate-600">Turn related codes and their values into columns.</p>
+          <h2 className="text-sm font-semibold text-slate-900">{frames.length === 0 ? 'Choose a coded source' : 'Coded sources'}</h2>
+          <p className="text-xs text-slate-600">Each code names a column; its paired value fills the cells.</p>
         </div>
         <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
           className="shrink-0 text-sm font-semibold text-blue-800 hover:underline">
-          {editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Choose coded-value columns' : 'Add coded source'}
+          {sourcePickerOpen ? 'Hide source choices' : editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Choose coded-value columns' : 'Add coded source'}
           <span aria-hidden="true"> {sourcePickerOpen ? '▴' : '▾'}</span>
         </button>
       </div>

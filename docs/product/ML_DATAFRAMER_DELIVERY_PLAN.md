@@ -1,5 +1,11 @@
 # Build dataframes from the schema
 
+## Current priority: table-first Builder UI cleanup
+
+Complete this subgoal before closing more operation work packages. The table is the main workspace. Keep a compact row summary with the table title; open one Rows editor for starting records, related rows, grouping, expansion, and reshape choices. Keep all executable options available, with plain labels first and technical paths in details. Put coded-value discovery and source management inside Add columns. Complex editors use the workspace width and offer clear Apply and Back to table actions; they do not squeeze beside the table. Keep the left table list compact, with history details available on selection. Remove redundant cards and explanatory copy that obscures the current table. Calculate and derived arithmetic columns remain outside this goal.
+
+Accept this subgoal only after fresh-page CDA browser paths for Rows, Add columns, Filter rows, and Reshape show their available options, render a result, save, reload, edit or remove, and restore the prior table. Check the click path and readable labels, inspect the layout at desktop and narrow widths, and record preview times; an interaction that takes more than five seconds needs a measured performance fix or an honest visible limitation. Backend and frontend success are separate checks.
+
 Revision 4. Planned on 2026-09-19. This is the only active product execution plan.
 Deliver a column-by-column table builder whose construction choices come from the installed FHIR schema, applicable semantic definitions, observed data, and compiler support.
 Keep custom graph authoring and make grouping, expansion, and reductions explicit.

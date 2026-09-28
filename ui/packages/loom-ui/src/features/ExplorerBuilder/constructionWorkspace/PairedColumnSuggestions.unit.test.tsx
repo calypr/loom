@@ -154,7 +154,7 @@ describe('PairedColumnSuggestions', () => {
     const suggestion = await screen.findByTestId('paired-column-suggestion-days_to_collection');
     expect(screen.getByTestId('paired-column-suggestions')).toBeInTheDocument();
     expect(screen.getByTestId('paired-column-suggestions-browse-all')).toBeInTheDocument();
-    expect(screen.getByText('Add columns from coded values')).toBeInTheDocument();
+    expect(screen.getByText('Suggested coded columns')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Days to collection as a column' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /as a column$/ })).toHaveLength(
       MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS,

@@ -175,14 +175,12 @@ export const PairedColumnSuggestions = ({
     <section
       aria-label="Ready-to-add paired concepts"
       data-testid="paired-column-suggestions"
-      className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2.5"
+      className="rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2.5"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-indigo-950">Add columns from coded values</h3>
-          <p className="mt-0.5 text-[11px] text-slate-600">
-            Choose a value to add to this table. You can check which records match and preview the new column before applying it.
-          </p>
+          <h3 className="text-sm font-semibold text-indigo-950">Suggested coded columns</h3>
+          <p className="mt-0.5 text-[11px] text-slate-600">Codes become column names; their paired values fill the cells.</p>
         </div>
         <button
           type="button"
@@ -191,7 +189,7 @@ export const PairedColumnSuggestions = ({
           onClick={onBrowseAll}
           className="shrink-0 rounded border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Find another coded value
+          Browse all codes
         </button>
       </div>
 
@@ -205,11 +203,11 @@ export const PairedColumnSuggestions = ({
         <p className="mt-2 text-xs text-slate-500" role="status">No coded pairings with a supported route and result form were found on this page.</p>
       ) : null}
       {state.status === 'ready' && state.suggestions.length > 0 ? (
-        <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+        <ul className="mt-2 grid gap-1.5">
           {state.suggestions.map((suggestion) => {
             const label = meaningfulConceptLabel(suggestion.item);
             return (
-              <li key={`${suggestion.item.conceptId}:${suggestion.item.bindingId}`} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-indigo-200 bg-white px-3 py-2">
+              <li key={`${suggestion.item.conceptId}:${suggestion.item.bindingId}`} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5">
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-slate-900" title={label}>{label}</p>
                   <p className="text-[10px] text-slate-600">

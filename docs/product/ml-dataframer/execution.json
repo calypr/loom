@@ -19,6 +19,18 @@
     "performance",
     "review"
   ],
+  "prioritySubgoal": {
+    "id": "BUILDER-UI",
+    "title": "Make the dataframe table the primary Builder workspace",
+    "status": "in_progress",
+    "tasks": [
+      { "id": "BUILDER-UI-01", "title": "Move coded-value discovery and source editing into Add columns", "status": "in_progress" },
+      { "id": "BUILDER-UI-02", "title": "Unify row definition and reshape entry in one compact Rows editor", "status": "in_progress" },
+      { "id": "BUILDER-UI-03", "title": "Use full-width editors with clear Apply and Back to table actions", "status": "in_progress" },
+      { "id": "BUILDER-UI-04", "title": "Compact table navigation and disclose history detail on selection", "status": "in_progress" },
+      { "id": "BUILDER-UI-05", "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time", "status": "in_progress" }
+    ]
+  },
   "executionOrder": [
     "S01",
     "S02",

@@ -517,11 +517,12 @@ describe('BuilderWorkspace Add columns source selection', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('Source and column setup'));
+    fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
     fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
-    fireEvent.click(screen.getByText('Source and column setup'));
+    fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const currentRows = within(source).getByRole('group', { name: 'Search scope' });
@@ -608,8 +609,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(screen.getByText('Source and column setup'));
+    fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
 
     const source = await screen.findByRole('group', { name: 'Add columns source' });
     const currentRows = within(source).getByRole('group', { name: 'Search scope' });
@@ -864,8 +866,9 @@ describe('BuilderWorkspace Add columns source selection', () => {
         explorerId="test"
       />,
     );
-    fireEvent.click(screen.getByText('Source and column setup'));
+    fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
+    fireEvent.click(screen.getByRole('button', { name: 'Fields and related data' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Observation, Related resource' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Observation.status' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
@@ -1029,8 +1032,8 @@ describe('BuilderWorkspace Add columns source selection', () => {
         expect.any(AbortSignal),
       );
     });
-    expect(screen.getByText(/Adding fields from related resources is unavailable here:/))
-      .toHaveTextContent('Close the saved-step editor before adding related fields');
+    expect(screen.getByText('Editing a saved step')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-source-setup')).toBeNull();
     expect(mockLoomClient.proposeConstruction).not.toHaveBeenCalled();
     expect(applyExplorerCommands).not.toHaveBeenCalled();
   });

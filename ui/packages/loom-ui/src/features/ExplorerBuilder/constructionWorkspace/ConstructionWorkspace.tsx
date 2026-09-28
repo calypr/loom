@@ -66,7 +66,7 @@ const allOperationFamilies = [
 
 export const constructionOperationFamilies = allOperationFamilies;
 const actionFamilies = allOperationFamilies.filter(
-  ({ family }) => family !== 'CALCULATE' && family !== 'COMBINE',
+  ({ family }) => family === 'ADD_COLUMNS' || family === 'KEEP_ROWS',
 );
 
 export const ConstructionActionBar = ({
@@ -190,14 +190,14 @@ export const ConstructionTableNavigation = ({
         </div>
       </div>
     ))}
-    <div className="mt-2 flex gap-2 border-t border-slate-200 px-2 pt-3">
+    <div className="mt-1 flex gap-3 border-t border-slate-200 px-2 pt-1.5">
       <button
         type="button"
         aria-label="Duplicate table"
         data-testid="construction-duplicate-table"
         disabled={disabled || !selectedOutputId}
         onClick={onDuplicateTable}
-        className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-45"
       >
         Duplicate
       </button>
@@ -207,7 +207,7 @@ export const ConstructionTableNavigation = ({
         data-testid="construction-delete-table"
         disabled={disabled || !selectedOutputId || tables.length < 2}
         onClick={onDeleteTable}
-        className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-45"
+        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-red-50 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-45"
       >
         Delete
       </button>
@@ -226,11 +226,11 @@ export const ConstructionHistory = ({
   if (steps.length === 0) return null;
 
   return (
-    <section aria-label="Construction history" data-testid="construction-history" className="mt-8">
+    <section aria-label="Construction history" data-testid="construction-history" className="mt-4">
       <h2 className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
         How this table is made
       </h2>
-      <ol className="grid gap-1 border-l border-slate-300 pl-3">
+      <ol className="grid gap-0.5">
         <li>
           <button
             type="button"
@@ -238,32 +238,30 @@ export const ConstructionHistory = ({
             data-testid="construction-history-source"
             disabled={disabled}
             onClick={() => onSelect({ kind: 'source' })}
-            className={`w-full rounded px-2 py-2 text-left text-xs ${
+            className={`w-full rounded px-2 py-1.5 text-left text-xs ${
               selected.kind === 'source' ? 'bg-white font-semibold text-emerald-950' : 'text-slate-700 hover:bg-white/70'
             }`}
           >
-            <span className="block text-[10px] uppercase tracking-wide text-slate-500">Source</span>
             Starting records
           </button>
         </li>
         {steps.map((step, index) => (
           <li key={step.id}>
-            <div className="rounded px-2 py-1">
+            <div className="rounded px-1 py-0.5">
               <button
                 type="button"
                 aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
                 data-testid={`construction-history-step-${step.id}`}
                 disabled={disabled}
                 onClick={() => onSelect({ kind: 'step', stepId: step.id })}
-                className={`w-full rounded px-1 py-1 text-left text-xs ${
+                className={`w-full rounded px-2 py-1.5 text-left text-xs ${
                   selected.kind === 'step' && selected.stepId === step.id
                     ? 'bg-white font-semibold text-emerald-950'
                     : 'text-slate-700 hover:bg-white/70'
                 }`}
               >
-                <span className="block text-[10px] uppercase tracking-wide text-slate-500">Step {index + 1}</span>
-                <span className="block font-medium">{step.title}</span>
-                <span className="mt-0.5 block text-slate-500">{step.summary}</span>
+                <span className="font-medium">{index + 1}. {step.title}</span>
+                {selected.kind === 'step' && selected.stepId === step.id ? <span className="mt-1 block text-slate-600">{step.summary}</span> : null}
               </button>
               {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
                 <div className="mt-1 flex gap-1">
@@ -305,10 +303,8 @@ export const ConstructionWorkspace = ({
   onSelectFamily,
   history,
   rowSetup,
-  framingSetup,
   preview,
   editor,
-  setup,
   previewStatus,
   previewReceiptId,
   previewOutputId,
@@ -337,10 +333,8 @@ export const ConstructionWorkspace = ({
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
-  readonly framingSetup?: React.ReactNode;
   readonly preview: React.ReactNode;
   readonly editor?: React.ReactNode;
-  readonly setup?: React.ReactNode;
   readonly previewStatus: 'empty' | 'stale' | 'previewing' | 'needs-repair' | 'error' | 'ready';
   readonly previewReceiptId?: string;
   readonly previewOutputId?: string;
@@ -352,9 +346,9 @@ export const ConstructionWorkspace = ({
     data-testid="construction-workspace"
     data-draft-version={draftVersion}
     data-draft-digest={draftDigest}
-    className="mx-auto grid max-w-[1920px] grid-cols-1 gap-3 xl:grid-cols-[15rem_minmax(0,1fr)]"
+    className="mx-auto grid max-w-[1920px] grid-cols-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)]"
   >
-    <aside className="min-w-0 rounded-xl border border-slate-200 bg-[#edf2ed] p-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start xl:overflow-y-auto">
+    <aside className="min-w-0 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-[#edf2ed] p-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start">
       <ConstructionTableNavigation
         tables={tables}
         selectedOutputId={selectedOutputId}
@@ -375,6 +369,7 @@ export const ConstructionWorkspace = ({
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
           <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
           {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
+          {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup" className="mt-2 max-w-xl">{rowSetup}</div> : null}
         </div>
         <div className="flex items-center gap-4">
           <dl className="flex gap-5 text-right text-xs text-slate-500">
@@ -403,16 +398,14 @@ export const ConstructionWorkspace = ({
         </div>
       </header>
 
-      {rowSetup ? <section aria-label="Define table rows" data-testid="construction-row-setup" className="min-w-0">{rowSetup}</section> : null}
-      {framingSetup ? <section aria-label="Frame coded values" className="min-w-0">{framingSetup}</section> : null}
-
       <ConstructionActionBar
         activeFamily={activeFamily}
         disabled={actionsDisabled}
         onSelect={onSelectFamily}
       />
 
-      <div className={`grid min-w-0 items-start gap-4 ${editor ? 'xl:grid-cols-[minmax(0,1.65fr)_minmax(21rem,1fr)]' : ''}`}>
+      <div className="grid min-w-0 items-start gap-3">
+        {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}
         <section
           aria-label="Table result"
           data-testid="construction-preview"
@@ -422,14 +415,12 @@ export const ConstructionWorkspace = ({
           data-preview-proposal-id={proposalId ?? ''}
           data-current-draft-version={draftVersion}
           data-current-draft-digest={draftDigest}
-          className="order-last min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:order-first"
+          className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
         >
           {preview}
         </section>
-        {editor ? <aside aria-label="Proposed change" className="order-first min-w-0 xl:order-last">{editor}</aside> : null}
       </div>
 
-      {setup ? <div className="min-w-0">{setup}</div> : null}
     </section>
   </div>
 );

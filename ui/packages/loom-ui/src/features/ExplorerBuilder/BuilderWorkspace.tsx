@@ -464,6 +464,7 @@ const BuilderWorkspaceContent = ({
     useState<PairedColumnSuggestion>();
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
+  const [addColumnsView, setAddColumnsView] = useState<'coded' | 'fields'>('coded');
   const [relatedRowsEntry, setRelatedRowsEntry] = useState(0);
   const [openReshapeOnRelatedRows, setOpenReshapeOnRelatedRows] = useState(false);
   const [addColumnsSource, setAddColumnsSource] = useState<{
@@ -2244,12 +2245,20 @@ const BuilderWorkspaceContent = ({
     setRelatedRowsEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
+  const chooseReshapeRows = () => {
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setOpenReshapeOnRelatedRows(false);
+    setActiveConstructionFamily('RESHAPE');
+  };
   const openCodedValueCatalog = () => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
     setPairedColumnSuggestion(undefined);
     setFeatureMode('catalog');
+    setAddColumnsView('fields');
     setAddColumnsSource({ context: addSourceContext, key: 'all' });
     setAddSourceSearch({ context: addSourceContext, query: '' });
     setActiveConstructionFamily('ADD_COLUMNS');
@@ -2448,7 +2457,7 @@ const BuilderWorkspaceContent = ({
             }}
             className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100"
           >
-            Close
+            Back to table
           </button>
         </div>
         {selectedColumnIds.length > 0 ? (
@@ -2467,6 +2476,54 @@ const BuilderWorkspaceContent = ({
       <div className="p-3">
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
+            <div role="group" aria-label="Column types" className="flex gap-1 rounded-md bg-slate-100 p-1">
+              <button type="button" aria-pressed={addColumnsView === 'coded'} onClick={() => setAddColumnsView('coded')}
+                className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'coded' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}>
+                Coded values
+              </button>
+              <button type="button" aria-pressed={addColumnsView === 'fields'} onClick={() => setAddColumnsView('fields')}
+                className={`rounded px-3 py-1.5 text-sm font-medium ${addColumnsView === 'fields' ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-600'}`}>
+                Fields and related data
+              </button>
+            </div>
+            {addColumnsView === 'coded' && table.document.rootResourceType ? (
+              <>
+                {sourceAvailability.available ? <PairedColumnSuggestions
+                  project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+                  rowRoot={table.document.rootResourceType}
+                  columns={[...selectableColumns, ...table.document.columns.map((column) => ({ id: column.column, label: column.label }))]}
+                  disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onSelectSuggestion={(suggestion) => {
+                    setPairedColumnSuggestion(suggestion);
+                    setFeatureMode('catalog');
+                    setAddColumnsView('fields');
+                  }}
+                  onBrowseAll={openCodedValueCatalog}
+                /> : null}
+                <FrameSourcePanel
+                  key={`${table.outputId}:${state.catalog.snapshotToken}`}
+                  project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                  snapshotToken={state.catalog.snapshotToken} outputId={table.outputId}
+                  rowRoot={table.document.rootResourceType} frames={table.document.frames ?? []}
+                  columns={table.document.columns} disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                  onSet={(choice, form) => applyCommands([{
+                    type: 'SET_FRAME_SOURCE', outputId: table.outputId, frameChoiceId: choice.choiceId, form,
+                  }])}
+                  onReplace={(frameId, choice, form) => applyCommands([{
+                    type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId, frameChoiceId: choice.choiceId, form,
+                  }])}
+                  onRemove={(frameId) => applyCommands([{
+                    type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
+                  }])}
+                  onAddSelected={(selections) => addSelectedFeatures(selections, true)}
+                  onRemoveColumn={(column) => applyCommands([{
+                    type: 'REMOVE_COLUMN', outputId: table.outputId, column,
+                  }])}
+                />
+              </>
+            ) : null}
+            {addColumnsView === 'fields' ? <>
             <fieldset
               aria-label="Add columns source"
               data-testid="construction-add-columns-source"
@@ -2577,9 +2634,14 @@ const BuilderWorkspaceContent = ({
               suppressUnavailableNotices={hasUnsupportedSavedSourceColumns}
               disabledReason={sourceSelectionDisabledReason}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+              pairedColumnSuggestion={pairedColumnSuggestion}
+              onPairedColumnSuggestionHandled={(requestId) =>
+                setPairedColumnSuggestion((current) => current?.requestId === requestId ? undefined : current)
+              }
               onAddSelected={addSelectedFeatures}
               onInspectRouteCoverage={inspectRelatedRouteCoverage}
             />}
+            </> : null}
           </div>
         ) : null}
         {activeOperation.family === 'KEEP_ROWS' || activeOperation.family === 'CALCULATE' ? (
@@ -3076,41 +3138,13 @@ const BuilderWorkspaceContent = ({
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                     relatedRows={relatedRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
+                    onChooseReshape={chooseReshapeRows}
                     onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}
                     onApply={(proposalId) => applyCommands([{
                       type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
                     }])}
                   />
                 )}
-                framingSetup={table.document.rootResourceType ? (
-                  <FrameSourcePanel
-                    key={`${table.outputId}:${state.catalog.snapshotToken}`}
-                    project={projectId}
-                    explorerId={state.explorerId}
-                    authResourcePath={authResourcePath}
-                    snapshotToken={state.catalog.snapshotToken}
-                    outputId={table.outputId}
-                    rowRoot={table.document.rootResourceType}
-                    frames={table.document.frames ?? []}
-                    columns={table.document.columns}
-                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                    onSet={(choice, form) => applyCommands([{
-                      type: 'SET_FRAME_SOURCE', outputId: table.outputId,
-                      frameChoiceId: choice.choiceId, form,
-                    }])}
-                    onReplace={(frameId, choice, form) => applyCommands([{
-                      type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                      frameChoiceId: choice.choiceId, form,
-                    }])}
-                    onRemove={(frameId) => applyCommands([{
-                      type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
-                    }])}
-                    onAddSelected={(selections) => addSelectedFeatures(selections, true)}
-                    onRemoveColumn={(column) => applyCommands([{
-                      type: 'REMOVE_COLUMN', outputId: table.outputId, column,
-                    }])}
-                  />
-                ) : undefined}
                 onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
                 undoDisabled={
                   pendingCommands > 0 ||
@@ -3177,31 +3211,6 @@ const BuilderWorkspaceContent = ({
                       onClear={() => setColumnSelection({ kind: 'empty' })}
                       onOpenFamily={selectConstructionFamily}
                     />
-                    {table.document.rootResourceType && sourceAvailability.available ? (
-                      <PairedColumnSuggestions
-                        project={projectId}
-                        explorerId={state.explorerId}
-                        authResourcePath={authResourcePath}
-                        snapshotToken={state.catalog.snapshotToken}
-                        outputId={table.outputId}
-                        rowRoot={table.document.rootResourceType}
-                        columns={[
-                          ...selectableColumns,
-                          ...table.document.columns.map((column) => ({
-                            id: column.column,
-                            label: column.label,
-                          })),
-                        ]}
-                        disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
-                        onSelectSuggestion={(suggestion) => {
-                          setPairedColumnSuggestion(suggestion);
-                          setFeatureMode('catalog');
-                        }}
-                        onBrowseAll={() => {
-                          openCodedValueCatalog();
-                        }}
-                      />
-                    ) : null}
                     {candidatePreview ? (
                       <ConstructionProposalPreview preview={candidatePreview} />
                     ) : (
@@ -3238,16 +3247,13 @@ const BuilderWorkspaceContent = ({
                 draftDigest={state.draftDigest}
               />
             ) : null}
-            <details
-              className="rounded-xl border border-slate-200 bg-white shadow-sm"
+            {!activeOperation && !workspaceEditor ? <details
+              className="w-fit max-w-full rounded-md border border-slate-200 bg-white shadow-sm open:w-full"
               open={!table?.document.rootResourceType}
               data-testid="construction-source-setup"
             >
-              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 marker:hidden">
-                <span>Source and column setup</span>
-                <span className="ml-2 text-xs font-normal text-slate-500">
-                  Browse available data or edit source columns.
-                </span>
+              <summary className="cursor-pointer list-none px-3 py-2 text-xs font-semibold text-blue-800 marker:hidden">
+                <span>Advanced source setup</span>
               </summary>
               <div className="space-y-3 border-t border-slate-200 p-3">
             <section className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -3628,7 +3634,7 @@ const BuilderWorkspaceContent = ({
               />
             ) : null}
               </div>
-            </details>
+            </details> : null}
           </>
         )}
       </div>
