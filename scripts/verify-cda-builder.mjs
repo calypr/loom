@@ -2128,7 +2128,7 @@ try {
     }
     await writeFile(join(evidenceDirectory,action === 'Verify Patient related column' ? 'patient-related-applied.json' : action === 'Inspect Patient proposal' ? 'patient-proposal.json' : action === 'Inspect selected Patient route' ? 'patient-selected-route.json' : 'patient-field-choice.json'),JSON.stringify({pageURL,source,baseline,dialog,proposal,saved,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,baseline,dialog,proposal,saved,responses:responses.filter(response=>response.status>=400)},null,2));
-  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form' || action === 'Verify saved Observation route edit') {
+  } else if (action === 'Verify direct Observation COUNT many and zero' || action === 'Verify direct Observation forms many and zero' || action === 'Verify saved Observation result form' || action === 'Verify saved Observation route edit' || action === 'Verify related eligibility via presence filter') {
     const changeSavedForm = action === 'Verify saved Observation result form';
     const changeSavedRoute = action === 'Verify saved Observation route edit';
     const includeAllAndPresence = action !== 'Verify direct Observation COUNT many and zero' && !changeSavedRoute;
@@ -2662,6 +2662,41 @@ try {
         const expectedIDs = rawValues.patients.find(patient => patient.patientId === manyPatientId).subjectObservations.map(observation => observation.id).sort();
         assert.deepEqual([...results.manyForms.row[results.allForm.output.name]].sort(), expectedIDs);
         assert.equal(results.manyForms.row[results.presenceForm.output.name], true);
+        if (action === 'Verify related eligibility via presence filter') {
+          const baselineStepCount=await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid^="construction-history-step-"]').length;`);
+          await clickDOM('button[aria-label^="Filter rows:"]','Open Filter rows for related presence');
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]'))`,30000);
+          const presenceOption=await browserEval(browser.cdp, `return [...document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]').options].map(option=>({value:option.value,label:option.textContent.trim(),disabled:option.disabled})).find(option=>option.label.includes('Has related Observation record'));`);
+          assert(presenceOption&&!presenceOption.disabled,'Related presence cannot be selected as a row filter');
+          await browserEval(browser.cdp, `const select=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Column"]');select.value=${JSON.stringify(presenceOption.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          await browserEval(browser.cdp, `const select=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Condition"]');select.value='EQUALS';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Value"]'))`,30000);
+          await browserEval(browser.cdp, `const select=document.querySelector('[data-testid="construction-filter-editor"] select[aria-label="Value"]');select.value='true';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+          const eligibilityStarted=Date.now();
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);
+          results.eligibilityProposalMs=Date.now()-eligibilityStarted;
+          results.eligibilityProposal=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-proposal-preview"]');return {text:panel?.innerText,rows:[...panel.querySelectorAll('tbody tr')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+          assert.equal(results.eligibilityProposal.applyDisabled,false);
+          assert(results.eligibilityProposal.rows.some(row=>row.includes(manyPatientId)),'Eligible Patient is absent from proposal');
+          await clickDOM('[data-testid="construction-apply-proposal"]','Apply related presence filter');
+          await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===${baselineStepCount+1}`,30000);
+          await navigate(browser.cdp,pageURL);
+          await selectTemporaryTable();
+          results.eligibilitySaved=await previewFor(manyPatientId,results.presenceForm.output);
+          assert.equal(results.eligibilitySaved.row[results.presenceForm.output.name],true);
+          assert.equal(results.eligibilitySaved.rowCount,1);
+          await browserEval(browser.cdp, `const steps=[...document.querySelectorAll('[data-testid^="construction-history-step-"]')];steps.at(-1)?.click();return true;`);
+          clicks.push({ sequence: clicks.length + 1, label: 'Select related presence filter' });
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`,30000);
+          await clickDOM('[data-testid^="construction-remove-step-"]','Remove related presence filter');
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,30000);
+          await clickDOM('[data-testid="construction-apply-proposal"]','Restore pre-eligibility table');
+          await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===${baselineStepCount}`,30000);
+          await navigate(browser.cdp,pageURL);
+          await selectTemporaryTable();
+          results.eligibilityRestored=await previewFor(manyPatientId,results.presenceForm.output);
+          assert.equal(results.eligibilityRestored.rowCount,1);
+        }
         if (changeSavedForm) {
           const savedSteps = await browserEval(browser.cdp,
             'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].map(element=>({testId:element.getAttribute("data-testid"),text:element.innerText}));');
@@ -2841,7 +2876,7 @@ try {
     results.error = scenarioError;
     results.cleanupError = cleanupError;
     await mkdir(evidenceDirectory, { recursive: true });
-    await writeFile(join(evidenceDirectory, changeSavedRoute ? 'saved-observation-route-edit.json' : changeSavedForm ? 'saved-observation-result-form.json' : includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
+    await writeFile(join(evidenceDirectory, action === 'Verify related eligibility via presence filter' ? 'related-eligibility-composition.json' : changeSavedRoute ? 'saved-observation-route-edit.json' : changeSavedForm ? 'saved-observation-result-form.json' : includeAllAndPresence ? 'patient-related-forms-many-zero.json' : 'patient-related-count-many-zero.json'), JSON.stringify(results, null, 2));
     console.log(JSON.stringify({
       evidenceDirectory,
       many: results.many && { patientId: results.many.patientId, count: results.many.count },
@@ -2927,8 +2962,13 @@ try {
       if (action === 'Verify ready paired column lifecycle') {
         await wait('Boolean([...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.getAttribute("aria-label")?.includes("days_to_collection")&&!button.disabled))', 'Ready paired days_to_collection column visible beside current columns', 30000);
         state.readySuggestion = await browserEval(browser.cdp, 'const panel=document.querySelector("[data-testid=paired-column-suggestions]");return {text:panel?.innerText,currentColumns:[...document.querySelectorAll("[data-testid^=construction-column-]")].map(button=>button.innerText)};');
-        await click('[...document.querySelectorAll(\'[data-testid^="paired-column-suggestion-"]\')].find(button=>button.getAttribute("aria-label")?.includes("days_to_collection")).click();return true;', 'Choose ready paired days_to_collection column');
+        const card = await browserEval(browser.cdp, 'const button=[...document.querySelectorAll("[data-testid^=paired-column-suggestion-]")].find(item=>item.getAttribute("aria-label")?.includes("days_to_collection"));button.scrollIntoView({block:"center"});const rect=button.getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};');
+        await browser.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: card.x, y: card.y, button: 'left', clickCount: 1 });
+        await browser.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: card.x, y: card.y, button: 'left', clickCount: 1 });
+        state.clicks.push('Choose ready paired days_to_collection column with mouse');
         await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Existing route and result form dialog opened', 30000);
+        state.visibleDialog = await browserEval(browser.cdp, 'const dialog=document.querySelector("[role=dialog]");const rect=dialog.getBoundingClientRect();const center=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return {visible:rect.width>0&&rect.height>0&&rect.top>=0&&rect.bottom<=innerHeight&&dialog.contains(center),top:rect.top,bottom:rect.bottom,viewportHeight:innerHeight};');
+        assert(state.visibleDialog.visible, 'Add column route dialog is not visible in the browser viewport');
       } else if (action === 'Verify paired semantic from Pivot lifecycle') {
         await click('document.querySelector(\'button[aria-label^="Reshape:"]\').click();return true;', 'Open Reshape');
         await wait('Boolean(document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\'))', 'Pivot choice visible');
