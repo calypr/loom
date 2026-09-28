@@ -204,11 +204,11 @@ export const PreviewTable = ({
           constructionOutputByName.get(right.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
         ),
     );
-  const sourceIdentityPreserved = !table?.document.tableShape &&
-    table?.document.rows.kind === 'RECORDS' &&
+  const startingRecordPreserved = !table?.document.tableShape &&
+    (table?.document.rows.kind === 'RECORDS' || table?.document.rows.kind === 'EXPANDED') &&
     (table.document.construction?.steps.every((step) =>
       ['DERIVE', 'FILTER', 'RELATED_SOURCE', 'RELATED_FIELD', 'RELATED_ELIGIBILITY'].includes(step.operation.kind)) ?? true);
-  const startingIDColumn = sourceIdentityPreserved ? orderedColumns.find((column) =>
+  const startingIDColumn = startingRecordPreserved ? orderedColumns.find((column) =>
     authoredColumnsFor(column).some((authored) =>
       authored.occurrenceId === table?.document.route.occurrenceId &&
       authored.source.kind === 'field' &&

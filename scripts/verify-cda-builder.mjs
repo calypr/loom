@@ -418,6 +418,11 @@ try {
         state.expandedPreview = await browserEval(browser.cdp, `return {ariaRowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert.equal(state.expandedPreview.rows.length, 3, 'The source Observation did not become three rendered dataframe rows');
         assert(state.expandedPreview.rows.every(row => row[0] === targetID), 'Expanded rows do not retain the raw source Observation ID');
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"]'))`, 30000);
+        state.expandedPreview.identityDialog = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
+        assert(state.expandedPreview.identityDialog.includes(`Observation/${targetID}`), 'Expanded row did not identify its starting CDA Observation');
+        await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] button').click();return true;`);
         const expandedCodeColumn = state.expandedPreview.headers.findIndex(header => header.toLowerCase().includes('component'));
         assert(expandedCodeColumn >= 0, 'Expanded preview is missing the component code column');
         state.expandedPreview.rowValues = state.expandedPreview.rows.map(row => row[expandedCodeColumn]);
@@ -516,7 +521,8 @@ try {
         assert.equal(state.restoredSourcePreview.historyCount, 0, 'The temporary filter remains after removal');
         await openSourceSetup();
         state.restoredRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,400);`);
-        assert(state.restoredRowSetting.includes('One row per source record'), 'The source-record row definition was not restored');
+        assert(state.restoredRowSetting.includes(`Current table rows: One row per ${resourceType} record.`),
+          `The source-record row definition was not restored: ${state.restoredRowSetting}`);
         state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
         assert(Object.entries(state.timingsMs).filter(([name]) => name.endsWith('Preview')).every(([, elapsed]) => elapsed <= 5000),
           `A CDA preview exceeded 5 seconds: ${JSON.stringify(state.timingsMs)}`);

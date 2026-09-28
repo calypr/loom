@@ -208,6 +208,19 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    view.rerender(React.createElement(PreviewTable, { ...props, table: {
+      ...sourceTable,
+      document: {
+        ...sourceTable.document,
+        rows: { kind: 'EXPANDED', expanded: {
+          occurrenceId: 'base', scopePath: 'component[]', emptyCollectionPolicy: 'PRESERVE_PARENT',
+        } },
+      },
+    } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     view.rerender(React.createElement(PreviewTable, { ...props, table }));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
     expect(screen.queryByText('Starting FHIR record')).not.toBeInTheDocument();
