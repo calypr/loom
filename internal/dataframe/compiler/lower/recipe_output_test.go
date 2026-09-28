@@ -715,6 +715,32 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 	}
 }
 
+func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) {
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic-exact", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "resource", TraversalColumnNaming: recipe.TraversalColumnNamingExact, Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := compiled.Outputs[0].DynamicColumns[0].Name; got != "identifiers_identifier" {
+		t.Fatalf("exact traversal dynamic column = %q, want identifiers_identifier", got)
+	}
+	found := false
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		found = found || column.Name == "identifiers_identifier"
+	}
+	if !found {
+		t.Fatalf("exact dynamic column missing from output schema: %#v", compiled.Outputs[0].OutputSchema)
+	}
+}
+
 func TestCompileResolvedRecipePlanCorrelatesRepeatedPivotItems(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "component-pivot", TranslationVersion: "test", Outputs: []recipe.Output{{
 		Name: "Observation", RootResourceType: "Observation", RowGrain: "resource",

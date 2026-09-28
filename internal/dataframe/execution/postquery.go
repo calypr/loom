@@ -55,7 +55,17 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	}
 	observed, ok := row["__loom_dynamic_runtime_keys"].(map[string]any)
 	if !ok {
-		return fmt.Errorf("dynamic runtime key metadata is missing")
+		for dynamicName, columns := range checks {
+			for _, column := range columns {
+				if !column.AllowUnknownKeys {
+					return fmt.Errorf("dynamic runtime key metadata is missing for %q", dynamicName)
+				}
+				if actual, exists := row[column.ColumnName]; exists && !dynamicValueMatches(actual, column.ValueType) {
+					return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
+				}
+			}
+		}
+		return nil
 	}
 	for dynamicName, values := range observed {
 		allowed := checks[dynamicName]

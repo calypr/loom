@@ -10,6 +10,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -92,7 +93,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 		runtimeKey := ir.PhysicalExpression{Kind: ir.PhysicalObjectKeysExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, ObjectKeys: &ir.PhysicalObjectKeys{ObjectVariable: familyVariable}}
 		runtimeKeyFields = append(runtimeKeyFields, ir.PhysicalExpressionProjection{Name: runtimeName, Expression: runtimeKey})
 		projectionPrefix := ""
-		if dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
+		if output.TraversalColumnNaming.Normalized() != recipe.TraversalColumnNamingExact && dynamic.ScopeAlias != "" && dynamic.ScopeAlias != "root" {
 			projectionPrefix = dynamic.ScopeAlias + "__"
 		}
 		for index, column := range columns {
