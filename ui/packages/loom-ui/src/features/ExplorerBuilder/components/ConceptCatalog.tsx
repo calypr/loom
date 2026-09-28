@@ -22,7 +22,7 @@ import {
   type CatalogChoiceIntent,
   type CatalogItem,
 } from '../catalogItems';
-import { CatalogSelectionDialog, type CatalogInitialSelection, type RouteMatchCoverage } from './CatalogSelectionDialog';
+import { CatalogSelectionDialog, type CatalogInitialSelection, type RouteCoverage } from './CatalogSelectionDialog';
 import type { PairedColumnSuggestion } from '../constructionWorkspace/PairedColumnSuggestions';
 
 const PAGE_SIZE = 50;
@@ -513,7 +513,7 @@ export const ConceptCatalog = ({
   readonly onAddSelected?: (
     selections: ReadonlyArray<CatalogChoiceIntent>,
   ) => Promise<'preview-ready' | 'preview-pending' | void>;
-  readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteMatchCoverage>;
+  readonly onInspectRouteCoverage?: (selection: CatalogChoiceIntent, signal: AbortSignal) => Promise<RouteCoverage>;
 }) => {
   const client = useLoomClient();
   const [queryInput, setQueryInput] = useState('');

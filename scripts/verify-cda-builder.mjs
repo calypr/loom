@@ -3070,6 +3070,22 @@ try {
       // Keep this a scalar predicate: returning the input node causes CDP to fail with “Object reference chain is too long”.
       await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Route choice radios rendered');
       state.dialogBeforeRoute = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[role=dialog]")].map(dialog=>({text:dialog.innerText,radios:[...dialog.querySelectorAll("input[type=radio]")].map(input=>({label:input.getAttribute("aria-label"),text:input.labels?.[0]?.innerText??input.closest("label")?.innerText??"",checked:input.checked}))}));');
+      const semanticChoicesResponse = responses.filter(response=>response.path.endsWith('/construction-choices')).at(-1);
+      state.semanticChoiceOptions = semanticChoicesResponse?.status===200
+        ? JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:semanticChoicesResponse.requestId})).body).choices?.map(choice=>({route:choice.route,options:choice.options,source:choice.source}))
+        : undefined;
+      if (action === 'Verify paired semantic days-to-collection lifecycle') {
+        const direct = state.semanticChoiceOptions.filter(choice=>choice.route.length===1).slice(0,2);
+        assert.equal(direct.length,2,'Expected two direct CDA paired-value routes');
+        const started = Date.now();
+        await wait(`Boolean([...document.querySelectorAll('[data-testid^="catalog-route-coverage-"]')].filter(element=>element.innerText.includes('paired values, not matching records')).length>=2)`, 'Paired-value coverage rendered before choosing a route', 10000);
+        state.semanticRouteCoverage = {
+          elapsedMs: Date.now()-started,
+          routes: await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid^="catalog-route-coverage-"]')].filter(element=>element.innerText.includes('paired values, not matching records')).map(element=>({text:element.innerText,id:element.getAttribute('data-testid')}));`),
+        };
+        assert(state.semanticRouteCoverage.elapsedMs < 5000, `Paired-value route coverage took ${state.semanticRouteCoverage.elapsedMs} ms`);
+        assert(state.semanticRouteCoverage.routes.every(route=>route.text.includes('9 with one value')&&route.text.includes('16 without this value')&&route.text.includes('full-table coverage has not been measured')), 'CDA paired-value route coverage is missing or misleading');
+      }
       await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>item.getAttribute("aria-label")?.includes("Direct relationship: Specimen to Observation via Specimen"));if(!input)throw new Error("Direct via Specimen route radio not found");input.click();return true;})()', 'Choose direct Specimen route');
       await wait('Boolean([...document.querySelectorAll("[role=dialog] input[type=radio]")].some(input=>/first value/i.test(input.getAttribute("aria-label")??"")))', 'FIRST result form rendered');
       await click('(()=>{const input=[...document.querySelectorAll("[role=dialog] input[type=radio]")].find(item=>/first value/i.test(item.getAttribute("aria-label")??""));input.click();return true;})()', 'Choose FIRST result form');

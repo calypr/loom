@@ -1117,6 +1117,57 @@ const BuilderWorkspaceContent = ({
     };
   };
   const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
+    if (selection.constructionChoice.form === 'ALL' && !selection.relatedSource) {
+      const current = latestState.current;
+      if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
+        throw new Error('The current table is still loading.');
+      }
+      const response = await loomClient.proposeConstructionChoices({
+        project: projectId,
+        explorerId: current.explorerId,
+        ...(authResourcePath ? { authResourcePath } : {}),
+        commandId: window.crypto.randomUUID(),
+        snapshotToken: current.catalog.snapshotToken,
+        expectedDraftVersion: current.draftVersion,
+        expectedDraftDigest: current.draftDigest,
+        outputId: table.outputId,
+        constructionChoices: [{ ...selection.constructionChoice, ...(selection.title ? { title: selection.title } : {}) }],
+        limit: 25,
+      }, signal);
+      const latest = latestState.current;
+      if (
+        signal.aborted ||
+        response.snapshotToken !== current.catalog.snapshotToken ||
+        response.draftVersion !== current.draftVersion ||
+        response.draftDigest !== current.draftDigest ||
+        response.outputId !== table.outputId ||
+        latest.draftVersion !== current.draftVersion ||
+        latest.draftDigest !== current.draftDigest ||
+        selectedTable(latest)?.outputId !== table.outputId
+      ) throw new Error('The table changed while Loom checked paired values.');
+      const columnId = response.candidateColumnIds[0];
+      const rows = response.preview.rows;
+      if (response.previewStatus !== 'READY' || !columnId || !rows) {
+        throw new Error('Loom could not measure paired values in this preview.');
+      }
+      let empty = 0;
+      let one = 0;
+      let many = 0;
+      for (const row of rows) {
+        const values = row[columnId];
+        if (values === null || values === undefined) empty += 1;
+        else if (Array.isArray(values)) {
+          const present = values.filter((value) => value !== null && value !== undefined).length;
+          if (present === 0) empty += 1;
+          else if (present === 1) one += 1;
+          else many += 1;
+        } else throw new Error('Loom did not return a paired value list for this route.');
+      }
+      return {
+        kind: 'VALUES' as const, empty, one, many, displayedRows: rows.length,
+        sampled: response.preview.sampled !== false || response.preview.partialValidation === true,
+      };
+    }
     if (selection.constructionChoice.form !== 'COUNT' || !selection.relatedSource) {
       throw new Error('Match coverage is unavailable for this result form.');
     }
