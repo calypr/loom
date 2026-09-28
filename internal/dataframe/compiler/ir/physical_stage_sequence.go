@@ -2,6 +2,8 @@ package ir
 
 import "github.com/calypr/loom/internal/dataframe/unit"
 
+const PreviewSourceResourceIDColumn = "__loom_source_resource_id"
+
 type PhysicalStageSequence struct {
 	SourceStageID       string
 	SourceRowIdentity   string

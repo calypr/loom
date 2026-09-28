@@ -1026,16 +1026,22 @@ func unpivotOutputNames(unpivot PhysicalUnpivot) []string {
 }
 
 func validateShapeStageOutput(stage PhysicalConstructionStage, expected []string) error {
-	actual := make(map[string]bool, len(stage.OutputColumns))
-	for _, column := range stage.OutputColumns {
-		actual[column.Name] = true
+	expectedNames := make(map[string]bool, len(expected))
+	for _, name := range expected {
+		expectedNames[name] = true
 	}
-	if len(actual) != len(expected) {
-		return fmt.Errorf("shape output schema has %d columns, operation emits %d", len(actual), len(expected))
+	actual := make(map[string]PhysicalStageColumn, len(stage.OutputColumns))
+	for _, column := range stage.OutputColumns {
+		actual[column.Name] = column
 	}
 	for _, name := range expected {
-		if !actual[name] {
+		if _, ok := actual[name]; !ok {
 			return fmt.Errorf("shape output schema is missing emitted column %q", name)
+		}
+	}
+	for name, column := range actual {
+		if !expectedNames[name] && !column.Internal {
+			return fmt.Errorf("shape output schema contains unexpected public column %q", name)
 		}
 	}
 	return nil

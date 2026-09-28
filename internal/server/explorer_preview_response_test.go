@@ -26,7 +26,10 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := encoder.Visit(map[string]any{"public": "value"}); err != nil {
+	if err := encoder.Visit(map[string]any{
+		"public": "value", "__loom_source_resource_id": "secret-id",
+		"__loom_preview_source": map[string]any{"kind": "SINGLE", "resourceType": "Observation", "id": "fhir-id"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := encoder.Finish()
@@ -34,17 +37,31 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		ReceiptID string                   `json:"receiptId"`
-		OutputID  string                   `json:"outputId"`
-		Rows      []map[string]any         `json:"rows"`
-		RowCount  int                      `json:"rowCount"`
-		Columns   []explorer.EmittedColumn `json:"columns"`
+		ReceiptID  string                   `json:"receiptId"`
+		OutputID   string                   `json:"outputId"`
+		Rows       []map[string]any         `json:"rows"`
+		RowSources []json.RawMessage        `json:"rowSources"`
+		RowCount   int                      `json:"rowCount"`
+		Columns    []explorer.EmittedColumn `json:"columns"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode response %s: %v", raw, err)
 	}
-	if decoded.ReceiptID != receipt.ID || decoded.OutputID != "same-id" || decoded.RowCount != 1 || len(decoded.Rows) != 1 || len(decoded.Columns) != 3 {
+	if decoded.ReceiptID != receipt.ID || decoded.OutputID != "same-id" || decoded.RowCount != 1 || len(decoded.Rows) != 1 || len(decoded.RowSources) != len(decoded.Rows) || len(decoded.Columns) != 3 {
 		t.Fatalf("response = %#v", decoded)
+	}
+	if _, exists := decoded.Rows[0]["__loom_source_resource_id"]; exists {
+		t.Fatalf("private FHIR source ID leaked into row JSON: %#v", decoded.Rows[0])
+	}
+	if _, exists := decoded.Rows[0]["__loom_preview_source"]; exists {
+		t.Fatalf("row sidecar metadata leaked into row JSON: %#v", decoded.Rows[0])
+	}
+	var source map[string]string
+	if err := json.Unmarshal(decoded.RowSources[0], &source); err != nil {
+		t.Fatalf("decode row source %s: %v", decoded.RowSources[0], err)
+	}
+	if len(source) != 3 || source["kind"] != "SINGLE" || source["resourceType"] != "Observation" || source["id"] != "fhir-id" {
+		t.Fatalf("row source = %#v, want one Observation/fhir-id source", source)
 	}
 	if len(decoded.Columns[0].AuthoredColumns) != 1 || decoded.Columns[0].AuthoredColumns[0] != "weight" {
 		t.Fatalf("authored columns = %#v", decoded.Columns[0].AuthoredColumns)
@@ -81,6 +98,27 @@ func TestPreviewResponseEncoderProducesAtomicContract(t *testing.T) {
 	}
 }
 
+func TestPreviewResponseEncoderEmitsAlignedEmptyRowSources(t *testing.T) {
+	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 4096)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := encoder.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Rows       []map[string]any  `json:"rows"`
+		RowSources []json.RawMessage `json:"rowSources"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode empty response %s: %v", raw, err)
+	}
+	if decoded.Rows == nil || decoded.RowSources == nil || len(decoded.Rows) != 0 || len(decoded.RowSources) != len(decoded.Rows) {
+		t.Fatalf("empty rows and sidecars = %#v / %#v, want empty arrays", decoded.Rows, decoded.RowSources)
+	}
+}
+
 func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
 	if err != nil {
@@ -88,6 +126,22 @@ func TestPreviewResponseEncoderRejectsOverflowWithoutResult(t *testing.T) {
 	}
 	if err := encoder.Visit(map[string]any{"value": strings.Repeat("x", 2048)}); !errors.Is(err, ErrPreviewResponseTooLarge) {
 		t.Fatalf("Visit error = %v, want %v", err, ErrPreviewResponseTooLarge)
+	}
+}
+
+func TestPreviewResponseEncoderBoundsSourceSidecarDuringVisit(t *testing.T) {
+	encoder, err := newPreviewResponseEncoder(&explorer.CompilationReceipt{ID: "receipt"}, "output", nil, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = encoder.Visit(map[string]any{
+		"value": "small row",
+		"__loom_preview_source": map[string]any{
+			"kind": "SINGLE", "resourceType": "Observation", "id": strings.Repeat("x", 2048),
+		},
+	})
+	if !errors.Is(err, ErrPreviewResponseTooLarge) {
+		t.Fatalf("Visit error = %v, want %v for oversized source sidecar", err, ErrPreviewResponseTooLarge)
 	}
 }
 

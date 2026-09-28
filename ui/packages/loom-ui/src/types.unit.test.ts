@@ -1275,12 +1275,16 @@ describe('explorerBuilderCommandSchema', () => {
       receiptId: 'receipt-1', outputId: 'patients',
       columns: [unitColumn, unitlessColumn],
       rows: [{ body_height: 180, patient_id: 'patient-1' }], rowCount: 1,
+      rowSources: [{ kind: 'SINGLE', resourceType: 'Patient', id: 'patient-1' }],
       diagnostics: [],
     };
 
     const parsed = assertExplorerBuilderPreviewResult(response);
     expect(parsed.columns[0]?.resultUnit).toEqual(unit);
     expect(parsed.columns[1]).not.toHaveProperty('resultUnit');
+    expect(parsed.rowSources?.[0]).toEqual({ kind: 'SINGLE', resourceType: 'Patient', id: 'patient-1' });
+    expect(() => assertExplorerBuilderPreviewResult({ ...response, rowSources: [] })).toThrow();
+    expect(() => assertExplorerBuilderPreviewResult({ ...response, rowSources: [{ kind: 'SINGLE', resourceType: 'Patient' }] })).toThrow();
     expect(() => assertExplorerBuilderPreviewResult({
       ...response,
       columns: [{ ...unitColumn, resultUnit: { ...unit, debug: true } }],

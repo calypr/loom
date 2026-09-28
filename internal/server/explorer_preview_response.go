@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	explorerv2api "github.com/calypr/loom/generated/loomapi"
@@ -157,9 +158,11 @@ func (e *previewResponseTooLargeError) Error() string {
 func (e *previewResponseTooLargeError) Unwrap() error { return ErrPreviewResponseTooLarge }
 
 type previewResponseEncoder struct {
-	out      cappedPreviewBuffer
-	rowCount int
-	firstRow bool
+	out            cappedPreviewBuffer
+	rowCount       int
+	firstRow       bool
+	rowSources     []json.RawMessage
+	rowSourceBytes int
 }
 
 func newPreviewResponseEncoder(receipt *explorer.CompilationReceipt, outputID string, columns []explorer.EmittedColumn, limit int) (*previewResponseEncoder, error) {
@@ -209,14 +212,48 @@ func (e *previewResponseEncoder) Visit(row map[string]any) error {
 	if e == nil {
 		return fmt.Errorf("preview response encoder is nil")
 	}
+	if row == nil {
+		row = map[string]any{}
+	}
+	rowSource := normalizePreviewRowSource(row["__loom_preview_source"])
+	encodedSource, err := json.Marshal(rowSource)
+	if err != nil {
+		return err
+	}
+	publicRow := make(map[string]any, len(row))
+	for key, value := range row {
+		switch key {
+		case "__loom_preview_source", "__loom_source_resource_id":
+			continue
+		}
+		publicRow[key] = value
+	}
+	encoded, err := json.Marshal(publicRow)
+	if err != nil {
+		return err
+	}
+	rowSeparatorBytes := 0
+	if !e.firstRow {
+		rowSeparatorBytes = 1
+	}
+	sourceSeparatorBytes := 0
+	if len(e.rowSources) > 0 {
+		sourceSeparatorBytes = 1
+	}
+	if e.out.limit > 0 {
+		projectedSize := e.out.Len() + rowSeparatorBytes + len(encoded) + len(`],"rowSources":[`) +
+			e.rowSourceBytes + sourceSeparatorBytes + len(encodedSource) + len(`],"rowCount":`) +
+			len(strconv.Itoa(e.rowCount+1)) + len(`,"diagnostics":[]}`)
+		if projectedSize > e.out.limit {
+			return &previewResponseTooLargeError{Limit: e.out.limit}
+		}
+	}
+	e.rowSources = append(e.rowSources, encodedSource)
+	e.rowSourceBytes += sourceSeparatorBytes + len(encodedSource)
 	if !e.firstRow {
 		if _, err := e.out.Write([]byte(",")); err != nil {
 			return err
 		}
-	}
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return err
 	}
 	if _, err := e.out.Write(encoded); err != nil {
 		return err
@@ -230,6 +267,19 @@ func (e *previewResponseEncoder) Finish() ([]byte, error) {
 	if e == nil {
 		return nil, fmt.Errorf("preview response encoder is nil")
 	}
+	if _, err := e.out.Write([]byte(`],"rowSources":[`)); err != nil {
+		return nil, err
+	}
+	for index, source := range e.rowSources {
+		if index > 0 {
+			if _, err := e.out.Write([]byte(",")); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := e.out.Write(source); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := e.out.Write([]byte(`],"rowCount":`)); err != nil {
 		return nil, err
 	}
@@ -241,6 +291,25 @@ func (e *previewResponseEncoder) Finish() ([]byte, error) {
 		return nil, err
 	}
 	return e.out.Bytes(), nil
+}
+
+func normalizePreviewRowSource(value any) map[string]string {
+	metadata, ok := value.(map[string]any)
+	if !ok {
+		return map[string]string{"kind": "UNAVAILABLE"}
+	}
+	kind, _ := metadata["kind"].(string)
+	switch kind {
+	case "SINGLE":
+		resourceType, resourceTypeOK := metadata["resourceType"].(string)
+		id, idOK := metadata["id"].(string)
+		if resourceTypeOK && resourceType != "" && idOK && id != "" {
+			return map[string]string{"kind": kind, "resourceType": resourceType, "id": id}
+		}
+	case "COMPOSITE":
+		return map[string]string{"kind": kind}
+	}
+	return map[string]string{"kind": "UNAVAILABLE"}
 }
 
 type cappedPreviewBuffer struct {

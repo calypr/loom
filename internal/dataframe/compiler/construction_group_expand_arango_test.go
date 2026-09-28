@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +156,30 @@ func TestConstructionExpandPreserveAndGroupNullKeyRowsAgainstArango(t *testing.T
 	}
 	if got := executeConstructionOutput(t, ctx, client, constructionExpandOutput(), project, generation); !sameConstructionRowIdentities(expanded, got) {
 		t.Fatalf("repeated expansion row identities = %#v, want %#v", constructionRowIdentities(got), constructionRowIdentities(expanded))
+	}
+
+	previewQuery := compileConstructionOutputQueryWithBindings(t, constructionExpandOutput(), project, generation, recipe.RuntimeBindings{
+		IncludeSourceIdentity: true,
+	})
+	if containsString(previewQuery.PublicColumns, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("preview source ID entered public construction columns: %#v", previewQuery.PublicColumns)
+	}
+	previewRows := executeReshapeOracleQuery(t, ctx, client, previewQuery)
+	if len(previewRows) != len(expanded) {
+		t.Fatalf("source-aware expansion returned %d rows, want %d", len(previewRows), len(expanded))
+	}
+	sourceCounts := map[string]int{}
+	for _, row := range previewRows {
+		sourceID, _ := row[ir.PreviewSourceResourceIDColumn].(string)
+		if sourceID == "" {
+			t.Errorf("expanded row has no starting FHIR ID: %#v", row)
+			continue
+		}
+		sourceCounts[sourceID]++
+	}
+	wantSourceCounts := map[string]int{"tags-a": 2, "tags-b": 1, "tags-c": 1, "tags-d": 1}
+	if !reflect.DeepEqual(sourceCounts, wantSourceCounts) {
+		t.Fatalf("expanded row source IDs = %#v, want per-source counts %#v", sourceCounts, wantSourceCounts)
 	}
 
 	grouped := executeConstructionOutput(t, ctx, client, constructionExpandGroupOutput(), project, generation)
@@ -422,7 +447,23 @@ func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.
 
 func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) CompiledQuery {
 	t.Helper()
-	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation}
+	return compileConstructionOutputQueryWithBindings(t, output, project, generation, recipe.RuntimeBindings{})
+}
+
+func compileConstructionOutputQueryWithBindings(t *testing.T, output recipe.Output, project, generation string, bindings recipe.RuntimeBindings) CompiledQuery {
+	t.Helper()
+	bindings.Project, bindings.DatasetGeneration = project, generation
+	compiledOutput := lowerConstructionOutput(t, output, bindings)
+	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile construction query: %v", err)
+	}
+	return query
+}
+
+func lowerConstructionOutput(t *testing.T, output recipe.Output, bindings recipe.RuntimeBindings) lower.CompiledRecipeOutput {
+	t.Helper()
+	project, generation := bindings.Project, bindings.DatasetGeneration
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: output.Name, TranslationVersion: "test", Outputs: []recipe.Output{output}}
 	plan, err := semantic.BuildRecipePlan(bundle, bindings)
 	if err != nil {
@@ -436,11 +477,142 @@ func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project,
 	if err != nil {
 		t.Fatalf("compile construction recipe: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
-	if err != nil {
-		t.Fatalf("compile construction query: %v", err)
+	return compiled.Outputs[0]
+}
+
+func TestPreviewSourceIdentityStaysPrivateThroughConstructionExpand(t *testing.T) {
+	output := constructionExpandOutput()
+	ordinary := compileConstructionOutputQuery(t, output, "source-id-project", "source-id-generation")
+	preview := compileConstructionOutputQueryWithBindings(t, output, "source-id-project", "source-id-generation", recipe.RuntimeBindings{IncludeSourceIdentity: true})
+	if strings.Contains(ordinary.Query, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("ordinary compilation gained a source ID projection:\n%s", ordinary.Query)
 	}
-	return query
+	if !strings.Contains(preview.Query, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("preview compilation did not carry the source ID through EXPAND:\n%s", preview.Query)
+	}
+	if !strings.Contains(preview.Query, "root.id") {
+		t.Fatalf("preview projection did not read the root FHIR id in scope:\n%s", preview.Query)
+	}
+	if containsString(preview.PublicColumns, ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("private source ID entered public columns: %#v", preview.PublicColumns)
+	}
+	internalFound := false
+	for _, column := range preview.OutputSchema {
+		if column.Name == ir.PreviewSourceResourceIDColumn {
+			internalFound = column.Internal
+		}
+	}
+	if !internalFound {
+		t.Fatalf("preview execution schema did not mark source ID as internal: %#v", preview.OutputSchema)
+	}
+	bindings := recipe.RuntimeBindings{Project: "source-id-project", DatasetGeneration: "source-id-generation", IncludeSourceIdentity: true}
+	compiledOutput := lowerConstructionOutput(t, output, bindings)
+	projectionNames := func(projections []ir.PhysicalProjection) []string {
+		names := make([]string, 0, len(projections))
+		for _, projection := range projections {
+			names = append(names, projection.Name)
+		}
+		return names
+	}
+	stageColumnNames := func(columns []ir.PhysicalStageColumn) []string {
+		names := make([]string, 0, len(columns))
+		for _, column := range columns {
+			names = append(names, column.Name)
+		}
+		return names
+	}
+	operationProjections := make([][]string, len(compiledOutput.Plan.Operations))
+	for index, operation := range compiledOutput.Plan.Operations {
+		if operation.Return != nil {
+			operationProjections[index] = projectionNames(operation.Return.Projections)
+		}
+	}
+	sequence := compiledOutput.Plan.StageSequence
+	if sequence == nil {
+		t.Fatal("construction EXPAND output has no physical stage sequence")
+	}
+	sourceColumns := stageColumnNames(sequence.SourceColumns)
+	finalColumns := stageColumnNames(sequence.FinalColumns)
+	stageInputs := make([][]string, len(sequence.Stages))
+	stageOutputs := make([][]string, len(sequence.Stages))
+	stageInputProjections := make([][]string, len(sequence.Stages))
+	stageOutputProjections := make([][]string, len(sequence.Stages))
+	for index, stage := range sequence.Stages {
+		stageInputs[index] = stageColumnNames(stage.InputColumns)
+		stageOutputs[index] = stageColumnNames(stage.OutputColumns)
+		stageInputProjections[index] = projectionNames(stage.InputProjections)
+		stageOutputProjections[index] = projectionNames(stage.OutputProjections)
+	}
+	if _, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
+		t.Fatalf("compile query-only clone with source identity: %v", err)
+	}
+	for index, operation := range compiledOutput.Plan.Operations {
+		if operation.Return != nil && !reflect.DeepEqual(projectionNames(operation.Return.Projections), operationProjections[index]) {
+			t.Fatalf("query-only compilation mutated frozen RETURN[%d] projections: before=%#v after=%#v", index, operationProjections[index], projectionNames(operation.Return.Projections))
+		}
+	}
+	sequence = compiledOutput.Plan.StageSequence
+	if !reflect.DeepEqual(stageColumnNames(sequence.SourceColumns), sourceColumns) || !reflect.DeepEqual(stageColumnNames(sequence.FinalColumns), finalColumns) {
+		t.Fatalf("query-only compilation mutated frozen source/final stage columns: source=%#v/%#v final=%#v/%#v", sourceColumns, stageColumnNames(sequence.SourceColumns), finalColumns, stageColumnNames(sequence.FinalColumns))
+	}
+	for index, stage := range sequence.Stages {
+		if !reflect.DeepEqual(stageColumnNames(stage.InputColumns), stageInputs[index]) || !reflect.DeepEqual(stageColumnNames(stage.OutputColumns), stageOutputs[index]) ||
+			!reflect.DeepEqual(projectionNames(stage.InputProjections), stageInputProjections[index]) || !reflect.DeepEqual(projectionNames(stage.OutputProjections), stageOutputProjections[index]) {
+			t.Fatalf("query-only compilation mutated frozen stage %d columns/projections", index)
+		}
+	}
+}
+
+func TestPreviewSourceIdentityNeverRegainsSingleAfterGroupOrPivot(t *testing.T) {
+	basePlan := ir.PhysicalPlan{
+		Engine: ir.PhysicalEngineAQL,
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root"}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{}},
+		},
+	}
+	tests := []struct {
+		name   string
+		output lower.CompiledRecipeOutput
+	}{
+		{
+			name: "GROUPS",
+			output: lower.CompiledRecipeOutput{Plan: ir.PhysicalPlan{
+				Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalGroupRowsOp}},
+			}},
+		},
+		{
+			name: "grouped PIVOT",
+			output: lower.CompiledRecipeOutput{Plan: ir.PhysicalPlan{
+				Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalGroupedPivotOp}},
+			}},
+		},
+		{
+			name: "group then Expand",
+			output: lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{
+				{Operation: string(recipe.ConstructionGroupOp)},
+				{Operation: string(recipe.ConstructionExpandOp)},
+			}},
+		},
+		{
+			name: "pivot then Unpivot",
+			output: lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{
+				{Operation: string(recipe.ConstructionPivotOp)},
+				{Operation: string(recipe.ConstructionUnpivotOp)},
+			}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, included, err := withPreviewSourceResourceID(test.output, basePlan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if included {
+				t.Fatal("composite output regained a SINGLE source projection")
+			}
+		})
+	}
 }
 
 func constructionRowIdentities(rows []map[string]any) []string {
@@ -473,6 +645,15 @@ func sameConstructionRowIdentities(left, right []map[string]any) bool {
 		}
 	}
 	return true
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func numericValue(value any) float64 {

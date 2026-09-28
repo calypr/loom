@@ -144,6 +144,7 @@ func (e *ResolutionError) Unwrap() error {
 type OutputStream struct {
 	Name                    string
 	Columns                 []string
+	sourceIdentityMode      string
 	RowIdentity             *spec.RowIdentity
 	DynamicChecks           map[string]map[string]DynamicColumnCheck
 	query                   string
@@ -492,7 +493,7 @@ func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (Out
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		stream := OutputStream{
-			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), RowIdentity: query.RowIdentity.Clone(),
+			Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
 			DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
 			stream: e.queryRows, batchSize: e.batchSize, rootPageRows: e.rootPageRows,
 			queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
@@ -554,7 +555,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 		PlanDiagnostics: ir.CompilerPlanDiagnostics{Fingerprint: clickHouseCombineFingerprint(combine)},
 	}
 	stream := OutputStream{
-		Name: output.Name, Columns: append([]string(nil), output.Columns...), RowIdentity: output.RowIdentity.Clone(),
+		Name: output.Name, Columns: append([]string(nil), output.Columns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
 		DynamicChecks: map[string]map[string]DynamicColumnCheck{}, physicalEngine: ir.PhysicalEngineClickHouse,
 		clickHouseCombine: &combine, project: bindings.Project, bindings: bindings, queryLimit: limit,
 		clickHouseQueryRows: e.clickHouseQueryRows, resolveClickHouseInputs: e.resolveClickHouseInputs,
@@ -701,6 +702,9 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 		public := publicPreviewRow(resolvedRow, stream.Columns, includeRowIdentity)
+		if resolved.Semantic.SemanticPlan.Bindings.IncludeSourceIdentity {
+			public[previewSourceMetadataKey] = previewRowSource(resolvedRow, query.RootResourceType, stream.sourceIdentityMode)
+		}
 		if err := visit(public); err != nil {
 			visitorErr = err
 			return err
@@ -727,6 +731,48 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		return summary, err
 	}
 	return summary, nil
+}
+
+const (
+	previewSourceMetadataKey = "__loom_preview_source"
+	previewSourceSingle      = "SINGLE"
+	previewSourceComposite   = "COMPOSITE"
+	previewSourceUnavailable = "UNAVAILABLE"
+)
+
+func previewSourceIdentityMode(output lower.CompiledRecipeOutput, querySchema []lower.CompiledOutputColumn) string {
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalGroupRowsOp || operation.Kind == ir.PhysicalGroupedPivotOp {
+			return previewSourceComposite
+		}
+	}
+	for _, stage := range output.Stages {
+		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) {
+			return previewSourceComposite
+		}
+	}
+	if output.Plan.Engine == ir.PhysicalEngineClickHouse {
+		return previewSourceUnavailable
+	}
+	for _, column := range querySchema {
+		if column.Name == ir.PreviewSourceResourceIDColumn && column.Internal {
+			return previewSourceSingle
+		}
+	}
+	return previewSourceUnavailable
+}
+
+func previewRowSource(row map[string]any, resourceType, mode string) map[string]any {
+	switch mode {
+	case previewSourceComposite:
+		return map[string]any{"kind": previewSourceComposite}
+	case previewSourceSingle:
+		id, ok := row[ir.PreviewSourceResourceIDColumn].(string)
+		if ok && strings.TrimSpace(id) != "" && strings.TrimSpace(resourceType) != "" {
+			return map[string]any{"kind": previewSourceSingle, "resourceType": resourceType, "id": id}
+		}
+	}
+	return map[string]any{"kind": previewSourceUnavailable}
 }
 
 func normalizePreviewLimit(limit int) (int, error) {

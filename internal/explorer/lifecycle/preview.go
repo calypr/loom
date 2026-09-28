@@ -45,7 +45,7 @@ func (s *Service) Preview(ctx context.Context, request PreviewRequest) (PreviewR
 	bindings := recipe.RuntimeBindings{
 		Project: projectid.Legacy(receipt.Project), SelectionProject: projectid.Canonical(receipt.Project),
 		DatasetGeneration: receipt.SourceGeneration, SelectionMembersCollection: s.config.SelectionMembersCollection,
-		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true,
+		PreviewLimit: request.Limit, OutputNames: []string{request.OutputID}, IncludeRowIdentity: true, IncludeSourceIdentity: true,
 	}
 	applyAuthorizedScope(&bindings, authorized, false)
 	columns := emittedColumnsForOutput(receipt, request.OutputID)

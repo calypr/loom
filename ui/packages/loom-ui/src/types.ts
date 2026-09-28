@@ -2533,6 +2533,12 @@ export type ExplorerBuilderCompileResult = z.infer<
 
 export const explorerBuilderPreviewColumnSchema =
   explorerBuilderContractColumnSchema;
+export const explorerBuilderPreviewRowSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('SINGLE'), resourceType: opaqueIdSchema, id: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal('COMPOSITE') }).strict(),
+  z.object({ kind: z.literal('UNAVAILABLE') }).strict(),
+]);
+export type ExplorerBuilderPreviewRowSource = z.infer<typeof explorerBuilderPreviewRowSourceSchema>;
 export const explorerBuilderPreviewResultSchema = z
   .object({
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
@@ -2541,12 +2547,18 @@ export const explorerBuilderPreviewResultSchema = z
     outputId: opaqueIdSchema,
     columns: z.array(explorerBuilderPreviewColumnSchema),
     rows: z.array(unknownRecordSchema).nullable(),
+    rowSources: z.array(explorerBuilderPreviewRowSourceSchema).optional(),
     rowCount: z.number().int().nonnegative(),
     sampled: z.boolean().optional(),
     partialValidation: z.boolean().optional(),
     diagnostics: z.array(explorerAuthoringDiagnosticSchema),
   })
-  .strict();
+  .strict()
+  .superRefine((preview, context) => {
+    if (preview.rowSources && preview.rowSources.length !== (preview.rows?.length ?? 0)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['rowSources'], message: 'row sources must match preview rows' });
+    }
+  });
 export type ExplorerBuilderPreviewResult = z.infer<
   typeof explorerBuilderPreviewResultSchema
 >;

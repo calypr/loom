@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -105,6 +106,90 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 	}
 	if len(rows) != 1 || rows[0]["id"] != "p1" || len(rows[0]) != 1 {
 		t.Fatalf("preview row was not public-only: %#v", rows)
+	}
+}
+
+func TestPreviewOutputCarriesFHIRSourceWithoutVisibleRootID(t *testing.T) {
+	sourceIDProjected := false
+	e, err := New(Config{
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+			if _, isSelectedRootQuery := bindVars[compiler.RootPageKeysBind]; isSelectedRootQuery {
+				for _, value := range bindVars {
+					if value == ir.PreviewSourceResourceIDColumn {
+						sourceIDProjected = true
+					}
+				}
+				return visit(map[string]any{
+					"status": "final", "_key": "arangodb-key",
+					ir.PreviewSourceResourceIDColumn: "fhir-researcher-id",
+				})
+			}
+			if _, isRootKeyQuery := bindVars[compiler.RootPageAfterKeyBind]; isRootKeyQuery {
+				return visit(map[string]any{"_key": "arangodb-key"})
+			}
+			return fmt.Errorf("unexpected preview query without root page bindings")
+		},
+		RootPageRows: 25,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: 1, Name: "no-visible-root-id", TranslationVersion: "test",
+		Outputs: []recipe.Output{{
+			Name: "Observation", RootResourceType: "Observation", RowGrain: "observation",
+			Fields: []recipe.Field{{Name: "status", Expr: recipe.Expression{Select: "root.status"}}},
+		}},
+	}
+	resolved, err := e.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{
+		Project: "P1", IncludeSourceIdentity: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	summary, err := e.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "Observation", Limit: 1}, func(row map[string]any) error {
+		got = row
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sourceIDProjected {
+		t.Fatal("preview query omitted private source ID projection")
+	}
+	if summary.RowCount != 1 || len(summary.Columns) != 1 || summary.Columns[0] != "status" {
+		t.Fatalf("preview summary exposed non-public identity: %#v", summary)
+	}
+	if got["status"] != "final" {
+		t.Fatalf("public preview row = %#v", got)
+	}
+	if _, ok := got["_key"]; ok {
+		t.Fatalf("Arango key leaked into preview row: %#v", got)
+	}
+	if _, ok := got[ir.PreviewSourceResourceIDColumn]; ok {
+		t.Fatalf("private projection leaked into preview row: %#v", got)
+	}
+	source, ok := got[previewSourceMetadataKey].(map[string]any)
+	if !ok || source["kind"] != previewSourceSingle || source["resourceType"] != "Observation" || source["id"] != "fhir-researcher-id" {
+		t.Fatalf("source sidecar = %#v, want Observation/fhir-researcher-id independent of _key", got[previewSourceMetadataKey])
+	}
+}
+
+func TestPreviewSourceClassificationDoesNotRecoverSingleAfterGroup(t *testing.T) {
+	querySchema := []lower.CompiledOutputColumn{{Name: ir.PreviewSourceResourceIDColumn, Internal: true}}
+	output := lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{
+		{Operation: string(recipe.ConstructionGroupOp)},
+		{Operation: string(recipe.ConstructionExpandOp)},
+	}}
+	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
+		t.Fatalf("post-Group row-preserving stage source mode = %q, want COMPOSITE", got)
+	}
+	output = lower.CompiledRecipeOutput{Plan: ir.PhysicalPlan{Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalGroupRowsOp}}}}
+	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
+		t.Fatalf("GROUPS source mode = %q, want COMPOSITE", got)
 	}
 }
 

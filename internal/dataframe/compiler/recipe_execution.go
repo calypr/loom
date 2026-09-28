@@ -48,6 +48,14 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 			return CompiledQuery{}, fmt.Errorf("optimize canonical recipe plan: %w", err)
 		}
 	}
+	includePreviewSourceID := false
+	if bindings.IncludeSourceIdentity {
+		var err error
+		physical, includePreviewSourceID, err = withPreviewSourceResourceID(output, physical)
+		if err != nil {
+			return CompiledQuery{}, fmt.Errorf("add preview source identity projection: %w", err)
+		}
+	}
 	if limit > 0 {
 		physical = withConstructionPreviewRootIDFilter(output, physical)
 	}
@@ -77,6 +85,13 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		columns = append([]string(nil), output.Columns...)
 	}
 	outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
+	if includePreviewSourceID {
+		outputSchema = append(outputSchema, lower.CompiledOutputColumn{
+			ID: ir.PreviewSourceResourceIDColumn, Name: ir.PreviewSourceResourceIDColumn,
+			Label: ir.PreviewSourceResourceIDColumn, SemanticPath: "preview:source_resource_id",
+			Kind: "string", Cardinality: "optional_one", Nullable: true, Internal: true,
+		})
+	}
 	publicColumns := publicOutputColumns(outputSchema)
 	if len(publicColumns) == 0 {
 		for _, column := range columns {
@@ -109,6 +124,103 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		PreviewCoveringIndex: previewCoveringIndex,
 		PlanDiagnostics:      physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+func withPreviewSourceResourceID(output lower.CompiledRecipeOutput, plan ir.PhysicalPlan) (ir.PhysicalPlan, bool, error) {
+	if plan.Engine == ir.PhysicalEngineClickHouse || outputHasCompositeSource(output) {
+		return plan, false, nil
+	}
+	rootVariable := ""
+	for _, operation := range plan.Operations {
+		if operation.RootScan != nil {
+			rootVariable = operation.RootScan.Variable
+			break
+		}
+	}
+	if rootVariable == "" {
+		return plan, false, nil
+	}
+	projection := ir.PhysicalProjection{
+		Name: ir.PreviewSourceResourceIDColumn, Hidden: true,
+		Value: ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}},
+	}
+	returnFound := false
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Kind != ir.PhysicalReturnOp || operation.Return == nil {
+			continue
+		}
+		returnFound = true
+		operation.Return.Projections = appendUniqueProjection(operation.Return.Projections, projection)
+	}
+	if !returnFound {
+		return plan, false, nil
+	}
+	if sequence := plan.StageSequence; sequence != nil {
+		sourceColumn := ir.PhysicalStageColumn{
+			ID: ir.PreviewSourceResourceIDColumn, Name: ir.PreviewSourceResourceIDColumn,
+			Label: ir.PreviewSourceResourceIDColumn, Kind: "string", Cardinality: "optional_one",
+			Nullable: true, Internal: true,
+		}
+		sequence.SourceColumns = appendUniqueStageColumn(sequence.SourceColumns, sourceColumn)
+		sequence.FinalColumns = appendUniqueStageColumn(sequence.FinalColumns, sourceColumn)
+		for index := range sequence.Stages {
+			stage := &sequence.Stages[index]
+			inputProjection := ir.PhysicalProjection{
+				Name: sourceColumn.Name, Hidden: true,
+				Value: ir.PhysicalValue{Variable: stage.InputRowVariable, Path: []string{sourceColumn.Name}},
+			}
+			stage.InputColumns = appendUniqueStageColumn(stage.InputColumns, sourceColumn)
+			stage.OutputColumns = appendUniqueStageColumn(stage.OutputColumns, sourceColumn)
+			stage.InputProjections = appendUniqueProjection(stage.InputProjections, inputProjection)
+			stage.OutputProjections = appendUniqueProjection(stage.OutputProjections, inputProjection)
+			if stage.Unpivot != nil {
+				stage.Unpivot.InputProjections = appendUniqueProjection(stage.Unpivot.InputProjections, inputProjection)
+			}
+		}
+	}
+	for index := range plan.Operations {
+		operation := &plan.Operations[index]
+		if operation.Unpivot == nil {
+			continue
+		}
+		inputProjection := projection
+		inputProjection.Value = ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}}
+		operation.Unpivot.InputProjections = appendUniqueProjection(operation.Unpivot.InputProjections, inputProjection)
+	}
+	return plan, true, nil
+}
+
+func appendUniqueProjection(projections []ir.PhysicalProjection, candidate ir.PhysicalProjection) []ir.PhysicalProjection {
+	for _, projection := range projections {
+		if projection.Name == candidate.Name {
+			return projections
+		}
+	}
+	return append(projections, candidate)
+}
+
+func appendUniqueStageColumn(columns []ir.PhysicalStageColumn, candidate ir.PhysicalStageColumn) []ir.PhysicalStageColumn {
+	for _, column := range columns {
+		if column.Name == candidate.Name {
+			return columns
+		}
+	}
+	return append(columns, candidate)
+}
+
+func outputHasCompositeSource(output lower.CompiledRecipeOutput) bool {
+	for _, operation := range output.Plan.Operations {
+		if operation.Kind == ir.PhysicalGroupRowsOp || operation.Kind == ir.PhysicalGroupedPivotOp {
+			return true
+		}
+	}
+	for _, stage := range output.Stages {
+		if stage.Operation == string(recipe.ConstructionGroupOp) || stage.Operation == string(recipe.ConstructionPivotOp) {
+			return true
+		}
+	}
+	return false
 }
 
 func canRenderDynamicCategoryPivotPreview(physical ir.PhysicalPlan) bool {

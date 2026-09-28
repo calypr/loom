@@ -689,6 +689,10 @@ type RuntimeBindings struct {
 	// exposes the already-validated stable row identity to a comparison sink;
 	// ordinary previews keep compiler-owned identity columns hidden.
 	IncludeRowIdentity bool
+	// IncludeSourceIdentity is set only for an authorized Builder preview. It
+	// privately carries the root FHIR id to the preview sink without adding a
+	// public output column or changing the published schema.
+	IncludeSourceIdentity bool
 }
 
 // Clone returns request-scoped bindings with independent authorization paths.

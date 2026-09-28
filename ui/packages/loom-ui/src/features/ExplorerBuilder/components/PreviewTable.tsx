@@ -3,6 +3,7 @@ import type {
   ExplorerBuilderColumn,
   ExplorerBuilderEmission,
   ExplorerBuilderPreviewResult,
+  ExplorerBuilderPreviewRowSource,
   ConstructionStageColumn,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
@@ -108,7 +109,7 @@ export const PreviewTable = ({
   const [dropIndex, setDropIndex] = useState<number>();
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
-  const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; startingRecord?: string }>();
+  const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; source?: ExplorerBuilderPreviewRowSource }>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -204,18 +205,6 @@ export const PreviewTable = ({
           constructionOutputByName.get(right.column)?.table?.order ?? Number.MAX_SAFE_INTEGER,
         ),
     );
-  const startingRecordPreserved = !table?.document.tableShape &&
-    (table?.document.rows.kind === 'RECORDS' || table?.document.rows.kind === 'EXPANDED') &&
-    (table.document.construction?.steps.every((step) =>
-      ['DERIVE', 'FILTER', 'RELATED_SOURCE', 'RELATED_FIELD', 'RELATED_ELIGIBILITY'].includes(step.operation.kind)) ?? true);
-  const startingIDColumn = startingRecordPreserved ? orderedColumns.find((column) =>
-    authoredColumnsFor(column).some((authored) =>
-      authored.occurrenceId === table?.document.route.occurrenceId &&
-      authored.source.kind === 'field' &&
-      authored.source.field.path === 'id' &&
-      authored.valueTransformation === undefined) &&
-    (column.sourceResourceType === undefined || column.sourceResourceType === table?.document.rootResourceType),
-  ) : undefined;
   const columns = orderedColumns.filter((column) => {
     const authoredColumns = authoredColumnsFor(column);
     if (authoredColumns.length === 0) {
@@ -469,6 +458,7 @@ export const PreviewTable = ({
             </div>
             {rows.slice(rowRange.start, rowRange.end).map((row, visibleRowIndex) => {
               const rowIndex = rowRange.start + visibleRowIndex;
+              const rowIdentity = row.__loom_row_id;
               return (
                 <div
                   role="row"
@@ -479,19 +469,17 @@ export const PreviewTable = ({
                     height: PREVIEW_ROW_HEIGHT,
                   }}
                 >
-                  {typeof row.__loom_row_id === 'string' && row.__loom_row_id ? (
+                  {typeof rowIdentity === 'string' && rowIdentity ? (
                     <button
                       type="button"
                       aria-label={`Inspect row ${rowIndex + 1} identity`}
                       className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
                       style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
                       onClick={() => {
-                        const startingID = startingIDColumn && row[startingIDColumn.publicColumn];
                         setInspectedRow({
                           number: rowIndex + 1,
-                          identity: row.__loom_row_id as string,
-                          startingRecord: typeof startingID === 'string' && startingID.trim()
-                            ? `${table?.document.rootResourceType}/${startingID}` : undefined,
+                          identity: rowIdentity,
+                          source: preview?.rowSources?.[rowIndex],
                         });
                       }}
                     >
@@ -557,12 +545,16 @@ export const PreviewTable = ({
               </div>
               <button type="button" className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={() => setInspectedRow(undefined)}>Close</button>
             </div>
-            {inspectedRow.startingRecord ? (
+            {inspectedRow.source?.kind === 'SINGLE' ? (
               <div className="mt-4 rounded-md border border-slate-200 p-3 text-sm">
                 <p className="font-medium text-slate-800">Starting FHIR record</p>
-                <p className="mt-1 break-all text-slate-700">{inspectedRow.startingRecord}</p>
+                <p className="mt-1 break-all text-slate-700">{inspectedRow.source.resourceType}/{inspectedRow.source.id}</p>
               </div>
-            ) : null}
+            ) : inspectedRow.source?.kind === 'COMPOSITE' ? (
+              <p className="mt-4 text-sm text-slate-600">This row combines records. Its individual source records are not available in this preview.</p>
+            ) : (
+              <p className="mt-4 text-sm text-slate-600">Source record details are unavailable for this row.</p>
+            )}
             <details className="mt-4 rounded-md border border-slate-200 p-3 text-sm text-slate-700">
               <summary className="cursor-pointer font-medium">Technical row ID</summary>
               <p className="mt-2 break-all font-mono text-xs">{inspectedRow.identity}</p>

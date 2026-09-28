@@ -115,10 +115,10 @@ func TestRowDefinitionHTTPContractListsChoicesAndPreviewsWithoutDraftMutation(t 
 	if err := json.Unmarshal([]byte(list.Body), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Choices) != 1 || listed.Choices[0].Kind != lifecycle.RowChoiceExpanded || listed.Choices[0].Label != "Values" || listed.Choices[0].ValueType != "ARRAY" || listed.Choices[0].RouteSummary != "Root" || listed.ExplicitGroups == nil || len(listed.ExplicitGroups) != 0 {
+	if len(listed.Choices) != 1 || listed.Choices[0].Kind != lifecycle.RowChoiceExpanded || listed.Choices[0].Label != "Values" || listed.Choices[0].FieldPath != "values[]" || listed.Choices[0].ValueType != "ARRAY" || listed.Choices[0].RouteSummary != "Root" || listed.ExplicitGroups == nil || len(listed.ExplicitGroups) != 0 {
 		t.Fatalf("listed row-definition choices = %#v", listed)
 	}
-	for _, forbidden := range []string{"resourceType", "fieldPath", "FHIRType", "schemaPath"} {
+	for _, forbidden := range []string{"resourceType", "FHIRType", "schemaPath"} {
 		if strings.Contains(list.Body, forbidden) {
 			t.Fatalf("choice response leaked schema detail %q: %s", forbidden, list.Body)
 		}

@@ -1134,6 +1134,60 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 	}
 }
 
+func TestPreviewSourceIdentityDoesNotChangeReceiptArtifacts(t *testing.T) {
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "preview-source-identity", TranslationVersion: "test",
+		Outputs: []recipe.Output{{
+			Name: "observations", RootResourceType: "Observation", RowGrain: "observation",
+			Fields: []recipe.Field{
+				{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+				{Name: "tags", ColumnID: "tags_id", Expr: recipe.Expression{Select: "root.note[].text"}, ValueMode: recipe.ValueModeAll},
+			},
+			Construction: &recipe.Construction{
+				Version:       1,
+				SourceColumns: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}},
+				Steps: []recipe.ConstructionStep{{
+					ID: "expand_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
+						ConstructionID: "expand_tag_values", InputColumnID: "tags_id", OutputColumnID: "tag_id",
+						OrdinalColumnID: "ordinal_id", EmptyPolicy: recipe.ExpansionPreserveParent,
+					}},
+					Outputs: []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tag_id", Name: "tag"}, {ID: "ordinal_id", Name: "ordinal"}},
+				}},
+			},
+		}},
+	}
+	base, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := recipeEngine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a", IncludeSourceIdentity: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseFingerprints, _, err := resolvedOutputArtifacts(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewFingerprints, _, err := resolvedOutputArtifacts(preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(baseFingerprints, previewFingerprints) {
+		t.Fatalf("preview-only source identity changed receipt fingerprints: base=%#v preview=%#v", baseFingerprints, previewFingerprints)
+	}
+	if !reflect.DeepEqual(base.Compiled.Outputs[0].Stages, preview.Compiled.Outputs[0].Stages) {
+		t.Fatalf("preview-only source identity changed frozen construction stages: base=%#v preview=%#v", base.Compiled.Outputs[0].Stages, preview.Compiled.Outputs[0].Stages)
+	}
+}
+
 func TestCompiledExplorerWorkspaceConfigPreservesSemanticOrderForPresentationTies(t *testing.T) {
 	compiled := explorercompilation.WorkspaceResult{
 		Workspace: authoringv2.Workspace{
@@ -1199,8 +1253,8 @@ func TestNativeV2RouteUsesAuthorizedPersistedReceipt(t *testing.T) {
 			if _, ok := ctx.Deadline(); !ok {
 				t.Fatal("builder preview context has no deadline")
 			}
-			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath || bindings.IncludeRowIdentity {
-				t.Fatalf("preview bindings widened or requested publication metadata: receipt=%#v bindings=%#v", receipt, bindings)
+			if receipt == nil || bindings.AuthScopeMode != authscope.ReadScopeUnrestricted || bindings.IncludeAuthResourcePath || !bindings.IncludeRowIdentity || !bindings.IncludeSourceIdentity {
+				t.Fatalf("preview bindings changed authorization or omitted preview-only row metadata: receipt=%#v bindings=%#v", receipt, bindings)
 			}
 			if err := visit(map[string]any{"c_patient": "patient-1"}); err != nil {
 				return dataframeexecution.PreviewSummary{}, err

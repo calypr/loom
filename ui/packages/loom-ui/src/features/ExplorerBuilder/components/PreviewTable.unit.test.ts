@@ -193,37 +193,31 @@ describe('PreviewTable column controls', () => {
     expect(screen.queryByRole('dialog', { name: 'Row 1 identity' })).not.toBeInTheDocument();
   });
 
-  it('shows the starting FHIR record only when a root ID field proves it', () => {
-    const rootID = { ...column('source_id', 'Source ID', 0), source: { kind: 'field' as const, field: { path: 'id', projectionMode: 'FIRST' as const } } };
-    const sourceTable: DraftTable = { ...table, document: { ...table.document, columns: [rootID] } };
+  it('uses preview row-source evidence without requiring a visible ID column', () => {
     const sourcePreview: ExplorerBuilderPreviewResult = {
       ...preview,
-      columns: [{ column: 'source_id', label: 'Source ID', logicalType: 'string', filterable: true, chartable: false, sourceResourceType: 'Specimen' }],
-      rows: [{ source_id: 'specimen-1', __loom_row_id: 'stable-specimen-row' }],
+      rows: [{ first_column: 'one', second_column: 'two', __loom_row_id: 'stable-specimen-row' }],
+      rowSources: [{ kind: 'SINGLE', resourceType: 'Specimen', id: 'specimen-1' }],
     };
-    const props = { preview: sourcePreview, table: sourceTable, limit: 25, onLimitChange: vi.fn(), onColumnChange: vi.fn(), onColumnsChange: vi.fn() };
+    const props = { preview: sourcePreview, table, limit: 25, onLimitChange: vi.fn(), onColumnChange: vi.fn(), onColumnsChange: vi.fn() };
     const view = render(React.createElement(PreviewTable, props));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
     expect(screen.getByText('Starting FHIR record')).toBeInTheDocument();
     expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    view.rerender(React.createElement(PreviewTable, { ...props, table: {
-      ...sourceTable,
-      document: {
-        ...sourceTable.document,
-        rows: { kind: 'EXPANDED', expanded: {
-          occurrenceId: 'base', scopePath: 'component[]', emptyCollectionPolicy: 'PRESERVE_PARENT',
-        } },
-      },
+    view.rerender(React.createElement(PreviewTable, { ...props, preview: {
+      ...sourcePreview,
+      rowSources: [{ kind: 'COMPOSITE' }],
     } }));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
-    expect(screen.getByText('Specimen/specimen-1')).toBeInTheDocument();
+    expect(screen.getByText(/This row combines records/)).toBeInTheDocument();
+    expect(screen.queryByText('Specimen/specimen-1')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    view.rerender(React.createElement(PreviewTable, { ...props, table }));
+    view.rerender(React.createElement(PreviewTable, { ...props, preview: { ...sourcePreview, rowSources: undefined } }));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
-    expect(screen.queryByText('Starting FHIR record')).not.toBeInTheDocument();
+    expect(screen.getByText('Source record details are unavailable for this row.')).toBeInTheDocument();
   });
 
   it('shows related construction outputs in the preview after applying a saved construction', () => {

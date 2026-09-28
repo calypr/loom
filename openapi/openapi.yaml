@@ -5258,7 +5258,7 @@ components:
     PreviewResponse:
       type: object
       additionalProperties: false
-      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowCount, sampled, diagnostics]
+      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowSources, rowCount, sampled, diagnostics]
       properties:
         apiVersion: {$ref: '#/components/schemas/APIVersion'}
         kind: {type: string, enum: [ExplorerBuilderPreview]}
@@ -5272,6 +5272,10 @@ components:
           items:
             type: object
             additionalProperties: true
+        rowSources:
+          type: array
+          description: Per-row source identity metadata, aligned one-to-one with rows. SINGLE is emitted only when the compiler carries one exact root FHIR resource identity; grouped results are COMPOSITE and unsupported sources are UNAVAILABLE.
+          items: {$ref: '#/components/schemas/PreviewRowSource'}
         rowCount: {type: integer, minimum: 0}
         sampled:
           type: boolean
@@ -5282,6 +5286,15 @@ components:
         diagnostics:
           type: array
           items: {$ref: '#/components/schemas/Diagnostic'}
+    PreviewRowSource:
+      type: object
+      additionalProperties: false
+      description: SINGLE requires non-empty resourceType and id. COMPOSITE and UNAVAILABLE omit both fields.
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [SINGLE, COMPOSITE, UNAVAILABLE]}
+        resourceType: {type: string, minLength: 1}
+        id: {type: string, minLength: 1}
     CellTraceRequest:
       type: object
       additionalProperties: false

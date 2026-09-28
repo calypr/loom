@@ -49,6 +49,12 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("build selected-root page: %w", err)
 	}
+	if bindings.IncludeSourceIdentity {
+		rowsPlan, _, err = withPreviewSourceResourceID(output, rowsPlan)
+		if err != nil {
+			return CompiledOutputPage{}, fmt.Errorf("add preview source identity to selected-root page: %w", err)
+		}
+	}
 	rowsPlan, err = withGenericPhysicalExecutionWindow(rowsPlan, 0)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("apply selected-root execution window: %w", err)

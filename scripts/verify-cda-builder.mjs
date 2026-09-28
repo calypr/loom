@@ -418,6 +418,14 @@ try {
         state.expandedPreview = await browserEval(browser.cdp, `return {ariaRowCount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
         assert.equal(state.expandedPreview.rows.length, 3, 'The source Observation did not become three rendered dataframe rows');
         assert(state.expandedPreview.rows.every(row => row[0] === targetID), 'Expanded rows do not retain the raw source Observation ID');
+        const expandedPreviewRequest = responses.filter(response => response.path.endsWith('/authoring/v2/preview')).at(-1);
+        assert(expandedPreviewRequest?.status === 200, 'Expanded row preview request failed');
+        const expandedPreviewBody = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: expandedPreviewRequest.requestId })).body);
+        state.expandedPreview.rowSources = expandedPreviewBody.rowSources;
+        assert.deepEqual(expandedPreviewBody.rowSources, Array.from({ length: 3 }, () => ({ kind: 'SINGLE', resourceType: 'Observation', id: targetID })),
+          'Expanded rows did not retain a backend-proven starting FHIR record');
+        assert(expandedPreviewBody.rows.every(row => !Object.hasOwn(row, '__loom_source_resource_id') && !Object.hasOwn(row, '__loom_preview_source')),
+          'Private source metadata leaked into public preview cells');
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"]'))`, 30000);
         state.expandedPreview.identityDialog = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
@@ -701,6 +709,8 @@ try {
         assert(savedGroupPreviewRequest && savedGroupPreviewRequest.status === 200, 'Saved Group preview did not return 200');
         const savedGroupResponse = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: savedGroupPreviewRequest.requestId })).body);
         state.savedGroup.rowIdentity = savedGroupResponse.rows?.[0]?.__loom_row_id;
+        state.savedGroup.rowSources = savedGroupResponse.rowSources;
+        assert(savedGroupResponse.rowSources?.every(source => source.kind === 'COMPOSITE'), 'Grouped rows must not claim one starting FHIR record');
         assert(typeof state.savedGroup.rowIdentity === 'string' && state.savedGroup.rowIdentity.length > 0, 'Saved Group preview did not expose a stable row identity');
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary'))`, 30000);
@@ -3433,7 +3443,8 @@ try {
     await writeFile(join(evidenceDirectory,'source-column-reorder.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
     assert(Math.max(state.before.elapsedMs,state.reordered.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA reorder preview exceeded 5 seconds');
-  } else if (action === 'Verify direct scalar lifecycle') {
+  } else if (action === 'Verify direct scalar lifecycle' || action === 'Verify source identity without ID column') {
+    const withoutID=action==='Verify source identity without ID column';
     const tableName=`CDA direct scalar QA ${Date.now()}`;
     const renamed='CDA resource type';
     const state={clicks:[],controls:[],previews:{},errors:[]};
@@ -3451,10 +3462,10 @@ try {
       await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
     };
     const reload=async()=>{await navigate(browser.cdp,pageURL);await selectTable();};
-    const preview=async(stage)=>{
+    const preview=async(stage,expectedHeaders)=>{
       const started=Date.now();
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1`,30000);
+      await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]').length>1&&(${JSON.stringify(expectedHeaders)}===undefined||JSON.stringify([...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText))===JSON.stringify(${JSON.stringify(expectedHeaders)}))`,expectedHeaders?8000:30000);
       const result=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)).filter(row=>row.length)};`);
       state.previews[stage]={...result,elapsedMs:Date.now()-started};
       assert(result.rows.length>0,`${stage} rendered no visible CDA rows`);
@@ -3522,6 +3533,33 @@ try {
       const byID=new Map(source.map(row=>[row.id,row.resourceType]));
       state.sourceComparison=added.rows.map(row=>({id:row[0],displayed:row.at(-1),source:byID.get(row[0])}));
       assert(state.sourceComparison.every(row=>row.displayed===row.source),'A visible resourceType differs from the CDA source');
+      if(withoutID){
+        const withIDRequest=responses.filter(response=>response.path.endsWith('/authoring/v2/preview')).at(-1);
+        const withIDBody=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:withIDRequest.requestId})).body);
+        const sourceByRowID=new Map(withIDBody.rows.map((row,index)=>[row.__loom_row_id,withIDBody.rowSources?.[index]?.id]));
+        await openColumnControls();
+        await click('Remove visible Specimen ID','button[aria-label="Remove Specimen ID"]');
+        await waitForBrowser(browser.cdp, `!document.querySelector('button[aria-label="Remove Specimen ID"]')`,30000);
+        const hiddenID=await preview('withoutID',['RESOURCE TYPE']);
+        assert.deepEqual(hiddenID.headers,['RESOURCE TYPE'],'The removed ID still appears as a table column');
+        const sourceRequest=responses.filter(response=>response.path.endsWith('/authoring/v2/preview')).at(-1);
+        assert.equal(sourceRequest?.status,200,'No-ID preview request failed');
+        const sourceBody=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:sourceRequest.requestId})).body);
+        state.hiddenIDRowSources=sourceBody.rowSources;
+        assert(sourceBody.rows?.every((row,index)=>sourceBody.rowSources?.[index]?.id===sourceByRowID.get(row.__loom_row_id)),
+          'No-ID preview changed the source record for a stable row identity');
+        assert(sourceBody.rowSources?.every(source=>source.kind==='SINGLE'&&source.resourceType==='Specimen'),'No-ID preview lacks backend-proven Specimen sources');
+        assert(sourceBody.rows?.every(row=>!Object.hasOwn(row,'__loom_source_resource_id')&&!Object.hasOwn(row,'__loom_preview_source')),'Private source metadata leaked into preview cells');
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"]'))`,30000);
+        state.hiddenIDDialog=await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
+        assert(state.hiddenIDDialog.includes(`Specimen/${sourceBody.rowSources[0].id}`),'Row inspector does not show the hidden starting CDA record');
+        await reload();
+        const persistedWithoutID=await preview('withoutIDAfterReload');
+        assert.deepEqual(persistedWithoutID.headers,['RESOURCE TYPE'],'No-ID column choice did not persist');
+        assert(persistedWithoutID.rows.every(row=>row[0]==='Specimen'),'No-ID preview values differ from CDA resourceType');
+        assert(Object.values(state.previews).every(item=>item.elapsedMs<=5000),'A no-ID preview exceeded five seconds');
+      }else{
       await reload();
       const persisted=await preview('afterReload');
       assertSharedRows(persisted,added,'Added field changed after reload');
@@ -3543,6 +3581,7 @@ try {
       const restored=await preview('afterRemove');
       assertSharedRows(restored,original,'Original CDA preview was not restored');
       assert(Object.values(state.previews).every(item=>item.elapsedMs<=5000),'A direct-field preview exceeded five seconds');
+      }
     }catch(error){state.errors.push(error instanceof Error?error.message:String(error));throw error;
     }finally{
       if(created){
