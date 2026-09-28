@@ -20,6 +20,7 @@ const maxConstructionChoiceProposalChoices = 100
 type ConstructionChoiceProposalSelection struct {
 	ChoiceID string                            `json:"choiceId"`
 	Form     capability.ConstructionChoiceForm `json:"form"`
+	FrameID  string                            `json:"frameId,omitempty"`
 	Title    *string                           `json:"title,omitempty"`
 }
 
@@ -56,6 +57,11 @@ func (r ConstructionChoiceProposalRequest) Validate() error {
 	for index, choice := range r.ConstructionChoices {
 		if err := requireExactIdentity(choice.ChoiceID, fmt.Sprintf("constructionChoices[%d].choiceId", index)); err != nil {
 			return err
+		}
+		if choice.FrameID != "" {
+			if err := requireExactIdentity(choice.FrameID, fmt.Sprintf("constructionChoices[%d].frameId", index)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -126,7 +132,7 @@ func (s *Service) ProposeConstructionChoice(ctx context.Context, request Constru
 		}
 		commands[index] = authoringv2.Command{
 			Type: authoringv2.CommandApplyConstructionChoice, OutputID: request.OutputID, Title: title,
-			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form},
+			ConstructionChoice: &authoringv2.ConstructionChoiceSelection{ChoiceID: selection.ChoiceID, Form: selection.Form, FrameID: selection.FrameID},
 		}
 	}
 	applyRequest := authoringv2.ApplyCommandsRequest{

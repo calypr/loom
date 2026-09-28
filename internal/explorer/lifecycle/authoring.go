@@ -24,6 +24,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 		return nil, malformed("commands", err.Error(), err)
 	}
 	constructionChoiceCommand := request.Commands[0].Type == authoringv2.CommandApplyConstructionChoice
+	frameSourceCommand := request.Commands[0].Type == authoringv2.CommandSetFrameSource || request.Commands[0].Type == authoringv2.CommandReplaceFrameSource
 	rowDefinitionProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyRowDefinitionProposal
 	var rowDefinitionCandidate *explorer.CompilationReceipt
 	tableShapeProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyTableShapeProposal
@@ -32,6 +33,17 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	var constructionCandidate *explorer.CompilationReceipt
 	constructionIdentities := make([]capability.ConstructionChoiceIdentity, len(request.Commands))
+	var frameSourceIdentity capability.ConstructionChoiceIdentity
+	if frameSourceCommand {
+		identity, decodeErr := capability.DecodeConstructionChoiceID(request.Commands[0].FrameChoiceID)
+		if decodeErr != nil || identity.Kind != capability.ConstructionChoiceSourceSemanticFrame {
+			return nil, malformed("commands", "frameChoiceId is invalid", decodeErr)
+		}
+		if identity.SnapshotToken != request.SnapshotToken {
+			return nil, conflict("commands", "STALE_FRAME_SOURCE", "the frame source belongs to a different catalog snapshot", nil, nil)
+		}
+		frameSourceIdentity = identity
+	}
 	populationRouteCount := 0
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandSetTablePopulation {
@@ -77,7 +89,7 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || restoreDraftRevisionCommand || frameSourceCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -145,6 +157,13 @@ func (s *Service) ApplyCommands(ctx context.Context, project, explorerID string,
 	} else if restoreDraftRevisionCommand {
 		prepare = func(ctx context.Context, _ authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareDraftRevisionRestore(ctx, project, explorerID, request, snapshot, commands)
+		}
+	} else if frameSourceCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			if len(commands) != 1 {
+				return nil, malformed("commands", "frame source changes must contain exactly one command", nil)
+			}
+			return s.prepareFrameSourceCommand(ctx, project, explorerID, authorized, workspace, catalog, commands[0], frameSourceIdentity)
 		}
 	}
 	response, err := s.store.ApplyWorkspaceCommandsChecked(ctx, project, explorerID, catalog, request, actor, prepare, func(workspace authoringv2.Workspace) error {

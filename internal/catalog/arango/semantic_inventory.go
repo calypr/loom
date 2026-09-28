@@ -428,6 +428,7 @@ func (s *Store) PageSemanticInventory(ctx context.Context, opts catalog.Semantic
 		"auth_resource_paths_unrestricted": unrestricted,
 		"auth_resource_paths":              paths,
 		"resource_type":                    opts.ResourceType,
+		"binding_id":                       opts.BindingID,
 		"query":                            opts.Query,
 		"observation_schema":               build.ObservationSchema,
 		"after_binding_id":                 afterBindingID,
@@ -745,6 +746,7 @@ LET identities = (
     FILTER NOT_NULL(candidate.source_kind, "file") == @source_kind
     FILTER @auth_resource_paths_unrestricted == true OR candidate.auth_resource_path IN @auth_resource_paths
     FILTER @resource_type == "" OR candidate.resource_type == @resource_type
+    FILTER @binding_id == "" OR candidate.binding_id == @binding_id
     FILTER @query == "" OR CONTAINS(NOT_NULL(candidate.search_text, LOWER(CONCAT_SEPARATOR(" ", candidate.resource_type, candidate.observation.source.path, candidate.observation.value.selector, candidate.observation.owning_scope, candidate.observation.key.system, candidate.observation.key.code, candidate.observation.key.display))), LOWER(@query))
     FILTER @after_binding_id == "" OR candidate.binding_id > @after_binding_id
       OR (candidate.binding_id == @after_binding_id AND candidate.concept_id > @after_concept_id)
@@ -763,6 +765,7 @@ FOR identity IN identities
       FILTER NOT_NULL(d.source_kind, "file") == @source_kind
       FILTER @auth_resource_paths_unrestricted == true OR d.auth_resource_path IN @auth_resource_paths
       FILTER @resource_type == "" OR d.resource_type == @resource_type
+      FILTER @binding_id == "" OR d.binding_id == @binding_id
       FILTER d.binding_id == identity.binding_id
       FILTER d.concept_id == identity.concept_id
       COLLECT AGGREGATE population = SUM(d.observation.population),

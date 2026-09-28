@@ -9,6 +9,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -112,6 +113,65 @@ func TestBrowseSemanticInventoryScopesAndContext(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBrowseSemanticInventoryUsesOutputToResolveDuplicateFrameIDs(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := readySnapshot("project-a", "generation-a", "token", scope)
+	snapshot.Nodes = []capability.Node{{ResourceType: "Observation", RowRootEligible: true}}
+	frame, err := authoringv2.NewFrameDefinition("Observation component values", "Codes and their paired values on Observation records.", capability.SemanticFrameFamily{
+		BindingID: "binding-component", ResourceType: "Observation", SourcePath: "component[]",
+		OwningScope: "component[]", KeyPath: "component[].code.coding[]", ValuePath: "valueInteger",
+		LogicalType: "integer", RuleVersion: "semantic-rule-v1", SchemaVersion: 1,
+	}, nil, capability.ConstructionChoiceValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := func(outputID string) authoringv2.Document {
+		return authoringv2.Document{
+			Kind: authoringv2.Kind, Output: authoringv2.Output{ID: outputID, Title: outputID}, RootResourceType: "Observation",
+			Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation"},
+			Rows:  authoringv2.RecordsRowDefinition(), Frames: []authoringv2.FrameDefinition{frame}, Columns: []authoringv2.Column{},
+		}
+	}
+	workspace := authoringv2.Workspace{
+		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Builder"},
+		Documents: []authoringv2.Document{document("out_a"), document("out_b")},
+		Tabs:      []authoringv2.Tab{{ID: "tab_a", Title: "out_a", OutputID: "out_a", Visible: true}, {ID: "tab_b", Title: "out_b", OutputID: "out_b", Order: 1, Visible: true}},
+	}
+	config, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "explorer", DraftConfig: config}}
+	var browse catalog.SemanticInventoryPageOptions
+	service := newTestService(t, store, Config{
+		Capability: CapabilityResolver{ForCompilation: func(context.Context, string, string) (AuthorizedCapability, error) {
+			return AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+		SemanticInventory: func(_ context.Context, options catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			browse = options
+			return catalog.SemanticInventoryPage{
+				State:   catalog.SemanticInventoryComplete,
+				Build:   catalog.SemanticInventoryBuild{BuildID: catalog.SemanticInventoryBuildID("project-a", "generation-a"), State: catalog.SemanticInventoryComplete},
+				Entries: []catalog.SemanticInventoryEntry{},
+			}, nil
+		},
+	})
+	result, err := service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation",
+		OutputID: "out_b", FrameID: frame.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FrameID != frame.ID || result.FrameSource == nil || browse.BindingID != frame.Source.BindingID || browse.ResourceType != frame.Source.ResourceType {
+		t.Fatalf("framed browse did not resolve the exact output source: result=%#v options=%#v", result, browse)
+	}
+	_, err = service.BrowseSemanticInventory(context.Background(), BrowseSemanticInventoryRequest{
+		Project: "project-a", ExplorerID: "explorer", SnapshotToken: snapshot.Token, RowRoot: "Observation", FrameID: frame.ID,
+	})
+	assertLifecycleError(t, err, ClassMalformed, "MALFORMED_REQUEST")
 }
 
 func TestBrowseSemanticInventoryAcceptsNestedSchemaDiscoveredCodedValue(t *testing.T) {

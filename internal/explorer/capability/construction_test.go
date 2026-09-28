@@ -90,6 +90,40 @@ func TestNewFieldConstructionChoiceUsesCompilerProofsAndSafeDefaults(t *testing.
 	})
 }
 
+func TestSemanticFrameChoiceBindsCorrelatedFamilyToCompilerValuePath(t *testing.T) {
+	family := SemanticFrameFamily{
+		BindingID: "binding-component-integer", ResourceType: "Observation", SourcePath: "component[]",
+		OwningScope: "component[]", KeyPath: "component[].code.coding[]", ValuePath: "valueInteger",
+		LogicalType: "integer", RuleVersion: "semantic-rule-v1", SchemaVersion: 1,
+	}
+	candidate := Candidate{
+		ID: "observation-component-integer", NodeID: "observation", ResourceType: "Observation",
+		FieldPath: "component[].valueInteger", LogicalType: "integer", Cardinality: "many",
+		RepeatedBoundaries: []RepeatedBoundary{{Path: "component[]", MaxItems: 4}},
+		ProjectionModes:    []ProjectionMode{ProjectionFirst, ProjectionArray, ProjectionDistinctArray},
+	}
+	choice, err := NewSemanticFrameConstructionChoice("snapshot", "context", "build", SemanticFrameChoiceSource{
+		Kind: ConstructionChoiceSourceSemanticFrame, AnchorConceptID: "concept-primary-diagnosis", Family: family,
+		CandidateID: candidate.ID, NodeID: candidate.NodeID, FieldPath: candidate.FieldPath,
+	}, nil, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := DecodeConstructionChoiceID(choice.ChoiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, ok := identity.Source.(SemanticFrameChoiceSource)
+	if !ok || identity.Kind != ConstructionChoiceSourceSemanticFrame || !reflect.DeepEqual(resolved.Family, family) || identity.SemanticContextToken != "context" || identity.BuildID != "build" {
+		t.Fatalf("frame choice token lost family identity: %#v", identity)
+	}
+	unrelated := candidate
+	unrelated.FieldPath = "component[].valueString"
+	if _, err := NewSemanticFrameConstructionChoice("snapshot", "context", "build", resolved, nil, unrelated); err == nil {
+		t.Fatal("frame choice accepted a compiler candidate outside the paired value path")
+	}
+}
+
 func TestNewFieldConstructionChoiceRejectsUnsupportedObjectProjection(t *testing.T) {
 	t.Parallel()
 

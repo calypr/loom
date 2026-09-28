@@ -37,6 +37,7 @@ import {
   explicitGroupRevisionSummarySchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
+  frameSourceOptionsResponseSchema,
   explorerBuilderRowLineageResponseSchema,
   type ExplorerBuilderCatalog,
   type ExplorerBuilderCommand,
@@ -73,6 +74,7 @@ import {
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
   type SemanticInventoryBrowseResponse,
+  type FrameSourceOptionsResponse,
   type ExplorerBuilderRowLineageResponse,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
@@ -309,6 +311,18 @@ export interface ExplorerCandidateSuggestionsArgs extends ExplorerAuthoringState
 export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs {
   readonly snapshotToken: string;
   readonly rowRoot: string;
+  readonly frameId?: string;
+  readonly outputId?: string;
+  readonly resourceType?: string;
+  readonly query?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly requestId?: string;
+}
+
+export interface BrowseFrameSourceOptionsArgs extends ExplorerAuthoringStateArgs {
+  readonly snapshotToken: string;
+  readonly outputId: string;
   readonly resourceType?: string;
   readonly query?: string;
   readonly cursor?: string;
@@ -613,6 +627,10 @@ export interface LoomClient {
     args: BrowseSemanticInventoryArgs,
     signal?: AbortSignal,
   ) => Promise<SemanticInventoryBrowseResponse>;
+  readonly browseFrameSourceOptions: (
+    args: BrowseFrameSourceOptionsArgs,
+    signal?: AbortSignal,
+  ) => Promise<FrameSourceOptionsResponse>;
   readonly inspectColumnSource: (
     args: InspectColumnSourceArgs,
     signal?: AbortSignal,
@@ -1213,11 +1231,22 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     request(authoringPath(args, '/semantic-inventory'), withJson({
       snapshotToken: args.snapshotToken,
       rowRoot: args.rowRoot,
+      ...(args.frameId ? { frameId: args.frameId } : {}),
+      ...(args.outputId ? { outputId: args.outputId } : {}),
       ...(args.resourceType ? { resourceType: args.resourceType } : {}),
       ...(args.query ? { query: args.query } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal, args.requestId)).then((value) => semanticInventoryBrowseResponseSchema.parse(value));
+  const browseFrameSourceOptions = (args: BrowseFrameSourceOptionsArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/frame-source-options'), withJson({
+      snapshotToken: args.snapshotToken,
+      outputId: args.outputId,
+      ...(args.resourceType ? { resourceType: args.resourceType } : {}),
+      ...(args.query ? { query: args.query } : {}),
+      ...(args.cursor ? { cursor: args.cursor } : {}),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal, args.requestId)).then((value) => frameSourceOptionsResponseSchema.parse(value));
   const inspectColumnSource = (args: InspectColumnSourceArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/column-source'), withJson({
       snapshotToken: args.snapshotToken,
@@ -1599,6 +1628,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     reconcile,
     suggestions,
     browseSemanticInventory,
+    browseFrameSourceOptions,
     inspectColumnSource,
     searchConstructionChoices,
     searchRelatedExpandChoices,

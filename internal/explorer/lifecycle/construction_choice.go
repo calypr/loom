@@ -49,12 +49,53 @@ func (s *Service) prepareConstructionChoice(ctx context.Context, project, explor
 		if err != nil {
 			return nil, err
 		}
+		if command.ConstructionChoice.FrameID != "" {
+			frame, found := frameForConstructionChoice(document, command.ConstructionChoice.FrameID, identity, semanticEntries)
+			if !found || !reflect.DeepEqual(resolution.Route, identity.Route) || command.ConstructionChoice.Form != frame.Form {
+				return nil, invalidConstructionChoice("the semantic category does not match its saved frame source, route, or value policy")
+			}
+			resolution.FrameID = frame.ID
+		}
 		command.ResolvedChoice = &resolution
 		if strings.TrimSpace(command.Title) == "" {
 			command.Title = title
 		}
 	}
 	return commands, nil
+}
+
+func frameForConstructionChoice(
+	document *authoringv2.Document,
+	frameID string,
+	identity capability.ConstructionChoiceIdentity,
+	entries map[string]catalog.SemanticInventoryEntry,
+) (authoringv2.FrameDefinition, bool) {
+	if document == nil {
+		return authoringv2.FrameDefinition{}, false
+	}
+	var frame *authoringv2.FrameDefinition
+	for index := range document.Frames {
+		if document.Frames[index].ID == frameID {
+			frame = &document.Frames[index]
+			break
+		}
+	}
+	if frame == nil {
+		return authoringv2.FrameDefinition{}, false
+	}
+	semanticIdentity, ok := identity.Source.(capability.SemanticBindingChoiceSource)
+	if !ok || !reflect.DeepEqual(identity.Route, frame.Route) {
+		return authoringv2.FrameDefinition{}, false
+	}
+	entry, found := entries[semanticChoiceKey(semanticIdentity.ConceptID, semanticIdentity.BindingID)]
+	if !found {
+		return authoringv2.FrameDefinition{}, false
+	}
+	plan := authoringv2.ResolveSemanticSelectionPlan(entry.Observation)
+	if !semanticEntryMatchesFrame(entry, entry.Observation, plan, *frame) {
+		return authoringv2.FrameDefinition{}, false
+	}
+	return *frame, true
 }
 
 func (s *Service) resolveConstructionChoiceSemantics(ctx context.Context, project string, authorized AuthorizedCapability, identities []capability.ConstructionChoiceIdentity) (map[string]catalog.SemanticInventoryEntry, string, error) {

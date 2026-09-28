@@ -38,6 +38,7 @@ paths:
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
@@ -213,6 +214,31 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: browseExplorerFrameSourceOptions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FrameSourceOptionsRequest'}
+      responses:
+        '200':
+          description: Metadata-backed correlated code/value source families and compiler-proved routes available for this row root.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FrameSourceOptionsResponse'}
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/construction-choices:
@@ -2142,6 +2168,9 @@ components:
         route: {$ref: '#/components/schemas/RouteNode'}
         rows: {$ref: '#/components/schemas/RowDefinition'}
         population: {$ref: '#/components/schemas/Population'}
+        frames:
+          type: array
+          items: {$ref: '#/components/schemas/FrameDefinition'}
         columns:
           type: array
           items: {$ref: '#/components/schemas/Column'}
@@ -2509,6 +2538,7 @@ components:
       additionalProperties: false
       required: [column, label, occurrenceId, source]
       properties:
+        frameId: {type: string, minLength: 1}
         column: {type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]*$'}
         label: {type: string, minLength: 1}
         logicalType: {type: string}
@@ -2619,7 +2649,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -2650,6 +2680,9 @@ components:
           maxItems: 100
           items: {$ref: '#/components/schemas/SemanticSelectionIntent'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoiceSelection'}
+        frameChoiceId: {type: string, minLength: 1, maxLength: 16384}
+        frameId: {type: string, minLength: 1}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
@@ -2660,6 +2693,7 @@ components:
       properties:
         choiceId: {type: string, minLength: 1}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS, COUNT, PRESENCE]}
+        frameId: {type: string, minLength: 1}
     SemanticSelectionIntent:
       type: object
       additionalProperties: false
@@ -3942,6 +3976,7 @@ components:
       properties:
         choiceId: {type: string, minLength: 1, maxLength: 16384}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT, OWNER_RECORDS]}
+        frameId: {type: string, minLength: 1}
         title: {type: string}
     ConstructionChoiceProposalResponse:
       type: object
@@ -4878,6 +4913,8 @@ components:
       properties:
         snapshotToken: {type: string, minLength: 1}
         rowRoot: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1, description: "Required when frameId scopes the browse to one saved output."}
+        frameId: {type: string, minLength: 1}
         resourceType: {type: string}
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}
@@ -4931,6 +4968,100 @@ components:
         relationship: {type: string, minLength: 1}
         storageDirection: {type: string, enum: [INBOUND, OUTBOUND]}
         matchMode: {type: string, enum: [OPTIONAL, REQUIRED]}
+    FrameDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, source, route, form, zeroPolicy, manyPolicy]
+      properties:
+        id: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        source: {$ref: '#/components/schemas/SemanticFrameFamily'}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
+        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
+    SemanticFrameFamily:
+      type: object
+      additionalProperties: false
+      required: [bindingId, resourceType, sourcePath, owningScope, keyPath, valuePath, logicalType, ruleVersion, schemaVersion]
+      properties:
+        bindingId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        sourcePath: {type: string, minLength: 1}
+        sourceCanonical: {type: string}
+        sourceProfile: {type: string}
+        owningScope: {type: string}
+        keyPath: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        choiceArms:
+          type: array
+          items: {type: string}
+        logicalType: {type: string, minLength: 1}
+        ruleVersion: {type: string, minLength: 1}
+        schemaVersion: {type: integer, minimum: 1}
+    FrameSourceOptionsRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        resourceType: {type: string}
+        query: {type: string, maxLength: 256}
+        cursor: {type: string, maxLength: 4096}
+        limit: {type: integer, minimum: 1, maximum: 50}
+    FrameSourceOptionsResponse:
+      type: object
+      additionalProperties: false
+      required: [snapshotToken, outputId, complete, truncated, sources]
+      properties:
+        snapshotToken: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        nextCursor: {type: string, minLength: 1}
+        sources:
+          type: array
+          maxItems: 50
+          items: {$ref: '#/components/schemas/FrameSourceOption'}
+    FrameSourceOption:
+      type: object
+      additionalProperties: false
+      required: [choiceId, title, description, resourceType, sourcePath, bindingId, owningScope, keyPath, valuePath, logicalType, exampleConcept, observedOccurrences, route, forms, defaultForm]
+      properties:
+        choiceId: {type: string, minLength: 1, maxLength: 16384}
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        resourceType: {type: string, minLength: 1}
+        sourcePath: {type: string, minLength: 1}
+        sourceCanonical: {type: string}
+        sourceProfile: {type: string}
+        bindingId: {type: string, minLength: 1}
+        owningScope: {type: string}
+        keyPath: {type: string, minLength: 1}
+        valuePath: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
+        exampleConcept: {type: string}
+        observedOccurrences: {type: integer, format: int64, minimum: 0}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        forms:
+          type: array
+          items: {$ref: '#/components/schemas/FrameSourceForm'}
+        defaultForm: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
+    FrameSourceForm:
+      type: object
+      additionalProperties: false
+      required: [form, zeroPolicy, manyPolicy, decision]
+      properties:
+        form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
+        zeroPolicy: {type: string, enum: [NULL, EMPTY_LIST]}
+        manyPolicy: {type: string, enum: [INVALID_MULTIPLE_VALUES, FIRST, ALL, DISTINCT]}
+        decision: {type: string, enum: [DEFAULT, REQUIRES_DECISION]}
     ConstructionChoicePresentation:
       type: object
       additionalProperties: false
@@ -5171,6 +5302,8 @@ components:
       additionalProperties: false
       required: [contextToken, buildId, state, sourceAvailability, entries]
       properties:
+        frameId: {type: string, minLength: 1}
+        frameSource: {$ref: '#/components/schemas/FrameDefinition'}
         contextToken: {type: string, minLength: 1}
         buildId: {type: string}
         state: {type: string, enum: [unknown, not_started, running, complete, failed, invalidated]}

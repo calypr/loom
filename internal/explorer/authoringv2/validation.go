@@ -24,6 +24,9 @@ func (d Document) Validate() error {
 	if err := d.validateSemantic(); err != nil {
 		return err
 	}
+	if err := validateDocumentFrames(d); err != nil {
+		return fmt.Errorf("framing: %w", err)
+	}
 	if d.Construction != nil {
 		if d.TableShape != nil {
 			return fmt.Errorf("construction and tableShape cannot both define post-source operations")

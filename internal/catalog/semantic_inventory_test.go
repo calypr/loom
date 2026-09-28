@@ -139,6 +139,16 @@ func TestSemanticInventoryCursorBindsAuthorizedScopeAndClampsPageLimit(t *testin
 	}
 }
 
+func TestSemanticInventoryPageDigestBindsFrameBindingFilter(t *testing.T) {
+	options := SemanticInventoryPageOptions{Project: "project", DatasetGeneration: "generation", ResourceType: "Observation"}
+	unfiltered := SemanticInventoryPageDigest(options, "build", SemanticInventoryPageLimit)
+	options.BindingID = "frame-binding"
+	filtered := SemanticInventoryPageDigest(options, "build", SemanticInventoryPageLimit)
+	if filtered == unfiltered {
+		t.Fatal("frame-scoped binding filter did not change semantic inventory cursor identity")
+	}
+}
+
 func inventoryTestComponent(code, version, display string) map[string]any {
 	return map[string]any{
 		"code": map[string]any{"coding": []any{map[string]any{

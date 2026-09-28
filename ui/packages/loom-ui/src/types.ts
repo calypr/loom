@@ -8,7 +8,7 @@ export interface DataframeSelector {
 
 export const EXPLORER_AUTHORING_API_VERSION =
   'loom.calypr.org/explorer-authoring/v2' as const;
-export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 9;
+export const EXPLORER_AUTHORING_SEMANTICS_VERSION = 10;
 
 const opaqueIdSchema = z.string().trim().min(1);
 const projectionModeSchema = z.enum([
@@ -1000,6 +1000,7 @@ export type ColumnTransformationChange = z.infer<
 export const explorerBuilderColumnSchema = z
   .object({
     columnId: opaqueIdSchema.optional(),
+    frameId: opaqueIdSchema.optional(),
     column: opaqueIdSchema.regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
     label: z.string().min(1),
     logicalType: z.string().optional(),
@@ -1186,6 +1187,69 @@ const constructionRouteStepSchema = z.object({
   matchMode: z.enum(['OPTIONAL', 'REQUIRED']),
 }).strict();
 export type ConstructionRouteStep = z.infer<typeof constructionRouteStepSchema>;
+
+const frameFormSchema = z.enum(['VALUE', 'FIRST', 'ALL', 'DISTINCT']);
+const frameZeroPolicySchema = z.enum(['NULL', 'EMPTY_LIST']);
+const frameManyPolicySchema = z.enum(['INVALID_MULTIPLE_VALUES', 'FIRST', 'ALL', 'DISTINCT']);
+
+export const frameDefinitionSchema = z.object({
+  id: opaqueIdSchema,
+  title: z.string().min(1),
+  description: z.string(),
+  source: z.object({
+    bindingId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    sourcePath: z.string(),
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    owningScope: z.string(),
+    keyPath: z.string(),
+    valuePath: z.string(),
+    choiceArms: z.array(z.string()).optional(),
+    logicalType: z.string(),
+    ruleVersion: z.string(),
+    schemaVersion: z.number().int(),
+  }).strict(),
+  route: z.array(constructionRouteStepSchema),
+  form: frameFormSchema,
+  zeroPolicy: frameZeroPolicySchema,
+  manyPolicy: frameManyPolicySchema,
+}).strict();
+export type FrameDefinition = z.infer<typeof frameDefinitionSchema>;
+
+export const frameSourceOptionsResponseSchema = z.object({
+  snapshotToken: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  complete: z.boolean(),
+  truncated: z.boolean(),
+  nextCursor: z.string().min(1).optional(),
+  sources: z.array(z.object({
+    choiceId: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string(),
+    resourceType: opaqueIdSchema,
+    sourcePath: z.string(),
+    sourceCanonical: z.string().optional(),
+    sourceProfile: z.string().optional(),
+    bindingId: opaqueIdSchema,
+    owningScope: z.string(),
+    keyPath: z.string(),
+    valuePath: z.string(),
+    logicalType: z.string(),
+    exampleConcept: z.string(),
+    observedOccurrences: z.number().int().nonnegative(),
+    route: z.array(constructionRouteStepSchema),
+    forms: z.array(z.object({
+      form: frameFormSchema,
+      zeroPolicy: frameZeroPolicySchema,
+      manyPolicy: frameManyPolicySchema,
+      decision: z.string(),
+    }).strict()),
+    defaultForm: frameFormSchema,
+  }).strict()).max(50),
+}).strict();
+export type FrameSourceOptionsResponse = z.infer<typeof frameSourceOptionsResponseSchema>;
+export type FrameSourceOption = FrameSourceOptionsResponse['sources'][number];
 
 const relatedSourceSchema = z.object({
   anchorColumnId: opaqueIdSchema,
@@ -1575,6 +1639,7 @@ export const explorerBuilderDocumentSchema = z
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
+    frames: z.array(frameDefinitionSchema).optional(),
     columns: z.array(explorerBuilderColumnSchema),
     tableShape: persistedTableShapeSchema.optional(),
     construction: constructionSchema.optional(),
@@ -2040,6 +2105,7 @@ export const constructionChoiceSelectionSchema = z
   .object({
     choiceId: z.string().min(1),
     form: constructionChoiceFormSchema,
+    frameId: opaqueIdSchema.optional(),
   })
   .strict();
 export type ConstructionChoiceSelection = z.infer<
@@ -2359,12 +2425,18 @@ export const explorerBuilderCommandSchema = z
       'REMOVE_COLUMN',
       'ADD_SEMANTIC_SELECTIONS',
       'APPLY_CONSTRUCTION_CHOICE',
+      'SET_FRAME_SOURCE',
+      'REPLACE_FRAME_SOURCE',
+      'REMOVE_FRAME_SOURCE',
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
       'APPLY_TABLE_SHAPE_PROPOSAL',
       'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
+    frameId: opaqueIdSchema.optional(),
+    frameChoiceId: z.string().optional(),
+    form: frameFormSchema.optional(),
     sourceOutputId: opaqueIdSchema.optional(),
     title: z.string().optional(),
     rootNodeId: opaqueIdSchema.optional(),
@@ -2686,6 +2758,8 @@ export type SemanticInventoryItem = z.infer<typeof semanticInventoryItemSchema>;
 
 export const semanticInventoryBrowseResponseSchema = z
   .object({
+    frameId: opaqueIdSchema.optional(),
+    frameSource: frameDefinitionSchema.optional(),
     contextToken: z.string().min(1),
     buildId: z.string(),
     state: z.enum([

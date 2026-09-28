@@ -17,7 +17,7 @@ const (
 	StateKind               = "ExplorerBuilderState"
 	CatalogKind             = "ExplorerBuilderCatalog"
 	RootOccurrenceID        = "base"
-	CurrentSemanticsVersion = 9
+	CurrentSemanticsVersion = 10
 )
 
 // Document is the complete durable Builder intent. Route occurrences form a
@@ -30,6 +30,7 @@ type Document struct {
 	Route            RouteNode     `json:"route,omitempty"`
 	Rows             RowDefinition `json:"rows"`
 	Population       *Population   `json:"population,omitempty"`
+	Frames           []FrameDefinition `json:"frames,omitempty"`
 	Columns          []Column      `json:"columns"`
 	TableShape       *TableShape   `json:"tableShape,omitempty"`
 	// Construction is the canonical post-source operation sequence. When it is

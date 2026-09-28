@@ -44,6 +44,9 @@ const (
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
 	CommandApplyConstructionChoice       = "APPLY_CONSTRUCTION_CHOICE"
+	CommandSetFrameSource                = "SET_FRAME_SOURCE"
+	CommandReplaceFrameSource            = "REPLACE_FRAME_SOURCE"
+	CommandRemoveFrameSource             = "REMOVE_FRAME_SOURCE"
 	CommandResultTableCreated            = "TABLE_CREATED"
 	CommandResultTableChanged            = "TABLE_CHANGED"
 	CommandResultRouteAdded              = "ROUTE_ADDED"
@@ -108,37 +111,41 @@ func (r *ApplyCommandsRequest) UnmarshalJSON(raw []byte) error {
 }
 
 type Command struct {
-	Type                    string                          `json:"type"`
-	OutputID                string                          `json:"outputId,omitempty"`
-	SourceOutputID          string                          `json:"sourceOutputId,omitempty"`
-	Title                   string                          `json:"title,omitempty"`
-	RootNodeID              string                          `json:"rootNodeId,omitempty"`
-	SelectionRevisionID     string                          `json:"selectionRevisionId,omitempty"`
-	EdgeIDs                 []string                        `json:"edgeIds,omitempty"`
-	RouteChoiceID           string                          `json:"routeChoiceId,omitempty"`
-	ParentOccurrenceID      string                          `json:"parentOccurrenceId,omitempty"`
-	OccurrenceID            string                          `json:"occurrenceId,omitempty"`
-	EdgeID                  string                          `json:"edgeId,omitempty"`
-	MatchMode               RouteMatchMode                  `json:"matchMode,omitempty"`
-	CandidateID             string                          `json:"candidateId,omitempty"`
-	ProjectionMode          string                          `json:"projectionMode,omitempty"`
-	InitialPresentation     string                          `json:"initialPresentation,omitempty"`
-	Column                  string                          `json:"column,omitempty"`
-	ColumnValue             *Column                         `json:"columnValue,omitempty"`
-	ConstructionOutput      *ConstructionOutputPresentation `json:"constructionOutput,omitempty"`
-	TransformationChange    *ColumnTransformationChange     `json:"transformationChange,omitempty"`
-	Contributor             *ContributorPredicate           `json:"contributor,omitempty"`
-	Source                  *ColumnSource                   `json:"source,omitempty"`
-	RowChange               *RowChangeProposal              `json:"rowChange,omitempty"`
-	InterpretationCandidate *ApplyInterpretationCandidate   `json:"interpretationCandidate,omitempty"`
-	ProposalID              string                          `json:"proposalId,omitempty"`
-	DraftRevisionID         string                          `json:"draftRevisionId,omitempty"`
-	ContextToken            string                          `json:"contextToken,omitempty"`
-	SemanticSelections      []SemanticSelection             `json:"semanticSelections,omitempty"`
-	ConstructionChoice      *ConstructionChoiceSelection    `json:"constructionChoice,omitempty"`
-	ResolvedChoice          *ResolvedConstructionChoice     `json:"-"`
-	ResolvedPopulationRoute []PopulationRouteStep           `json:"-"`
-	OutputIDs               []string                        `json:"outputIds,omitempty"`
+	Type                    string                            `json:"type"`
+	OutputID                string                            `json:"outputId,omitempty"`
+	SourceOutputID          string                            `json:"sourceOutputId,omitempty"`
+	Title                   string                            `json:"title,omitempty"`
+	RootNodeID              string                            `json:"rootNodeId,omitempty"`
+	SelectionRevisionID     string                            `json:"selectionRevisionId,omitempty"`
+	EdgeIDs                 []string                          `json:"edgeIds,omitempty"`
+	RouteChoiceID           string                            `json:"routeChoiceId,omitempty"`
+	ParentOccurrenceID      string                            `json:"parentOccurrenceId,omitempty"`
+	OccurrenceID            string                            `json:"occurrenceId,omitempty"`
+	EdgeID                  string                            `json:"edgeId,omitempty"`
+	MatchMode               RouteMatchMode                    `json:"matchMode,omitempty"`
+	CandidateID             string                            `json:"candidateId,omitempty"`
+	ProjectionMode          string                            `json:"projectionMode,omitempty"`
+	InitialPresentation     string                            `json:"initialPresentation,omitempty"`
+	Column                  string                            `json:"column,omitempty"`
+	ColumnValue             *Column                           `json:"columnValue,omitempty"`
+	ConstructionOutput      *ConstructionOutputPresentation   `json:"constructionOutput,omitempty"`
+	TransformationChange    *ColumnTransformationChange       `json:"transformationChange,omitempty"`
+	Contributor             *ContributorPredicate             `json:"contributor,omitempty"`
+	Source                  *ColumnSource                     `json:"source,omitempty"`
+	RowChange               *RowChangeProposal                `json:"rowChange,omitempty"`
+	InterpretationCandidate *ApplyInterpretationCandidate     `json:"interpretationCandidate,omitempty"`
+	ProposalID              string                            `json:"proposalId,omitempty"`
+	DraftRevisionID         string                            `json:"draftRevisionId,omitempty"`
+	ContextToken            string                            `json:"contextToken,omitempty"`
+	SemanticSelections      []SemanticSelection               `json:"semanticSelections,omitempty"`
+	ConstructionChoice      *ConstructionChoiceSelection      `json:"constructionChoice,omitempty"`
+	FrameChoiceID           string                            `json:"frameChoiceId,omitempty"`
+	FrameID                 string                            `json:"frameId,omitempty"`
+	FrameForm               capability.ConstructionChoiceForm `json:"form,omitempty"`
+	ResolvedChoice          *ResolvedConstructionChoice       `json:"-"`
+	resolvedFrame           *FrameDefinition
+	ResolvedPopulationRoute []PopulationRouteStep `json:"-"`
+	OutputIDs               []string              `json:"outputIds,omitempty"`
 	resolvedRowDefinition   *RowDefinition
 	resolvedTableShape      *TableShape
 	resolvedTableShapeSet   bool
@@ -216,6 +223,7 @@ func (c ColumnTransformationChange) Validate() error {
 type ConstructionChoiceSelection struct {
 	ChoiceID string                            `json:"choiceId"`
 	Form     capability.ConstructionChoiceForm `json:"form"`
+	FrameID  string                            `json:"frameId,omitempty"`
 }
 
 func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
@@ -228,8 +236,8 @@ func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return err
 	}
-	if len(fields) != 2 || fields["choiceId"] == nil || fields["form"] == nil {
-		return fmt.Errorf("constructionChoice requires exactly choiceId and form")
+	if (len(fields) != 2 && len(fields) != 3) || fields["choiceId"] == nil || fields["form"] == nil || len(fields) == 3 && fields["frameId"] == nil {
+		return fmt.Errorf("constructionChoice requires choiceId and form, with optional frameId")
 	}
 	*s = ConstructionChoiceSelection(decoded)
 	return nil
@@ -238,6 +246,9 @@ func (s *ConstructionChoiceSelection) UnmarshalJSON(raw []byte) error {
 func (s ConstructionChoiceSelection) validate() error {
 	if strings.TrimSpace(s.ChoiceID) == "" || s.ChoiceID != strings.TrimSpace(s.ChoiceID) {
 		return fmt.Errorf("constructionChoice.choiceId must be an exact non-empty token")
+	}
+	if s.FrameID != "" && (strings.TrimSpace(s.FrameID) == "" || s.FrameID != strings.TrimSpace(s.FrameID)) {
+		return fmt.Errorf("constructionChoice.frameId must be an exact non-empty id")
 	}
 	switch s.Form {
 	case capability.ConstructionChoiceValue, capability.ConstructionChoiceFirst,
@@ -256,6 +267,7 @@ type ResolvedConstructionChoice struct {
 	Source      ColumnSource
 	LogicalType string
 	Route       []capability.ConstructionRouteStep
+	FrameID     string
 }
 
 // SemanticSelection is client intent plus an internal-only resolution filled
@@ -306,6 +318,11 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 			}
 		}
 	}
+	if decoded.Type == CommandSetFrameSource || decoded.Type == CommandReplaceFrameSource || decoded.Type == CommandRemoveFrameSource {
+		if err := rejectUnknownFrameSourceCommandFields(raw, decoded.Type); err != nil {
+			return err
+		}
+	}
 	if decoded.Type == CommandRestoreDraftRevision {
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err != nil {
@@ -324,6 +341,28 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 		}
 	}
 	*c = Command(decoded)
+	return nil
+}
+
+func rejectUnknownFrameSourceCommandFields(raw []byte, commandType string) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	allowed := map[string]bool{"type": true, "outputId": true}
+	switch commandType {
+	case CommandSetFrameSource:
+		allowed["frameChoiceId"], allowed["form"] = true, true
+	case CommandReplaceFrameSource:
+		allowed["frameId"], allowed["frameChoiceId"], allowed["form"] = true, true, true
+	case CommandRemoveFrameSource:
+		allowed["frameId"] = true
+	}
+	for name := range fields {
+		if !allowed[name] {
+			return fmt.Errorf("%s does not accept field %q", commandType, name)
+		}
+	}
 	return nil
 }
 
@@ -411,6 +450,8 @@ type CommandResult struct {
 	TabID              string                    `json:"tabId,omitempty"`
 	OccurrenceID       string                    `json:"occurrenceId,omitempty"`
 	Column             string                    `json:"column,omitempty"`
+	FrameID            string                    `json:"frameId,omitempty"`
+	RemovedColumns     []string                  `json:"removedColumns,omitempty"`
 	SemanticSelections []SemanticSelectionResult `json:"semanticSelections,omitempty"`
 }
 
@@ -446,6 +487,7 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	semanticCommandCount := 0
 	constructionChoiceCommandCount := 0
+	frameSourceCommandCount := 0
 	proposalCommandCount := 0
 	restoreCommandCount := 0
 	for i, command := range r.Commands {
@@ -454,6 +496,9 @@ func (r ApplyCommandsRequest) Validate() error {
 		}
 		if command.Type == CommandApplyConstructionChoice {
 			constructionChoiceCommandCount++
+		}
+		if command.Type == CommandSetFrameSource || command.Type == CommandReplaceFrameSource || command.Type == CommandRemoveFrameSource {
+			frameSourceCommandCount++
 		}
 		if command.Type == CommandApplyRowDefinitionProposal || command.Type == CommandApplyTableShapeProposal || command.Type == CommandApplyConstructionProposal {
 			proposalCommandCount++
@@ -470,6 +515,9 @@ func (r ApplyCommandsRequest) Validate() error {
 	}
 	if constructionChoiceCommandCount > 0 && (constructionChoiceCommandCount != len(r.Commands) || constructionChoiceCommandCount > 100) {
 		return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE commands must form the entire request and contain at most 100 choices")
+	}
+	if frameSourceCommandCount > 0 && (frameSourceCommandCount != 1 || len(r.Commands) != 1) {
+		return fmt.Errorf("frame source changes must be the only command in their atomic request")
 	}
 	if proposalCommandCount > 0 {
 		if proposalCommandCount != 1 || len(r.Commands) != 1 {
@@ -693,6 +741,27 @@ func (c Command) validate() error {
 		if c.InitialPresentation != "" && !contains([]string{InitialPresentationTable, InitialPresentationFilter, InitialPresentationChart}, strings.ToUpper(strings.TrimSpace(c.InitialPresentation))) {
 			return fmt.Errorf("APPLY_CONSTRUCTION_CHOICE initialPresentation must be TABLE, FILTER, or CHART")
 		}
+	case CommandSetFrameSource:
+		if !required(c.OutputID, c.FrameChoiceID) || c.FrameForm == "" {
+			return fmt.Errorf("SET_FRAME_SOURCE requires outputId, frameChoiceId, and form")
+		}
+		if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameChoiceID != strings.TrimSpace(c.FrameChoiceID) || !validFrameForm(c.FrameForm) ||
+			c.FrameID != "" || c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+			return fmt.Errorf("SET_FRAME_SOURCE accepts only exact outputId, frameChoiceId, and supported form")
+		}
+	case CommandReplaceFrameSource:
+		if !required(c.OutputID, c.FrameID, c.FrameChoiceID) || c.FrameForm == "" {
+			return fmt.Errorf("REPLACE_FRAME_SOURCE requires outputId, frameId, frameChoiceId, and form")
+		}
+		if c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID != strings.TrimSpace(c.FrameID) || c.FrameChoiceID != strings.TrimSpace(c.FrameChoiceID) || !validFrameForm(c.FrameForm) ||
+			c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+			return fmt.Errorf("REPLACE_FRAME_SOURCE accepts only exact outputId, frameId, frameChoiceId, and supported form")
+		}
+	case CommandRemoveFrameSource:
+		if !required(c.OutputID, c.FrameID) || c.OutputID != strings.TrimSpace(c.OutputID) || c.FrameID != strings.TrimSpace(c.FrameID) ||
+			c.FrameChoiceID != "" || c.FrameForm != "" || c.ConstructionChoice != nil || c.Title != "" || c.InitialPresentation != "" {
+			return fmt.Errorf("REMOVE_FRAME_SOURCE requires exact outputId and frameId only")
+		}
 	default:
 		return fmt.Errorf("unsupported command type %q", c.Type)
 	}
@@ -732,6 +801,8 @@ func ApplyCommands(workspace Workspace, catalog CatalogSnapshot, commandID strin
 func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID string, index int, command Command) (CommandResult, error) {
 	result := CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}
 	switch command.Type {
+	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
+		return applyFrameSourceCommand(workspace, command)
 	case CommandCreateTable:
 		node, ok := catalogNode(catalog, command.RootNodeID)
 		if !ok || !node.RowRootEligible {
@@ -1058,7 +1129,28 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 			return result, err
 		}
 		command.OccurrenceID = occurrenceID
-		return applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
+		applied, err := applyColumnSource(workspace, catalog, commandID, index, command, resolved.Source, resolved.LogicalType, presentation)
+		if err != nil {
+			return result, err
+		}
+		if resolved.FrameID != "" {
+			if presentation != InitialPresentationTable {
+				return result, fmt.Errorf("frame categories can only be added as table columns")
+			}
+			columns := workspace.Documents[documentPos].Columns
+			found := false
+			for columnIndex := range columns {
+				if columns[columnIndex].Column == applied.Column {
+					columns[columnIndex].FrameID = resolved.FrameID
+					found = true
+					break
+				}
+			}
+			if !found {
+				return result, fmt.Errorf("applied frame category column %q was not found", applied.Column)
+			}
+		}
+		return applied, nil
 	case CommandAddSemanticSelections:
 		if err := initializeEmptyConstructionBeforeSourceAdd(workspace, command.OutputID); err != nil {
 			return result, err

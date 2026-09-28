@@ -400,6 +400,7 @@ type Column struct {
 	// ColumnID is the stable identity used by staged construction steps. Column
 	// remains the public physical name and Label remains presentation text.
 	ColumnID            string                               `json:"columnId,omitempty"`
+	FrameID             string                               `json:"frameId,omitempty"`
 	Column              string                               `json:"column"`
 	Label               string                               `json:"label"`
 	LogicalType         string                               `json:"logicalType,omitempty"`

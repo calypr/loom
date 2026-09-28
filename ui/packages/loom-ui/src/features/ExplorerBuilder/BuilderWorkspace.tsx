@@ -50,6 +50,7 @@ import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
 import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
+import { FrameSourcePanel } from './constructionWorkspace/FrameSourcePanel';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
@@ -2754,7 +2755,7 @@ const BuilderWorkspaceContent = ({
     const applied = await applyCommands(response.constructionChoices.map((choice) => ({
       type: 'APPLY_CONSTRUCTION_CHOICE',
       outputId: response.outputId,
-      constructionChoice: { choiceId: choice.choiceId, form: choice.form },
+      constructionChoice: { choiceId: choice.choiceId, form: choice.form, ...(choice.frameId ? { frameId: choice.frameId } : {}) },
       ...(choice.title ? { title: choice.title } : {}),
     } satisfies ExplorerBuilderCommand)), response.commandId);
     if (applied) setChoiceProposal({ status: 'idle' });
@@ -3082,6 +3083,32 @@ const BuilderWorkspaceContent = ({
                     }])}
                   />
                 )}
+                framingSetup={table.document.rootResourceType ? (
+                  <FrameSourcePanel
+                    key={`${table.outputId}:${state.catalog.snapshotToken}`}
+                    project={projectId}
+                    explorerId={state.explorerId}
+                    authResourcePath={authResourcePath}
+                    snapshotToken={state.catalog.snapshotToken}
+                    outputId={table.outputId}
+                    rowRoot={table.document.rootResourceType}
+                    frames={table.document.frames ?? []}
+                    columns={table.document.columns}
+                    disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                    onSet={(choice, form) => applyCommands([{
+                      type: 'SET_FRAME_SOURCE', outputId: table.outputId,
+                      frameChoiceId: choice.choiceId, form,
+                    }])}
+                    onReplace={(frameId, choice, form) => applyCommands([{
+                      type: 'REPLACE_FRAME_SOURCE', outputId: table.outputId, frameId,
+                      frameChoiceId: choice.choiceId, form,
+                    }])}
+                    onRemove={(frameId) => applyCommands([{
+                      type: 'REMOVE_FRAME_SOURCE', outputId: table.outputId, frameId,
+                    }])}
+                    onAddSelected={addSelectedFeatures}
+                  />
+                ) : undefined}
                 onUndo={previousDraftRevisionId ? () => void restorePreviousDraft() : undefined}
                 undoDisabled={
                   pendingCommands > 0 ||

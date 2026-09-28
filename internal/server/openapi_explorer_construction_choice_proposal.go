@@ -24,6 +24,9 @@ func (h *explorerHTTPHandlers) proposeConstructionChoiceDirect(ctx context.Conte
 		choices[index] = lifecycle.ConstructionChoiceProposalSelection{
 			ChoiceID: choice.ChoiceId, Form: capability.ConstructionChoiceForm(choice.Form),
 		}
+		if choice.FrameId != nil {
+			choices[index].FrameID = *choice.FrameId
+		}
 		if choice.Title != nil {
 			choices[index].Title = choice.Title
 		}

@@ -491,6 +491,8 @@ func (r *HTTPRoutes) CreateInterpretationRevision(ctx context.Context, request l
 		return loomapi.CreateInterpretationRevision401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
 	case http.StatusBadRequest:
 		return loomapi.CreateInterpretationRevision400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.CreateInterpretationRevision404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
 	case http.StatusForbidden:
 		return loomapi.CreateInterpretationRevision403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
 	case http.StatusConflict:

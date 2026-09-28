@@ -103,6 +103,7 @@ type SemanticInventoryPageOptions struct {
 	AuthResourcePathsUnrestricted *bool
 	AuthResourcePaths             []string
 	ResourceType                  string
+	BindingID                     string
 	Query                         string
 	Cursor                        string
 	Limit                         int
@@ -323,6 +324,7 @@ func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID stri
 		buildID,
 		strconv.FormatBool(unrestricted),
 		opts.ResourceType,
+		opts.BindingID,
 		opts.Query,
 		strconv.Itoa(limit),
 	}

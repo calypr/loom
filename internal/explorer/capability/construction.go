@@ -69,6 +69,7 @@ type ConstructionChoiceSourceKind string
 const (
 	ConstructionChoiceSourceField           ConstructionChoiceSourceKind = "FIELD"
 	ConstructionChoiceSourceSemantic        ConstructionChoiceSourceKind = "SEMANTIC"
+	ConstructionChoiceSourceSemanticFrame   ConstructionChoiceSourceKind = "SEMANTIC_FRAME"
 	ConstructionChoiceSourceRelatedResource ConstructionChoiceSourceKind = "RELATED_RESOURCE"
 	ConstructionChoiceSourceRelatedField    ConstructionChoiceSourceKind = "RELATED_FIELD"
 	ConstructionChoiceSourceCodedGroup      ConstructionChoiceSourceKind = "CODED_GROUP"
@@ -123,6 +124,40 @@ type SemanticBindingChoiceSource struct {
 }
 
 func (SemanticBindingChoiceSource) constructionChoiceSource() {}
+
+// SemanticFrameFamily is the metadata identity of one correlated code/value
+// binding, independent of any one observed code. It is persisted with a frame
+// so later category choices can be checked against the same binding.
+type SemanticFrameFamily struct {
+	BindingID       string   `json:"bindingId"`
+	ResourceType    string   `json:"resourceType"`
+	SourcePath      string   `json:"sourcePath"`
+	SourceCanonical string   `json:"sourceCanonical,omitempty"`
+	SourceProfile   string   `json:"sourceProfile,omitempty"`
+	OwningScope     string   `json:"owningScope"`
+	KeyPath         string   `json:"keyPath"`
+	ValuePath       string   `json:"valuePath"`
+	ChoiceArms      []string `json:"choiceArms,omitempty"`
+	LogicalType     string   `json:"logicalType"`
+	RuleVersion     string   `json:"ruleVersion"`
+	SchemaVersion   int      `json:"schemaVersion"`
+}
+
+// SemanticFrameChoiceSource is a server-issued frame-family choice. The
+// anchor concept proves the family against the current inventory; its selected
+// code is intentionally absent so the frame represents the whole family.
+type SemanticFrameChoiceSource struct {
+	Kind               ConstructionChoiceSourceKind `json:"kind"`
+	AnchorConceptID    string                       `json:"anchorConceptId"`
+	Family             SemanticFrameFamily          `json:"family"`
+	CandidateID        string                       `json:"candidateId"`
+	NodeID             string                       `json:"nodeId"`
+	FieldPath          string                       `json:"fieldPath"`
+	Cardinality        string                       `json:"cardinality"`
+	RepeatedBoundaries []RepeatedBoundary           `json:"repeatedBoundaries,omitempty"`
+}
+
+func (SemanticFrameChoiceSource) constructionChoiceSource() {}
 
 // RelatedResourceChoiceSource identifies one exact terminal resource node.
 // It lets lifecycle authorize a route without requiring a field selection.
@@ -523,6 +558,86 @@ func NewSemanticConstructionChoiceForRoute(snapshotToken, semanticContextToken, 
 	return choice, nil
 }
 
+// NewSemanticFrameConstructionChoice issues an exact family-and-route token
+// for a correlated code/value source, without binding it to one category code.
+func NewSemanticFrameConstructionChoice(
+	snapshotToken, semanticContextToken, buildID string,
+	source SemanticFrameChoiceSource,
+	route []ConstructionRouteStep,
+	candidate Candidate,
+) (ConstructionChoice, error) {
+	if strings.TrimSpace(snapshotToken) == "" || strings.TrimSpace(semanticContextToken) == "" || strings.TrimSpace(buildID) == "" ||
+		strings.TrimSpace(source.AnchorConceptID) == "" || strings.TrimSpace(source.Family.BindingID) == "" ||
+		strings.TrimSpace(source.Family.ResourceType) == "" || strings.TrimSpace(source.Family.SourcePath) == "" ||
+		source.Family.OwningScope != strings.TrimSpace(source.Family.OwningScope) || strings.TrimSpace(source.Family.KeyPath) == "" ||
+		strings.TrimSpace(source.Family.ValuePath) == "" || strings.TrimSpace(source.Family.LogicalType) == "" ||
+		strings.TrimSpace(source.Family.RuleVersion) == "" || source.Family.SchemaVersion <= 0 ||
+		strings.TrimSpace(source.CandidateID) == "" || strings.TrimSpace(source.NodeID) == "" ||
+		strings.TrimSpace(source.FieldPath) == "" || strings.TrimSpace(candidate.ID) == "" {
+		return ConstructionChoice{}, fmt.Errorf("snapshot, semantic context, build, frame family, and exact candidate identity are required")
+	}
+	if err := validateConstructionRoute(route); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if err := ValidateConstructionSourceType(candidate, nil); err != nil {
+		return ConstructionChoice{}, err
+	}
+	if source.Kind != ConstructionChoiceSourceSemanticFrame || source.Family.ResourceType != candidate.ResourceType ||
+		source.CandidateID != candidate.ID || source.NodeID != candidate.NodeID ||
+		canonicalPath(source.FieldPath) != canonicalPath(candidate.FieldPath) ||
+		canonicalPath(frameFamilyValuePath(source.Family)) != canonicalPath(candidate.FieldPath) {
+		return ConstructionChoice{}, fmt.Errorf("semantic frame source does not match its compiler candidate")
+	}
+	source.RepeatedBoundaries = append([]RepeatedBoundary(nil), candidate.RepeatedBoundaries...)
+	source.Cardinality = candidate.Cardinality
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceSemanticFrame,
+		SnapshotToken: snapshotToken, SemanticContextToken: semanticContextToken,
+		BuildID: buildID, Source: source, Route: cloneConstructionRoute(route),
+	})
+	if err != nil {
+		return ConstructionChoice{}, err
+	}
+	return ConstructionChoice{
+		ChoiceID: choiceID, Source: source, Route: cloneConstructionRoute(route),
+		Presentation: ConstructionChoicePresentation{
+			Summary: source.Family.ResourceType + " coded values",
+			Facts: []ConstructionChoiceFact{
+				{Label: "Value type", Value: source.Family.LogicalType},
+				{Label: "Paired source", Value: source.Family.SourcePath},
+				{Label: "Route", Value: semanticFrameRouteSummary(route, source.Family.ResourceType)},
+			},
+		},
+		Options: constructionOptionsForRoute(candidate, route),
+	}, nil
+}
+
+func frameFamilyValuePath(family SemanticFrameFamily) string {
+	owner, value := canonicalPath(family.OwningScope), canonicalPath(family.ValuePath)
+	if owner == "" {
+		return value
+	}
+	if value == "" {
+		return owner
+	}
+	return owner + "." + value
+}
+
+func semanticFrameRouteSummary(route []ConstructionRouteStep, targetResource string) string {
+	if len(route) == 0 {
+		return "same resource"
+	}
+	parts := make([]string, 0, len(route)+1)
+	parts = append(parts, route[0].FromResourceType)
+	for _, step := range route {
+		parts = append(parts, step.Relationship, step.ToResourceType)
+	}
+	if strings.TrimSpace(targetResource) != "" && route[len(route)-1].ToResourceType != targetResource {
+		parts = append(parts, targetResource)
+	}
+	return strings.Join(parts, " → ")
+}
+
 func ownerRecordsSourceSupported(source SemanticBindingChoiceSource, candidate Candidate) bool {
 	ownerPath := canonicalSemanticPath(source.OwningScope)
 	if ownerPath == "" || strings.TrimSpace(source.System) == "" || strings.TrimSpace(source.Code) == "" ||
@@ -605,6 +720,22 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic choice source identity is incomplete")
 		}
 		identity.Source = source
+	case ConstructionChoiceSourceSemanticFrame:
+		var source SemanticFrameChoiceSource
+		if err := decodeChoiceJSON(token.Source, &source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("decode semantic frame choice source: %w", err)
+		}
+		if token.SemanticContextToken == "" || token.BuildID == "" || source.Kind != token.Kind ||
+			strings.TrimSpace(source.AnchorConceptID) == "" || strings.TrimSpace(source.Family.BindingID) == "" ||
+			strings.TrimSpace(source.Family.ResourceType) == "" || strings.TrimSpace(source.Family.SourcePath) == "" ||
+			source.Family.OwningScope != strings.TrimSpace(source.Family.OwningScope) || strings.TrimSpace(source.Family.KeyPath) == "" ||
+			strings.TrimSpace(source.Family.ValuePath) == "" || strings.TrimSpace(source.Family.LogicalType) == "" ||
+			strings.TrimSpace(source.Family.RuleVersion) == "" || source.Family.SchemaVersion <= 0 ||
+			strings.TrimSpace(source.CandidateID) == "" || strings.TrimSpace(source.NodeID) == "" ||
+			strings.TrimSpace(source.FieldPath) == "" || len(token.Route) > 0 && token.Route[len(token.Route)-1].ToNodeID != source.NodeID {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("semantic frame choice source identity is incomplete or inconsistent")
+		}
+		identity.Source = source
 	case ConstructionChoiceSourceRelatedResource:
 		var source RelatedResourceChoiceSource
 		if err := decodeChoiceJSON(token.Source, &source); err != nil {
@@ -663,6 +794,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 		kind = source.Kind
 	case SemanticBindingChoiceSource:
 		kind = source.Kind
+	case SemanticFrameChoiceSource:
+		kind = source.Kind
 	case RelatedResourceChoiceSource:
 		kind = source.Kind
 	case RelatedFieldChoiceSource:
@@ -675,7 +808,7 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	if kind != identity.Kind {
 		return "", fmt.Errorf("construction choice identity kind does not match its source")
 	}
-	if kind == ConstructionChoiceSourceSemantic && (identity.SemanticContextToken == "" || identity.BuildID == "") {
+	if (kind == ConstructionChoiceSourceSemantic || kind == ConstructionChoiceSourceSemanticFrame) && (identity.SemanticContextToken == "" || identity.BuildID == "") {
 		return "", fmt.Errorf("semantic choice identity requires inventory context and build")
 	}
 	if kind == ConstructionChoiceSourceField && (identity.SemanticContextToken != "" || identity.BuildID != "") {

@@ -28,7 +28,7 @@ import {
 
 describe('Explorer authoring contract version', () => {
   it('bumps for the contributor-window aggregate wire contract', () => {
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(9);
+    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(10);
   });
 });
 
