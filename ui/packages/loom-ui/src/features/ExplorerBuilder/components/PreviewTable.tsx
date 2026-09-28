@@ -14,6 +14,7 @@ import { BoundedCache, useVirtualViewport, virtualRange } from './virtualization
 const PREVIEW_ROW_HEIGHT = 44;
 const PREVIEW_HEADER_HEIGHT = 42;
 const PREVIEW_COLUMN_WIDTH = 180;
+const PREVIEW_ROW_GUTTER_WIDTH = 64;
 
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
@@ -107,6 +108,7 @@ export const PreviewTable = ({
   const [dropIndex, setDropIndex] = useState<number>();
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
+  const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string }>();
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -216,8 +218,8 @@ export const PreviewTable = ({
   const rows = preview?.rows ?? [];
   const columnRange = virtualRange({
     count: columns.length,
-    offset: viewport.scrollLeft,
-    viewport: viewport.width,
+    offset: Math.max(0, viewport.scrollLeft - PREVIEW_ROW_GUTTER_WIDTH),
+    viewport: Math.max(0, viewport.width - PREVIEW_ROW_GUTTER_WIDTH),
     itemSize: PREVIEW_COLUMN_WIDTH,
     overscan: 2,
   });
@@ -412,7 +414,7 @@ export const PreviewTable = ({
             aria-colcount={columns.length}
             className="relative text-left text-xs"
             style={{
-              width: Math.max(viewport.width, columns.length * PREVIEW_COLUMN_WIDTH),
+              width: Math.max(viewport.width, PREVIEW_ROW_GUTTER_WIDTH + columns.length * PREVIEW_COLUMN_WIDTH),
               height: PREVIEW_HEADER_HEIGHT + rows.length * PREVIEW_ROW_HEIGHT,
             }}
           >
@@ -421,6 +423,9 @@ export const PreviewTable = ({
               className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600"
               style={{ height: PREVIEW_HEADER_HEIGHT }}
             >
+              <div className="absolute left-0 top-0 border-b border-slate-200 px-2 py-2.5" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_HEADER_HEIGHT }}>
+                Row
+              </div>
               {visibleColumns.map((column, visibleIndex) => {
                 const columnIndex = columnRange.start + visibleIndex;
                 return (
@@ -432,7 +437,7 @@ export const PreviewTable = ({
                       : undefined}
                     className="absolute top-0 overflow-hidden whitespace-nowrap border-b border-slate-200 px-4 py-2.5 font-semibold"
                     style={{
-                      left: columnIndex * PREVIEW_COLUMN_WIDTH,
+                      left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
                       width: PREVIEW_COLUMN_WIDTH,
                       height: PREVIEW_HEADER_HEIGHT,
                     }}
@@ -462,6 +467,21 @@ export const PreviewTable = ({
                     height: PREVIEW_ROW_HEIGHT,
                   }}
                 >
+                  {typeof row.__loom_row_id === 'string' && row.__loom_row_id ? (
+                    <button
+                      type="button"
+                      aria-label={`Inspect row ${rowIndex + 1} identity`}
+                      className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
+                      style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
+                      onClick={() => setInspectedRow({ number: rowIndex + 1, identity: row.__loom_row_id as string })}
+                    >
+                      {rowIndex + 1}
+                    </button>
+                  ) : (
+                    <span className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-slate-500" style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}>
+                      {rowIndex + 1}
+                    </span>
+                  )}
                   {visibleColumns.map((column, visibleColumnIndex) => {
                     const columnIndex = columnRange.start + visibleColumnIndex;
                     const rawValue = row[column.publicColumn];
@@ -474,7 +494,7 @@ export const PreviewTable = ({
                         key={column.emissionId}
                         className="absolute top-0 max-w-56 overflow-hidden border-b border-slate-100 px-4 py-2.5 text-slate-700"
                         style={{
-                          left: columnIndex * PREVIEW_COLUMN_WIDTH,
+                          left: PREVIEW_ROW_GUTTER_WIDTH + columnIndex * PREVIEW_COLUMN_WIDTH,
                           width: PREVIEW_COLUMN_WIDTH,
                           height: PREVIEW_ROW_HEIGHT,
                         }}
@@ -507,6 +527,23 @@ export const PreviewTable = ({
           </div>
         )}
       </div>
+      {inspectedRow ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
+          <section aria-label={`Row ${inspectedRow.number} identity`} aria-modal="true" className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl" role="dialog">
+            <div className="flex items-start gap-3">
+              <div>
+                <h3 className="font-semibold text-slate-950">Row {inspectedRow.number}</h3>
+                <p className="mt-1 text-sm text-slate-600">Stable identity for this preview row. Use it to check whether edits preserve the same rows.</p>
+              </div>
+              <button type="button" className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={() => setInspectedRow(undefined)}>Close</button>
+            </div>
+            <details className="mt-4 rounded-md border border-slate-200 p-3 text-sm text-slate-700">
+              <summary className="cursor-pointer font-medium">Technical row ID</summary>
+              <p className="mt-2 break-all font-mono text-xs">{inspectedRow.identity}</p>
+            </details>
+          </section>
+        </div>
+      ) : null}
       {ownerRecordInspector ? (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
           <section

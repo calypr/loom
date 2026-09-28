@@ -177,6 +177,22 @@ describe('formatPreviewCell', () => {
 });
 
 describe('PreviewTable column controls', () => {
+  it('lets a researcher inspect a saved preview row identity', () => {
+    render(React.createElement(PreviewTable, {
+      preview: { ...preview, rows: [{ ...preview.rows![0], __loom_row_id: 'stable-specimen-row' }] },
+      table,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    expect(screen.getByRole('dialog', { name: 'Row 1 identity' })).toHaveTextContent('stable-specimen-row');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog', { name: 'Row 1 identity' })).not.toBeInTheDocument();
+  });
+
   it('shows related construction outputs in the preview after applying a saved construction', () => {
     const relatedTable: DraftTable = {
       ...table,
