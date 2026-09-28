@@ -78,6 +78,7 @@ type PhysicalConstructionStage struct {
 	DerivedLets       []PhysicalOperation
 	Filter            *PhysicalFilter
 	Group             *PhysicalStageGroup
+	CodedGroup        *PhysicalStageCodedGroup
 	Expand            *PhysicalStageExpand
 	GroupedPivot      *PhysicalGroupedPivot
 	Unpivot           *PhysicalUnpivot
@@ -95,6 +96,7 @@ const (
 	PhysicalStagePivotOp              PhysicalStageOperationKind = "PIVOT"
 	PhysicalStageUnpivotOp            PhysicalStageOperationKind = "UNPIVOT"
 	PhysicalStageGroupOp              PhysicalStageOperationKind = "GROUP"
+	PhysicalStageCodedGroupOp         PhysicalStageOperationKind = "CODED_GROUP"
 	PhysicalStageExpandOp             PhysicalStageOperationKind = "EXPAND"
 	PhysicalStageRelatedSourceOp      PhysicalStageOperationKind = "RELATED_SOURCE"
 	PhysicalStageRelatedExpandOp      PhysicalStageOperationKind = "RELATED_EXPAND"
@@ -109,6 +111,38 @@ type PhysicalStageGroup struct {
 	MissingKeyPolicy      PhysicalStageGroupMissingKeyPolicy
 	Keys                  []PhysicalStageGroupKey
 	Aggregates            []PhysicalStageGroupAggregate
+}
+
+// PhysicalStageCodedGroup groups root records by the tuple from one generated
+// repeated Coding path. It retains no coding ordinal or display value.
+type PhysicalStageCodedGroup struct {
+	RootCollectionBindKey string
+	ConstructionIDBindKey string
+	OccurrenceIDBindKey   string
+	CodingPathBindKey     string
+	ResourceType          string
+	SourceIdentityColumn  string
+	// SourceRowsUnique is set only after lowering proves that the direct source
+	// scan yields at most one row per root _key. CODED_GROUP uses it to count
+	// locally deduplicated tuples with SUM(1), without retaining contributor IDs.
+	SourceRowsUnique    bool
+	CodingPath          string
+	PathSegments        []PhysicalCodedGroupPathSegment
+	MissingKeyPolicy    PhysicalStageGroupMissingKeyPolicy
+	SystemOutputColumn  string
+	VersionOutputColumn string
+	CodeOutputColumn    string
+	CountOutputColumn   string
+	SystemVariable      string
+	VersionVariable     string
+	CodeVariable        string
+	CountVariable       string
+	IdentityVariable    string
+}
+
+type PhysicalCodedGroupPathSegment struct {
+	Name     string
+	Repeated bool
 }
 
 type PhysicalStageGroupMissingKeyPolicy string

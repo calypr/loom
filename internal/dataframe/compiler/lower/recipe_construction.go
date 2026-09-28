@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 const constructionRowID = "__loom_row_id"
@@ -98,6 +99,7 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 		Columns: columns, RowIdentityColumn: identity,
 	}
 	descriptor.Capabilities = stageCapabilities(columns)
+	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities, codedGroupSourceCapability(columns, rootResourceType))
 	descriptor.RelatedExpandAnchors = relatedExpandAnchors(columns, rootResourceType)
 	return descriptor, nil
 }
@@ -138,6 +140,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		Columns: cloneCompiledSchema(resolvedSource), RowIdentityColumn: sourceIdentity,
 	}}
 	descriptors[0].Capabilities = stageCapabilities(resolvedSource)
+	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedGroupSourceCapability(resolvedSource, rootResourceType))
 	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType)
 	if len(construction.Steps) == 0 {
 		return resolvedSource, descriptors, sourceIdentity, nil
@@ -494,6 +497,19 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		}
 		base.Kind, base.Group = ir.PhysicalStageGroupOp, &physicalGroup
 		base.OutputProjections = projections
+		outputSchema, outputIdentity = compiled, constructionRowID
+	case recipe.ConstructionCodedGroupOp:
+		codedGroup := step.Operation.CodedGroup
+		if codedGroup == nil {
+			return constructionStageResult{}, fmt.Errorf("coded group payload is required")
+		}
+		physicalCodedGroup, projections, compiled, err := lowerConstructionCodedGroup(
+			plan, *codedGroup, step.Outputs, inputIdentity, rootResourceType, usedVariables, index,
+		)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.CodedGroup, base.OutputProjections = ir.PhysicalStageCodedGroupOp, &physicalCodedGroup, projections
 		outputSchema, outputIdentity = compiled, constructionRowID
 	case recipe.ConstructionExpandOp:
 		expand := step.Operation.Expand
@@ -1088,12 +1104,67 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionPivotOp, scalar >= 3, "INSUFFICIENT_SCALAR_COLUMNS", "pivot requires public scalar group, category, and value columns"),
 		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
 		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
+		capability(recipe.ConstructionCodedGroupOp, false, "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is available only on the direct source projection stage because transformed rows may omit Coding occurrences"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
 		capability(recipe.ConstructionRelatedExpandOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key or exact related-record identity"),
 		capability(recipe.ConstructionRelatedEligibilityOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related eligibility requires a retained root key or exact related-record identity on this stage"),
 		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
 	}
+}
+
+func codedGroupSourceCapability(columns []CompiledOutputColumn, rootResourceType string) StageOperationCapability {
+	capability := StageOperationCapability{
+		Operation:  recipe.ConstructionCodedGroupOp,
+		ReasonCode: "SOURCE_ROW_NOT_ROOT",
+		Reason:     "coded grouping requires direct root rows with a retained root record identity",
+	}
+	identity, found := schemaColumn(columns, "_key")
+	if !found || !identity.Internal || !identity.Identity {
+		return capability
+	}
+	publicColumns := 0
+	for _, column := range columns {
+		if !column.Internal {
+			publicColumns++
+		}
+	}
+	if publicColumns == 0 {
+		capability.ReasonCode = "NO_PUBLIC_SOURCE_COLUMNS"
+		capability.Reason = "coded grouping requires at least one public source column on the input stage"
+		return capability
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		capability.ReasonCode = "FHIR_SCHEMA_UNAVAILABLE"
+		capability.Reason = "generated FHIR Coding metadata is unavailable"
+		return capability
+	}
+	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(rootResourceType))
+	if err != nil {
+		capability.ReasonCode = "FHIR_SCHEMA_UNAVAILABLE"
+		capability.Reason = "generated FHIR Coding metadata is unavailable for the selected root"
+		return capability
+	}
+	if len(paths) == 0 {
+		capability.ReasonCode = "NO_REPEATED_CODING_PATHS"
+		capability.Reason = "the selected root has no generated repeated Coding fields"
+		return capability
+	}
+	capability.Supported = true
+	capability.ReasonCode = ""
+	capability.Reason = ""
+	return capability
+}
+
+func withConstructionCapability(capabilities []StageOperationCapability, replacement StageOperationCapability) []StageOperationCapability {
+	for index := range capabilities {
+		if capabilities[index].Operation == replacement.Operation {
+			capabilities[index] = replacement
+			return capabilities
+		}
+	}
+	return append(capabilities, replacement)
 }
 
 func relatedExpandAnchors(schema []CompiledOutputColumn, rootResourceType string) []CompiledRelatedExpandAnchor {

@@ -79,6 +79,20 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		}
 		return RowLineageCapability{Available: true}
 	}
+	if stage.Kind == ir.PhysicalStageCodedGroupOp {
+		coded := stage.CodedGroup
+		if coded == nil || sequence.SourceRowIdentity != "_key" || coded.SourceIdentityColumn != "_key" ||
+			coded.ResourceType != output.RootResourceType {
+			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_ROOT_ANCHOR_UNSUPPORTED", Operation: string(stage.Kind)}
+		}
+		if !rowLineageHasDirectRootSource(output.Plan.Operations) {
+			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_SOURCE_NOT_DIRECT", Operation: string(stage.Kind)}
+		}
+		if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+			return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
+		}
+		return RowLineageCapability{Available: true}
+	}
 	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
 	}

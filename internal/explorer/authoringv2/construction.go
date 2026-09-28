@@ -26,6 +26,7 @@ const (
 	ConstructionOperationFilter             ConstructionOperationKind = "FILTER"
 	ConstructionOperationUnpivot            ConstructionOperationKind = "UNPIVOT"
 	ConstructionOperationGroup              ConstructionOperationKind = "GROUP"
+	ConstructionOperationCodedGroup         ConstructionOperationKind = "CODED_GROUP"
 	ConstructionOperationExpand             ConstructionOperationKind = "EXPAND"
 	ConstructionOperationCombine            ConstructionOperationKind = "COMBINE"
 	ConstructionOperationRelatedSource      ConstructionOperationKind = "RELATED_SOURCE"
@@ -129,6 +130,7 @@ type ConstructionOperation struct {
 	Filter             *ConstructionFilter             `json:"filter,omitempty"`
 	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
 	Group              *ConstructionGroup              `json:"group,omitempty"`
+	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
 	Expand             *ConstructionExpand             `json:"expand,omitempty"`
 	Combine            *ConstructionCombine            `json:"combine,omitempty"`
 	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
@@ -483,6 +485,30 @@ type ConstructionGroup struct {
 	MissingKeyPolicy ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
 	Keys             []ConstructionGroupKey            `json:"keys,omitempty"`
 	Aggregates       []ConstructionGroupAggregate      `json:"aggregates,omitempty"`
+}
+
+// ConstructionCodedGroup groups source rows by one correlated tuple from a
+// repeated Coding path. The source facts are durable compiler inputs; ChoiceID
+// is proposal authority only and is not required to recompile a saved step.
+type ConstructionCodedGroup struct {
+	ConstructionID                    string                            `json:"constructionId"`
+	ChoiceID                          string                            `json:"choiceId,omitempty"`
+	Source                            ConstructionCodedGroupSource      `json:"source"`
+	MissingKeyPolicy                  ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+	SystemOutputColumnID              string                            `json:"systemOutputColumnId"`
+	VersionOutputColumnID             string                            `json:"versionOutputColumnId"`
+	CodeOutputColumnID                string                            `json:"codeOutputColumnId"`
+	DistinctSourceCountOutputColumnID string                            `json:"distinctSourceCountOutputColumnId"`
+}
+
+type ConstructionCodedGroupSource struct {
+	OccurrenceID string                             `json:"occurrenceId"`
+	ResourceType string                             `json:"resourceType"`
+	CodingPath   string                             `json:"codingPath"`
+	FHIRType     string                             `json:"fhirType"`
+	Cardinality  string                             `json:"cardinality"`
+	Shape        string                             `json:"shape"`
+	Route        []capability.ConstructionRouteStep `json:"route"`
 }
 
 type ConstructionGroupMissingKeyPolicy string

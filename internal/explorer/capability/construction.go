@@ -71,6 +71,7 @@ const (
 	ConstructionChoiceSourceSemantic        ConstructionChoiceSourceKind = "SEMANTIC"
 	ConstructionChoiceSourceRelatedResource ConstructionChoiceSourceKind = "RELATED_RESOURCE"
 	ConstructionChoiceSourceRelatedField    ConstructionChoiceSourceKind = "RELATED_FIELD"
+	ConstructionChoiceSourceCodedGroup      ConstructionChoiceSourceKind = "CODED_GROUP"
 )
 
 // ConstructionChoiceSource is closed to the variants defined by this package.
@@ -152,6 +153,30 @@ type RelatedFieldChoiceSource struct {
 }
 
 func (RelatedFieldChoiceSource) constructionChoiceSource() {}
+
+// CodedGroupChoiceSource binds a root Coding[] path to one output and one
+// exact construction input stage. The persisted construction stores the path
+// facts separately so it remains compilable after this snapshot expires.
+type CodedGroupChoiceSource struct {
+	Kind         ConstructionChoiceSourceKind `json:"kind"`
+	OutputID     string                       `json:"outputId"`
+	StageID      string                       `json:"stageId"`
+	OccurrenceID string                       `json:"occurrenceId"`
+	NodeID       string                       `json:"nodeId"`
+	ResourceType string                       `json:"resourceType"`
+	Path         string                       `json:"path"`
+	SchemaDigest string                       `json:"schemaDigest"`
+}
+
+func (CodedGroupChoiceSource) constructionChoiceSource() {}
+
+type ConstructionCodedGroupChoice struct {
+	ChoiceID     string `json:"choiceId"`
+	OccurrenceID string `json:"occurrenceId"`
+	ResourceType string `json:"resourceType"`
+	CodingPath   string `json:"codingPath"`
+	Label        string `json:"label"`
+}
 
 type ConstructionChoiceOption struct {
 	Form                          ConstructionChoiceForm                `json:"form"`
@@ -387,6 +412,52 @@ func NewConstructionRelatedFieldChoice(snapshotToken, stageID string, candidate 
 	return ConstructionRelatedFieldChoice{ChoiceID: choiceID, Source: source, Label: label}, nil
 }
 
+// NewConstructionCodedGroupChoice issues a choice for one generated root
+// Coding[] path on one exact source-projection stage.
+func NewConstructionCodedGroupChoice(
+	snapshot Snapshot,
+	outputID, stageID string,
+	occurrence RowChoiceOccurrence,
+	facts RowChoiceFacts,
+) (ConstructionCodedGroupChoice, error) {
+	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
+		return ConstructionCodedGroupChoice{}, err
+	}
+	if strings.TrimSpace(snapshot.Identity.SchemaDigest) == "" || strings.TrimSpace(outputID) == "" ||
+		strings.TrimSpace(stageID) == "" || strings.TrimSpace(occurrence.OccurrenceID) == "" ||
+		strings.TrimSpace(occurrence.NodeID) == "" || occurrence.ResourceType == "" {
+		return ConstructionCodedGroupChoice{}, fmt.Errorf("coded group choice requires an exact snapshot, output, stage, and root occurrence")
+	}
+	if len(occurrence.Route) != 0 {
+		return ConstructionCodedGroupChoice{}, fmt.Errorf("coded group choice must use a direct root occurrence")
+	}
+	if facts.ResourceType != occurrence.ResourceType {
+		return ConstructionCodedGroupChoice{}, fmt.Errorf("coded group path resource %q differs from root resource %q", facts.ResourceType, occurrence.ResourceType)
+	}
+	if facts.Shape != RowChoiceArray || facts.Cardinality != RowChoiceMany || facts.FHIRType != "Coding" || facts.Reference ||
+		strings.TrimSpace(facts.CanonicalPath) == "" {
+		return ConstructionCodedGroupChoice{}, fmt.Errorf("coded group path %q must be a non-reference repeated Coding array", facts.CanonicalPath)
+	}
+	source := CodedGroupChoiceSource{
+		Kind: ConstructionChoiceSourceCodedGroup, OutputID: outputID, StageID: stageID,
+		OccurrenceID: occurrence.OccurrenceID, NodeID: occurrence.NodeID,
+		ResourceType: occurrence.ResourceType, Path: facts.CanonicalPath,
+		SchemaDigest: snapshot.Identity.SchemaDigest,
+	}
+	choiceID, err := encodeConstructionChoiceID(ConstructionChoiceIdentity{
+		Version: "construction-choice/v2", Kind: ConstructionChoiceSourceCodedGroup,
+		SnapshotToken: snapshot.Token, Source: source,
+	})
+	if err != nil {
+		return ConstructionCodedGroupChoice{}, err
+	}
+	label := occurrence.ResourceType + " · " + strings.ReplaceAll(facts.CanonicalPath, ".", " › ")
+	return ConstructionCodedGroupChoice{
+		ChoiceID: choiceID, OccurrenceID: occurrence.OccurrenceID,
+		ResourceType: occurrence.ResourceType, CodingPath: facts.CanonicalPath, Label: label,
+	}, nil
+}
+
 // NewSemanticConstructionChoice binds an inventory observation to the exact
 // compiler candidate for its value path. Snapshot, semantic context, and build
 // identities pin the choice without adding separate mutable context fields.
@@ -559,6 +630,20 @@ func DecodeConstructionChoiceID(choiceID string) (ConstructionChoiceIdentity, er
 			return ConstructionChoiceIdentity{}, fmt.Errorf("related field choice identity is incomplete or inconsistent")
 		}
 		identity.Source = source
+	case ConstructionChoiceSourceCodedGroup:
+		var source CodedGroupChoiceSource
+		if err := decodeChoiceJSON(token.Source, &source); err != nil {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("decode coded group choice source: %w", err)
+		}
+		if source.Kind != token.Kind || strings.TrimSpace(source.OutputID) == "" ||
+			strings.TrimSpace(source.StageID) == "" || strings.TrimSpace(source.OccurrenceID) == "" ||
+			strings.TrimSpace(source.NodeID) == "" || strings.TrimSpace(source.ResourceType) == "" ||
+			strings.TrimSpace(source.Path) == "" || strings.TrimSpace(source.SchemaDigest) == "" ||
+			!strings.HasSuffix(source.Path, "coding[]") || token.SemanticContextToken != "" ||
+			token.BuildID != "" || len(token.Route) != 0 {
+			return ConstructionChoiceIdentity{}, fmt.Errorf("coded group choice identity is incomplete or inconsistent")
+		}
+		identity.Source = source
 	default:
 		return ConstructionChoiceIdentity{}, fmt.Errorf("construction choice id has an unsupported source kind")
 	}
@@ -582,6 +667,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 		kind = source.Kind
 	case RelatedFieldChoiceSource:
 		kind = source.Kind
+	case CodedGroupChoiceSource:
+		kind = source.Kind
 	default:
 		return "", fmt.Errorf("construction choice identity has an unsupported source")
 	}
@@ -597,7 +684,8 @@ func encodeConstructionChoiceID(identity ConstructionChoiceIdentity) (string, er
 	if kind == ConstructionChoiceSourceRelatedResource && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) == 0) {
 		return "", fmt.Errorf("related resource choice identity requires a route and cannot include semantic inventory context")
 	}
-	if kind == ConstructionChoiceSourceRelatedField && (identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) != 0) {
+	if (kind == ConstructionChoiceSourceRelatedField || kind == ConstructionChoiceSourceCodedGroup) &&
+		(identity.SemanticContextToken != "" || identity.BuildID != "" || len(identity.Route) != 0) {
 		return "", fmt.Errorf("related field choice identity is stage-bound and cannot include route or semantic inventory context")
 	}
 	source, err := json.Marshal(identity.Source)

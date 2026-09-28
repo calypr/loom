@@ -195,6 +195,58 @@ func TestPreviewSourceClassificationDoesNotRecoverSingleAfterGroup(t *testing.T)
 	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
 		t.Fatalf("RELATED_EXPAND source mode = %q, want COMPOSITE", got)
 	}
+	output = lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{{Operation: string(recipe.ConstructionCodedGroupOp)}}}
+	if got := previewSourceIdentityMode(output, querySchema); got != previewSourceComposite {
+		t.Fatalf("CODED_GROUP source mode = %q, want COMPOSITE", got)
+	}
+}
+
+func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
+	const sourceID = "body_structure_id"
+	columns := []recipe.StageColumn{
+		{ID: "system_id", Name: "code_system", Type: "string", Nullable: true},
+		{ID: "version_id", Name: "code_version", Type: "string", Nullable: true},
+		{ID: "code_id", Name: "code", Type: "string", Nullable: true},
+		{ID: "count_id", Name: "source_records", Type: "integer"},
+	}
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "body_structures",
+		TranslationVersion:  "coded-group-test",
+		Outputs: []recipe.Output{{
+			Name: "body_structures", RootResourceType: "BodyStructure", RowGrain: "resource",
+			Fields: []recipe.Field{{Name: sourceID, ColumnID: sourceID, Expr: recipe.Expression{Select: "root.id"}}},
+			Construction: &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: sourceID, Name: sourceID}}, Steps: []recipe.ConstructionStep{{
+				ID: "group_codes", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionCodedGroupOp, CodedGroup: &recipe.ConstructionCodedGroup{
+					ConstructionID:   "group_codes",
+					Source:           recipe.ConstructionCodedGroupSource{OccurrenceID: "base", ResourceType: "BodyStructure", CodingPath: "includedStructure[].structure.coding[]", FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY", Route: []recipe.ConstructionRelatedRouteStep{}},
+					MissingKeyPolicy: recipe.ConstructionGroupMissingKeyGroup, SystemOutputColumnID: "system_id", VersionOutputColumnID: "version_id", CodeOutputColumnID: "code_id", DistinctSourceCountOutputColumnID: "count_id",
+				}}, Outputs: columns,
+			}}},
+		}},
+	}
+	engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }, ScopeDigest: func(recipe.RuntimeBindings) string { return "coded-group" }, RootPageRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, query, err := engine.streamForOutput(resolved, "body_structures", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stream.page != nil {
+		t.Fatal("CODED_GROUP must scan the complete input before counting distinct source records")
+	}
+	if !strings.Contains(query.Query, "IN __loom_construction_source_projection") || strings.Contains(query.Query, "IN __loom_construction_input_1\n") {
+		t.Fatalf("full-input CODED_GROUP query has an unexpected row scope:\n%s", query.Query)
+	}
+	if stream.sourceIdentityMode != previewSourceComposite {
+		t.Fatalf("CODED_GROUP source mode = %q, want COMPOSITE", stream.sourceIdentityMode)
+	}
 }
 
 func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {

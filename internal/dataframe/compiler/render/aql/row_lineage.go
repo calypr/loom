@@ -11,6 +11,9 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 	if stage.Kind == ir.PhysicalStageRelatedExpandOp {
 		return r.renderRelatedExpandRowLineage(sourceQuery, stage, terminal)
 	}
+	if stage.Kind == ir.PhysicalStageCodedGroupOp {
+		return r.renderCodedGroupRowLineage(sourceQuery, stage, terminal)
+	}
 	group := stage.Group
 	if group == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage Group payload is required")

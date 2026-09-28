@@ -151,6 +151,20 @@ const formatStep = (
         editable: true,
       };
     }
+    case 'CODED_GROUP': {
+      const group = step.operation.codedGroup;
+      const missing = group.missingKeyPolicy === 'GROUP'
+        ? 'Records without a complete code form a missing-code row.'
+        : group.missingKeyPolicy === 'EXCLUDE'
+          ? 'Records without a complete code are excluded.'
+          : 'Missing codes stop this step.';
+      return {
+        id: step.id,
+        title: 'Group by coded value',
+        summary: `One row per distinct system, version, and code in ${group.source.codingPath}; count each source record once per code. ${missing}`,
+        editable: true,
+      };
+    }
     case 'EXPAND': {
       const expand = step.operation.expand;
       const input = columnLabel(expand.inputColumnId);

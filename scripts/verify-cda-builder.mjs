@@ -241,11 +241,11 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,'row-settings.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.includes('row-definition')||response.path.includes('population'))},null,2));
-  } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Inspect bounded Observation row choices' || action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity' || action === 'Verify bounded BodyStructure row definition' || action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group' || action === 'Verify bounded BodyStructure expansion' || action === 'Inspect bounded Observation component cases') {
+  } else if (action === 'Inspect bounded Patient row choices' || action === 'Inspect bounded BodyStructure row choices' || action === 'Inspect bounded Observation row choices' || action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity' || action === 'Verify bounded BodyStructure row definition' || action === 'Inspect bounded BodyStructure fields' || action === 'Inspect bounded BodyStructure field choice' || action === 'Verify bounded BodyStructure group' || action === 'Verify bounded BodyStructure coded group' || action === 'Verify bounded BodyStructure expansion' || action === 'Inspect bounded Observation component cases') {
     const resourceType = action.includes('BodyStructure') ? 'BodyStructure' : action.includes('Observation') ? 'Observation' : 'Patient';
     const tableName = `${resourceType} row choice QA ${Date.now()}`;
     const journeyStarted = Date.now();
-    const countClicks = action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity';
+    const countClicks = action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity' || action === 'Verify bounded BodyStructure coded group';
     if (countClicks) {
       const counter = `document.addEventListener('click', () => sessionStorage.setItem('loomRowJourneyClicks', String(Number(sessionStorage.getItem('loomRowJourneyClicks') || 0) + 1)), true);`;
       await browser.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: counter });
@@ -269,6 +269,110 @@ try {
       assert(state.namedGroupsCollapsed && !state.dialog.includes('The server has no complete explicit group revisions'), 'The default row dialog should keep optional named-group controls collapsed and avoid server terminology');
       state.tablesBefore = tablesBefore;
       state.timingsMs = { rowChoices: Date.now() - journeyStarted };
+      if (action === 'Verify bounded BodyStructure coded group') {
+        const oracleOutput = execFileSync('rtk', ['docker', 'exec', 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string', 'var rows=db.BodyStructure.all().toArray().filter(d=>d.project==="loom_dev_cda_fhir"&&d.dataset_generation==="cda-fhir-v1");print(JSON.stringify(rows.map(d=>({id:d.id,codings:(d.payload.includedStructure||[]).flatMap(item=>item.structure?.coding||[])}))))'], { encoding: 'utf8', maxBuffer: 2_000_000 });
+        const rawRows = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
+        assert(rawRows.length > 0, 'No BodyStructure source records for coded grouping');
+        const expected = new Map();
+        const expectedIDs = new Map();
+        for (const row of rawRows) {
+          const tuples = new Set(row.codings.map(coding => JSON.stringify([coding.system ?? null, coding.version ?? null, coding.code ?? null])));
+          if (tuples.size === 0) tuples.add(JSON.stringify([null, null, null]));
+          for (const tuple of tuples) {
+            expected.set(tuple, (expected.get(tuple) ?? 0) + 1);
+            expectedIDs.set(tuple, [...(expectedIDs.get(tuple) ?? []), row.id]);
+          }
+        }
+        state.rawOracle = { sourceRecords: rawRows.length, groups: Object.fromEntries(expected) };
+        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Cancel').click();document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-choice-coded-group"]'))`, 30000);
+        state.choice = await browserEval(browser.cdp, `const button=document.querySelector('[data-testid="construction-reshape-choice-coded-group"]');return {disabled:button.disabled,text:button.innerText};`);
+        assert.equal(state.choice.disabled, false, state.choice.text);
+        const proposalStarted = Date.now();
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-choice-coded-group"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-coded-group-path"]'))`, 30000);
+        await browserEval(browser.cdp, `const select=document.querySelector('[data-testid="construction-coded-group-path"]');const path='includedStructure[].structure.coding[]';if(![...select.options].some(option=>option.value===path))throw new Error('Bounded BodyStructure Coding path missing');if(select.value!==path){select.value=path;select.dispatchEvent(new Event('change',{bubbles:true}));}return true;`);
+        await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
+        state.timingsMs.proposal = Date.now() - proposalStarted;
+        state.editor = await browserEval(browser.cdp, `const editor=document.querySelector('[data-testid="construction-reshape-coded-group"]');return {text:editor?.innerText.slice(0,1200),path:editor?.querySelector('select[data-testid="construction-coded-group-path"]')?.value,optionCount:editor.querySelectorAll('select[data-testid="construction-coded-group-path"] option').length,advancedClosed:!editor.querySelector('details')?.open,missing:editor.querySelector('select[data-testid="construction-coded-group-missing"]')?.value,proposalStatus:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),proposalText:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1200),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
+        assert.equal(state.editor.path, 'includedStructure[].structure.coding[]');
+        assert(state.editor.optionCount > 0 && state.editor.advancedClosed && state.editor.missing === 'GROUP');
+        assert.equal(state.editor.proposalStatus, 'ready', JSON.stringify(state.editor));
+        assert.equal(state.editor.applyDisabled, false);
+        assert(state.timingsMs.proposal < 5000, `Coded group proposal took ${state.timingsMs.proposal} ms`);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`, 30000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        const previewStarted = Date.now();
+        await browserEval(browser.cdp, `const limit=[...document.querySelectorAll('select')].find(select=>[...select.options].some(option=>option.value==='500')&&[...select.options].some(option=>option.value==='25'));if(limit){limit.value='500';limit.dispatchEvent(new Event('change',{bubbles:true}));}[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="row"] [role="cell"]'))`, 30000);
+        state.timingsMs.preview = Date.now() - previewStarted;
+        state.saved = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),history:document.querySelector('[data-testid^="construction-history-step-"]')?.innerText};`);
+        const savedPreviewRequest = responses.filter(response => response.path.endsWith('/preview')).at(-1);
+        assert(savedPreviewRequest && savedPreviewRequest.status === 200, 'Saved coded-group preview did not return 200');
+        const savedPreviewResponse = JSON.parse((await browser.cdp.send('Network.getResponseBody', { requestId: savedPreviewRequest.requestId })).body);
+        state.saved.backendRowCount = savedPreviewResponse.rows?.length;
+        state.saved.rowSourceKinds = [...new Set((savedPreviewResponse.rowSources ?? []).map(source => source.kind))];
+        assert(state.timingsMs.preview < 5000, `Coded group preview took ${state.timingsMs.preview} ms`);
+        assert.equal(state.saved.backendRowCount, expected.size, 'Saved coded-group preview omitted CDA code groups');
+        assert.deepEqual(state.saved.rowSourceKinds, ['COMPOSITE'], 'Grouped rows must have composite source identity');
+        assert.equal(state.saved.headers.length, 4, JSON.stringify(state.saved));
+        assert(state.saved.history.includes('Group by coded value'));
+        const displayedKey = row => JSON.stringify(row.slice(0, 3).map(cell => cell === '' || cell === '—' ? null : cell));
+        for (const row of state.saved.rows) {
+          const tuple = displayedKey(row);
+          assert.equal(Number(row[3]), expected.get(tuple), `Rendered coded group differs from raw CDA: ${tuple}`);
+        }
+        const first = state.saved.rows[0];
+        const firstTuple = displayedKey(first);
+        await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li').length > 0`, 30000);
+        state.lineage = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li')].map(item=>item.innerText.trim());`);
+        assert.deepEqual([...state.lineage].sort(), (expectedIDs.get(firstTuple) ?? []).map(id=>`BodyStructure/${id}`).sort(), 'Coded group contributor IDs differ from raw CDA');
+        await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] button').click();return true;`);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-coded-group"]'))`, 30000);
+        state.reopened = await browserEval(browser.cdp, `return {path:document.querySelector('[data-testid="construction-coded-group-path"]')?.value,missing:document.querySelector('[data-testid="construction-coded-group-missing"]')?.value};`);
+        assert.equal(state.reopened.path, state.editor.path);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-coded-group"] details summary').click();const select=document.querySelector('[data-testid="construction-coded-group-missing"]');select.value='EXCLUDE';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-history-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-coded-group-missing"]')?.value==='EXCLUDE'`, 30000);
+        state.edited = await browserEval(browser.cdp, `return {path:document.querySelector('[data-testid="construction-coded-group-path"]')?.value,missing:document.querySelector('[data-testid="construction-coded-group-missing"]')?.value};`);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
+        await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===0`, 30000);
+        await navigate(browser.cdp,pageURL);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"] [role="row"] [role="cell"]'))`, 30000);
+        state.restored = await browserEval(browser.cdp, `return {historyCount:document.querySelectorAll('[data-testid^="construction-history-step-"]').length,headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText)};`);
+        assert.equal(state.restored.historyCount, 0);
+        assert(state.restored.headers.includes('BODYSTRUCTURE ID'), 'Original BodyStructure ID column was not restored');
+        state.restored.sampleIDs = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>row.querySelector('[role="cell"]')?.innerText.trim()).filter(Boolean);`);
+        assert(state.restored.sampleIDs.length > 0 && state.restored.sampleIDs.every(id=>rawRows.some(row=>row.id===id)), 'Restored source rows differ from raw CDA');
+        state.interactions = { clicks: Number(await browserEval(browser.cdp, `return sessionStorage.getItem('loomRowJourneyClicks');`)) };
+        state.errors = responses.filter(response => response.status >= 400);
+        await mkdir(evidenceDirectory,{recursive:true});
+        await writeFile(join(evidenceDirectory,'bounded-bodystructure-coded-group.json'),JSON.stringify({pageURL,tableName,state,responses},null,2));
+      }
       if (action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity') {
         const targetID = '485e2567-b566-56f3-b5bd-5f025f37cd95';
         const oracleOutput = execFileSync('rtk', [
@@ -989,6 +1093,22 @@ try {
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,`bounded-${resourceType.toLowerCase()}-row-choices.json`),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
+    } catch (error) {
+      if (action === 'Verify bounded BodyStructure coded group') {
+        const dom = await browserEval(browser.cdp, `return {body:document.body.innerText.slice(0,5000),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText)};`).catch(() => undefined);
+        const lastCapabilities = responses.filter(response => response.path.endsWith('/construction-capabilities')).at(-1);
+        const capabilities = lastCapabilities
+          ? await browser.cdp.send('Network.getResponseBody', { requestId: lastCapabilities.requestId }).then(body => JSON.parse(body.body)).catch(() => undefined)
+          : undefined;
+        const failedResponses = await Promise.all(responses.filter(response => response.status >= 400).map(async response => ({
+          path: response.path,
+          status: response.status,
+          body: await browser.cdp.send('Network.getResponseBody', { requestId: response.requestId }).then(body => JSON.parse(body.body)).catch(() => undefined),
+        })));
+        await mkdir(evidenceDirectory,{recursive:true});
+        await writeFile(join(evidenceDirectory,'bounded-bodystructure-coded-group-failure.json'),JSON.stringify({pageURL,tableName,error:String(error),dom,capabilities,failedResponses,responses},null,2));
+      }
+      throw error;
     } finally {
       if (created) {
         await navigate(browser.cdp,pageURL);
@@ -998,6 +1118,18 @@ try {
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Delete table"]').click();return true;`);
         await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
         const tablesAfterCleanup = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
+        if (action === 'Verify bounded BodyStructure coded group') {
+          const evidencePath = join(evidenceDirectory, 'bounded-bodystructure-coded-group.json');
+          let evidence;
+          try {
+            evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+          } catch {
+            evidence = { pageURL, tableName, state: {}, responses };
+          }
+          evidence.state.cleanup = { deleted: true, tablesBefore, tablesAfter: tablesAfterCleanup };
+          await mkdir(evidenceDirectory, { recursive: true });
+          await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
+        }
         if (action === 'Verify bounded Observation row definition' || action === 'Verify bounded Observation FIRST identity') {
           const evidencePath = join(evidenceDirectory, 'observation-row-grain-multiplicity.json');
           let evidence;

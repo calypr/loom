@@ -96,6 +96,37 @@ const assertCandidateMatchesSchemaAnd = (
 afterEach(cleanup);
 
 describe('ConstructionReshapeEditor', () => {
+  it('offers only server-authorized Coding paths and reopens the saved row grouping', () => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_GROUP' as const, supported: true }],
+      codedGroupChoices: [
+        { choiceId: 'signed-type', occurrenceId: 'root-1', resourceType: 'Specimen', codingPath: 'type.coding[]', label: 'Specimen type' },
+        { choiceId: 'signed-other', occurrenceId: 'root-1', resourceType: 'Specimen', codingPath: 'collection.method.coding[]', label: 'Collection method' },
+      ],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const capabilities = capabilitiesFor([codedStage], codedStage);
+    const onCandidateChange = vi.fn();
+    renderEditor({ capabilities, onCandidateChange });
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-coded-group'));
+    const first = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
+    expect(first?.operation.kind).toBe('CODED_GROUP');
+    if (first?.operation.kind !== 'CODED_GROUP') throw new Error('Expected coded grouping');
+    expect(first.operation.codedGroup.source).toMatchObject({ codingPath: 'type.coding[]', occurrenceId: 'root-1' });
+    expect(first.outputs.map((column: { label: string }) => column.label)).toEqual(['Code system', 'Code version', 'Code', 'Source records']);
+
+    fireEvent.change(screen.getByTestId('construction-coded-group-path'), { target: { value: 'collection.method.coding[]' } });
+    const changed = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
+    expect(changed?.operation.kind).toBe('CODED_GROUP');
+    if (changed?.operation.kind !== 'CODED_GROUP') throw new Error('Expected coded grouping');
+    expect(changed.operation.codedGroup.source.codingPath).toBe('collection.method.coding[]');
+    expect(changed.operation.codedGroup.choiceId).toBe('signed-other');
+
+    cleanup();
+    renderEditor({ construction: { version: 1, steps: [changed] }, capabilities, editingStep: changed });
+    expect(controlValue('Coding field')).toBe('collection.method.coding[]');
+    expect(screen.getByText(/current columns leave this table/i)).toBeInTheDocument();
+  });
   it('shows why backend capability choices are unavailable and emits no candidate', () => {
     const unsupportedStage = {
       ...sourceStage,

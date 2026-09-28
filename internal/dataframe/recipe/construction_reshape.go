@@ -1,6 +1,9 @@
 package recipe
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func validateConstructionGroup(group ConstructionGroup, input, output map[string]StageColumn, path string, constructionIDs map[string]bool) error {
 	if err := validateConstructionID(group.ConstructionID, path+".group.constructionId", constructionIDs); err != nil {
@@ -41,6 +44,48 @@ func validateConstructionGroup(group ConstructionGroup, input, output map[string
 			return fmt.Errorf("%s group aggregates[%d] has unsupported operation %q", path, index, aggregate.Operation)
 		}
 		expected[aggregate.OutputColumnID] = true
+	}
+	return requireExactStageOutputIDs(expected, output, path)
+}
+
+func validateConstructionCodedGroup(group ConstructionCodedGroup, input, output map[string]StageColumn, path string, constructionIDs map[string]bool) error {
+	if err := validateConstructionID(group.ConstructionID, path+".codedGroup.constructionId", constructionIDs); err != nil {
+		return err
+	}
+	if group.Source.OccurrenceID != "base" || strings.TrimSpace(group.Source.ResourceType) == "" ||
+		strings.TrimSpace(group.Source.CodingPath) == "" || group.Source.FHIRType != "Coding" ||
+		group.Source.Cardinality != "MANY" || group.Source.Shape != "ARRAY" || len(group.Source.Route) != 0 {
+		return fmt.Errorf("%s codedGroup source must identify a root repeated Coding path with an empty route", path)
+	}
+	if !group.MissingKeyPolicy.Valid() {
+		return validationError("invalid_coded_group_missing_key_policy", path+".codedGroup.missingKeyPolicy", "missing-key policy is unsupported")
+	}
+	ids := []string{group.SystemOutputColumnID, group.VersionOutputColumnID, group.CodeOutputColumnID, group.DistinctSourceCountOutputColumnID}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] || input[id].ID != "" {
+			return fmt.Errorf("%s codedGroup requires four distinct output IDs that do not collide with the input schema", path)
+		}
+		seen[id] = true
+	}
+	if len(output) != 4 {
+		return fmt.Errorf("%s codedGroup output schema must contain exactly system, version, code, and distinct source count", path)
+	}
+	for _, id := range ids[:3] {
+		column := output[id]
+		if column.ID == "" || !strings.EqualFold(column.Type, "string") || !column.Nullable {
+			return fmt.Errorf("%s codedGroup key output %q must be a nullable string", path, id)
+		}
+	}
+	count := output[group.DistinctSourceCountOutputColumnID]
+	if count.ID == "" || !strings.EqualFold(count.Type, "integer") || count.Nullable {
+		return fmt.Errorf("%s codedGroup distinct source count output must be a required integer", path)
+	}
+	expected := map[string]bool{
+		group.SystemOutputColumnID:              true,
+		group.VersionOutputColumnID:             true,
+		group.CodeOutputColumnID:                true,
+		group.DistinctSourceCountOutputColumnID: true,
 	}
 	return requireExactStageOutputIDs(expected, output, path)
 }

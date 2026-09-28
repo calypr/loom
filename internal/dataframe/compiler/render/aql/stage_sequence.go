@@ -160,6 +160,16 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			priorRows = stageRows
 			continue
 		}
+		if stage.Kind == ir.PhysicalStageCodedGroupOp {
+			rendered, renderErr := renderer.renderConstructionCodedGroupStage(stage, priorRows)
+			if renderErr != nil {
+				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q coded group: %w", stage.ID, renderErr)
+			}
+			lines = append(lines, rendered...)
+			lines = append(lines, ")")
+			priorRows = stageRows
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
 		switch stage.Kind {
 		case ir.PhysicalStagePivotOp:

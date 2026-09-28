@@ -69,6 +69,9 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		if err := validateStageVariables(stage); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		if stage.Kind != PhysicalStageCodedGroupOp && stage.CodedGroup != nil {
+			return fmt.Errorf("%s has a coded-group payload for operation %q", path, stage.Kind)
+		}
 		switch stage.Kind {
 		case PhysicalStageDeriveOp:
 			if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedField != nil {
@@ -131,6 +134,16 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			}
 			expected = append(expected, "__loom_row_id")
 			if err := validateShapeStageOutput(stage, expected); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
+		case PhysicalStageCodedGroupOp:
+			if stage.CodedGroup == nil || stage.Group != nil || stage.Filter != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || stage.RelatedSource != nil || stage.RelatedExpand != nil || stage.RelatedField != nil || len(stage.DerivedLets) != 0 {
+				return fmt.Errorf("%s CODED_GROUP requires only a coded-group payload", path)
+			}
+			if err := validatePhysicalStageCodedGroup(stage, *stage.CodedGroup, bindVars); err != nil {
+				return fmt.Errorf("%s coded group: %w", path, err)
+			}
+			if err := validateShapeStageOutput(stage, []string{stage.CodedGroup.SystemOutputColumn, stage.CodedGroup.VersionOutputColumn, stage.CodedGroup.CodeOutputColumn, stage.CodedGroup.CountOutputColumn, "__loom_row_id"}); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		case PhysicalStageExpandOp:
@@ -234,6 +247,13 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 	case PhysicalStageGroupOp:
 		if stage.Group == nil || terminal.ParentKeyBindKey != "" || terminal.RelatedTerminalIDBindKey != "" || terminal.RelatedRowKind != "" {
 			return fmt.Errorf("row lineage Group payload or terminal bindings are invalid")
+		}
+	case PhysicalStageCodedGroupOp:
+		coded := stage.CodedGroup
+		if coded == nil || sequence.SourceRowIdentity != "_key" || coded.SourceIdentityColumn != "_key" ||
+			terminal.ResourceType != coded.ResourceType || terminal.ParentKeyBindKey != "" ||
+			terminal.RelatedTerminalIDBindKey != "" || terminal.RelatedRowKind != "" {
+			return fmt.Errorf("row lineage CODED_GROUP requires direct root identity and no related-row bindings")
 		}
 	case PhysicalStageRelatedExpandOp:
 		related := stage.RelatedExpand
@@ -762,6 +782,104 @@ func validatePhysicalStageGroup(stage PhysicalConstructionStage, group PhysicalS
 	}
 	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
 		return fmt.Errorf("output projections: %w", err)
+	}
+	return nil
+}
+
+func validatePhysicalStageCodedGroup(stage PhysicalConstructionStage, coded PhysicalStageCodedGroup, bindVars map[string]any) error {
+	for key, label := range map[string]string{
+		coded.RootCollectionBindKey: "root collection",
+		coded.ConstructionIDBindKey: "construction ID",
+		coded.OccurrenceIDBindKey:   "source occurrence ID",
+		coded.CodingPathBindKey:     "Coding path",
+	} {
+		if err := requireNonEmptyStringBind(bindVars, key); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+	}
+	collection, _ := bindVars[coded.RootCollectionBindKey].(string)
+	constructionID, _ := bindVars[coded.ConstructionIDBindKey].(string)
+	occurrenceID, _ := bindVars[coded.OccurrenceIDBindKey].(string)
+	codingPath, _ := bindVars[coded.CodingPathBindKey].(string)
+	if collection != coded.ResourceType || strings.TrimSpace(coded.ResourceType) == "" {
+		return fmt.Errorf("root collection does not match the exact root resource type")
+	}
+	if !coded.SourceRowsUnique {
+		return fmt.Errorf("CODED_GROUP requires compiler proof that the direct source has at most one row per root _key")
+	}
+	if constructionID == "" || occurrenceID != "base" || codingPath != coded.CodingPath || coded.SourceIdentityColumn != "_key" {
+		return fmt.Errorf("construction, root occurrence, Coding path, and root identity facts are inconsistent")
+	}
+	inputIdentity, exists := physicalStageColumnMap(stage.InputColumns)[coded.SourceIdentityColumn]
+	if !exists || !inputIdentity.Internal || !inputIdentity.Identity || inputIdentity.Kind != "string" || inputIdentity.Cardinality != "required_one" {
+		return fmt.Errorf("source identity column %q is not a required root key", coded.SourceIdentityColumn)
+	}
+	if len(coded.PathSegments) == 0 {
+		return fmt.Errorf("Coding path segments are required")
+	}
+	var canonical strings.Builder
+	for index, segment := range coded.PathSegments {
+		if !physicalVariablePattern.MatchString(segment.Name) {
+			return fmt.Errorf("Coding path segment %d has an unsafe field name", index)
+		}
+		if index > 0 {
+			canonical.WriteByte('.')
+		}
+		canonical.WriteString(segment.Name)
+		if segment.Repeated {
+			canonical.WriteString("[]")
+		}
+	}
+	last := coded.PathSegments[len(coded.PathSegments)-1]
+	if !last.Repeated || canonical.String() != coded.CodingPath {
+		return fmt.Errorf("Coding path must be the exact generated repeated Coding path")
+	}
+	switch coded.MissingKeyPolicy {
+	case PhysicalStageGroupMissingKeyGroup, PhysicalStageGroupMissingKeyExclude, PhysicalStageGroupMissingKeyError:
+	default:
+		return fmt.Errorf("missing-key policy %q is unsupported", coded.MissingKeyPolicy)
+	}
+	variables := []string{coded.SystemVariable, coded.VersionVariable, coded.CodeVariable, coded.CountVariable, coded.IdentityVariable}
+	seenVariables := map[string]bool{stage.InputRowVariable: true, stage.OutputRowVariable: true}
+	for _, variable := range variables {
+		if !physicalVariablePattern.MatchString(variable) || seenVariables[variable] {
+			return fmt.Errorf("coded-group output variables must be safe and distinct")
+		}
+		seenVariables[variable] = true
+	}
+	outputs := physicalStageColumnMap(stage.OutputColumns)
+	for _, columnName := range []string{coded.SystemOutputColumn, coded.VersionOutputColumn, coded.CodeOutputColumn} {
+		column, ok := outputs[columnName]
+		if !ok || column.Internal || column.Kind != "string" || column.Cardinality != "optional_one" || !column.Nullable {
+			return fmt.Errorf("coded-group key output %q must be a nullable scalar string", columnName)
+		}
+	}
+	count, ok := outputs[coded.CountOutputColumn]
+	if !ok || count.Internal || count.Kind != "integer" || count.Cardinality != "required_one" || count.Nullable {
+		return fmt.Errorf("coded-group source count must be a required integer")
+	}
+	identity, ok := outputs["__loom_row_id"]
+	if !ok || !identity.Internal || !identity.Identity || identity.Kind != "string" || identity.Cardinality != "required_one" {
+		return fmt.Errorf("coded-group output requires the hidden stable row identity")
+	}
+	projectionByName := make(map[string]PhysicalProjection, len(stage.OutputProjections))
+	if err := validateStageProjectionNames(stage.OutputProjections, stage.OutputColumns); err != nil {
+		return fmt.Errorf("output projections: %w", err)
+	}
+	for _, projection := range stage.OutputProjections {
+		projectionByName[projection.Name] = projection
+	}
+	for name, variable := range map[string]string{
+		coded.SystemOutputColumn:  coded.SystemVariable,
+		coded.VersionOutputColumn: coded.VersionVariable,
+		coded.CodeOutputColumn:    coded.CodeVariable,
+		coded.CountOutputColumn:   coded.CountVariable,
+		"__loom_row_id":           coded.IdentityVariable,
+	} {
+		projection, ok := projectionByName[name]
+		if !ok || projection.Value.Variable != variable || len(projection.Value.Path) != 0 || projection.Expression != nil {
+			return fmt.Errorf("coded-group output projection %q does not use its exact value variable", name)
+		}
 	}
 	return nil
 }

@@ -3355,18 +3355,46 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
         unpivot: {$ref: '#/components/schemas/ConstructionUnpivot'}
         group: {$ref: '#/components/schemas/ConstructionGroup'}
+        codedGroup: {$ref: '#/components/schemas/ConstructionCodedGroup'}
         expand: {$ref: '#/components/schemas/ConstructionExpand'}
         combine: {$ref: '#/components/schemas/ConstructionCombine'}
         relatedSource: {$ref: '#/components/schemas/ConstructionRelatedSource'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpand'}
         relatedEligibility: {$ref: '#/components/schemas/ConstructionRelatedEligibility'}
         relatedField: {$ref: '#/components/schemas/ConstructionRelatedField'}
+    ConstructionCodedGroup:
+      type: object
+      additionalProperties: false
+      required: [constructionId, source, missingKeyPolicy, systemOutputColumnId, versionOutputColumnId, codeOutputColumnId, distinctSourceCountOutputColumnId]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        choiceId: {type: string, minLength: 1, description: Optional when reading a saved construction; a changed step proposal must include a current choice.}
+        source:
+          type: object
+          additionalProperties: false
+          required: [occurrenceId, resourceType, codingPath, fhirType, cardinality, shape, route]
+          properties:
+            occurrenceId: {type: string, minLength: 1}
+            resourceType: {type: string, minLength: 1}
+            codingPath: {type: string, minLength: 1}
+            fhirType: {type: string, enum: [Coding]}
+            cardinality: {type: string, enum: [MANY]}
+            shape: {type: string, enum: [ARRAY]}
+            route:
+              type: array
+              maxItems: 0
+              items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        missingKeyPolicy: {type: string, enum: [GROUP, EXCLUDE, ERROR]}
+        systemOutputColumnId: {type: string, minLength: 1}
+        versionOutputColumnId: {type: string, minLength: 1}
+        codeOutputColumnId: {type: string, minLength: 1}
+        distinctSourceCountOutputColumnId: {type: string, minLength: 1}
     ConstructionRelatedSource:
       type: object
       additionalProperties: false
@@ -3742,7 +3770,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -3766,6 +3794,19 @@ components:
           items: {$ref: '#/components/schemas/ConstructionRelatedExpandAnchor'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpandStageDescriptor'}
         activeRelatedRecord: {$ref: '#/components/schemas/ConstructionActiveRelatedRecordDescriptor'}
+        codedGroupChoices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionCodedGroupChoice'}
+    ConstructionCodedGroupChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, occurrenceId, resourceType, codingPath, label]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        occurrenceId: {type: string, minLength: 1}
+        resourceType: {type: string, minLength: 1}
+        codingPath: {type: string, minLength: 1}
+        label: {type: string, minLength: 1}
     ConstructionRelatedExpandAnchor:
       type: object
       additionalProperties: false

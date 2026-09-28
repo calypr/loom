@@ -252,6 +252,7 @@ const editableConstructionFamily = (
     case 'PIVOT':
     case 'UNPIVOT':
     case 'GROUP':
+    case 'CODED_GROUP':
     case 'EXPAND':
     case 'RELATED_EXPAND': return 'RESHAPE';
     case 'RELATED_SOURCE': return undefined;

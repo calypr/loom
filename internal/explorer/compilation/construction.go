@@ -401,6 +401,36 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.Group = mapped
+	case authoringv2.ConstructionOperationCodedGroup:
+		if authored.CodedGroup == nil {
+			return recipe.ConstructionOperation{}, fmt.Errorf("codedGroup payload is required")
+		}
+		coded := authored.CodedGroup
+		mapped := &recipe.ConstructionCodedGroup{
+			ConstructionID: coded.ConstructionID,
+			Source: recipe.ConstructionCodedGroupSource{
+				OccurrenceID: coded.Source.OccurrenceID,
+				ResourceType: coded.Source.ResourceType,
+				CodingPath:   coded.Source.CodingPath,
+				FHIRType:     coded.Source.FHIRType,
+				Cardinality:  coded.Source.Cardinality,
+				Shape:        coded.Source.Shape,
+				Route:        make([]recipe.ConstructionRelatedRouteStep, 0, len(coded.Source.Route)),
+			},
+			MissingKeyPolicy:                  recipe.ConstructionGroupMissingKeyPolicy(coded.MissingKeyPolicy),
+			SystemOutputColumnID:              coded.SystemOutputColumnID,
+			VersionOutputColumnID:             coded.VersionOutputColumnID,
+			CodeOutputColumnID:                coded.CodeOutputColumnID,
+			DistinctSourceCountOutputColumnID: coded.DistinctSourceCountOutputColumnID,
+		}
+		for _, hop := range coded.Source.Route {
+			mapped.Source.Route = append(mapped.Source.Route, recipe.ConstructionRelatedRouteStep{
+				EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
+				FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
+				Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
+			})
+		}
+		operation.CodedGroup = mapped
 	case authoringv2.ConstructionOperationExpand:
 		if authored.Expand == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("expand payload is required")

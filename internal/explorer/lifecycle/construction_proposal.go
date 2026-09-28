@@ -14,6 +14,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/projectid"
 )
 
@@ -143,7 +144,10 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, err
 	}
-	stages := base.stages
+	// Choice IDs are ephemeral response authority, not receipt state. Copy the
+	// stage slice before decorating the selected descriptor so a later request
+	// still validates the original signed compilation receipt.
+	stages := append([]explorer.ReceiptConstructionStage(nil), base.stages...)
 	if len(stages) == 0 {
 		return ConstructionCapabilitiesResponse{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
@@ -157,6 +161,11 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if selected == nil {
 		return ConstructionCapabilitiesResponse{}, conflict("construction-capabilities", "STALE_STAGE_REFERENCE", "the selected stage is not present in the current compiled output", nil, nil)
 	}
+	choices, err := constructionCodedGroupChoices(base, request.OutputID, *selected)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile coded-group choices: %w", err)
+	}
+	selected.CodedGroupChoices = choices
 	return ConstructionCapabilitiesResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
@@ -183,6 +192,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseRelatedExpands := make(map[string]authoringv2.ConstructionRelatedExpand)
 	baseRelatedEligibility := make(map[string]authoringv2.ConstructionRelatedEligibility)
 	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
+	baseCodedGroups := make(map[string]authoringv2.ConstructionCodedGroup)
 	for _, step := range base.construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
@@ -195,6 +205,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		}
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
 			baseRelatedFields[step.ID] = *step.Operation.RelatedField
+		}
+		if step.Operation.Kind == authoringv2.ConstructionOperationCodedGroup && step.Operation.CodedGroup != nil {
+			baseCodedGroups[step.ID] = *step.Operation.CodedGroup
 		}
 	}
 	for _, step := range candidateDocument.Construction.Steps {
@@ -237,6 +250,16 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 				continue
 			}
 			if err := reauthorizeConstructionRelatedField(ctx, base, step, *step.Operation.RelatedField); err != nil {
+				return ConstructionProposalResponse{}, err
+			}
+		case authoringv2.ConstructionOperationCodedGroup:
+			if step.Operation.CodedGroup == nil {
+				continue
+			}
+			if prior, exists := baseCodedGroups[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.CodedGroup) {
+				continue
+			}
+			if err := reauthorizeConstructionCodedGroup(ctx, base, request.OutputID, step, *step.Operation.CodedGroup); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
 		}
@@ -365,6 +388,162 @@ func reauthorizeConstructionRelatedField(
 		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the related field choice could not be reissued from the current authorized candidate", err)
 	}
 	return nil
+}
+
+func constructionCodedGroupChoices(
+	base constructionBase,
+	outputID string,
+	stage explorer.ReceiptConstructionStage,
+) ([]explorer.ReceiptConstructionCodedGroupChoice, error) {
+	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" ||
+		!constructionStageSupportsCodedGroup(stage) {
+		return nil, nil
+	}
+	occurrence, err := resolveRowChoiceOccurrence(
+		base.snapshot, base.document.RootResourceType, base.document.Route,
+		authoringv2.RootOccurrenceID, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("the direct root occurrence is not available for coded grouping: %w", err)
+	}
+	if len(occurrence.Route) != 0 {
+		return nil, fmt.Errorf("the direct root occurrence unexpectedly includes a route")
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		return nil, err
+	}
+	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(base.document.RootResourceType))
+	if err != nil {
+		return nil, err
+	}
+	choices := make([]explorer.ReceiptConstructionCodedGroupChoice, 0, len(paths))
+	for _, path := range paths {
+		facts, err := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), path)
+		if err != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
+			facts.Shape != fhirschema.RowPathArray || facts.Reference {
+			continue
+		}
+		if !constructionCodedGroupPathPopulated(base.snapshot, occurrence, path) {
+			continue
+		}
+		choice, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, stage.ID, occurrence, capability.RowChoiceFacts{
+			ResourceType: string(facts.ResourceType), CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
+			Cardinality: capability.RowChoiceMany, Shape: capability.RowChoiceArray, Reference: facts.Reference,
+			Title: facts.Title, Description: facts.Description,
+		})
+		if err != nil {
+			return nil, err
+		}
+		choices = append(choices, explorer.ReceiptConstructionCodedGroupChoice{
+			ChoiceID: choice.ChoiceID, OccurrenceID: choice.OccurrenceID, ResourceType: choice.ResourceType,
+			CodingPath: choice.CodingPath, Label: choice.Label,
+		})
+	}
+	return choices, nil
+}
+
+func constructionCodedGroupPathPopulated(
+	snapshot capability.Snapshot,
+	occurrence capability.RowChoiceOccurrence,
+	codingPath string,
+) bool {
+	wantPath := codingPath + ".code"
+	for _, candidate := range snapshot.Candidates {
+		if candidate.NodeID == occurrence.NodeID && candidate.ResourceType == occurrence.ResourceType &&
+			candidate.FieldPath == wantPath && candidate.Observed && candidate.Populated && candidate.ObservedDocumentCount > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func reauthorizeConstructionCodedGroup(
+	ctx context.Context,
+	base constructionBase,
+	outputID string,
+	step authoringv2.ConstructionStep,
+	coded authoringv2.ConstructionCodedGroup,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := requireExactIdentity(coded.ChoiceID, "codedGroup.choiceId"); err != nil {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "choose a current repeated Coding field before proposing this step", err)
+	}
+	if len(step.Inputs) != 1 || step.Inputs[0].Kind != authoringv2.ConstructionInputSourceProjection ||
+		step.Inputs[0].StepID != "" {
+		return unprocessable("construction-proposal", "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is currently available only on the direct source projection stage", nil)
+	}
+	var inputStage *explorer.ReceiptConstructionStage
+	for index := range base.stages {
+		if base.stages[index].ID == recipe.ConstructionSourceProjectionID {
+			inputStage = &base.stages[index]
+			break
+		}
+	}
+	if inputStage == nil || inputStage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedGroup(*inputStage) {
+		return unprocessable("construction-proposal", "CODED_GROUP_UNAVAILABLE", "the direct source stage does not expose executable repeated Coding fields", nil)
+	}
+	if coded.Source.OccurrenceID != authoringv2.RootOccurrenceID || coded.Source.ResourceType != base.document.RootResourceType ||
+		coded.Source.FHIRType != "Coding" || coded.Source.Cardinality != "MANY" || coded.Source.Shape != "ARRAY" || len(coded.Source.Route) != 0 {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source facts must identify a root repeated Coding path with an empty route", nil)
+	}
+	occurrence, err := resolveRowChoiceOccurrence(base.snapshot, base.document.RootResourceType, base.document.Route, coded.Source.OccurrenceID, "")
+	if err != nil || len(occurrence.Route) != 0 {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the root Coding occurrence is no longer available in the authorized snapshot", nil, err)
+	}
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		return fmt.Errorf("load generated FHIR schema for coded grouping: %w", err)
+	}
+	paths, err := index.RepeatedCodingPaths(fhirschema.DefinitionName(base.document.RootResourceType))
+	if err != nil {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "generated FHIR Coding metadata for the selected root is unavailable", nil, err)
+	}
+	pathAvailable := false
+	for _, path := range paths {
+		if path == coded.Source.CodingPath {
+			pathAvailable = true
+			break
+		}
+	}
+	facts, factErr := index.ResolveRowPath(fhirschema.DefinitionName(base.document.RootResourceType), coded.Source.CodingPath)
+	if !pathAvailable || factErr != nil || facts.FHIRType != "Coding" || facts.Cardinality != fhirschema.RowCardinalityMany ||
+		facts.Shape != fhirschema.RowPathArray || facts.Reference {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected Coding path is no longer an executable repeated Coding field", nil, factErr)
+	}
+	identity, err := capability.DecodeConstructionChoiceID(coded.ChoiceID)
+	if err != nil || identity.SnapshotToken != base.snapshot.Token {
+		return conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "reload this Coding field from the current authorized snapshot", nil, err)
+	}
+	choiceSource, ok := identity.Source.(capability.CodedGroupChoiceSource)
+	if !ok || identity.Kind != capability.ConstructionChoiceSourceCodedGroup ||
+		choiceSource.OutputID != outputID || choiceSource.StageID != recipe.ConstructionSourceProjectionID ||
+		choiceSource.OccurrenceID != coded.Source.OccurrenceID || choiceSource.NodeID != occurrence.NodeID ||
+		choiceSource.ResourceType != coded.Source.ResourceType || choiceSource.Path != coded.Source.CodingPath ||
+		choiceSource.SchemaDigest != base.snapshot.Identity.SchemaDigest {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "coded grouping source differs from its exact stage-bound server choice", nil)
+	}
+	proved, err := capability.NewConstructionCodedGroupChoice(base.snapshot, outputID, recipe.ConstructionSourceProjectionID, occurrence, capability.RowChoiceFacts{
+		ResourceType: string(facts.ResourceType), CanonicalPath: facts.CanonicalPath, FHIRType: facts.FHIRType,
+		Cardinality: capability.RowChoiceMany, Shape: capability.RowChoiceArray, Reference: facts.Reference,
+		Title: facts.Title, Description: facts.Description,
+	})
+	if err != nil || proved.ChoiceID != coded.ChoiceID || proved.CodingPath != coded.Source.CodingPath ||
+		proved.OccurrenceID != coded.Source.OccurrenceID || proved.ResourceType != coded.Source.ResourceType {
+		return unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "the coded grouping choice cannot be reissued from current generated metadata", err)
+	}
+	return nil
+}
+
+func constructionStageSupportsCodedGroup(stage explorer.ReceiptConstructionStage) bool {
+	for _, operation := range stage.Capabilities {
+		if operation.Kind == string(recipe.ConstructionCodedGroupOp) {
+			return operation.Supported
+		}
+	}
+	return false
 }
 
 func relatedFieldInputStageID(step authoringv2.ConstructionStep) (string, error) {

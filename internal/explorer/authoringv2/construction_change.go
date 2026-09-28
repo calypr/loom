@@ -419,6 +419,23 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 			}
 			outputs = append(outputs, column)
 		}
+	case ConstructionOperationCodedGroup:
+		if step.Operation.CodedGroup == nil {
+			return nil, fmt.Errorf("codedGroup payload is required")
+		}
+		coded := step.Operation.CodedGroup
+		for _, id := range []string{
+			coded.SystemOutputColumnID,
+			coded.VersionOutputColumnID,
+			coded.CodeOutputColumnID,
+			coded.DistinctSourceCountOutputColumnID,
+		} {
+			column, err := produced(id)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, column)
+		}
 	case ConstructionOperationExpand:
 		if step.Operation.Expand == nil {
 			return nil, fmt.Errorf("expand payload is required")

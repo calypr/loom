@@ -640,6 +640,12 @@ func TestPreviewSourceIdentityNeverRegainsSingleAfterGroupOrPivot(t *testing.T) 
 				{Operation: string(recipe.ConstructionUnpivotOp)},
 			}},
 		},
+		{
+			name: "CODED_GROUP",
+			output: lower.CompiledRecipeOutput{Stages: []lower.CompiledStageDescriptor{
+				{Operation: string(recipe.ConstructionCodedGroupOp)},
+			}},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

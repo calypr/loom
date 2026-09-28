@@ -438,6 +438,48 @@ func TestConstructionCapabilitiesReturnOnlyReceiptBoundStableStages(t *testing.T
 	}
 }
 
+func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(t *testing.T) {
+	const populatedPath = "includedStructure[].structure.coding[]"
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope",
+			SchemaDigest: "schema", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
+			FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
+			TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
+		},
+		capability.Policy{Route: capability.RoutePolicy{Version: "traversal", AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "body-structure", ResourceType: "BodyStructure", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1}},
+		nil,
+		[]capability.Candidate{
+			{ID: "populated-code", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: populatedPath + ".code", Observed: true, Populated: true, ObservedDocumentCount: 1},
+			{ID: "schema-only-code", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "_active.extension[].valueCodeableConcept.coding[].code", Observed: false, Populated: false},
+		},
+		nil,
+	)
+	base := constructionBase{
+		snapshot: snapshot,
+		document: authoringv2.Document{
+			RootResourceType: "BodyStructure",
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+		},
+	}
+	stage := explorer.ReceiptConstructionStage{
+		ID: recipe.ConstructionSourceProjectionID, RowIdentityColumn: "_key",
+		Capabilities: []explorer.ReceiptConstructionOperationChoice{{Kind: string(recipe.ConstructionCodedGroupOp), Supported: true}},
+	}
+	choices, err := constructionCodedGroupChoices(base, "body-structures", stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(choices) != 1 || choices[0].CodingPath != populatedPath {
+		t.Fatalf("coded group choices = %#v, want only populated path %q", choices, populatedPath)
+	}
+	if want := "BodyStructure · includedStructure[] › structure › coding[]"; choices[0].Label != want {
+		t.Fatalf("coded group choice label = %q, want breadcrumb %q", choices[0].Label, want)
+	}
+}
+
 func TestProposeConstructionKeepsAcceptedDraftWhenDependencyRepairIsNeeded(t *testing.T) {
 	service, store, snapshot := constructionProposalService(t)
 	workspace, err := authoringv2.DecodeWorkspace(store.created.DraftConfig)

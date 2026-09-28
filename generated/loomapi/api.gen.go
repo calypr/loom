@@ -1232,6 +1232,7 @@ func (e ConstructionOperandKind) Valid() bool {
 // Defines values for ConstructionOperationKind.
 const (
 	ConstructionOperationKindCOMBINE            ConstructionOperationKind = "COMBINE"
+	ConstructionOperationKindCODEDGROUP         ConstructionOperationKind = "CODED_GROUP"
 	ConstructionOperationKindDERIVE             ConstructionOperationKind = "DERIVE"
 	ConstructionOperationKindEXPAND             ConstructionOperationKind = "EXPAND"
 	ConstructionOperationKindFILTER             ConstructionOperationKind = "FILTER"
@@ -1248,6 +1249,8 @@ const (
 func (e ConstructionOperationKind) Valid() bool {
 	switch e {
 	case ConstructionOperationKindCOMBINE:
+		return true
+	case ConstructionOperationKindCODEDGROUP:
 		return true
 	case ConstructionOperationKindDERIVE:
 		return true
@@ -1277,6 +1280,7 @@ func (e ConstructionOperationKind) Valid() bool {
 // Defines values for ConstructionOperationCapabilityKind.
 const (
 	ConstructionOperationCapabilityKindDERIVE             ConstructionOperationCapabilityKind = "DERIVE"
+	ConstructionOperationCapabilityKindCODEDGROUP         ConstructionOperationCapabilityKind = "CODED_GROUP"
 	ConstructionOperationCapabilityKindEXPAND             ConstructionOperationCapabilityKind = "EXPAND"
 	ConstructionOperationCapabilityKindFILTER             ConstructionOperationCapabilityKind = "FILTER"
 	ConstructionOperationCapabilityKindGROUP              ConstructionOperationCapabilityKind = "GROUP"
@@ -1292,6 +1296,8 @@ const (
 func (e ConstructionOperationCapabilityKind) Valid() bool {
 	switch e {
 	case ConstructionOperationCapabilityKindDERIVE:
+		return true
+	case ConstructionOperationCapabilityKindCODEDGROUP:
 		return true
 	case ConstructionOperationCapabilityKindEXPAND:
 		return true
@@ -4507,8 +4513,39 @@ type ConstructionOperand struct {
 // ConstructionOperandKind defines model for ConstructionOperand.Kind.
 type ConstructionOperandKind string
 
+// ConstructionCodedGroup defines model for ConstructionCodedGroup.
+type ConstructionCodedGroup struct {
+	ChoiceId                          *string                                `json:"choiceId,omitempty"`
+	CodeOutputColumnId                string                                 `json:"codeOutputColumnId"`
+	ConstructionId                    string                                 `json:"constructionId"`
+	DistinctSourceCountOutputColumnId string                                 `json:"distinctSourceCountOutputColumnId"`
+	MissingKeyPolicy                  ConstructionCodedGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+	Source                            ConstructionCodedGroupSource           `json:"source"`
+	SystemOutputColumnId              string                                 `json:"systemOutputColumnId"`
+	VersionOutputColumnId             string                                 `json:"versionOutputColumnId"`
+}
+
+// ConstructionCodedGroupMissingKeyPolicy defines model for ConstructionCodedGroup.MissingKeyPolicy.
+type ConstructionCodedGroupMissingKeyPolicy string
+
+// ConstructionCodedGroupSource defines the root-anchored Coding path for ConstructionCodedGroup.
+type ConstructionCodedGroupSource struct {
+	Cardinality  ConstructionCodedGroupSourceCardinality `json:"cardinality"`
+	CodingPath   string                                  `json:"codingPath"`
+	FhirType     ConstructionCodedGroupSourceFhirType    `json:"fhirType"`
+	OccurrenceId string                                  `json:"occurrenceId"`
+	ResourceType string                                  `json:"resourceType"`
+	Route        []ConstructionRouteStep                 `json:"route"`
+	Shape        ConstructionCodedGroupSourceShape       `json:"shape"`
+}
+
+type ConstructionCodedGroupSourceCardinality string
+type ConstructionCodedGroupSourceFhirType string
+type ConstructionCodedGroupSourceShape string
+
 // ConstructionOperation defines model for ConstructionOperation.
 type ConstructionOperation struct {
+	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
 	Combine            *ConstructionCombine            `json:"combine,omitempty"`
 	Derive             *ConstructionDerive             `json:"derive,omitempty"`
 	Expand             *ConstructionExpand             `json:"expand,omitempty"`
@@ -4743,6 +4780,7 @@ type ConstructionStageDescriptor struct {
 	ActiveRelatedRecord *ConstructionActiveRelatedRecordDescriptor `json:"activeRelatedRecord,omitempty"`
 	Capabilities        []ConstructionOperationCapability          `json:"capabilities"`
 	Columns             []ConstructionStageColumnDescriptor        `json:"columns"`
+	CodedGroupChoices   *[]ConstructionCodedGroupChoice            `json:"codedGroupChoices,omitempty"`
 	Id                  string                                     `json:"id"`
 	InputStageId        string                                     `json:"inputStageId"`
 
@@ -4751,6 +4789,15 @@ type ConstructionStageDescriptor struct {
 	RelatedExpand        *ConstructionRelatedExpandStageDescriptor `json:"relatedExpand,omitempty"`
 	RelatedExpandAnchors *[]ConstructionRelatedExpandAnchor        `json:"relatedExpandAnchors,omitempty"`
 	RowIdentityColumn    *string                                   `json:"rowIdentityColumn,omitempty"`
+}
+
+// ConstructionCodedGroupChoice defines model for ConstructionCodedGroupChoice.
+type ConstructionCodedGroupChoice struct {
+	ChoiceId     string `json:"choiceId"`
+	CodingPath   string `json:"codingPath"`
+	Label        string `json:"label"`
+	OccurrenceId string `json:"occurrenceId"`
+	ResourceType string `json:"resourceType"`
 }
 
 // ConstructionStep defines model for ConstructionStep.

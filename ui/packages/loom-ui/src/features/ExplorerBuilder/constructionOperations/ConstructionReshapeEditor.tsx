@@ -17,7 +17,7 @@ type CandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds'
 >;
 
-type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'EXPAND' | 'RELATED_EXPAND';
+type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
 type GroupAggregateKind = 'COUNT_ROWS' | 'COUNT_NON_NULL' | 'COUNT_DISTINCT' | 'SUM' | 'MEAN';
 type EmptyListPolicy = 'ERROR' | 'EXCLUDE' | 'PRESERVE_PARENT';
 
@@ -122,6 +122,14 @@ type GroupForm = {
   readonly aggregates: ReadonlyArray<GroupAggregate>;
 };
 
+type CodedGroupForm = {
+  readonly kind: 'coded-group';
+  readonly stepId: string;
+  readonly codingPath: string;
+  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
+  readonly outputs: ConstructionStep['outputs'];
+};
+
 type ExpandForm = {
   readonly kind: 'expand';
   readonly stepId: string;
@@ -145,6 +153,7 @@ type ReshapeForm =
   | { readonly kind: 'choose' }
   | { readonly kind: 'related-expand' }
   | GroupForm
+  | CodedGroupForm
   | ExpandForm
   | PivotForm
   | UnpivotForm
@@ -172,7 +181,7 @@ export interface ConstructionReshapeEditorProps {
   };
 }
 
-export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
+export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
 const createOpaqueId = (prefix: string): string => {
   const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -196,7 +205,7 @@ const capabilityFor = (
 };
 
 const isReshapeOperationKind = (kind: string): kind is ReshapeOperationKind =>
-  kind === 'PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'EXPAND' || kind === 'RELATED_EXPAND';
+  kind === 'PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'CODED_GROUP' || kind === 'EXPAND' || kind === 'RELATED_EXPAND';
 
 const capabilityForStep = (stage: ReshapeStage, kind: string) =>
   isReshapeOperationKind(kind)
@@ -208,6 +217,7 @@ const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
     case 'PIVOT': return 'pivot';
     case 'UNPIVOT': return 'unpivot';
     case 'GROUP': return 'group summary';
+    case 'CODED_GROUP': return 'coded value grouping';
     case 'EXPAND': return 'list expansion';
     case 'RELATED_EXPAND': return 'related record expansion';
     default: {
@@ -235,6 +245,11 @@ const numericColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
 
 const listColumnsFor = (stage: ReshapeStage): ReadonlyArray<ReshapeColumn> =>
   stage.columns.filter(isListColumn);
+
+const codingPathLabel = (path: string): string => path.split('.').map((segment) => {
+  const words = segment.replaceAll('[]', '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^_+/, '').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : '';
+}).filter(Boolean).join(' → ');
 
 const normalizedName = (value: string): string =>
   value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
@@ -606,6 +621,66 @@ const groupStepFromForm = (args: {
   return step;
 };
 
+const initialCodedGroupForm = (stage: ReshapeStage, editingStep?: ConstructionReshapeStep): CodedGroupForm => {
+  if (editingStep?.operation.kind === 'CODED_GROUP') {
+    return {
+      kind: 'coded-group',
+      stepId: editingStep.id,
+      codingPath: editingStep.operation.codedGroup.source.codingPath,
+      missingKeyPolicy: editingStep.operation.codedGroup.missingKeyPolicy,
+      outputs: editingStep.outputs,
+    };
+  }
+  return {
+    kind: 'coded-group',
+    stepId: createOpaqueId('coded-group'),
+    codingPath: stage.codedGroupChoices?.[0]?.codingPath ?? '',
+    missingKeyPolicy: 'GROUP',
+    outputs: [
+      { id: createOpaqueId('coded-system'), name: 'code_system', label: 'Code system', type: 'string', nullable: true },
+      { id: createOpaqueId('coded-version'), name: 'code_version', label: 'Code version', type: 'string', nullable: true },
+      { id: createOpaqueId('coded-code'), name: 'code', label: 'Code', type: 'string', nullable: true },
+      { id: createOpaqueId('coded-count'), name: 'source_records', label: 'Source records', type: 'integer' },
+    ],
+  };
+};
+
+const codedGroupStepFromForm = (
+  stage: ReshapeStage,
+  form: CodedGroupForm,
+  editingStep?: ConstructionReshapeStep,
+): ConstructionReshapeStep | undefined => {
+  const choice = stage.codedGroupChoices?.find((candidate) => candidate.codingPath === form.codingPath);
+  if (!choice || form.outputs.length !== 4 || !outputNamesAreValid(form.outputs)) return undefined;
+  const [system, version, code, count] = form.outputs;
+  return {
+    id: editingStep?.id ?? form.stepId,
+    inputs: [stepInputFor(stage)],
+    operation: {
+      kind: 'CODED_GROUP',
+      codedGroup: {
+        constructionId: editingStep?.id ?? form.stepId,
+        choiceId: choice.choiceId,
+        source: {
+          occurrenceId: choice.occurrenceId,
+          resourceType: choice.resourceType,
+          codingPath: choice.codingPath,
+          fhirType: 'Coding',
+          cardinality: 'MANY',
+          shape: 'ARRAY',
+          route: [],
+        },
+        missingKeyPolicy: form.missingKeyPolicy,
+        systemOutputColumnId: system.id,
+        versionOutputColumnId: version.id,
+        codeOutputColumnId: code.id,
+        distinctSourceCountOutputColumnId: count.id,
+      },
+    },
+    outputs: form.outputs,
+  };
+};
+
 const expandStepFromForm = (args: {
   readonly stage: ReshapeStage;
   readonly editingStep?: ConstructionReshapeStep;
@@ -898,6 +973,10 @@ const stepDescription = (step: ConstructionReshapeStep, capabilities: ReshapeCap
         ? `One row per ${keys.join(', ')} with ${measures} ${measures === 1 ? 'summary' : 'summaries'}.${missing}`
         : `One summary row for the whole table with ${measures} ${measures === 1 ? 'summary' : 'summaries'}.`;
     }
+    case 'CODED_GROUP': {
+      const codingPath = step.operation.codedGroup.source.codingPath;
+      return `One row per code in ${codingPath}, with the number of distinct source records.`;
+    }
     case 'EXPAND': {
       const expand = step.operation.expand;
       const input = stage?.columns.find((column) => column.id === expand.inputColumnId);
@@ -959,6 +1038,7 @@ const formForStep = (
 ): ReshapeForm => {
   if (!editingStep) return { kind: initialKind ?? 'choose' };
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep);
+  if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
   if (editingStep.operation.kind === 'PIVOT') return initialPivotForm(stage, [], editingStep);
@@ -1052,6 +1132,10 @@ const candidateFor = (args: {
     const step = groupStepFromForm({ stage, editingStep, form });
     return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
   }
+  if (form.kind === 'coded-group') {
+    const step = codedGroupStepFromForm(stage, form, editingStep);
+    return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
+  }
   if (form.kind === 'expand') {
     const step = expandStepFromForm({ stage, editingStep, form });
     return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
@@ -1079,6 +1163,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const automaticallySelectedPivotPairs = useRef(new Set<string>());
   const manuallySelectedPivotPairs = useRef(new Set<string>());
   const groupSupport = capabilityFor(stage, 'GROUP');
+  const codedGroupSupport = capabilityFor(stage, 'CODED_GROUP');
   const expandSupport = capabilityFor(stage, 'EXPAND');
   const relatedExpandSupport = capabilityFor(stage, 'RELATED_EXPAND');
   const pivotSupport = capabilityFor(stage, 'PIVOT');
@@ -1102,6 +1187,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {
       case 'group': return groupSupport;
+      case 'coded-group': return codedGroupSupport;
       case 'expand': return expandSupport;
       case 'related-expand': return relatedExpandSupport;
       case 'pivot': return pivotSupport;
@@ -1254,6 +1340,17 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             onChoose={() => updateForm(initialGroupForm(stage, props.selectedColumns ?? []))}
           />
           <ReshapeChoice
+            testId="construction-reshape-choice-coded-group"
+            title="Group by coded value"
+            rows="One row per code, counting each source record once per code."
+            columns="Replace current columns with system, version, code, and source record count."
+            supported={codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length)}
+            reason={codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No executable Coding fields are available at this stage.')}
+            selected={form.kind === 'coded-group'}
+            disabled={disabled}
+            onChoose={() => updateForm(initialCodedGroupForm(stage))}
+          />
+          <ReshapeChoice
             testId="construction-reshape-choice-expand"
             title="Expand a repeated value"
             rows="One row per item in a selected list. Choose how empty lists behave."
@@ -1297,7 +1394,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             disabled={disabled}
             onChoose={() => updateForm(initialUnpivotForm(stage, props.selectedColumns ?? []))}
           />
-          {form.kind === 'choose' && !groupSupport.supported && !expandSupport.supported && !relatedExpandSupport.supported && !pivotSupport.supported && !unpivotSupport.supported ? (
+          {form.kind === 'choose' && !groupSupport.supported && !codedGroupSupport.supported && !expandSupport.supported && !relatedExpandSupport.supported && !pivotSupport.supported && !unpivotSupport.supported ? (
             <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">
               Loom has not confirmed a reshape this stage can run. The operation choices stay unavailable until it returns support.
             </p>
@@ -1326,6 +1423,17 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           reason={groupSupport.reason}
           disabled={disabled}
           onChange={(next) => updateForm(next)}
+        />
+      ) : null}
+
+      {form.kind === 'coded-group' ? (
+        <CodedGroupEditor
+          form={form}
+          stage={stage}
+          supported={codedGroupSupport.supported}
+          reason={codedGroupSupport.reason}
+          disabled={disabled}
+          onChange={updateForm}
         />
       ) : null}
 
@@ -1396,6 +1504,60 @@ const ReshapeChoice = (props: {
     <span className="text-sm text-slate-600"><strong className="font-medium text-slate-800">Columns:</strong> {props.columns}</span>
     {!props.supported || props.reason ? <span className="text-xs text-amber-900">{props.reason}</span> : null}
   </button>
+);
+
+const CodedGroupEditor = (props: {
+  readonly form: CodedGroupForm;
+  readonly stage: ReshapeStage;
+  readonly supported: boolean;
+  readonly reason: string;
+  readonly disabled: boolean;
+  readonly onChange: (form: CodedGroupForm) => void;
+}) => (
+  <section aria-label="Group by coded value" data-testid="construction-reshape-coded-group" className="grid gap-3 rounded-lg border border-slate-200 p-3">
+    <div>
+      <h4 className="text-sm font-semibold text-slate-900">Group by coded value</h4>
+      <p className="mt-1 text-sm text-slate-600">One row per distinct system, version, and code. Repeated copies of a code in one source record count once.</p>
+    </div>
+    {!props.supported ? <p role="status" className="text-sm text-amber-900">{props.reason}</p> : null}
+    <label className="grid gap-1 text-sm font-medium text-slate-800">
+      Coding field
+      <select
+        data-testid="construction-coded-group-path"
+        value={props.form.codingPath}
+        disabled={props.disabled || !props.supported}
+        onChange={(event) => props.onChange({ ...props.form, codingPath: event.target.value })}
+        className="rounded border border-slate-300 bg-white px-2 py-2"
+      >
+        {(props.stage.codedGroupChoices ?? []).map((choice) => (
+          <option key={`${choice.occurrenceId}:${choice.codingPath}`} value={choice.codingPath}>{codingPathLabel(choice.codingPath)}</option>
+        ))}
+      </select>
+    </label>
+    <p className="text-sm text-slate-600">The result has Code system, Code version, Code, and Source records. Current columns leave this table when you apply the step.</p>
+    <details className="rounded border border-slate-200 p-2 text-sm">
+      <summary className="cursor-pointer font-medium text-slate-800">Advanced: records without a complete code</summary>
+      <label className="mt-2 grid gap-1 text-slate-700">
+        When a source record has no code or system
+        <select
+          data-testid="construction-coded-group-missing"
+          value={props.form.missingKeyPolicy}
+          disabled={props.disabled || !props.supported}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === 'GROUP' || value === 'EXCLUDE' || value === 'ERROR') {
+              props.onChange({ ...props.form, missingKeyPolicy: value });
+            }
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-2"
+        >
+          <option value="GROUP">Put it in a missing-code row</option>
+          <option value="EXCLUDE">Leave it out of this result</option>
+          <option value="ERROR">Stop if a code is missing</option>
+        </select>
+      </label>
+    </details>
+  </section>
 );
 
 const GroupEditor = (props: {

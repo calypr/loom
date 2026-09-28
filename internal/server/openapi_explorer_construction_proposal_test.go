@@ -19,6 +19,41 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
+func TestConstructionCodedGroupOpenAPIDTOPreservesPayloadAndChoices(t *testing.T) {
+	requestJSON := []byte(`{"candidateConstruction":{"version":1,"steps":[{"id":"group_codes","inputs":[{"kind":"SOURCE_PROJECTION"}],"operation":{"kind":"CODED_GROUP","codedGroup":{"constructionId":"group_codes","choiceId":"fresh-choice","source":{"occurrenceId":"base","resourceType":"BodyStructure","codingPath":"includedStructure[].structure.coding[]","fhirType":"Coding","cardinality":"MANY","shape":"ARRAY","route":[]},"missingKeyPolicy":"GROUP","systemOutputColumnId":"system","versionOutputColumnId":"version","codeOutputColumnId":"code","distinctSourceCountOutputColumnId":"count"}},"outputs":[]}]}}`)
+	var request loomapi.ConstructionProposalRequest
+	if err := json.Unmarshal(requestJSON, &request); err != nil {
+		t.Fatal(err)
+	}
+	construction, err := directAuthoringJSON[authoringv2.Construction](request.CandidateConstruction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(construction.Steps) != 1 || construction.Steps[0].Operation.CodedGroup == nil ||
+		construction.Steps[0].Operation.CodedGroup.Source.CodingPath != "includedStructure[].structure.coding[]" ||
+		construction.Steps[0].Operation.CodedGroup.ChoiceID != "fresh-choice" {
+		t.Fatalf("OpenAPI request conversion dropped CODED_GROUP payload: %#v", construction)
+	}
+
+	stage := explorer.ReceiptConstructionStage{
+		ID: recipe.ConstructionSourceProjectionID,
+		CodedGroupChoices: []explorer.ReceiptConstructionCodedGroupChoice{{
+			ChoiceID: "fresh-choice", OccurrenceID: "base", ResourceType: "BodyStructure",
+			CodingPath: "includedStructure[].structure.coding[]", Label: "BodyStructure · includedStructure[] › structure › coding[]",
+		}},
+	}
+	response, err := directAuthoringJSON[loomapi.ConstructionCapabilitiesResponse](lifecycle.ConstructionCapabilitiesResponse{
+		Stages: []explorer.ReceiptConstructionStage{stage}, SelectedStage: stage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.SelectedStage.CodedGroupChoices == nil || len(*response.SelectedStage.CodedGroupChoices) != 1 ||
+		(*response.SelectedStage.CodedGroupChoices)[0].CodingPath != "includedStructure[].structure.coding[]" {
+		t.Fatalf("OpenAPI response conversion dropped codedGroupChoices: %#v", response.SelectedStage)
+	}
+}
+
 func TestConstructionProposalHTTPContractPreviewsAndAppliesRemovalOnly(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())

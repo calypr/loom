@@ -64,6 +64,11 @@ func constructionStepInputSchema(steps []ConstructionStep, source []StageColumn,
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("inputs[0]: %w", err)
 	}
+	if step.Operation.Kind == ConstructionOperationCodedGroup {
+		if index != 0 || input.Kind != ConstructionInputSourceProjection {
+			return nil, fmt.Errorf("CODED_GROUP currently requires the direct source projection stage; prior construction stages are not supported")
+		}
+	}
 	switch input.Kind {
 	case ConstructionInputSourceProjection:
 		if index != 0 {
@@ -114,7 +119,7 @@ func validateConstructionCombineStep(step ConstructionStep) error {
 	}
 	if step.Operation.Kind != ConstructionOperationCombine || step.Operation.Combine == nil ||
 		step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
-		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.Expand != nil || step.Operation.RelatedSource != nil {
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.Expand != nil || step.Operation.RelatedSource != nil {
 		return fmt.Errorf("operation must contain only a combine payload")
 	}
 	if err := validateStageColumns(step.Outputs); err != nil {
@@ -296,7 +301,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	payloads := 0
 	for _, present := range []bool{
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
-		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
+		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.CodedGroup != nil, step.Operation.Expand != nil,
 		step.Operation.Combine != nil, step.Operation.RelatedSource != nil, step.Operation.RelatedExpand != nil,
 		step.Operation.RelatedEligibility != nil,
 		step.Operation.RelatedField != nil,
@@ -334,6 +339,11 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
 		return validateConstructionGroup(step, input, inputColumns)
+	case ConstructionOperationCodedGroup:
+		if step.Operation.CodedGroup == nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionCodedGroup(step, input, inputColumns)
 	case ConstructionOperationExpand:
 		if step.Operation.Expand == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -1032,6 +1042,59 @@ func validateConstructionGroup(step ConstructionStep, input map[string]StageColu
 		want = append(want, aggregate.OutputColumnID)
 	}
 	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionCodedGroup(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	group := step.Operation.CodedGroup
+	if !sameOperationID(step.ID, group.ConstructionID) {
+		return fmt.Errorf("codedGroup constructionId must equal step id")
+	}
+	if group.ChoiceID != "" && !requiredID(group.ChoiceID) {
+		return fmt.Errorf("codedGroup choiceId must be an exact server-issued choice")
+	}
+	if group.Source.OccurrenceID != "base" || !requiredID(group.Source.ResourceType) || !requiredID(group.Source.CodingPath) {
+		return fmt.Errorf("codedGroup source must identify an exact root occurrence and Coding path")
+	}
+	if group.Source.FHIRType != "Coding" || group.Source.Cardinality != "MANY" || group.Source.Shape != "ARRAY" || len(group.Source.Route) != 0 {
+		return fmt.Errorf("codedGroup source must be a root-anchored repeated Coding path with an empty route")
+	}
+	if !group.MissingKeyPolicy.Valid() {
+		return fmt.Errorf("codedGroup missingKeyPolicy must be GROUP, EXCLUDE, or ERROR")
+	}
+	ids := []string{
+		group.SystemOutputColumnID,
+		group.VersionOutputColumnID,
+		group.CodeOutputColumnID,
+		group.DistinctSourceCountOutputColumnID,
+	}
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if !requiredID(id) || seen[id] {
+			return fmt.Errorf("codedGroup requires four distinct output column IDs")
+		}
+		seen[id] = true
+		if _, exists := input[id]; exists {
+			return fmt.Errorf("codedGroup output column id %q collides with the input schema", id)
+		}
+	}
+	if len(step.Outputs) != 4 {
+		return fmt.Errorf("codedGroup outputs must declare System, Version, Code, and distinct Source records")
+	}
+	expected := make(map[string]StageColumn, 4)
+	for _, output := range step.Outputs {
+		expected[output.ID] = output
+	}
+	for _, id := range ids[:3] {
+		output, exists := expected[id]
+		if !exists || !strings.EqualFold(output.Type, "string") || !output.Nullable {
+			return fmt.Errorf("codedGroup key output %q must be a nullable string", id)
+		}
+	}
+	count, exists := expected[group.DistinctSourceCountOutputColumnID]
+	if !exists || !strings.EqualFold(count.Type, "integer") || count.Nullable {
+		return fmt.Errorf("codedGroup distinct source count output must be a required integer")
+	}
+	return validateDeclaredOutputIDs(step.Outputs, ids)
 }
 
 func validateConstructionExpand(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {

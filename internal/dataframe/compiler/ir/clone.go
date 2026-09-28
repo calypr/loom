@@ -98,6 +98,11 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			groupCopy.Aggregates = append([]PhysicalStageGroupAggregate(nil), stage.Group.Aggregates...)
 			cloned.Group = &groupCopy
 		}
+		if stage.CodedGroup != nil {
+			codedGroupCopy := *stage.CodedGroup
+			codedGroupCopy.PathSegments = append([]PhysicalCodedGroupPathSegment(nil), stage.CodedGroup.PathSegments...)
+			cloned.CodedGroup = &codedGroupCopy
+		}
 		if stage.Expand != nil {
 			expandCopy := *stage.Expand
 			cloned.Expand = &expandCopy

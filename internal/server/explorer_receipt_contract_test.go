@@ -203,6 +203,275 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 	}
 }
 
+func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *testing.T) {
+	readScope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a",
+			AuthorizationScopeDigest: explorerScopeDigest(readScope),
+			SchemaDigest:             strings.Repeat("c", 64), ResourceInventoryDigest: "inventory",
+			RelationshipDigest: "relationships", FieldDigest: "fields", ShapeDigest: strings.Repeat("d", 64),
+			ProtocolVersion: explorerCapabilityProtocolVersion, CompilerVersion: explorerCapabilityCompilerVersion,
+			TraversalPolicyVersion: explorerTraversalPolicyVersion, ProjectionPolicyVersion: explorerProjectionPolicyVersion,
+		},
+		capability.Policy{
+			Route:      capability.RoutePolicy{Version: explorerTraversalPolicyVersion, AllowsRepeatedEdges: true, AllowsSelfLoops: true},
+			Projection: capability.ProjectionPolicy{Version: explorerProjectionPolicyVersion},
+		},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "n_specimen", ResourceType: "Specimen", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 1, SupportedOperations: []capability.Operation{capability.OperationSelect}}},
+		nil,
+		[]capability.Candidate{{
+			ID: "c_specimen_id", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "id", Label: "ID",
+			LogicalType: "string", Cardinality: "OPTIONAL_ONE",
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true,
+		}, {
+			ID: "c_specimen_coding_code", NodeID: "n_specimen", ResourceType: "Specimen", FieldPath: "type.coding[].code", Label: "Code",
+			LogicalType: "string", Cardinality: "OPTIONAL_ONE",
+			RepeatedBoundaries:  []capability.RepeatedBoundary{{Path: "type.coding[]", MaxItems: 4}},
+			ProjectionModes:     []capability.ProjectionMode{capability.ProjectionScalar, capability.ProjectionFirst},
+			SupportedOperations: []capability.Operation{capability.OperationSelect}, Observed: true, Populated: true, ObservedDocumentCount: 1,
+		}},
+		nil,
+	)
+	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := workspace.Documents[0]
+	document.Output.ID = "specimens"
+	document.Output.Title = "Specimens"
+	document.RootResourceType = "Specimen"
+	document.Route.ResourceType = "Specimen"
+	document.Columns[0].Column = "specimen_id"
+	document.Columns[0].Label = "Specimen ID"
+	workspace.Tabs[0].OutputID = "specimens"
+	workspace.Documents[0] = document
+	workspace, err = authoringv2.MigrateLegacyContributors(workspace, authoringV2Catalog(snapshot, "custom"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace = authoringv2.MigrateLosslessDefaults(workspace, authoringV2Catalog(snapshot, "custom")).NormalizePresentationOrders()
+	baseWorkspace := workspace
+	document = workspace.Documents[0]
+	document, err = authoringv2.UpgradeDocumentToConstruction(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		stepID    = "coded_group_step"
+		systemID  = "coded_system"
+		versionID = "coded_version"
+		codeID    = "coded_code"
+		countID   = "source_count"
+	)
+	groupOutputs := []authoringv2.StageColumn{
+		{ID: systemID, Name: "system", Label: "System", Type: "string", Nullable: true},
+		{ID: versionID, Name: "version", Label: "Version", Type: "string", Nullable: true},
+		{ID: codeID, Name: "code", Label: "Code", Type: "string", Nullable: true},
+		{ID: countID, Name: "source_count", Label: "Distinct source records", Type: "integer"},
+	}
+	document.Construction.Steps = []authoringv2.ConstructionStep{
+		{
+			ID:     stepID,
+			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{
+				Kind: authoringv2.ConstructionOperationCodedGroup,
+				CodedGroup: &authoringv2.ConstructionCodedGroup{
+					ConstructionID: stepID,
+					Source: authoringv2.ConstructionCodedGroupSource{
+						OccurrenceID: "base", ResourceType: "Specimen", CodingPath: "type.coding[]",
+						FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY",
+					},
+					MissingKeyPolicy:     authoringv2.ConstructionGroupMissingKeyGroup,
+					SystemOutputColumnID: systemID, VersionOutputColumnID: versionID,
+					CodeOutputColumnID: codeID, DistinctSourceCountOutputColumnID: countID,
+				},
+			},
+			Outputs: groupOutputs,
+		},
+		{
+			ID:     "filter_coded_rows",
+			Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: stepID}},
+			Operation: authoringv2.ConstructionOperation{
+				Kind:   authoringv2.ConstructionOperationFilter,
+				Filter: &authoringv2.ConstructionFilter{ColumnID: codeID, Operator: authoringv2.ConstructionFilterExists},
+			},
+			Outputs: groupOutputs,
+		},
+	}
+	workspace.Documents[0] = document
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("validate CODED_GROUP proposal workspace: %v", err)
+	}
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		Registry:  compilerTestRegistry{},
+		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftConfig, err := baseWorkspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftDigest, err := baseWorkspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newTestExplorerStore()
+	if _, err := store.create(explorer.Explorer{
+		Project: "project-a", ExplorerID: "custom", Title: "Specimens",
+		DraftConfig: draftConfig, DraftVersion: 1, DraftDigest: draftDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorized := lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope}
+	application, err := lifecycle.New(service, lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{
+			ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
+			ForExecution:   func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil },
+			Catalog:        authoringV2Catalog,
+		},
+		CompileReceipt: func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
+			return compileExplorerReceipt(ctx, request, nil, recipeEngine, service, nil)
+		},
+		PreviewReceipt: func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
+			if err := visit(map[string]any{"system": "https://example.org", "version": nil, "code": "TUMOR", "source_count": 1}); err != nil {
+				return dataframeexecution.PreviewSummary{}, err
+			}
+			return dataframeexecution.PreviewSummary{Output: "specimens", Columns: []string{"system", "version", "code", "source_count"}, RowCount: 1, Complete: true}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := lifecycle.CompileReceiptRequest{
+		Project: "project-a", ExplorerID: "custom", Workspace: workspace, SnapshotToken: snapshot.Token,
+		Authorized: lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: readScope},
+	}
+	receipt, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("compile CODED_GROUP proposal through receipt reconciliation: %v", err)
+	}
+	contracts, err := explorer.DecodePublicOutputContracts(receipt.PublicOutputContract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contracts.ValidateAgainst(receipt.Bundle, receipt.EmittedColumns); err != nil {
+		t.Fatalf("validate reconciled CODED_GROUP contract: %v", err)
+	}
+	if len(receipt.EmittedColumns) != 4 {
+		t.Fatalf("reconciled CODED_GROUP emissions = %#v, want the four declared outputs", receipt.EmittedColumns)
+	}
+	wantPaths := map[string]string{
+		"system":       "type.coding[].system",
+		"version":      "type.coding[].version",
+		"code":         "type.coding[].code",
+		"source_count": "type.coding[]",
+	}
+	for _, emitted := range receipt.EmittedColumns {
+		wantPath, exists := wantPaths[emitted.PublicColumn]
+		if !exists || emitted.SourceResourceType != "Specimen" || emitted.SourcePath != wantPath || emitted.OccurrenceID != "base" {
+			t.Errorf("coded output source facts for %q = %#v, want Specimen %q at root occurrence", emitted.PublicColumn, emitted, wantPath)
+		}
+		if emitted.ConstructionID != stepID || !reflect.DeepEqual(emitted.InputColumns, []string{"specimen_id"}) ||
+			!reflect.DeepEqual(emitted.AuthoredColumns, []string{"specimen_id"}) {
+			t.Errorf("coded output lineage for %q = %#v, want root source projection lineage", emitted.PublicColumn, emitted)
+		}
+		if emitted.Lossless || emitted.StructuralSuitability != "requires-review" {
+			t.Errorf("coded output quality for %q = %#v, want non-lossless review", emitted.PublicColumn, emitted)
+		}
+		delete(wantPaths, emitted.PublicColumn)
+	}
+	if len(wantPaths) != 0 {
+		t.Errorf("receipt omitted coded outputs %v", wantPaths)
+	}
+	stages := receipt.ConstructionStages["specimens"]
+	if len(stages) != 3 || stages[1].Operation != "CODED_GROUP" || stages[2].InputStageID != stepID || stages[2].Operation != "FILTER" {
+		t.Fatalf("recompiled proposal stages = %#v, want CODED_GROUP then downstream FILTER", stages)
+	}
+	repeated, err := compileExplorerReceipt(context.Background(), request, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("recompile saved CODED_GROUP proposal without proposal token: %v", err)
+	}
+	if receipt.CompilationKey != repeated.CompilationKey || receipt.ID != repeated.ID {
+		t.Fatalf("CODED_GROUP saved meaning changed after exact recompile: first=(%q,%q), second=(%q,%q)", receipt.CompilationKey, receipt.ID, repeated.CompilationKey, repeated.ID)
+	}
+
+	capabilities, err := application.GetConstructionCapabilities(context.Background(), lifecycle.ConstructionCapabilitiesRequest{
+		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
+		OutputID: "specimens", StageID: recipe.ConstructionSourceProjectionID,
+	})
+	if err != nil {
+		t.Fatalf("get coded-group capability choice: %v", err)
+	}
+	if len(capabilities.SelectedStage.CodedGroupChoices) != 1 || capabilities.SelectedStage.CodedGroupChoices[0].CodingPath != "type.coding[]" {
+		t.Fatalf("coded-group capability choices = %#v, want only populated Specimen.type.coding[]", capabilities.SelectedStage.CodedGroupChoices)
+	}
+	document.Construction.Steps[0].Operation.CodedGroup.ChoiceID = capabilities.SelectedStage.CodedGroupChoices[0].ChoiceID
+	proposal, err := application.ProposeConstruction(context.Background(), lifecycle.ConstructionProposalRequest{
+		Project: "project-a", ExplorerID: "custom", SnapshotToken: snapshot.Token,
+		ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
+		OutputID: "specimens", ChangedStepID: stepID,
+		CandidateConstruction: *document.Construction,
+	})
+	if err != nil {
+		t.Fatalf("propose coded grouping through lifecycle compilation: %v", err)
+	}
+	if proposal.ProposalID == "" || proposal.PreviewStatus != "PREVIEW_PENDING" {
+		t.Fatalf("coded-group proposal response = %#v", proposal)
+	}
+	proposalReceipt, err := service.CompilationReceiptForExplorer(context.Background(), "project-a", "custom", proposal.ProposalID)
+	if err != nil || proposalReceipt == nil || proposalReceipt.ConstructionProposal == nil {
+		t.Fatalf("coded-group proposal receipt = %#v, error = %v", proposalReceipt, err)
+	}
+	if len(proposalReceipt.EmittedColumns) != 4 || proposalReceipt.EmittedColumns[0].SourceResourceType != "Specimen" {
+		t.Fatalf("proposal receipt did not pass coded outputs through reconciliation: %#v", proposalReceipt.EmittedColumns)
+	}
+	_, err = application.ApplyCommands(context.Background(), "project-a", "custom", authoringv2.ApplyCommandsRequest{
+		CommandID: "apply-coded-group", SemanticsVersion: authoringv2.CurrentSemanticsVersion,
+		SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: draftDigest,
+		Commands: []authoringv2.Command{{
+			Type: authoringv2.CommandApplyConstructionProposal, OutputID: "specimens", ProposalID: proposal.ProposalID,
+		}},
+	}, "test")
+	if err != nil {
+		t.Fatalf("apply coded-group proposal: %v", err)
+	}
+	updated, err := service.Get(context.Background(), "project-a", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := authoringv2.DecodeWorkspace(updated.DraftConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DraftVersion != 2 || accepted.Documents[0].Construction == nil ||
+		accepted.Documents[0].Construction.Steps[0].Operation.CodedGroup == nil {
+		t.Fatalf("applied draft lost its CODED_GROUP stage: version=%d workspace=%#v", updated.DraftVersion, accepted)
+	}
+	acceptedRequest := request
+	acceptedRequest.Workspace = accepted
+	acceptedReceipt, err := compileExplorerReceipt(context.Background(), acceptedRequest, nil, recipeEngine, service, nil)
+	if err != nil {
+		t.Fatalf("recompile applied CODED_GROUP draft without a fresh proposal token: %v", err)
+	}
+	if acceptedReceipt.ResolvedRecipeDigest != proposalReceipt.ResolvedRecipeDigest ||
+		!reflect.DeepEqual(acceptedReceipt.EmittedColumns, proposalReceipt.EmittedColumns) {
+		t.Fatalf("applied CODED_GROUP recompile changed recipe or source lineage: proposal=(%q,%#v), accepted=(%q,%#v)",
+			proposalReceipt.ResolvedRecipeDigest, proposalReceipt.EmittedColumns,
+			acceptedReceipt.ResolvedRecipeDigest, acceptedReceipt.EmittedColumns)
+	}
+}
+
 func TestConstructionStageWithoutRelatedAnchorsSurvivesReceiptJSON(t *testing.T) {
 	stage, err := receiptConstructionStageFromDescriptor(lower.CompiledStageDescriptor{ID: "group", Operation: "GROUP"})
 	if err != nil {

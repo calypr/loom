@@ -76,6 +76,7 @@ const (
 	ConstructionFilterOp             ConstructionOperationKind = "FILTER"
 	ConstructionUnpivotOp            ConstructionOperationKind = "UNPIVOT"
 	ConstructionGroupOp              ConstructionOperationKind = "GROUP"
+	ConstructionCodedGroupOp         ConstructionOperationKind = "CODED_GROUP"
 	ConstructionExpandOp             ConstructionOperationKind = "EXPAND"
 	ConstructionCombineOp            ConstructionOperationKind = "COMBINE"
 	ConstructionRelatedSourceOp      ConstructionOperationKind = "RELATED_SOURCE"
@@ -93,6 +94,7 @@ type ConstructionOperation struct {
 	Filter             *ConstructionFilter             `json:"filter,omitempty"`
 	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
 	Group              *ConstructionGroup              `json:"group,omitempty"`
+	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
 	Expand             *ConstructionExpand             `json:"expand,omitempty"`
 	Combine            *ConstructionCombine            `json:"combine,omitempty"`
 	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
@@ -244,6 +246,28 @@ type ConstructionGroup struct {
 	Aggregates       []ConstructionGroupAggregate      `json:"aggregates,omitempty"`
 }
 
+// ConstructionCodedGroup groups source rows by a tuple read from the same
+// repeated FHIR Coding object.
+type ConstructionCodedGroup struct {
+	ConstructionID                    string                            `json:"constructionId"`
+	Source                            ConstructionCodedGroupSource      `json:"source"`
+	MissingKeyPolicy                  ConstructionGroupMissingKeyPolicy `json:"missingKeyPolicy"`
+	SystemOutputColumnID              string                            `json:"systemOutputColumnId"`
+	VersionOutputColumnID             string                            `json:"versionOutputColumnId"`
+	CodeOutputColumnID                string                            `json:"codeOutputColumnId"`
+	DistinctSourceCountOutputColumnID string                            `json:"distinctSourceCountOutputColumnId"`
+}
+
+type ConstructionCodedGroupSource struct {
+	OccurrenceID string                         `json:"occurrenceId"`
+	ResourceType string                         `json:"resourceType"`
+	CodingPath   string                         `json:"codingPath"`
+	FHIRType     string                         `json:"fhirType"`
+	Cardinality  string                         `json:"cardinality"`
+	Shape        string                         `json:"shape"`
+	Route        []ConstructionRelatedRouteStep `json:"route"`
+}
+
 type ConstructionGroupMissingKeyPolicy string
 
 const (
@@ -368,6 +392,9 @@ func (construction Construction) Validate(sourceFields []Field) error {
 			return fmt.Errorf("%s.inputs must contain exactly one stage reference", path)
 		}
 		input := step.Inputs[0]
+		if step.Operation.Kind == ConstructionCodedGroupOp && (index != 0 || input.Kind != ConstructionSourceProjectionInput) {
+			return fmt.Errorf("%s CODED_GROUP currently requires the direct source projection stage; prior construction stages are not supported", path)
+		}
 		switch input.Kind {
 		case ConstructionSourceProjectionInput:
 			if index != 0 || input.StepID != "" || input.TableID != "" || input.RevisionID != "" || input.OutputID != "" {
@@ -469,7 +496,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 		seenRefs[key] = true
 	}
 	if step.Operation.Combine == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
-		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.Expand != nil {
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.Expand != nil {
 		return fmt.Errorf("steps[0].operation must contain only a combine payload")
 	}
 	if err := validateStageColumns(step.Outputs, "steps[0].outputs"); err != nil {
@@ -495,7 +522,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.CodedGroup != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
 		if present {
 			payloads++
 		}
@@ -638,6 +665,11 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s group operation requires only group payload", path)
 		}
 		return validateConstructionGroup(*operation.Group, inputByID, outputByID, path, constructionIDs)
+	case ConstructionCodedGroupOp:
+		if operation.CodedGroup == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil || operation.RelatedEligibility != nil || operation.RelatedField != nil {
+			return fmt.Errorf("%s coded group operation requires only codedGroup payload", path)
+		}
+		return validateConstructionCodedGroup(*operation.CodedGroup, inputByID, outputByID, path, constructionIDs)
 	case ConstructionExpandOp:
 		if operation.Expand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Combine != nil {
 			return fmt.Errorf("%s expand operation requires only expand payload", path)

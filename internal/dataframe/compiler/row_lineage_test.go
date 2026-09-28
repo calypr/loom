@@ -65,12 +65,81 @@ func TestGroupRowLineageCapabilityKeepsPopulationSourcesEligible(t *testing.T) {
 	})
 	for index := range output.Plan.Operations {
 		if output.Plan.Operations[index].Kind == ir.PhysicalRootScanOp {
-			output.Plan.Operations[index].RootScan.Population = &ir.PhysicalPopulationRootSource{}
+			output.Plan.BindVars["population_members"] = "loom_explorer_selection_members"
+			output.Plan.Operations[index].RootScan.Population = &ir.PhysicalPopulationRootSource{
+				MemberScan: ir.PhysicalCollectionScan{Variable: "population_member", CollectionBindKey: "population_members"},
+				ResourceOperations: []ir.PhysicalOperation{
+					{Kind: ir.PhysicalCollectionScanOp, CollectionScan: &ir.PhysicalCollectionScan{Variable: "population_source", CollectionBindKey: "root_collection"}},
+					{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+						Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "population_source", Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"},
+					}}},
+					{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+						Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "population_source", Path: []string{"dataset_generation"}}, Right: &ir.PhysicalValue{BindKey: "dataset_generation"},
+					}}},
+				},
+				RootKey:  ir.PhysicalValue{Variable: "population_source", Path: []string{"_key"}},
+				MemberID: ir.PhysicalValue{Variable: "population_member", Path: []string{"id"}},
+			}
 			break
 		}
 	}
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("legacy Group population-source capability narrowed to %#v", capability)
+	}
+}
+
+func TestCompileCodedGroupRowLineageResolvesExactTupleAndPagesRootSources(t *testing.T) {
+	lineageOutput := codedGroupLineageOutput()
+	lineageOutput.RootResourceType = "BodyStructure"
+	lineageOutput.Construction.Steps[0].Operation.CodedGroup.Source.ResourceType = "BodyStructure"
+	lineageOutput.Construction.Steps[0].Operation.CodedGroup.Source.CodingPath = "includedStructure[].structure.coding[]"
+	output := lowerConstructionOutput(t, lineageOutput, recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	})
+	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+		t.Fatalf("CODED_GROUP lineage capability = %#v", capability)
+	}
+	compiled, err := CompileRowLineageOutput(output, "opaque-coded-group-row", 4, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"CODED_GROUP", "@project", "@dataset_generation", "DOCUMENT(@@root_collection",
+		".payload[\"includedStructure\"]",
+		`TYPENAME(__loom_physical_construction_row_lineage_coded_group_candidate.code) == "string"`,
+		"COLLECT __loom_physical_construction_row_lineage_coded_group_source_id",
+		`TO_STRING(["construction", @construction_coded_group_id`,
+		"FILTER __loom_physical_construction_row_lineage_coded_group_identity == @row_lineage_row_id",
+		"SORT __loom_physical_construction_row_lineage_coded_group_contributor_key ASC",
+		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
+		"resourceId:", "occurrenceKey:", "hasMore:",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Errorf("CODED_GROUP lineage query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if strings.Contains(compiled.Query, "COLLECT "+"__loom_physical_row_lineage_coded_group_source_id = ") &&
+		strings.Contains(compiled.Query, " INTO ") {
+		t.Fatalf("CODED_GROUP lineage materialized an unbounded contributor list:\n%s", compiled.Query)
+	}
+	if compiled.BindVars[rowLineageRowIDBind] != "opaque-coded-group-row" || compiled.BindVars[rowLineageOffsetBind] != 4 ||
+		compiled.BindVars[rowLineageLimitBind] != 10 || compiled.BindVars[rowLineageFetchLimitBind] != 11 {
+		t.Fatalf("CODED_GROUP lineage page bindings = %#v", compiled.BindVars)
+	}
+}
+
+func TestCodedGroupRowLineageCapabilityKeepsPopulationSourcesEligible(t *testing.T) {
+	output := lowerConstructionOutput(t, codedGroupLineageOutput(), recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	})
+	for index := range output.Plan.Operations {
+		if output.Plan.Operations[index].Kind == ir.PhysicalRootScanOp {
+			output.Plan.Operations[index].RootScan.Population = &ir.PhysicalPopulationRootSource{}
+			break
+		}
+	}
+	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
+		t.Fatalf("population-selected CODED_GROUP lineage capability = %#v", capability)
 	}
 }
 
@@ -228,6 +297,38 @@ func directRelatedExpandOutput(emptyPolicy recipe.ExpansionEmptyPolicy) recipe.O
 	step.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}
 	output.Construction.Steps = []recipe.ConstructionStep{step}
 	return output
+}
+
+func codedGroupLineageOutput() recipe.Output {
+	return recipe.Output{
+		Name: "coded_group_lineage", RootResourceType: "Specimen", RowGrain: "resource",
+		Fields: []recipe.Field{{Name: "resource_id", ColumnID: "resource_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{
+			Version: 1, SourceColumns: []recipe.StageColumn{{ID: "resource_id", Name: "resource_id"}},
+			Steps: []recipe.ConstructionStep{{
+				ID: "group_codes", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+				Operation: recipe.ConstructionOperation{
+					Kind: recipe.ConstructionCodedGroupOp,
+					CodedGroup: &recipe.ConstructionCodedGroup{
+						ConstructionID: "group_codes",
+						Source: recipe.ConstructionCodedGroupSource{
+							OccurrenceID: "base", ResourceType: "Specimen", CodingPath: "type.coding[]",
+							FHIRType: "Coding", Cardinality: "MANY", Shape: "ARRAY", Route: []recipe.ConstructionRelatedRouteStep{},
+						},
+						MissingKeyPolicy:     recipe.ConstructionGroupMissingKeyGroup,
+						SystemOutputColumnID: "system_id", VersionOutputColumnID: "version_id",
+						CodeOutputColumnID: "code_id", DistinctSourceCountOutputColumnID: "count_id",
+					},
+				},
+				Outputs: []recipe.StageColumn{
+					{ID: "system_id", Name: "code_system", Type: "string", Nullable: true},
+					{ID: "version_id", Name: "code_version", Type: "string", Nullable: true},
+					{ID: "code_id", Name: "code", Type: "string", Nullable: true},
+					{ID: "count_id", Name: "source_records", Type: "integer"},
+				},
+			}},
+		},
+	}
 }
 
 func relatedExpandRowID(t *testing.T, parentKey, constructionID, terminalID string) string {

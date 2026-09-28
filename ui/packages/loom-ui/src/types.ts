@@ -1294,6 +1294,27 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
     }).strict(),
   }).strict(),
   z.object({
+    kind: z.literal('CODED_GROUP'),
+    codedGroup: z.object({
+      constructionId: opaqueIdSchema,
+      choiceId: z.string().min(1).optional(),
+      source: z.object({
+        occurrenceId: opaqueIdSchema,
+        resourceType: opaqueIdSchema,
+        codingPath: opaqueIdSchema,
+        fhirType: z.literal('Coding'),
+        cardinality: z.literal('MANY'),
+        shape: z.literal('ARRAY'),
+        route: z.array(constructionRouteStepSchema).length(0),
+      }).strict(),
+      missingKeyPolicy: z.enum(['GROUP', 'EXCLUDE', 'ERROR']),
+      systemOutputColumnId: opaqueIdSchema,
+      versionOutputColumnId: opaqueIdSchema,
+      codeOutputColumnId: opaqueIdSchema,
+      distinctSourceCountOutputColumnId: opaqueIdSchema,
+    }).strict(),
+  }).strict(),
+  z.object({
     kind: z.literal('EXPAND'),
     expand: z.object({
       constructionId: opaqueIdSchema,
@@ -1376,7 +1397,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),
@@ -1417,6 +1438,13 @@ const constructionStageDescriptorSchema = z.object({
   relatedExpand: constructionRelatedExpandStageDescriptorSchema.optional(),
   activeRelatedRecord: constructionActiveRelatedRecordSchema.optional(),
   relatedExpandAnchors: z.array(constructionRelatedExpandAnchorSchema).optional(),
+  codedGroupChoices: z.array(z.object({
+    choiceId: z.string().min(1),
+    occurrenceId: opaqueIdSchema,
+    resourceType: opaqueIdSchema,
+    codingPath: opaqueIdSchema,
+    label: z.string().min(1),
+  }).strict()).optional(),
 }).strict();
 export type ConstructionStageDescriptor = z.infer<typeof constructionStageDescriptorSchema>;
 

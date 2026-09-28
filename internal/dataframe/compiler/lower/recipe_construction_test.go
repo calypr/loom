@@ -38,7 +38,7 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 10 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 11 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
 	}
 	var sourceRelatedExpandCapability *StageOperationCapability
@@ -491,6 +491,7 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 		recipe.ConstructionFilterOp:       "NO_PUBLIC_COLUMNS",
 		recipe.ConstructionUnpivotOp:      "NO_COMPATIBLE_UNPIVOT_COLUMNS",
 		recipe.ConstructionGroupOp:        "NO_PUBLIC_COLUMNS",
+		recipe.ConstructionCodedGroupOp:   "NO_PUBLIC_SOURCE_COLUMNS",
 		recipe.ConstructionExpandOp:       "NO_ARRAY_COLUMNS",
 		recipe.ConstructionRelatedFieldOp: "NO_ACTIVE_RELATED_RECORD",
 	}

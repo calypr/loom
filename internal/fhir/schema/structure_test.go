@@ -89,3 +89,40 @@ func TestDefinitionViewRequiredElementsDoesNotAliasIndex(t *testing.T) {
 		t.Fatalf("required element = %q, want id", got)
 	}
 }
+
+func TestRepeatedCodingPathsFindsDirectAndNestedFHIRCodings(t *testing.T) {
+	index, err := GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		resource string
+		path     string
+	}{
+		{resource: "Specimen", path: "type.coding[]"},
+		{resource: "Observation", path: "component[].code.coding[]"},
+	}
+	for _, test := range tests {
+		t.Run(test.resource+"/"+test.path, func(t *testing.T) {
+			paths, err := index.RepeatedCodingPaths(DefinitionName(test.resource))
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, path := range paths {
+				found = found || path == test.path
+			}
+			if !found {
+				t.Fatalf("RepeatedCodingPaths(%q) = %v, missing %q", test.resource, paths, test.path)
+			}
+			facts, err := index.ResolveRowPath(DefinitionName(test.resource), test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if facts.FHIRType != "Coding" || facts.Shape != RowPathArray || facts.Cardinality != RowCardinalityMany || facts.Reference {
+				t.Fatalf("coding path facts = %#v", facts)
+			}
+		})
+	}
+}

@@ -509,6 +509,47 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					return err
 				}
 			}
+		case authoringv2.ConstructionOperationCodedGroup:
+			if step.Operation.CodedGroup == nil {
+				return fmt.Errorf("coded group step %q has no operation payload", step.ID)
+			}
+			group := step.Operation.CodedGroup
+			quality := constructedOutputQuality{
+				Lossless: false, StructuralSuitability: "requires-review",
+				LossReasons: []string{"CODED_GROUP_REDUCES_TO_DISTINCT_SOURCE_RECORDS"},
+			}
+			inputIDs := make([]string, 0, len(document.Columns))
+			for _, column := range document.Columns {
+				if column.OccurrenceID == group.Source.OccurrenceID {
+					inputIDs = append(inputIDs, column.ColumnID)
+				}
+			}
+			if len(inputIDs) == 0 {
+				return fmt.Errorf("coded group step %q has no source columns on occurrence %q for lineage", step.ID, group.Source.OccurrenceID)
+			}
+			for _, output := range []struct {
+				id   string
+				path string
+			}{
+				{id: group.SystemOutputColumnID, path: group.Source.CodingPath + ".system"},
+				{id: group.VersionOutputColumnID, path: group.Source.CodingPath + ".version"},
+				{id: group.CodeOutputColumnID, path: group.Source.CodingPath + ".code"},
+				{id: group.DistinctSourceCountOutputColumnID, path: group.Source.CodingPath},
+			} {
+				if err := addOutput(output.id, group.ConstructionID, inputIDs, quality); err != nil {
+					return err
+				}
+				for _, declared := range step.Outputs {
+					if declared.ID == output.id {
+						metadata := nextAuthored[declared.Name]
+						metadata.OccurrenceID = group.Source.OccurrenceID
+						metadata.SourceResourceType = group.Source.ResourceType
+						metadata.SourcePath = output.path
+						nextAuthored[declared.Name] = metadata
+						break
+					}
+				}
+			}
 		case authoringv2.ConstructionOperationExpand:
 			if step.Operation.Expand == nil {
 				return fmt.Errorf("expand step %q has no operation payload", step.ID)

@@ -258,6 +258,18 @@ type ReceiptConstructionStage struct {
 	RelatedExpandAnchors []ReceiptConstructionRelatedExpandAnchor `json:"relatedExpandAnchors,omitempty"`
 	RelatedExpand        *ReceiptConstructionRelatedExpand        `json:"relatedExpand,omitempty"`
 	ActiveRelatedRecord  *ReceiptConstructionActiveRelatedRecord  `json:"activeRelatedRecord,omitempty"`
+	CodedGroupChoices    []ReceiptConstructionCodedGroupChoice    `json:"codedGroupChoices,omitempty"`
+}
+
+// ReceiptConstructionCodedGroupChoice is attached only to a current
+// construction-capabilities response. Its choice ID is snapshot-bound; the
+// persisted operation stores the exact source path facts separately.
+type ReceiptConstructionCodedGroupChoice struct {
+	ChoiceID     string `json:"choiceId"`
+	OccurrenceID string `json:"occurrenceId"`
+	ResourceType string `json:"resourceType"`
+	CodingPath   string `json:"codingPath"`
+	Label        string `json:"label"`
 }
 
 type ReceiptConstructionRelatedExpandAnchor struct {
@@ -354,7 +366,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD":
+				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "CODED_GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}

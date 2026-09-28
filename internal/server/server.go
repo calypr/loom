@@ -248,8 +248,18 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 		ClickHouseQueryRows: clickHouseQueryRows,
 		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+			started := time.Now()
+			digest := sha256.Sum256([]byte(query))
+			queryID := hex.EncodeToString(digest[:8])
+			logger.Info("dataframe preview AQL start", "query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
 			err := lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, explorerPreviewTimeout, visit)
-			return classifyDataframeQueryError(err)
+			fields := []any{"query_id", queryID, "query_bytes", len(query), "bind_vars", len(bindVars), "seconds", time.Since(started).Seconds()}
+			if err != nil {
+				logger.Error("dataframe preview AQL failed", append(fields, "error", err.Error())...)
+				return classifyDataframeQueryError(err)
+			}
+			logger.Info("dataframe preview AQL complete", fields...)
+			return nil
 		},
 		ResolveClickHouseInputs: resolveClickHouseInputs,
 		WithExecutionReadPins:   withExecutionReadPins,
