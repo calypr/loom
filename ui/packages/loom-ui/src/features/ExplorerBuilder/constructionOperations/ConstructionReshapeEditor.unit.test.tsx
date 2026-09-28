@@ -159,7 +159,7 @@ describe('ConstructionReshapeEditor', () => {
       onAddCodedValues,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add coded concept' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add coded-value column' }));
     expect(onAddCodedValues).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
 
@@ -167,7 +167,7 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getByLabelText('Pivot values field')).toBeInTheDocument();
     expect(screen.getByText(/category and values selectors use columns already in this table/i)).toBeInTheDocument();
     expect(screen.getByText(/paired coded concept adds a separate column/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Add coded concept' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add coded-value column' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add a paired coded concept' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add a paired coded concept' }));
     expect(onAddCodedValues).toHaveBeenCalledTimes(2);

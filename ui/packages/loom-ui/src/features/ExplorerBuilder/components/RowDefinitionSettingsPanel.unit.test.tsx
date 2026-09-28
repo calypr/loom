@@ -221,7 +221,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } },
     }), expect.any(AbortSignal));
-    expect(await screen.findByText('Candidate rows: 2')).toBeInTheDocument();
+    expect(await screen.findByText('4 rows → 2 rows')).toBeInTheDocument();
   });
 
   it('cancels an in-flight row preview when the policy changes', async () => {
@@ -239,7 +239,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(firstSignal.aborted).toBe(true);
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(2));
     expect(proposeRowDefinition.mock.calls[1]?.[0].selection.expanded.emptyCollectionPolicy).toBe('EXCLUDE');
-    expect(await screen.findByText('Candidate rows: 2')).toBeInTheDocument();
+    expect(await screen.findByText('4 rows → 2 rows')).toBeInTheDocument();
   });
 
   it('explains that field grouping cannot be applied as a starting row shape yet', async () => {
@@ -275,8 +275,8 @@ describe('RowDefinitionSettingsPanel', () => {
       target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
-    expect(await screen.findByText('Base rows: 4')).toBeTruthy();
-    expect(screen.getByText('Candidate rows: 2')).toBeTruthy();
+    expect(await screen.findByText('4 rows → 2 rows')).toBeTruthy();
+    fireEvent.click(screen.getByText('See affected columns and sample row IDs'));
     expect(screen.getByText('Added · grouprev_0123456789abcdef:group-a')).toBeTruthy();
     expect(screen.getByText('Removed · patient-4')).toBeTruthy();
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({

@@ -214,6 +214,7 @@ export const FrameSourcePanel = ({
   const [state, setState] = useState<LoadState<{ sources: ReadonlyArray<FrameSourceOption>; nextCursor?: string }>>({ kind: 'loading' });
   const [editingFrame, setEditingFrame] = useState<string>();
   const [openFrame, setOpenFrame] = useState<string>();
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const previousFrameIds = useRef(new Set(frames.map((frame) => frame.id)));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
@@ -265,6 +266,7 @@ export const FrameSourcePanel = ({
       const applied = frameId ? await onReplace(frameId, source, form) : await onSet(source, form);
       if (applied) {
         setEditingFrame(undefined);
+        setSourcePickerOpen(false);
         setPendingImpact(undefined);
         setMessage('Framing source saved. Choose the coded values that should become columns.');
       }
@@ -313,25 +315,29 @@ export const FrameSourcePanel = ({
 
   return (
     <section aria-label="Frame coded values into columns" data-testid="frame-source-panel"
-      className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
+      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <h2 className="text-sm font-semibold text-slate-900">Frame coded values</h2>
-          <p className="mt-1 text-xs text-slate-600">Choose related code and value records to compact into columns on these rows. You can add other columns afterward.</p>
+          <p className="text-xs text-slate-600">Turn related codes and their values into columns.</p>
         </div>
+        <button type="button" aria-expanded={sourcePickerOpen} onClick={() => setSourcePickerOpen((open) => !open)}
+          className="shrink-0 text-sm font-semibold text-blue-800 hover:underline">
+          {editingFrame ? 'Choose replacement' : frames.length === 0 ? 'Choose coded-value columns' : 'Add coded source'}
+          <span aria-hidden="true"> {sourcePickerOpen ? '▴' : '▾'}</span>
+        </button>
       </div>
       {frames.map((frame) => (
-        <div key={frame.id} className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3" data-testid={`saved-frame-${frame.id}`}>
+        <div key={frame.id} className="mt-2 rounded-md border border-emerald-200 bg-emerald-50/40 p-2" data-testid={`saved-frame-${frame.id}`}>
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">{frame.title}</h3>
               <p className="text-xs text-slate-600">{routeLabel(frame)} · {matchSummary(frame)}</p>
-              <p className="mt-1 text-xs text-slate-600">Choose the codes whose paired values should become columns.</p>
             </div>
             <div className="flex gap-2 text-xs">
               <button type="button" disabled={disabled || busy} onClick={() => { setOpenFrame(openFrame === frame.id ? undefined : frame.id); setEditingFrame(undefined); }}
                 className="font-semibold text-blue-800">{openFrame === frame.id ? 'Close values' : 'Choose values'}</button>
-              <button type="button" disabled={disabled || busy} onClick={() => { setEditingFrame(frame.id); setOpenFrame(undefined); }}
+              <button type="button" disabled={disabled || busy} onClick={() => { setEditingFrame(frame.id); setOpenFrame(undefined); setSourcePickerOpen(true); }}
                 className="font-semibold text-blue-800">Change source</button>
               <button type="button" disabled={disabled || busy} onClick={() => {
                 if (columns.some((column) => column.frameId === frame.id)) setPendingImpact({ kind: 'remove', frameId: frame.id });
@@ -357,10 +363,7 @@ export const FrameSourcePanel = ({
             disabled={disabled || busy} onAddSelected={onAddSelected} /> : null}
         </div>
       ))}
-      <details className="mt-3" open={frames.length === 0 || editingFrame !== undefined}>
-        <summary className="cursor-pointer text-sm font-semibold text-blue-800">
-          {editingFrame ? 'Choose a replacement source' : frames.length === 0 ? 'Choose what to compact into these rows' : 'Add another coded source'}
-        </summary>
+      {sourcePickerOpen ? <div className="mt-2 border-t border-slate-100 pt-2">
         {editingFrame ? <p className="mt-1 text-xs text-slate-600">Choose the same source with a different match rule to change how repeated values are handled.</p> : null}
         <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); setCursor(undefined); setQuery(queryInput.trim()); }}>
           <input type="search" aria-label="Search framing sources" value={queryInput} onChange={(event) => setQueryInput(event.currentTarget.value)}
@@ -372,12 +375,12 @@ export const FrameSourcePanel = ({
         {state.kind === 'ready' ? (
           <>
             {sourceGroups.length === 0 ? <p className="mt-3 text-sm text-slate-600">No other executable coded sources match this search.</p> : null}
-            <div className="mt-2 grid gap-2 lg:grid-cols-2">
+            <div className="mt-2 max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-md border border-slate-200">
               {(showAllSources ? sourceGroups : sourceGroups.slice(0, 4)).map(([key, routes]) => {
                 const source = routes.find((route) => route.choiceId === selectedRoutes.get(key)) ?? preferredRoute(routes, rowRoot);
                 if (!source) return null;
                 return (
-                  <div key={key} className="rounded-lg border border-slate-200 px-3 py-2">
+                  <div key={key} className="px-3 py-2">
                     <strong className="block text-sm text-slate-900">{source.title}</strong>
                     <span className="block text-xs text-slate-500">Example: {source.exampleConcept} · {source.observedOccurrences.toLocaleString()} source occurrences</span>
                     {routes.length > 1 ? (
@@ -423,7 +426,7 @@ export const FrameSourcePanel = ({
               className="mt-2 text-xs font-semibold text-blue-800 disabled:opacity-40">{loadingMore ? 'Loading more paths…' : 'More sources and paths'}</button> : null}
           </>
         ) : null}
-      </details>
+      </div> : null}
       {editingFrame ? <button type="button" className="mt-2 text-xs text-slate-600" onClick={() => setEditingFrame(undefined)}>Cancel source change</button> : null}
       {message ? <p className="mt-2 text-xs text-slate-700" role="status">{message}</p> : null}
     </section>

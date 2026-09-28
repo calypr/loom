@@ -31,6 +31,7 @@ import type {
 import BuilderWorkspace from './BuilderWorkspace';
 
 const mockLoomClient = vi.hoisted(() => ({
+  browseFrameSourceOptions: vi.fn(),
   browseSemanticInventory: vi.fn(),
   getConstructionCapabilities: vi.fn(),
   getSelection: vi.fn(),
@@ -414,6 +415,11 @@ describe('BuilderWorkspace Add columns source selection', () => {
   let applyExplorerCommands: Mock;
 
   beforeEach(() => {
+    mockLoomClient.browseFrameSourceOptions.mockReset().mockImplementation(async (args: { outputId: string; snapshotToken: string }) => ({
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      sources: [],
+    }));
     mockLoomClient.browseSemanticInventory.mockReset().mockResolvedValue({
       contextToken: 'semantic-context',
       buildId: 'semantic-build',
@@ -610,6 +616,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const relatedSources = within(source).getByRole('group', { name: 'Related resources' });
     expect(within(currentRows).getByRole('button', { name: 'All accessible resources, Search coded concepts and fields across the dataset' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(currentRows).getByRole('button', { name: 'Patient, Current table rows' })).toBeInTheDocument();
+    fireEvent.click(within(relatedSources).getByText('Related resources (11)'));
     expect(within(relatedSources).getAllByTestId('construction-add-columns-source-option')).toHaveLength(11);
 
     const search = within(relatedSources).getByRole('searchbox', { name: 'Search related resources' });

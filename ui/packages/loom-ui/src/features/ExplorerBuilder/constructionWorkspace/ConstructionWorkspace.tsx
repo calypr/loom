@@ -78,7 +78,7 @@ export const ConstructionActionBar = ({
   readonly disabled?: boolean;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => (
-  <nav aria-label="Table actions" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+  <nav aria-label="Table actions" className="flex flex-wrap items-center gap-2">
     {actionFamilies.map(({ family, label, description }) => (
       <button
         key={family}
@@ -88,16 +88,14 @@ export const ConstructionActionBar = ({
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
         disabled={disabled}
         onClick={() => onSelect(family)}
-        className={`min-w-0 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+        title={description}
+        className={`min-w-0 rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           activeFamily === family
             ? 'border-emerald-700 bg-emerald-50 text-emerald-950 ring-1 ring-emerald-700'
             : 'border-slate-200 bg-white text-slate-900 hover:border-emerald-300 hover:bg-emerald-50/50'
         }`}
       >
-        <span className="block text-sm font-semibold">{label}</span>
-        <span className="mt-0.5 block text-xs font-normal text-slate-600">
-          {description}
-        </span>
+        {label}
       </button>
     ))}
   </nav>
@@ -371,11 +369,11 @@ export const ConstructionWorkspace = ({
       {history ? <ConstructionHistory {...history} /> : null}
     </aside>
 
-    <section className="min-w-0 space-y-4">
-      <header className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
+    <section className="min-w-0 space-y-3">
+      <header className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
-          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-slate-950">{title}</h1>
+          <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
           {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
         </div>
         <div className="flex items-center gap-4">
@@ -414,7 +412,7 @@ export const ConstructionWorkspace = ({
         onSelect={onSelectFamily}
       />
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(21rem,1fr)]">
+      <div className={`grid min-w-0 items-start gap-4 ${editor ? 'xl:grid-cols-[minmax(0,1.65fr)_minmax(21rem,1fr)]' : ''}`}>
         <section
           aria-label="Table result"
           data-testid="construction-preview"
@@ -428,15 +426,7 @@ export const ConstructionWorkspace = ({
         >
           {preview}
         </section>
-        <aside aria-label="Proposed change" className="order-first min-w-0 xl:order-last">
-          {editor ?? (
-            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Ready to explore</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-950">Choose a table action</h2>
-              <p className="mt-1 text-sm text-slate-600">Each action opens guided choices and a backend-reviewed proposal before it changes this table.</p>
-            </section>
-          )}
-        </aside>
+        {editor ? <aside aria-label="Proposed change" className="order-first min-w-0 xl:order-last">{editor}</aside> : null}
       </div>
 
       {setup ? <div className="min-w-0">{setup}</div> : null}

@@ -383,44 +383,42 @@ export const RowDefinitionSettingsPanel = ({
         aria-label="Configure rows"
         aria-haspopup="dialog"
         aria-expanded={settings.kind !== 'closed'}
-        className="flex w-full items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-800 shadow-sm hover:border-blue-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:border-blue-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || settings.kind === 'loading'}
         onClick={() => void openSettings()}
       >
         <span className="min-w-0">
           <span className="block font-semibold text-slate-900">Rows</span>
-          <span className="mt-1 block truncate text-xs text-slate-600">Current table rows: {currentRowMeaning}</span>
-          <span className="mt-1 block truncate text-xs text-slate-500">{startingCollectionSummary}</span>
+          <span className="block truncate text-xs text-slate-600">Current table rows: {currentRowMeaning}</span>
+          <span className="block truncate text-xs text-slate-500">{startingCollectionSummary}</span>
         </span>
         <span className="shrink-0 font-medium text-blue-800">Configure <span aria-hidden="true">→</span></span>
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">Rows</h3>
-                <p className="mt-1 text-sm text-slate-600">Current table rows: {currentRowMeaning}</p>
+                <p className="mt-1 text-xs text-slate-600">{currentRowMeaning}</p>
               </div>
               <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Close</button>
             </div>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="min-w-0 space-y-4">
+            <div className="mt-3 space-y-3">
+              <div className="min-w-0">
                 {renderRootSettings((nodeId, occurrenceId) => {
                   cancel();
                   onChangeRootOccurrence(nodeId, occurrenceId);
                 })}
-                <section aria-label="Row shape settings" className="rounded-lg border border-slate-200 p-3 text-sm text-slate-800">
-                  <h4 className="font-semibold text-slate-900">Row shape</h4>
-                  <p className="mt-1 text-xs text-slate-600">Starting row shape: {describeCurrentRows(table.document.rows)}</p>
+                <section aria-label="Row shape settings" className="text-sm text-slate-800">
                   {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
-                    <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning.trim().replace(/\.+$/, '')}. Changing the starting rows may affect later steps.</p>
+                    <p className="text-xs text-slate-500">Changing the starting rows may affect later steps.</p>
                   ) : null}
                   {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
                   {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
                   {settings.kind === 'editing' ? (
                     <>
-                <label className="mt-4 block text-sm font-medium text-slate-800">
+                <label className="block text-sm font-medium text-slate-800">
                   <span>New row shape</span>
                   <select
                     aria-label="New row shape"
@@ -520,20 +518,27 @@ export const RowDefinitionSettingsPanel = ({
                   {comparison ? (
               <section aria-label="Row definition preview" className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <h4 className="font-semibold text-slate-900">Preview</h4>
-                <p className="mt-1">Base rows: {comparison.base?.rowCount ?? 'Unavailable'}{comparison.base?.sampled ? ' (sampled)' : ''}</p>
-                <p>Candidate rows: {comparison.candidate?.rowCount ?? 'Unavailable'}{comparison.candidate?.sampled ? ' (sampled)' : ''}</p>
+                <p className="mt-1 text-sm text-slate-700">
+                  {comparison.base?.rowCount ?? 'Unavailable'} rows → {comparison.candidate?.rowCount ?? 'Unavailable'} rows
+                  {comparison.base?.sampled || comparison.candidate?.sampled ? ' · sampled' : ''}
+                </p>
                 {comparison.status === 'UNAVAILABLE' ? <p role="status" className="mt-2 text-amber-900">{comparison.reason}</p> : null}
-                {comparison.affectedColumns.length > 0 ? <p className="mt-2">Affected columns: {comparison.affectedColumns.join(', ')}</p> : null}
-                {comparison.examples.length > 0 ? (
-                  <ul className="mt-2 space-y-1" aria-label="Membership changes">
-                    {comparison.examples.map((example) => (
-                      <li key={example.rowIdentity}>
-                        {example.basePresent === example.candidatePresent ? 'Unchanged' : example.candidatePresent ? 'Added' : 'Removed'} · {example.rowIdentity}
-                      </li>
-                    ))}
-                  </ul>
+                {comparison.affectedColumns.length > 0 || comparison.examples.length > 0 || comparison.notices.length > 0 ? (
+                  <details className="mt-2 text-xs text-slate-600">
+                    <summary className="cursor-pointer font-medium text-blue-800">See affected columns and sample row IDs</summary>
+                    {comparison.affectedColumns.length > 0 ? <p className="mt-2">Affected columns: {comparison.affectedColumns.join(', ')}</p> : null}
+                    {comparison.examples.length > 0 ? (
+                      <ul className="mt-2 space-y-1" aria-label="Membership changes">
+                        {comparison.examples.map((example) => (
+                          <li key={example.rowIdentity}>
+                            {example.basePresent === example.candidatePresent ? 'Unchanged' : example.candidatePresent ? 'Added' : 'Removed'} · {example.rowIdentity}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {comparison.notices.map((notice) => <p key={notice} className="mt-2">{notice}</p>)}
+                  </details>
                 ) : null}
-                {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
               </section>
                   ) : null}
                   {proposalState.kind === 'fresh' && !currentProposal?.proposalId ? (
@@ -549,9 +554,10 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </section>
               </div>
-              <section aria-label="Starting collection settings" className="min-w-0">
-                {startingCollectionSettings}
-              </section>
+              <details className="min-w-0 border-t border-slate-200 pt-3">
+                <summary className="cursor-pointer text-sm font-medium text-blue-800">{startingCollectionSummary}</summary>
+                <section aria-label="Starting collection settings" className="mt-3">{startingCollectionSettings}</section>
+              </details>
             </div>
           </div>
         </div>

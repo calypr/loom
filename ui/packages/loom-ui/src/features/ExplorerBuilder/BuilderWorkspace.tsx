@@ -2419,18 +2419,11 @@ const BuilderWorkspaceContent = ({
       data-operation-family={activeOperation.family}
       className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
     >
-      <header className="border-b border-slate-200 px-4 py-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-          {editingConstructionStep ? 'Edit saved step' : 'Proposed change'}
-        </p>
-        <div className="mt-1 flex items-start justify-between gap-3">
+      <header className="border-b border-slate-200 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">
-              {activeOperation.label}
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              {activeOperation.description}
-            </p>
+            <h2 className="text-base font-semibold text-slate-950">{activeOperation.label}</h2>
+            {editingConstructionStep ? <p className="text-xs text-slate-500">Editing a saved step</p> : null}
           </div>
           <button
             type="button"
@@ -2459,25 +2452,19 @@ const BuilderWorkspaceContent = ({
         ) : null}
       </header>
 
-      <div className="p-4">
+      <div className="p-3">
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
             <fieldset
               aria-label="Add columns source"
               data-testid="construction-add-columns-source"
-              className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3"
+              className="rounded-lg border border-slate-200 bg-white p-2"
             >
-              <legend className="px-1 text-sm font-semibold text-slate-900">
-                Choose where to search
+              <legend className="px-1 text-xs font-semibold text-slate-700">
+                Search in
               </legend>
-              <p className="text-xs text-slate-600">
-                Search all accessible resources, or narrow the results to one resource type.
-              </p>
-              <div role="group" aria-label="Search scope" className="grid gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Search scope
-                </h3>
-                <div className="grid gap-2 sm:grid-cols-2">
+              <div role="group" aria-label="Search scope">
+                <div className="flex flex-wrap gap-1.5">
                   {scopeSourceOptions.map(({ source, label, description, selected }) => (
                     <button
                       key={source.key}
@@ -2491,19 +2478,19 @@ const BuilderWorkspaceContent = ({
                         setAddColumnsSource({ context: addSourceContext, key: source.key });
                         setAddSourceSearch({ context: addSourceContext, query: '' });
                       }}
-                      className={`grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                      title={description}
+                      className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
                     >
-                      <span className="font-medium">{label}</span>
-                      <span className="text-xs text-slate-600">{description}</span>
+                      {label}
                     </button>
                   ))}
                 </div>
               </div>
               {relatedSourceOptions.length > 0 ? (
-                <div role="group" aria-label="Related resources" className="grid gap-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Related resources
-                  </h3>
+                <details role="group" aria-label="Related resources" defaultOpen={selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-blue-800">
+                    Related resources ({relatedSourceOptions.length})
+                  </summary>
                   {relatedSourceOptions.length >= 6 ? (
                     <input
                       type="search"
@@ -2515,10 +2502,10 @@ const BuilderWorkspaceContent = ({
                         query: event.currentTarget.value,
                       })}
                       placeholder="Search resource types"
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                      className="mb-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900 placeholder:text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
                     />
                   ) : null}
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {visibleRelatedSourceOptions.map(({ source, label, description, selected }) => (
                       <button
                         key={source.key}
@@ -2532,10 +2519,10 @@ const BuilderWorkspaceContent = ({
                           setAddColumnsSource({ context: addSourceContext, key: source.key });
                           setAddSourceSearch({ context: addSourceContext, query: '' });
                         }}
-                        className={`grid gap-0.5 rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
+                        title={description}
+                        className={`rounded-md border px-2 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${selected ? 'border-blue-700 bg-blue-50 text-blue-950' : 'border-slate-300 bg-white text-slate-800 hover:border-slate-500'}`}
                       >
-                        <span className="font-medium">{label}</span>
-                        <span className="text-xs text-slate-600">{description}</span>
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -2544,7 +2531,7 @@ const BuilderWorkspaceContent = ({
                       No related resources match this search.
                     </p>
                   ) : null}
-                </div>
+                </details>
               ) : null}
             </fieldset>
             {selectedAddSource?.kind === 'EXACT_RELATED' && constructionLifecycle.capabilities.status === 'ready' ? (

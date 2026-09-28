@@ -113,8 +113,8 @@ describe('ConstructionOperationEditor', () => {
     const editor = screen.getByTestId('construction-filter-editor');
     expect(editor).toHaveAttribute('aria-label', 'Filter output rows by condition');
     expect(within(editor).getByRole('heading', { name: 'Filter output rows' })).toBeInTheDocument();
-    expect(editor).toHaveTextContent(/filter which rows appear in the table output/i);
-    expect(editor).toHaveTextContent(/contributor rules still determine which source records supply values to each row/i);
+    expect(editor).toHaveTextContent(/rows must match every condition/i);
+    expect(editor).toHaveTextContent(/contributor rules still choose which records supply their values/i);
 
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Value' }), { target: { value: '21' } });
     const complete = onCandidateChange.mock.lastCall?.[0];

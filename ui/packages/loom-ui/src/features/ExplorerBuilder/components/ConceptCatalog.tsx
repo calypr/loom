@@ -1013,21 +1013,14 @@ export const ConceptCatalog = ({
           onConfirm={(selections) => void commitSelections(selections)}
         />
       ) : null}
-      <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Find features</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-950">Add coded value columns</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <div className="border-b border-slate-200 px-3 py-3">
+        <h2 className="text-base font-semibold text-slate-950">Add coded value columns</h2>
+        <p className="mt-1 text-xs text-slate-600">
           {resourceType
             ? `Find coded values on the selected ${resourceType} graph node.`
             : `Find coded values across the authorized dataset, starting from ${rowRoot} rows.`}
         </p>
-        <p className="mt-1 text-sm text-slate-700">
-          The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.
-        </p>
-        <form className="mt-4 flex gap-2" onSubmit={submitSearch}>
+        <form className="mt-2 flex gap-2" onSubmit={submitSearch}>
           <label className="sr-only" htmlFor="feature-catalog-search">Search coded values and raw fields</label>
           <input
             id="feature-catalog-search"
@@ -1046,6 +1039,11 @@ export const ConceptCatalog = ({
             Search
           </button>
         </form>
+        <details className="mt-2 text-xs text-slate-600">
+          <summary className="cursor-pointer font-medium text-blue-800">How coded columns work</summary>
+          <p className="mt-1">The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.</p>
+          <p className="mt-1">Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.</p>
+        </details>
       </div>
 
       {warning ? (
@@ -1058,24 +1056,30 @@ export const ConceptCatalog = ({
           Related fields are unavailable until the saved source fields are repaired.
         </span>
       ) : null}
-      {response?.state === 'complete' && response.sourceAvailability === 'verified' ? (
-        <p className="mx-4 mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950 sm:mx-5" role="status">
-          Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.
-        </p>
-      ) : null}
-      {relatedSourceAvailability?.supported === false && !suppressUnavailableNotices ? (
-        <p id={relatedSourceAvailabilityId} className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
-          Adding fields from related resources is unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
-        </p>
-      ) : null}
-      {sourceProjectionAvailability && !sourceProjectionAvailability.available && !suppressUnavailableNotices ? (
-        <p className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 sm:mx-5" role="status">
-          Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
-        </p>
-      ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
-        <p className="mx-4 mt-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950 sm:mx-5" role="status">
-          You can add columns while keeping the current rows. Preview the result to see which rows have values.
-        </p>
+      {(response?.state === 'complete' && response.sourceAvailability === 'verified') ||
+        (!suppressUnavailableNotices && (relatedSourceAvailability?.supported === false || sourceProjectionAvailability)) ? (
+        <details className="mx-3 mt-2 text-xs text-slate-600">
+          <summary className="cursor-pointer font-medium text-blue-800">
+            {!suppressUnavailableNotices && (relatedSourceAvailability?.supported === false || sourceProjectionAvailability?.available === false)
+              ? 'Some column sources are unavailable · see why'
+              : 'Availability and coverage notes'}
+          </summary>
+          {response?.state === 'complete' && response.sourceAvailability === 'verified' ? (
+            <p className="mt-2" role="status">Source availability is verified for this inventory. Per-code denominators and coverage of current table rows are not provided.</p>
+          ) : null}
+          {relatedSourceAvailability?.supported === false && !suppressUnavailableNotices ? (
+            <p id={relatedSourceAvailabilityId} className="mt-2" role="status">
+              Adding fields from related resources is unavailable here: {relatedSourceAvailability.reason?.trim() || 'Loom has not confirmed that this stage supports related-source fields.'}
+            </p>
+          ) : null}
+          {sourceProjectionAvailability && !sourceProjectionAvailability.available && !suppressUnavailableNotices ? (
+            <p className="mt-2" role="status">
+              Add from source is unavailable here: {sourceProjectionReason || 'Loom has not confirmed that source columns retain this stage’s row identity.'} You can still inspect fields, concepts, evidence, and the source choices Loom provides.
+            </p>
+          ) : sourceProjectionAvailability?.available && !suppressUnavailableNotices ? (
+            <p className="mt-2" role="status">You can add columns while keeping the current rows. Preview the result to see which rows have values.</p>
+          ) : null}
+        </details>
       ) : null}
       {disabled && disabledReason?.trim() ? (
         <p id={disabledReasonId} className="mx-4 mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 sm:mx-5" role="status">
@@ -1089,8 +1093,8 @@ export const ConceptCatalog = ({
       ) : null}
 
       <div className={layout === 'panel'
-        ? 'grid min-h-[32rem]'
-        : 'grid min-h-[38rem] lg:grid-cols-[minmax(0,1.25fr)_minmax(19rem,0.75fr)]'}>
+        ? 'grid min-h-[14rem]'
+        : 'grid min-h-[24rem] lg:grid-cols-[minmax(0,1.25fr)_minmax(19rem,0.75fr)]'}>
         <div className={layout === 'panel'
           ? 'min-w-0 border-b border-slate-200 p-4'
           : 'min-w-0 border-b border-slate-200 p-4 lg:border-b-0 lg:border-r sm:p-5'}>

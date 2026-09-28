@@ -464,7 +464,11 @@ export const PreviewTable = ({
       >
         {!preview ? (
           <p className="px-4 py-8 text-sm text-slate-500">
-            Choose a row resource and at least one visible column, then preview.
+            {!table?.document.rootResourceType
+              ? 'Choose starting records to preview this table.'
+              : table.document.columns.length === 0
+                ? 'Add a column, then preview this table.'
+                : 'Preview this table to inspect its rows and columns.'}
           </p>
         ) : (
           <div

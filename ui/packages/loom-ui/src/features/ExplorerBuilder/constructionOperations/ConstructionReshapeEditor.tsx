@@ -1281,17 +1281,13 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   };
 
   return (
-    <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-4">
-      <header>
-        <h3 className="font-semibold text-slate-900">Change the table shape</h3>
-        <p className="mt-1 text-sm text-slate-600">Choose what the new rows or columns should represent.</p>
-      </header>
+    <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-3">
 
       {props.onAddCodedValues && form.kind !== 'pivot' ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
-          <span>Need a column from a FHIR code and its matching value?</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span>Need a coded-value column first?</span>
           <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
-            Add coded concept
+            Add coded-value column
           </button>
         </div>
       ) : null}
