@@ -13,6 +13,9 @@ import {
 
 const project = 'loom_dev_cda_fhir';
 const explorerId = process.argv[2] ?? 'cda-builder-full-qa-1790440983382';
+const mode = process.argv[3] ?? 'values';
+assert(['values', 'count'].includes(mode), `Unknown indirect route mode: ${mode}`);
+const countMode = mode === 'count';
 const specimenId = 'b7cad184-db67-5542-a975-10fffa3e89e7';
 const knownObservationId = '35cfec85-56e8-5257-af99-2e9345be2011';
 const knownPatientId = 'afcfb15e-7617-5691-ae2c-ab675322fb33';
@@ -24,7 +27,8 @@ const startedAt = Date.now();
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const tableName = `CDA indirect route QA ${Date.now()}`;
 const report = {
-  scenario: 'CDA Specimen → Observation → Patient.id related field journey',
+  scenario: `CDA Specimen → Observation → Patient.id ${mode} journey`,
+  mode,
   target: { apiUrl: uiOrigin, project, explorerId, pageURL },
   temporaryTable: tableName,
   performanceGateMs: 5000,
@@ -489,6 +493,7 @@ try {
     );
   }
   addAssertion('The exact two-hop Specimen → Observation → Patient route is available', Boolean(wantedRadio), dialogSnapshot);
+  const expectedMatchCount = report.oracle.chain.length;
   const routeCoverageBefore = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   const routeCoverageStartedAt = Date.now();
   const routeCoverageCard = await browserEval(browser.cdp, `
@@ -520,7 +525,6 @@ try {
   );
   const routeCoverageText = await browserEval(browser.cdp, `const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');return {selected:Boolean(radio?.checked),text:coverage?.innerText?.trim() ?? ''};`);
   const coverageBins = routeCoverageText.text.match(/In (\d+) displayed row: (\d+) with no match, (\d+) with one, (\d+) with two or more/);
-  const expectedMatchCount = report.oracle.chain.length;
   const expectedCoverageBand = expectedMatchCount === 0 ? 'zero' : expectedMatchCount === 1 ? 'one' : 'many';
   const observedCoverageBins = coverageBins ? {
     displayedRows:Number(coverageBins[1]), zero:Number(coverageBins[2]), one:Number(coverageBins[3]), many:Number(coverageBins[4]),
@@ -554,26 +558,34 @@ try {
     `[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].some(input=>input.checked && input.getAttribute('aria-label')===${JSON.stringify(wantedRadio)})`,
     30000,
   );
-  const countForm = await browserEval(browser.cdp,
-    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>/Count matching records/i.test((input.getAttribute('aria-label') ?? '') + ' ' + (input.closest('label')?.innerText ?? '')))?.getAttribute('aria-label') ?? null;`,
+  const choiceForm = await browserEval(browser.cdp,
+    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>${countMode ? '/Count matching records/i' : '/Keep all matching values/i'}.test((input.getAttribute('aria-label') ?? '') + ' ' + (input.closest('label')?.innerText ?? '')))?.getAttribute('aria-label') ?? null;`,
   );
-  addAssertion('A Count matching records form is available', Boolean(countForm), countForm);
-  await recordClick('Choose Count matching records for Patient.id', countForm,
-    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(countForm)});if(!target)throw new Error('Count matching records option missing');target.click();`);
+  const choiceFormLabel = countMode ? 'Count matching records' : 'Keep all matching Patient.id values';
+  addAssertion(`A ${choiceFormLabel} form is available`, Boolean(choiceForm), dialogSnapshot);
+  await recordClick(`Choose ${choiceFormLabel}`, choiceForm,
+    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(choiceForm)});if(!target)throw new Error(${JSON.stringify(`${choiceFormLabel} option missing`)});target.click();`);
   const addResponseCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   previewStartedAt = Date.now();
   await clickButton('Add 1 column', 'Confirm Patient.id route and Add column');
   const addProposal = await waitForProposal('Patient.id add proposal preview', previewStartedAt, addResponseCount);
   report.addProposal = addProposal;
-  const addProposalRawRow = addProposal.text.split(/\r?\n/).find((line) => line.includes(specimenId));
-  const addProposalCount = Number(addProposalRawRow?.trim().split(/\s+/).at(-1));
-  addProposal.rawCdaComparison = { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, renderedRow: addProposalRawRow, observedCount: addProposalCount };
-  addAssertion('Add proposal preview renders the raw-CDA Patient.id match count',
-    addProposal.panel.includes('Count of related Patient records') &&
-      addProposal.panel.includes(`1 of 1 rows contain a value`) &&
-      addProposal.text.includes(specimenId) && addProposalCount === expectedMatchCount,
-    { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, panel: addProposal.panel, text: addProposal.text, renderedRow: addProposalRawRow, observedCount: addProposalCount },
-  );
+  if (countMode) {
+    const addProposalRawRow = addProposal.text.split(/\r?\n/).find((line) => line.includes(specimenId));
+    const addProposalCount = Number(addProposalRawRow?.trim().split(/\s+/).at(-1));
+    addProposal.rawCdaComparison = { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, renderedRow: addProposalRawRow, observedCount: addProposalCount };
+    addAssertion('Add proposal preview renders the raw-CDA Patient.id match count',
+      addProposal.panel.includes('Count of related Patient records') &&
+        addProposal.panel.includes(`1 of 1 rows contain a value`) &&
+        addProposal.text.includes(specimenId) && addProposalCount === expectedMatchCount,
+      { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, panel: addProposal.panel, text: addProposal.text, renderedRow: addProposalRawRow, observedCount: addProposalCount },
+    );
+  } else {
+    addAssertion('Add proposal preview shows the oracle Patient.id',
+      addProposal.text.includes(knownPatientId) || addProposal.rows.some((row) => row.some((cell) => cell.includes(knownPatientId))),
+      { expectedPatientId: knownPatientId, text: addProposal.text, rows: addProposal.rows },
+    );
+  }
   await screenshot('03-two-hop-route-add-proposal');
   await recordClick('Apply Patient.id related field', '[data-testid="construction-apply-proposal"]',
     `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply proposal is not enabled');target.click();`);
@@ -588,26 +600,82 @@ try {
   previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
   previewStartedAt = Date.now();
   await clickButton('Preview', 'Preview applied Patient.id after reload');
-  const appliedResult = await recordPreview('Applied Patient.id COUNT after reload', previewStartedAt, previewResponseCount, String(expectedMatchCount));
+  const appliedResult = await recordPreview(`Applied Patient.id ${countMode ? 'COUNT' : 'values'} after reload`, previewStartedAt, previewResponseCount, countMode ? String(expectedMatchCount) : knownPatientId);
   report.appliedPreview = appliedResult.item;
   const appliedHeaders = appliedResult.item.rendered.headers;
-  const patientCountHeaderIndex = appliedHeaders.findIndex((header) => /related.*patient.*count|patient.*count|count.*patient/i.test(header));
-  addAssertion('Rendered output column identifies the related Patient.id count', patientCountHeaderIndex >= 0, appliedHeaders);
-  const countRow = appliedResult.item.rendered.rows.find((row) => row.some((cell) => cell.includes(specimenId)));
-  addAssertion('Applied Patient.id count matches the raw Arango route oracle',
-    Boolean(countRow) && Number(countRow?.[patientCountHeaderIndex]) === expectedMatchCount,
-    { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, observedRows: appliedResult.item.rendered.rows, countRow },
-  );
+  if (countMode) {
+    const patientCountHeaderIndex = appliedHeaders.findIndex((header) => /related.*patient.*count|patient.*count|count.*patient/i.test(header));
+    addAssertion('Rendered output column identifies the related Patient.id count', patientCountHeaderIndex >= 0, appliedHeaders);
+    const countRow = appliedResult.item.rendered.rows.find((row) => row.some((cell) => cell.includes(specimenId)));
+    addAssertion('Applied Patient.id count matches the raw Arango route oracle',
+      Boolean(countRow) && Number(countRow?.[patientCountHeaderIndex]) === expectedMatchCount,
+      { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, observedRows: appliedResult.item.rendered.rows, countRow },
+    );
+  } else {
+    const patientIDHeaderIndex = appliedHeaders.findIndex((header) => /patient/i.test(header) && /\bids?\b/i.test(header));
+    addAssertion('Rendered output column identifies Patient.id', patientIDHeaderIndex >= 0, appliedHeaders);
+    const patientDOMRow = appliedResult.item.rendered.rows.find((row) => row.some((cell) => cell.includes(knownPatientId)));
+    addAssertion('Visible Patient.id matches the Arango two-hop oracle', Boolean(patientDOMRow), {
+      expectedPatientIds: report.oracle.expectedPatientIds,
+      observedRows: appliedResult.item.rendered.rows,
+    });
+    addAssertion('Rendered Patient.id matches every oracle result',
+      report.oracle.expectedPatientIds.every((id) => patientDOMRow?.some((cell) => cell.includes(id))),
+      { expectedPatientIds: report.oracle.expectedPatientIds, row: patientDOMRow },
+    );
+  }
   addAssertion('Applied preview still represents one Specimen row', appliedResult.payload.rowCount === 1, appliedResult.payload.rowCount);
   await screenshot('04-applied-preview-after-reload');
 
 
-  await recordClick('Select saved related field step', '[data-testid^="construction-history-step-"]',
+  let activeOutputLabel;
+  if (!countMode) {
+    await recordClick('Select saved related field step for edit', '[data-testid^="construction-history-step-"]',
+      `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
+    await recordClick('Edit saved Patient.id step', '[data-testid^="construction-edit-step-"]',
+      `const target=document.querySelector('[data-testid^="construction-edit-step-"]');if(!target)throw new Error('Edit step button missing');target.click();`);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"]'))`, 30000);
+    const savedRouteEditor = await browserEval(browser.cdp, `return document.querySelector('[data-testid="related-source-step-editor"]')?.innerText;`);
+    report.savedRouteEditor = savedRouteEditor;
+    addAssertion('Saved editor retained the exact two-hop route',
+      savedRouteEditor?.includes('Current route: Specimen → Observation via Specimen · Observation → Patient via Subject'),
+      savedRouteEditor,
+    );
+    activeOutputLabel = `Patient.id QA edit ${Date.now()}`;
+    const editProposalCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
+    previewStartedAt = Date.now();
+    await setInput('[aria-label="Output column label"]', activeOutputLabel, 'Edit Patient.id output label');
+    const editProposal = await waitForProposal('Edited Patient.id proposal preview', previewStartedAt, editProposalCount);
+    report.editProposal = editProposal;
+    await screenshot('05-edit-proposal-preview');
+    await recordClick('Apply Patient.id label edit', '[data-testid="construction-apply-proposal"]',
+      `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply edit proposal is not enabled');target.click();`);
+    await waitForBrowser(browser.cdp,
+      `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes(${JSON.stringify(activeOutputLabel)})`,
+      60000,
+    );
+    await navigate(browser.cdp, pageURL);
+    await selectTemporaryTable();
+    previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
+    previewStartedAt = Date.now();
+    await clickButton('Preview', 'Preview edited Patient.id after reload');
+    const editedResult = await recordPreview('Edited Patient.id table preview after reload', previewStartedAt, previewResponseCount, knownPatientId);
+    report.editedPreview = editedResult.item;
+    addAssertion('Edited Patient.id label survived reload', editedResult.item.rendered.headers.some((header) => header.toLowerCase() === activeOutputLabel.toLowerCase()), editedResult.item.rendered.headers);
+    addAssertion('Edited Patient.id value still matches the Arango oracle',
+      editedResult.item.rendered.rows.some((row) => report.oracle.expectedPatientIds.every((id) => row.some((cell) => cell.includes(id)))),
+      editedResult.item.rendered.rows,
+    );
+    await screenshot('06-edited-preview-after-reload');
+  }
+
+  await recordClick(`Select saved ${countMode ? 'Count' : 'edited'} related field step`, '[data-testid^="construction-history-step-"]',
     `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
   const removeProposalCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   previewStartedAt = Date.now();
-  await recordClick('Remove temporary related field step', '[data-testid^="construction-remove-step-"]',
+  await recordClick(`Remove temporary ${countMode ? 'Count' : 'edited Patient.id'} step`, '[data-testid^="construction-remove-step-"]',
     `const target=document.querySelector('[data-testid^="construction-remove-step-"]');if(!target||target.disabled)throw new Error('Remove step button missing or disabled');target.click();`);
   const removeProposal = await waitForProposal('Remove Patient.id proposal preview', previewStartedAt, removeProposalCount);
   report.removeProposal = removeProposal;
@@ -701,6 +769,7 @@ console.log(JSON.stringify({
   cleanup: report.cleanup,
   oracleChain: report.oracle?.chain,
   clickCount: report.clickCount,
+  mode,
   preselectionRouteCoverage: report.preselectionRouteCoverage,
   previewTimingsMs: report.renderedPreviews.map((preview) => ({ name: preview.name, elapsedMs: preview.elapsedMs })),
   responsesWithErrors: report.responsesWithErrors,

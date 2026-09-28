@@ -46,8 +46,8 @@ browser?.cdp.on('Network.responseReceived', (event) => {
 try {
   if (action === 'Verify bounded indirect related route') {
     const targetExplorer = process.argv[3] ?? 'cda-builder-full-qa-1790440983382';
-    const journeyOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
-    const stdout = execFileSync(process.execPath, ['scripts/verify-cda-indirect-specimen-patient.mjs', targetExplorer], {
+    const journeyOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? uiOrigin;
+    const stdout = execFileSync(process.execPath, ['scripts/verify-cda-indirect-specimen-patient.mjs', targetExplorer, 'count'], {
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,
       env: { ...process.env, LOOM_CDA_UI_ORIGIN: journeyOrigin },
@@ -62,6 +62,7 @@ try {
     console.log(JSON.stringify({
       action,
       explorerId: targetExplorer,
+      mode: journey.mode,
       outcome: journey.outcome,
       evidenceDirectory: journey.evidenceDirectory,
       canonicalEvidence: join(evidenceDirectory, 'bounded-indirect-related-route.json'),
