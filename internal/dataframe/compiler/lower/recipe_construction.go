@@ -332,6 +332,13 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 	identityColumn.ID = identityColumn.Name
 	identityColumn.Internal, identityColumn.Identity = true, true
 	resolved = append(resolved, identityColumn)
+	if identity != "_key" {
+		if rootKey, ok := schemaColumn(schema, "_key"); ok && rootKey.Internal && rootKey.Identity &&
+			rootKey.Kind == string(expression.KindString) && rootKey.Cardinality == string(expression.RequiredOne) {
+			rootKey.ID, rootKey.Identity = "_key", false
+			resolved = append(resolved, rootKey)
+		}
+	}
 	return resolved, nil
 }
 

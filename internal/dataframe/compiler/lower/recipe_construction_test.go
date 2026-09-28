@@ -689,6 +689,41 @@ func TestCompileRelatedEligibilityPreservesRowsAndCountsDistinctTerminalResource
 
 func intPointer(value int) *int { return &value }
 
+func TestRelatedEligibilityKeepsRootAnchorAfterRowExpansion(t *testing.T) {
+	output := constructionTestOutput()
+	output.RootOccurrenceID = "patient-root"
+	output.RowGrain = "expanded"
+	output.Expand = &recipe.Expansion{
+		OwnerOccurrenceID: "patient-root", From: recipe.Expression{Select: "root.identifier[]"},
+		As: "item", Ordinality: "position", EmptyPolicy: recipe.ExpansionPreserveParent,
+	}
+	output.Identity = &recipe.Identity{Name: "row", Expansion: &recipe.ExpansionIdentity{}}
+	output.Construction.Steps = []recipe.ConstructionStep{{
+		ID: "eligible_observations", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedEligibilityOp, RelatedEligibility: &recipe.ConstructionRelatedEligibility{
+			AnchorColumnID: "_key", ChoiceID: "patient-observation-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			Route: []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}},
+			ContributorPolicy: "ALL_MATCHES", MatchKind: recipe.RelatedEligibilityExists,
+		}},
+		Outputs: output.Construction.SourceColumns,
+	}}
+
+	compiled := compileDerivedTestOutput(t, output)
+	if got := compiled.Plan.StageSequence.SourceRowIdentity; got != "__loom_expansion_identity" {
+		t.Fatalf("source row identity = %q, want expanded-row identity", got)
+	}
+	if got := compiled.Stages[0].RelatedExpandAnchors; len(got) != 1 || got[0].AnchorColumnID != "_key" {
+		t.Fatalf("expanded source lost exact root resource anchor: %#v", got)
+	}
+	if compiled.Plan.StageSequence.Stages[0].Kind != ir.PhysicalStageRelatedEligibilityOp {
+		t.Fatalf("related eligibility did not compile after row expansion")
+	}
+}
+
 func TestRelatedEligibilityUsesActiveRelatedRecordAnchor(t *testing.T) {
 	output := constructionTestOutput()
 	_, activeObservationID := relatedExpandIdentityColumnNames("expand_observations")

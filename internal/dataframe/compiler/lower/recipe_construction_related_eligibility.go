@@ -47,7 +47,8 @@ func lowerConstructionRelatedEligibility(
 		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility route does not start at its selected row resource anchor")
 	}
 	identity, ok := input[inputIdentity]
-	if !ok || !identity.Internal || !identity.Identity || identity.Name != inputIdentity || identity.Kind != string(expression.KindString) ||
+	if !ok || !identity.Internal || !identity.Identity || identity.Name != inputIdentity ||
+		(identity.Kind != string(expression.KindString) && !(inputIdentity == "__loom_expansion_identity" && identity.Kind == string(expression.KindObject))) ||
 		identity.Cardinality != string(expression.RequiredOne) {
 		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility input has no required scalar row identity")
 	}
