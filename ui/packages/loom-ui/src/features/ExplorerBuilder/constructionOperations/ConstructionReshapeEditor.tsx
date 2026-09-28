@@ -159,11 +159,22 @@ type ReshapeForm =
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
+export type ReshapeEntryKind = 'choose' | 'group' | 'pivot' | 'related-expand';
+
+const reshapeFormLabels = {
+  group: 'Group records',
+  'coded-group': 'Group by coded value',
+  expand: 'Expand repeated values',
+  'related-expand': 'Related records',
+  pivot: 'Categories to columns',
+  unpivot: 'Turn columns into rows',
+} satisfies Record<Exclude<ReshapeForm['kind'], 'choose' | 'unsupported'>, string>;
+
 export interface ConstructionReshapeEditorProps {
   readonly construction: Construction;
   readonly capabilities: ReshapeCapabilities;
   readonly editingStep?: ConstructionReshapeStep;
-  readonly initialKind?: 'related-expand';
+  readonly initialKind?: ReshapeEntryKind;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
   readonly onDiscoverCategories?: (request: ConstructionReshapePivotDiscoveryRequest) => void;
@@ -1034,9 +1045,13 @@ const editorContextKey = (
 const formForStep = (
   editingStep: ConstructionReshapeStep | undefined,
   stage: ReshapeStage,
-  initialKind?: 'related-expand',
+  initialKind?: ReshapeEntryKind,
 ): ReshapeForm => {
-  if (!editingStep) return { kind: initialKind ?? 'choose' };
+  if (!editingStep) {
+    if (initialKind === 'group') return initialGroupForm(stage, []);
+    if (initialKind === 'pivot') return initialPivotForm(stage, []);
+    return { kind: initialKind ?? 'choose' };
+  }
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep);
   if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
@@ -1321,7 +1336,15 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <p role="status" data-testid="construction-reshape-schema-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">The construction schema did not accept this reshape, so Loom has not previewed it.</p>
       ) : null}
 
-      {!editingStep && form.kind !== 'unsupported' ? (
+      {!editingStep && form.kind !== 'choose' && form.kind !== 'unsupported' ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+          <span className="font-semibold text-slate-900">{reshapeFormLabels[form.kind]}</span>
+          <button type="button" disabled={disabled} onClick={() => updateForm({ kind: 'choose' })}
+            className="font-medium text-blue-800 hover:underline disabled:opacity-50">Change row operation</button>
+        </div>
+      ) : null}
+
+      {!editingStep && form.kind === 'choose' ? (
         <fieldset className="grid gap-2">
           <legend className="mb-1 text-sm font-semibold text-slate-800">Choose how rows and columns change</legend>
           <ReshapeChoice
@@ -1331,7 +1354,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             columns="Keep the group fields and add counts or summaries of selected fields."
             supported={groupSupport.supported}
             reason={groupSupport.reason}
-            selected={form.kind === 'group'}
             disabled={disabled}
             onChoose={() => updateForm(initialGroupForm(stage, props.selectedColumns ?? []))}
           />
@@ -1344,7 +1366,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             reason={stage.operation && !codedGroupSupport.supported
               ? 'Available on starting records before other table changes.'
               : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
-            selected={form.kind === 'coded-group'}
             disabled={disabled}
             onChoose={() => updateForm(initialCodedGroupForm(stage))}
           />
@@ -1355,7 +1376,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             columns="Replace the list with its item; optionally add the item's position."
             supported={expandSupport.supported}
             reason={expandReason}
-            selected={form.kind === 'expand'}
             disabled={disabled || expandColumns.length === 0}
             onChoose={() => updateForm(initialExpandForm(stage))}
           />
@@ -1366,7 +1386,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             columns="Keep current columns and add the related record ID."
             supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
             reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
-            selected={form.kind === 'related-expand'}
             disabled={disabled}
             onChoose={() => updateForm({ kind: 'related-expand' })}
           />
@@ -1377,7 +1396,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             columns="Add one column for each accepted category, filled from a selected value field."
             supported={newPivotSupport.supported}
             reason={newPivotSupport.reason}
-            selected={form.kind === 'pivot'}
             disabled={disabled}
             onChoose={() => updateForm(initialPivotForm(stage, props.selectedColumns ?? []))}
           />
@@ -1388,7 +1406,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             columns="Replace those columns with a source-name column and a value column."
             supported={unpivotSupport.supported}
             reason={unpivotSupport.reason}
-            selected={form.kind === 'unpivot'}
             disabled={disabled}
             onChoose={() => updateForm(initialUnpivotForm(stage, props.selectedColumns ?? []))}
           />
@@ -1485,18 +1502,16 @@ const ReshapeChoice = (props: {
   readonly columns: string;
   readonly supported: boolean;
   readonly reason: string;
-  readonly selected: boolean;
   readonly disabled: boolean;
   readonly onChoose: () => void;
 }) => (
   <button
     type="button"
     data-testid={props.testId}
-    aria-pressed={props.selected}
     aria-label={`${props.title}. ${props.rows} ${props.columns}${props.reason ? ` ${props.reason}` : ''}`}
     disabled={props.disabled || !props.supported}
     onClick={props.onChoose}
-    className={`grid gap-0.5 rounded-lg border px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${props.selected ? 'border-blue-700 bg-blue-50' : 'border-slate-200'}`}
+    className="grid gap-0.5 rounded-lg border border-slate-200 px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50"
   >
     <span className="text-sm font-semibold text-slate-900">{props.title}</span>
     <span className="text-xs text-slate-600">{props.rows}</span>

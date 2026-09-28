@@ -112,7 +112,7 @@ import {
 } from './constructionWorkspace/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
 import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
-import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
+import { ConstructionReshapeEditor, type ReshapeEntryKind } from './constructionOperations/ConstructionReshapeEditor';
 import {
   RelatedSourceStepEditor,
   type RelatedSourceStep,
@@ -465,8 +465,8 @@ const BuilderWorkspaceContent = ({
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
   const [addColumnsView, setAddColumnsView] = useState<'coded' | 'fields'>('coded');
-  const [relatedRowsEntry, setRelatedRowsEntry] = useState(0);
-  const [openReshapeOnRelatedRows, setOpenReshapeOnRelatedRows] = useState(false);
+  const [reshapeEntry, setReshapeEntry] = useState(0);
+  const [reshapeEntryKind, setReshapeEntryKind] = useState<ReshapeEntryKind>('choose');
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
     readonly key: string;
@@ -2234,22 +2234,23 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-    setOpenReshapeOnRelatedRows(false);
+    setReshapeEntryKind('choose');
     setActiveConstructionFamily((current) => current === family ? undefined : family);
   };
   const chooseRelatedRows = () => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-    setOpenReshapeOnRelatedRows(true);
-    setRelatedRowsEntry((current) => current + 1);
+    setReshapeEntryKind('related-expand');
+    setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = () => {
+  const chooseReshapeRows = (kind: 'group' | 'pivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-    setOpenReshapeOnRelatedRows(false);
+    setReshapeEntryKind(kind);
+    setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
   const openCodedValueCatalog = () => {
@@ -2362,6 +2363,23 @@ const BuilderWorkspaceContent = ({
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
     );
+  const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT') => {
+    const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
+    return capabilityIsForAppendStage && capability?.supported
+      ? { supported: true }
+      : {
+          supported: false,
+          reason: constructionLifecycle.capabilities.status === 'error'
+            ? constructionLifecycle.capabilities.message
+            : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
+              ? 'Checking this table’s available row operations…'
+              : capability?.reason ?? 'This row operation is unavailable for the current table.',
+        };
+  };
+  const reshapeRowsAvailability = {
+    group: reshapeAvailabilityFor('GROUP'),
+    pivot: reshapeAvailabilityFor('PIVOT'),
+  };
   const relatedExpandCapability = capabilityStage?.capabilities.find(
     (candidate) => candidate.kind === 'RELATED_EXPAND',
   );
@@ -2690,11 +2708,11 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
-              key={`${table.outputId}:${relatedRowsEntry}:${openReshapeOnRelatedRows ? 'related-rows' : 'choose'}`}
+              key={`${table.outputId}:${reshapeEntry}:${reshapeEntryKind}`}
               construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
-              initialKind={openReshapeOnRelatedRows ? 'related-expand' : undefined}
+              initialKind={reshapeEntryKind}
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
@@ -3137,6 +3155,7 @@ const BuilderWorkspaceContent = ({
                     selection={activePopulationSelection}
                     disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
                     relatedRows={relatedRowsAvailability}
+                    reshapeRows={reshapeRowsAvailability}
                     onChooseRelatedRows={chooseRelatedRows}
                     onChooseReshape={chooseReshapeRows}
                     onChangeRootOccurrence={(nodeId, occurrenceId) => void changeTableRoot(nodeId, { rootOccurrenceId: occurrenceId })}

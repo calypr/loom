@@ -246,7 +246,7 @@ export function BuilderToolbar({
       className="min-w-0 border-l border-slate-200 bg-white pl-4"
       data-explorer-delete-supported={deleteSupported}
     >
-      <div className="flex min-w-0 items-center gap-2 py-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 py-1">
         <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-600">
           <span className="sr-only">Explorer</span>
           <select

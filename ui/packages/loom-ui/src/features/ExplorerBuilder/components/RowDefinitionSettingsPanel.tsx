@@ -176,6 +176,7 @@ export const RowDefinitionSettingsPanel = ({
   disabled,
   onApply,
   relatedRows,
+  reshapeRows,
   onChooseRelatedRows,
   onChooseReshape,
   onChangeRootOccurrence,
@@ -196,8 +197,9 @@ export const RowDefinitionSettingsPanel = ({
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
+  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }>;
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: () => void;
+  readonly onChooseReshape: (kind: 'group' | 'pivot') => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
@@ -250,7 +252,7 @@ export const RowDefinitionSettingsPanel = ({
         return;
       }
       const options = selectionOptions(choices);
-      setSettings({ kind: 'editing', choices, options, selectionId: options[0].value });
+      setSettings({ kind: 'editing', choices, options, selectionId: '' });
     } catch (error) {
       if (requestEpoch !== settingsRequestEpoch.current) return;
       setSettings({
@@ -260,11 +262,7 @@ export const RowDefinitionSettingsPanel = ({
     }
   };
 
-  const propose = async (selection?: RowDefinitionSelection) => {
-    const selected = selection ?? (settings.kind === 'editing'
-      ? settings.options.find((option) => option.value === settings.selectionId)?.selection
-      : undefined);
-    if (!selected) return;
+  const propose = async (selected: RowDefinitionSelection) => {
     cancelPendingPreview();
     const requestEpoch = proposalRequestEpoch.current;
     const controller = new AbortController();
@@ -333,9 +331,9 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = () => {
+  const chooseReshape = (kind: 'group' | 'pivot') => {
     cancel();
-    onChooseReshape();
+    onChooseReshape(kind);
   };
 
   const currentProposal = proposalState.kind === 'fresh' ? proposalState.proposal : undefined;
@@ -381,15 +379,36 @@ export const RowDefinitionSettingsPanel = ({
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Change rows</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Define rows</h3>
                 <p className="mt-1 text-xs text-slate-600">Currently: {currentRowMeaning}</p>
               </div>
               <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Close</button>
             </div>
             <div className="mt-3 space-y-3">
+              <section aria-label="Choose a row change" className="grid gap-2 sm:grid-cols-3">
+                <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
+                  onClick={() => chooseReshape('group')}
+                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-slate-900">Group records</span>
+                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported ? 'One row per group, with counts or summaries.' : reshapeRows.group.reason}</span>
+                </button>
+                <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !reshapeRows.pivot.supported}
+                  onClick={() => chooseReshape('pivot')}
+                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
+                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.pivot.supported ? 'Fill columns from coded or other category values.' : reshapeRows.pivot.reason}</span>
+                </button>
+                <button type="button" disabled={disabled || !relatedRows.supported}
+                  onClick={chooseRelatedRows}
+                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
+                  <span className="block text-sm font-semibold text-slate-900">Related records</span>
+                  <span className="mt-1 block text-xs text-slate-600">One row per matching record on a related path.</span>
+                </button>
+                {!relatedRows.supported ? <p className="text-xs text-slate-600 sm:col-span-3">{relatedRows.reason ?? 'Checking available related row paths…'}</p> : null}
+              </section>
               <div className="min-w-0">
                 <section aria-label="Row shape settings" className="text-sm text-slate-800">
                   {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
@@ -397,11 +416,11 @@ export const RowDefinitionSettingsPanel = ({
                   {settings.kind === 'editing' ? (
                     <>
                 <label className="block text-sm font-medium text-slate-800">
-                  <span>What should each row represent?</span>
+                  <span>Or choose individual records or repeated values</span>
                   <select
                     aria-label="What should each row represent?"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"
-                    value={selectedOption?.shapeValue ?? 'records'}
+                    value={selectedOption?.shapeValue ?? ''}
                     disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
                     onChange={(event) => {
                       const next = settings.options.find((option) => option.shapeValue === event.currentTarget.value);
@@ -410,6 +429,7 @@ export const RowDefinitionSettingsPanel = ({
                       schedulePreview(next.selection);
                     }}
                   >
+                    <option value="" disabled>Choose a row change</option>
                     {shapeOptions(settings.options).map((option) => <option key={option.shapeValue} value={option.shapeValue}>{option.shapeLabel}</option>)}
                   </select>
                 </label>
@@ -464,36 +484,14 @@ export const RowDefinitionSettingsPanel = ({
                     )}
                   </details>
                 ) : null}
-                <div className="mt-4 flex flex-wrap justify-end gap-2">
-                  <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
-                  <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'} onClick={() => void propose()}>
-                    Preview row change
-                  </button>
-                </div>
                     </>
                   ) : null}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" data-testid="construction-action-reshape" disabled={disabled}
-                      onClick={chooseReshape}
-                      className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:opacity-50">
-                      Group or reshape rows
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:border-slate-300 disabled:text-slate-400"
-                      disabled={disabled || !relatedRows.supported}
-                      onClick={chooseRelatedRows}
-                    >
-                      One row per related record
-                    </button>
-                    {!relatedRows.supported ? <p className="text-xs text-slate-600">{relatedRows.reason ?? 'Checking available related row paths…'}</p> : null}
-                  </div>
                   {proposalState.kind === 'proposing' ? <p className="mt-4" role="status">Compiling and comparing row membership…</p> : null}
-                  {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This proposal is stale. Preview the row change again before applying it.</p> : null}
+                  {proposalState.kind === 'stale' ? <p className="mt-4 text-amber-800" role="alert">This row change is out of date. Close Rows and choose it again.</p> : null}
                   {proposalState.kind === 'applying' ? <p className="mt-4" role="status">Applying row definition…</p> : null}
                   {comparison ? (
               <section aria-label="Row definition preview" className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <h4 className="font-semibold text-slate-900">Preview</h4>
+                <h4 className="font-semibold text-slate-900">Effect on rows</h4>
                 <p className="mt-1 text-sm text-slate-700">
                   {comparison.base?.rowCount ?? 'Unavailable'} rows → {comparison.candidate?.rowCount ?? 'Unavailable'} rows
                   {comparison.base?.sampled || comparison.candidate?.sampled ? ' · sampled' : ''}

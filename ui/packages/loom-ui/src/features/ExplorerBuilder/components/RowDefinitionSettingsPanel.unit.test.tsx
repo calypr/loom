@@ -93,6 +93,7 @@ const relatedRowProps = {
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
   relatedRows: { supported: false, reason: 'No executable route' },
+  reshapeRows: { group: { supported: true }, pivot: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
   onChangeRootOccurrence: vi.fn(),
@@ -113,6 +114,7 @@ const renderSettings = (overrides: {
   proposalValue?: RowDefinitionProposal;
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
+  pivotSupported?: boolean;
   onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
@@ -128,6 +130,10 @@ const renderSettings = (overrides: {
       {...relatedRowProps}
       onChangeRootOccurrence={onChangeRootOccurrence}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
+      reshapeRows={{ group: { supported: true }, pivot: {
+        supported: overrides.pivotSupported ?? true,
+        reason: 'No executable category-to-column operation',
+      } }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
       client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
@@ -166,18 +172,36 @@ describe('RowDefinitionSettingsPanel', () => {
   it('opens executable related rows from the Rows settings dialog', async () => {
     const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    await screen.findByRole('button', { name: 'One row per related record' });
-    fireEvent.click(screen.getByRole('button', { name: 'One row per related record' }));
+    await screen.findByRole('button', { name: /Related records/ });
+    fireEvent.click(screen.getByRole('button', { name: /Related records/ }));
     expect(onChooseRelatedRows).toHaveBeenCalledOnce();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens the full reshape editor from Rows', async () => {
+  it('opens the selected grouping editor directly from Rows', async () => {
     const { onChooseReshape } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Group or reshape rows' }));
-    expect(onChooseReshape).toHaveBeenCalledOnce();
+    fireEvent.click(await screen.findByTestId('construction-action-group-rows'));
+    expect(onChooseReshape).toHaveBeenCalledWith('group');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens the category-to-column editor directly from Rows', async () => {
+    const { onChooseReshape } = renderSettings();
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    fireEvent.click(await screen.findByTestId('construction-action-pivot-rows'));
+    expect(onChooseReshape).toHaveBeenCalledWith('pivot');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('disables row operations the backend has not declared executable', async () => {
+    const { onChooseReshape } = renderSettings({ pivotSupported: false });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const pivot = await screen.findByTestId('construction-action-pivot-rows');
+    expect(pivot).toBeDisabled();
+    expect(pivot).toHaveTextContent('No executable category-to-column operation');
+    fireEvent.click(pivot);
+    expect(onChooseReshape).not.toHaveBeenCalled();
   });
 
   it('closes row settings before changing the root occurrence', async () => {
@@ -196,7 +220,7 @@ describe('RowDefinitionSettingsPanel', () => {
   it('explains when the backend has no executable related row path', async () => {
     const { onChooseRelatedRows } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
-    expect(screen.getByRole('button', { name: 'One row per related record' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Related records/ })).toBeDisabled();
     expect(screen.getByText('No executable route')).toBeInTheDocument();
     expect(onChooseRelatedRows).not.toHaveBeenCalled();
   });
@@ -207,14 +231,12 @@ describe('RowDefinitionSettingsPanel', () => {
     const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
     expect(screen.getByText(/^When a source record has no matching values: Keep records with no values as one empty row$/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' } },
     }), expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'expanded:expanded-choice:EXCLUDE' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } },
     }), expect.any(AbortSignal)));
@@ -285,7 +307,6 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     expect(await screen.findByText('4 rows → 2 rows')).toBeTruthy();
     fireEvent.click(screen.getByText('See affected columns and sample row IDs'));
     expect(screen.getByText('Added · grouprev_0123456789abcdef:group-a')).toBeTruthy();
@@ -423,7 +444,6 @@ describe('RowDefinitionSettingsPanel', () => {
     ]);
     expect(JSON.stringify(createRequest.groups)).not.toContain('resourceType');
     expect(await screen.findAllByRole('option', { name: /grouprev_new/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await screen.findByRole('button', { name: 'Apply row definition' });
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: revisionID, unassignedMemberPolicy: 'ERROR' } },
@@ -562,11 +582,12 @@ describe('RowDefinitionSettingsPanel', () => {
     };
     const view = render(<RowDefinitionSettingsPanel {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+      target: { value: 'expanded:expanded-choice' },
+    });
     await screen.findByRole('button', { name: 'Apply row definition' });
     view.rerender(<RowDefinitionSettingsPanel {...props} draftVersion={5} draftDigest="draft-digest-5" />);
-    expect((await screen.findByRole('alert')).textContent).toMatch(/proposal is stale/i);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/row change is out of date/i);
     expect(screen.queryByRole('button', { name: 'Apply row definition' })).toBeNull();
     expect(onApply).not.toHaveBeenCalled();
   });
@@ -587,10 +608,11 @@ describe('RowDefinitionSettingsPanel', () => {
     };
     const { proposeRowDefinition, onApply } = renderSettings({ proposalValue: unavailable });
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+      target: { value: 'expanded:expanded-choice' },
+    });
     expect((await screen.findAllByText('The server could not compare this row definition.')).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(proposeRowDefinition).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
@@ -616,8 +638,9 @@ describe('RowDefinitionSettingsPanel', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
-    await screen.findByRole('combobox', { name: 'What should each row represent?' });
-    fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'What should each row represent?' }), {
+      target: { value: 'expanded:expanded-choice' },
+    });
     expect((await screen.findByRole('alert')).textContent).toContain(serverError.message);
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).toBeNull();

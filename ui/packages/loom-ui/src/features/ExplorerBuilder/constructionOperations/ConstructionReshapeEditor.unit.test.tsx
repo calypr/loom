@@ -47,6 +47,7 @@ const renderEditor = (args: {
   readonly construction?: ConstructionReshapeEditorProps['construction'];
   readonly capabilities?: ConstructionReshapeEditorProps['capabilities'];
   readonly editingStep?: ConstructionReshapeStep;
+  readonly initialKind?: ConstructionReshapeEditorProps['initialKind'];
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
   readonly onDiscoverCategories?: ConstructionReshapeEditorProps['onDiscoverCategories'];
@@ -61,6 +62,7 @@ const renderEditor = (args: {
       construction={args.construction ?? { version: 1, steps: [] }}
       capabilities={args.capabilities ?? capabilitiesFor()}
       editingStep={args.editingStep}
+      initialKind={args.initialKind}
       selectedColumns={args.selectedColumns}
       onDiscoverCategories={args.onDiscoverCategories}
       onAddCodedValues={args.onAddCodedValues}
@@ -96,6 +98,16 @@ const assertCandidateMatchesSchemaAnd = (
 afterEach(cleanup);
 
 describe('ConstructionReshapeEditor', () => {
+  it('opens the requested row operation without another choice click', () => {
+    renderEditor({ initialKind: 'group' });
+    expect(screen.getByRole('region', { name: 'Summarize into groups' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Change row operation' }));
+    expect(screen.getByTestId('construction-reshape-choice-pivot')).toBeInTheDocument();
+    cleanup();
+    renderEditor({ initialKind: 'pivot' });
+    expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+  });
+
   it('offers only server-authorized Coding paths and reopens the saved row grouping', () => {
     const codedStage = {
       ...sourceStage,
@@ -179,7 +191,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.getByText('Count or summarize records by chosen fields.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change row operation' })).toBeInTheDocument();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
     const advanced = screen.getByTestId('construction-reshape-group-advanced');
