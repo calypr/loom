@@ -3024,6 +3024,7 @@ const BuilderWorkspaceContent = ({
                   constructionLifecycle.proposal.status === 'applying'
                 }
                 previewRowCount={workspacePreviewIsCurrent ? workspacePreview?.rowCount : undefined}
+                previewSampled={workspacePreviewIsCurrent ? workspacePreview?.sampled : undefined}
                 previewColumnCount={workspacePreviewIsCurrent ? workspacePreview?.columns.length : undefined}
                 history={persistedConstructionHistory.length > 0 ? {
                   steps: persistedConstructionHistory,

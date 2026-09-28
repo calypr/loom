@@ -300,6 +300,7 @@ export const ConstructionWorkspace = ({
   onUndo,
   undoDisabled = false,
   previewRowCount,
+  previewSampled,
   previewColumnCount,
   actionsDisabled,
   activeFamily,
@@ -330,6 +331,7 @@ export const ConstructionWorkspace = ({
   readonly onUndo?: () => void;
   readonly undoDisabled?: boolean;
   readonly previewRowCount?: number;
+  readonly previewSampled?: boolean;
   readonly previewColumnCount?: number;
   readonly actionsDisabled?: boolean;
   readonly activeFamily?: ConstructionOperationFamily;
@@ -377,8 +379,9 @@ export const ConstructionWorkspace = ({
         <div className="flex items-center gap-4">
           <dl className="flex gap-5 text-right text-xs text-slate-500">
             <div>
-              <dt>Preview rows</dt>
-              <dd className="text-lg font-semibold text-slate-900">{previewRowCount ?? '—'}</dd>
+              <dt>{previewRowCount !== undefined && previewSampled === false ? 'Total rows' : 'Preview rows'}</dt>
+              <dd className="text-lg font-semibold text-slate-900">{previewRowCount === undefined ? '—' : `${previewRowCount.toLocaleString()}${previewSampled ? '+' : ''}`}</dd>
+              {previewRowCount !== undefined && previewSampled ? <p className="text-[10px] text-slate-500">Full count not measured</p> : null}
             </div>
             <div>
               <dt>Columns</dt>

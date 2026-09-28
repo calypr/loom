@@ -132,6 +132,8 @@ describe('ConstructionWorkspace', () => {
         preview={<div role="table">Current rows</div>}
         editor={<div>Calculate editor</div>}
         previewStatus="ready"
+        previewRowCount={25}
+        previewSampled
         previewReceiptId="receipt-123"
         previewOutputId="patients"
         proposalId="proposal-456"
@@ -146,6 +148,9 @@ describe('ConstructionWorkspace', () => {
     expect(preview).toHaveAttribute('data-preview-proposal-id', 'proposal-456');
     expect(preview).toHaveAttribute('data-current-draft-version', '7');
     expect(preview).toHaveAttribute('data-current-draft-digest', 'digest-789');
+    expect(screen.getByText('Preview rows')).toBeInTheDocument();
+    expect(screen.getByText('25+')).toBeInTheDocument();
+    expect(screen.getByText('Full count not measured')).toBeInTheDocument();
     expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
       screen.getByTestId('construction-action-add-columns'),
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
