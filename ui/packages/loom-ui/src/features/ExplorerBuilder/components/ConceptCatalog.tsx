@@ -299,8 +299,8 @@ const CatalogItemRow = ({
     ? item.candidate.conceptCandidates ?? []
     : [];
   return (
-    <article className="py-3 first:pt-0">
-      <div className="flex items-start gap-3">
+    <article className="py-2 first:pt-0">
+      <div className="flex items-start gap-2">
         <input
           type="checkbox"
           aria-label={selectionLabel}
@@ -314,59 +314,20 @@ const CatalogItemRow = ({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="font-semibold text-slate-900">{label}</h3>
-              {item.kind === 'FIELD' ? (
-                <p className="break-all font-mono text-xs text-slate-600">
-                  {item.candidate.fieldPath} · {item.candidate.logicalType} · {item.constructionChoice.source.cardinality}
-                </p>
-              ) : (
-                <p className="break-all font-mono text-xs text-slate-600">{semanticCodeLabel(item.item)}</p>
-              )}
+              <p className="text-xs text-slate-600">
+                {item.kind === 'FIELD' ? (
+                  <><span>{item.constructionChoice.source.resourceType}</span> · {item.candidate.logicalType}</>
+                ) : (
+                  <><span>{item.item.resourceType}</span> · <span>{item.item.occurrences.toLocaleString()} observed source {item.item.occurrences === 1 ? 'occurrence' : 'occurrences'}</span></>
+                )}
+              </p>
             </div>
-            <div className="flex flex-wrap justify-end gap-1">
-              {item.kind === 'FIELD' ? (
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {item.constructionChoice.source.resourceType}
-                </span>
-              ) : null}
-              <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">
-                {item.kind === 'FIELD' ? 'Field' : 'Concept'}
+            {item.kind === 'SEMANTIC' ? (
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${readinessPresentation(item.item.readiness).badge}`}>
+                {readinessPresentation(item.item.readiness).label}
               </span>
-              {item.kind === 'FIELD' ? (
-                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {item.constructionChoice.options.length} {item.constructionChoice.options.length === 1 ? 'result option' : 'result options'}
-                </span>
-              ) : (
-                <>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${readinessPresentation(item.item.readiness).badge}`}>
-                    {readinessPresentation(item.item.readiness).label}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                    {item.item.occurrences.toLocaleString()} observed source {item.item.occurrences === 1 ? 'occurrence' : 'occurrences'}
-                  </span>
-                </>
-              )}
-            </div>
+            ) : null}
           </div>
-          {item.kind === 'SEMANTIC' ? (
-            <p className="mt-1 text-xs text-slate-600">
-              {item.item.display || 'Observed coded value'} · {item.item.valueType || 'value type not provided'} from {[item.item.resourceType, item.item.sourcePath].filter(Boolean).join('.') || 'source path not provided'}
-            </p>
-          ) : fieldConcepts.length > 0 ? (
-            <p className="mt-1 text-xs text-slate-600">
-              Observed concept evidence is available for {fieldConcepts.length} {fieldConcepts.length === 1 ? 'code' : 'codes'} in this field.
-            </p>
-          ) : null}
-          {choice && !choicesNeedTableContext ? (
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600">
-              <span>{choice.presentation.summary}</span>
-              <span aria-hidden="true">·</span>
-              <span>Available results: {choice.options.map(constructionFormLabel).join(', ')}</span>
-            </div>
-          ) : choicesNeedTableContext ? (
-            <p className="mt-1 text-xs text-slate-600">
-              Table-specific routes and output forms need to be resolved before adding this source.
-            </p>
-          ) : null}
           {item.kind === 'SEMANTIC' && !availability.selectable ? (
             <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950" role="status">
               {availability.reason}
@@ -374,6 +335,23 @@ const CatalogItemRow = ({
           ) : null}
           <details className="mt-2 text-xs text-slate-600">
             <summary className="cursor-pointer font-medium text-blue-700">Inspect meaning, evidence, and construction choices</summary>
+            <p className="mt-2 break-all font-mono">
+              {item.kind === 'FIELD'
+                ? `${item.candidate.fieldPath} · ${item.candidate.logicalType} · ${item.constructionChoice.source.cardinality}`
+                : semanticCodeLabel(item.item)}
+            </p>
+            {item.kind === 'SEMANTIC' ? (
+              <p className="mt-1">
+                {item.item.display || 'Observed coded value'} · {item.item.valueType || 'value type not provided'} from {[item.item.resourceType, item.item.sourcePath].filter(Boolean).join('.') || 'source path not provided'}
+              </p>
+            ) : fieldConcepts.length > 0 ? (
+              <p className="mt-1">Observed concept evidence is available for {fieldConcepts.length} {fieldConcepts.length === 1 ? 'code' : 'codes'} in this field.</p>
+            ) : null}
+            {choice && !choicesNeedTableContext ? (
+              <p className="mt-1">{choice.presentation.summary} · Available results: {choice.options.map(constructionFormLabel).join(', ')}</p>
+            ) : choicesNeedTableContext ? (
+              <p className="mt-1">Table-specific routes and output forms need to be resolved before adding this source.</p>
+            ) : null}
             <dl className="mt-2 grid gap-1 rounded-md bg-slate-50 p-2 font-mono">
               {details.map(([name, value]) => (
                 <div key={name}>

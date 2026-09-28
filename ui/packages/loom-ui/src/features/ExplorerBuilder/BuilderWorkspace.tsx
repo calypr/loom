@@ -474,6 +474,7 @@ const BuilderWorkspaceContent = ({
     readonly context: string;
     readonly query: string;
   }>({ context: '', query: '' });
+  const [relatedSourceMenuOpen, setRelatedSourceMenuOpen] = useState(false);
   const [constructionHistorySelection, setConstructionHistorySelection] =
     useState<ConstructionHistorySelection>({ kind: 'source' });
   const [editingConstructionStepId, setEditingConstructionStepId] =
@@ -2487,8 +2488,8 @@ const BuilderWorkspaceContent = ({
                 </div>
               </div>
               {relatedSourceOptions.length > 0 ? (
-                <details role="group" aria-label="Related resources" defaultOpen={selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
-                  <summary className="cursor-pointer text-xs font-medium text-blue-800">
+                <details role="group" aria-label="Related resources" open={relatedSourceMenuOpen || selectedAddSource?.kind === 'EXACT_RELATED'} className="mt-2 border-t border-slate-100 pt-2">
+                  <summary className="cursor-pointer text-xs font-medium text-blue-800" onClick={(event) => { event.preventDefault(); setRelatedSourceMenuOpen((open) => !open); }}>
                     Related resources ({relatedSourceOptions.length})
                   </summary>
                   {relatedSourceOptions.length >= 6 ? (
