@@ -242,7 +242,7 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(await screen.findByText('Candidate rows: 2')).toBeInTheDocument();
   });
 
-  it('explains that field grouping belongs in Reshape while its direct row proposal is unavailable', async () => {
+  it('explains that field grouping cannot be applied as a starting row shape yet', async () => {
     renderSettings({ choicesValue: {
       ...choices,
       choices: [...choices.choices, {
@@ -253,7 +253,7 @@ describe('RowDefinitionSettingsPanel', () => {
     } });
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
-    expect(screen.getByText(/To make one row per distinct field value, use Reshape/)).toBeTruthy();
+    expect(screen.getByText(/Grouping source records by a field is not executable yet/)).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /Status/ })).toBeNull();
   });
 
@@ -385,6 +385,9 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
+    const manualGroups = screen.getByText('Advanced: create named groups from a saved selection').closest('details');
+    expect(manualGroups).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('Advanced: create named groups from a saved selection'));
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     expect(getSelection).toHaveBeenCalledWith(

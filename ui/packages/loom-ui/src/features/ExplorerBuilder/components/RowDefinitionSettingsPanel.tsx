@@ -58,7 +58,14 @@ type SettingsState =
 
 type ProposalState =
   | { readonly kind: 'none' }
-  | { readonly kind: 'proposing'; readonly selection: RowDefinitionSelection }
+  | {
+      readonly kind: 'proposing';
+      readonly selection: RowDefinitionSelection;
+      readonly outputId: string;
+      readonly snapshotToken: string;
+      readonly draftVersion: number;
+      readonly draftDigest: string;
+    }
   | {
       readonly kind: 'fresh';
       readonly selection: RowDefinitionSelection;
@@ -232,9 +239,16 @@ export const RowDefinitionSettingsPanel = ({
   }, [table.outputId, snapshotToken, draftVersion, draftDigest]);
 
   useEffect(() => {
-    setProposalState((current) => current.kind === 'fresh' && !isCurrentProposal(
-      current.proposal, table, snapshotToken, draftVersion, draftDigest,
-    ) ? { kind: 'stale', selection: current.selection } : current);
+    setProposalState((current) => {
+      if (current.kind === 'fresh' && !isCurrentProposal(
+        current.proposal, table, snapshotToken, draftVersion, draftDigest,
+      )) return { kind: 'stale', selection: current.selection };
+      if (current.kind === 'proposing' && (
+        current.outputId !== table.outputId || current.snapshotToken !== snapshotToken ||
+        current.draftVersion !== draftVersion || current.draftDigest !== draftDigest
+      )) return { kind: 'stale', selection: current.selection };
+      return current;
+    });
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
@@ -271,7 +285,10 @@ export const RowDefinitionSettingsPanel = ({
     const requestEpoch = proposalRequestEpoch.current;
     const controller = new AbortController();
     proposalController.current = controller;
-    setProposalState({ kind: 'proposing', selection: selected });
+    setProposalState({
+      kind: 'proposing', selection: selected, outputId: table.outputId,
+      snapshotToken, draftVersion, draftDigest,
+    });
     try {
       const proposal = await client.proposeRowDefinition({
         project, explorerId, authResourcePath, snapshotToken, expectedDraftVersion: draftVersion,
@@ -443,9 +460,7 @@ export const RowDefinitionSettingsPanel = ({
                   </details>
                 ) : null}
                 {settings.choices.choices.some((choice) => choice.kind === 'FIELD_GROUP') ? (
-                  <p className="mt-3 text-xs text-slate-600">
-                    To make one row per distinct field value, use Reshape → Group rows. This row menu cannot apply field grouping directly yet.
-                  </p>
+                  <p className="mt-3 text-xs text-slate-600">Grouping source records by a field is not executable yet. You can summarize the current table under Reshape.</p>
                 ) : null}
                 {groupAuthoringOpen && selection ? (
                   <ExplicitGroupAuthoring
@@ -460,8 +475,8 @@ export const RowDefinitionSettingsPanel = ({
                   />
                 ) : null}
                 {!groupAuthoringOpen ? (
-                  <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3" open={Boolean(selection && explicitGroupRootMatches)}>
-                    <summary className="cursor-pointer font-semibold text-slate-900">Create named groups from a saved selection</summary>
+                  <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <summary className="cursor-pointer font-semibold text-slate-900">Advanced: create named groups from a saved selection</summary>
                     {selection && explicitGroupRootMatches ? (
                       <>
                         <p className="mt-1 text-xs text-slate-600">Use the current Explorer selection of {selection.memberCount} {selection.resourceType} records as the starting set.</p>
