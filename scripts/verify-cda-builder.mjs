@@ -2927,7 +2927,7 @@ try {
     await mkdir(evidenceDirectory,{recursive:true});
     await writeFile(join(evidenceDirectory,action === 'Apply Observation concept'?'apply-observation-concept.json':'add-observation-concept.json'),JSON.stringify({pageURL,source,state,requests,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,source,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/construction-choices')||response.path.endsWith('/construction-proposals'))},null,2));
-  } else if (action === 'Verify paired semantic days-to-collection lifecycle' || action === 'Verify paired semantic from Pivot lifecycle' || action === 'Verify ready paired column lifecycle') {
+  } else if (action === 'Verify paired semantic days-to-collection lifecycle' || action === 'Verify paired semantic from Pivot lifecycle' || action === 'Verify ready paired column lifecycle' || action === 'Verify browse coded value lifecycle') {
     // Paired semantic values are selected from the semantic catalog and resolved through a route and result form.
     const state = { clicks: [], duplicateCreated: false };
     const click = async (script, label) => { await browserEval(browser.cdp, script); state.clicks.push(label); };
@@ -2969,6 +2969,15 @@ try {
         await wait('Boolean(document.querySelector(\'[role="dialog"] input[type="radio"]\'))', 'Existing route and result form dialog opened', 30000);
         state.visibleDialog = await browserEval(browser.cdp, 'const dialog=document.querySelector("[role=dialog]");const rect=dialog.getBoundingClientRect();const center=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return {visible:rect.width>0&&rect.height>0&&rect.top>=0&&rect.bottom<=innerHeight&&dialog.contains(center),top:rect.top,bottom:rect.bottom,viewportHeight:innerHeight};');
         assert(state.visibleDialog.visible, 'Add column route dialog is not visible in the browser viewport');
+      } else if (action === 'Verify browse coded value lifecycle') {
+        await wait('Boolean(document.querySelector("[data-testid=paired-column-suggestions-browse-all]:not(:disabled)"))', 'Browse coded values button enabled');
+        const point = await browserEval(browser.cdp, 'const button=document.querySelector("[data-testid=paired-column-suggestions-browse-all]");button.scrollIntoView({block:"center"});const rect=button.getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};');
+        await browser.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+        await browser.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+        state.clicks.push('Find another coded value with mouse');
+        await wait(`Boolean(document.querySelector('[aria-label="Add columns editor"] #feature-catalog-search'))`, 'Coded value search opened');
+        state.browseEntry = await browserEval(browser.cdp, `const editor=document.querySelector('[aria-label="Add columns editor"]');const search=editor.querySelector('#feature-catalog-search');const rect=search.getBoundingClientRect();return {searchVisible:rect.top>=0&&rect.bottom<=innerHeight,searchFocused:document.activeElement===search,rawFieldsOpen:editor.querySelector('[data-testid=feature-catalog-raw-fields]')?.open,heading:editor.querySelector('#feature-catalog-concepts-title')?.innerText};`);
+        assert(state.browseEntry.searchVisible && state.browseEntry.searchFocused && !state.browseEntry.rawFieldsOpen, 'Coded value search did not become the visible primary action');
       } else if (action === 'Verify paired semantic from Pivot lifecycle') {
         await click('document.querySelector(\'button[aria-label^="Reshape:"]\').click();return true;', 'Open Reshape');
         await wait('Boolean(document.querySelector(\'[data-testid="construction-reshape-choice-pivot"]\'))', 'Pivot choice visible');
@@ -3084,7 +3093,7 @@ try {
       assert(!state.removedPreview.headers.some(header => header.toLowerCase() === 'days_to_collection'), 'days_to_collection remains after removal');
       state.previewResponse = semanticPreviewResponse;
       await mkdir(evidenceDirectory,{recursive:true});
-      await writeFile(join(evidenceDirectory,action === 'Verify ready paired column lifecycle' ? 'ready-paired-column-lifecycle.json' : action === 'Verify paired semantic from Pivot lifecycle' ? 'paired-semantic-from-pivot.json' : 'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
+      await writeFile(join(evidenceDirectory,action === 'Verify ready paired column lifecycle' ? 'ready-paired-column-lifecycle.json' : action === 'Verify browse coded value lifecycle' ? 'browse-coded-value-lifecycle.json' : action === 'Verify paired semantic from Pivot lifecycle' ? 'paired-semantic-from-pivot.json' : 'paired-semantic-days-to-collection.json'),JSON.stringify({pageURL,state,requests,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,clicks:state.clicks,choiceApplied:state.choiceApplied,preview:state.preview,reloadPreview:state.reloadPreview,removalProposal:state.removalProposal,removedPreview:state.removedPreview,previewResponse:state.previewResponse,responses:responses.filter(response=>response.status>=400)},null,2));
     } finally {
       if (state.duplicateCreated) {
@@ -3414,6 +3423,7 @@ try {
       const original=await preview('before');
       assert.deepEqual(original.headers,['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
       await click('Open Add columns','button[aria-label^="Add columns:"]');
+      await click('Open raw FHIR fields','[aria-label="Add columns editor"] [data-testid="feature-catalog-raw-fields"] summary');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Specimen.resourceType"]'))`,30000);
       await click('Select Specimen.resourceType','input[aria-label="Select Specimen.resourceType"]');
       const add=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');return {disabled:button?.disabled,visible:button?.offsetParent!==null};`);

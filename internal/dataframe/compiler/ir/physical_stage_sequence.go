@@ -70,15 +70,16 @@ type PhysicalConstructionStage struct {
 type PhysicalStageOperationKind string
 
 const (
-	PhysicalStageDeriveOp        PhysicalStageOperationKind = "DERIVE"
-	PhysicalStageFilterOp        PhysicalStageOperationKind = "FILTER"
-	PhysicalStagePivotOp         PhysicalStageOperationKind = "PIVOT"
-	PhysicalStageUnpivotOp       PhysicalStageOperationKind = "UNPIVOT"
-	PhysicalStageGroupOp         PhysicalStageOperationKind = "GROUP"
-	PhysicalStageExpandOp        PhysicalStageOperationKind = "EXPAND"
-	PhysicalStageRelatedSourceOp PhysicalStageOperationKind = "RELATED_SOURCE"
-	PhysicalStageRelatedExpandOp PhysicalStageOperationKind = "RELATED_EXPAND"
-	PhysicalStageRelatedFieldOp  PhysicalStageOperationKind = "RELATED_FIELD"
+	PhysicalStageDeriveOp             PhysicalStageOperationKind = "DERIVE"
+	PhysicalStageFilterOp             PhysicalStageOperationKind = "FILTER"
+	PhysicalStagePivotOp              PhysicalStageOperationKind = "PIVOT"
+	PhysicalStageUnpivotOp            PhysicalStageOperationKind = "UNPIVOT"
+	PhysicalStageGroupOp              PhysicalStageOperationKind = "GROUP"
+	PhysicalStageExpandOp             PhysicalStageOperationKind = "EXPAND"
+	PhysicalStageRelatedSourceOp      PhysicalStageOperationKind = "RELATED_SOURCE"
+	PhysicalStageRelatedExpandOp      PhysicalStageOperationKind = "RELATED_EXPAND"
+	PhysicalStageRelatedEligibilityOp PhysicalStageOperationKind = "RELATED_ELIGIBILITY"
+	PhysicalStageRelatedFieldOp       PhysicalStageOperationKind = "RELATED_FIELD"
 )
 
 type PhysicalStageGroup struct {

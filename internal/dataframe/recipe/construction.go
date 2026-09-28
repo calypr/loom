@@ -71,32 +71,34 @@ type StageColumn struct {
 type ConstructionOperationKind string
 
 const (
-	ConstructionPivotOp         ConstructionOperationKind = "PIVOT"
-	ConstructionDeriveOp        ConstructionOperationKind = "DERIVE"
-	ConstructionFilterOp        ConstructionOperationKind = "FILTER"
-	ConstructionUnpivotOp       ConstructionOperationKind = "UNPIVOT"
-	ConstructionGroupOp         ConstructionOperationKind = "GROUP"
-	ConstructionExpandOp        ConstructionOperationKind = "EXPAND"
-	ConstructionCombineOp       ConstructionOperationKind = "COMBINE"
-	ConstructionRelatedSourceOp ConstructionOperationKind = "RELATED_SOURCE"
-	ConstructionRelatedExpandOp ConstructionOperationKind = "RELATED_EXPAND"
-	ConstructionRelatedFieldOp  ConstructionOperationKind = "RELATED_FIELD"
+	ConstructionPivotOp              ConstructionOperationKind = "PIVOT"
+	ConstructionDeriveOp             ConstructionOperationKind = "DERIVE"
+	ConstructionFilterOp             ConstructionOperationKind = "FILTER"
+	ConstructionUnpivotOp            ConstructionOperationKind = "UNPIVOT"
+	ConstructionGroupOp              ConstructionOperationKind = "GROUP"
+	ConstructionExpandOp             ConstructionOperationKind = "EXPAND"
+	ConstructionCombineOp            ConstructionOperationKind = "COMBINE"
+	ConstructionRelatedSourceOp      ConstructionOperationKind = "RELATED_SOURCE"
+	ConstructionRelatedExpandOp      ConstructionOperationKind = "RELATED_EXPAND"
+	ConstructionRelatedEligibilityOp ConstructionOperationKind = "RELATED_ELIGIBILITY"
+	ConstructionRelatedFieldOp       ConstructionOperationKind = "RELATED_FIELD"
 )
 
 // ConstructionOperation is a closed tagged union. Its operands refer to
 // stable stage column IDs, never mutable display or physical names.
 type ConstructionOperation struct {
-	Kind          ConstructionOperationKind  `json:"kind"`
-	Pivot         *ConstructionPivot         `json:"pivot,omitempty"`
-	Derive        *ConstructionDerive        `json:"derive,omitempty"`
-	Filter        *ConstructionFilter        `json:"filter,omitempty"`
-	Unpivot       *ConstructionUnpivot       `json:"unpivot,omitempty"`
-	Group         *ConstructionGroup         `json:"group,omitempty"`
-	Expand        *ConstructionExpand        `json:"expand,omitempty"`
-	Combine       *ConstructionCombine       `json:"combine,omitempty"`
-	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
-	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
-	RelatedField  *ConstructionRelatedField  `json:"relatedField,omitempty"`
+	Kind               ConstructionOperationKind       `json:"kind"`
+	Pivot              *ConstructionPivot              `json:"pivot,omitempty"`
+	Derive             *ConstructionDerive             `json:"derive,omitempty"`
+	Filter             *ConstructionFilter             `json:"filter,omitempty"`
+	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
+	Group              *ConstructionGroup              `json:"group,omitempty"`
+	Expand             *ConstructionExpand             `json:"expand,omitempty"`
+	Combine            *ConstructionCombine            `json:"combine,omitempty"`
+	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
+	RelatedExpand      *ConstructionRelatedExpand      `json:"relatedExpand,omitempty"`
+	RelatedEligibility *ConstructionRelatedEligibility `json:"relatedEligibility,omitempty"`
+	RelatedField       *ConstructionRelatedField       `json:"relatedField,omitempty"`
 }
 
 type ConstructionRelatedSource struct {
@@ -124,6 +126,26 @@ type ConstructionRelatedExpand struct {
 	EmptyPolicy           ExpansionEmptyPolicy
 	RelatedRecordColumnID string
 }
+
+type ConstructionRelatedEligibility struct {
+	AnchorColumnID       string
+	ChoiceID             string
+	TargetNodeID         string
+	TargetResourceType   string
+	Route                []ConstructionRelatedRouteStep
+	ContributorPolicy    string
+	ContributorPredicate *ConstructionRelatedPredicate
+	ContributorSource    *ConstructionRelatedFieldSource
+	ContributorChoiceID  string
+	MatchKind            string
+	Threshold            *int
+}
+
+const (
+	RelatedEligibilityExists       = "EXISTS"
+	RelatedEligibilityAbsent       = "ABSENT"
+	RelatedEligibilityCountAtLeast = "COUNT_AT_LEAST"
+)
 
 // ConstructionRelatedField projects one scalar field from the exact terminal
 // resource retained by a preceding RELATED_EXPAND stage.
@@ -473,7 +495,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedField != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
 		if present {
 			payloads++
 		}
@@ -631,6 +653,11 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s related expansion operation requires only relatedExpand payload", path)
 		}
 		return validateConstructionRelatedExpand(*operation.RelatedExpand, inputByID, outputByID, path)
+	case ConstructionRelatedEligibilityOp:
+		if operation.RelatedEligibility == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil || operation.RelatedField != nil {
+			return fmt.Errorf("%s related eligibility operation requires only relatedEligibility payload", path)
+		}
+		return validateConstructionRelatedEligibility(*operation.RelatedEligibility, inputByID, outputByID, path)
 	case ConstructionRelatedFieldOp:
 		if operation.RelatedField == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil {
 			return fmt.Errorf("%s related field operation requires only relatedField payload", path)
@@ -641,6 +668,67 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 	default:
 		return fmt.Errorf("%s has unsupported operation kind %q", path, operation.Kind)
 	}
+}
+
+func validateConstructionRelatedEligibility(related ConstructionRelatedEligibility, input, output map[string]StageColumn, path string) error {
+	if !validConstructionColumnID(related.AnchorColumnID) || !validConstructionColumnID(related.ChoiceID) ||
+		!validConstructionColumnID(related.TargetNodeID) || !validConstructionColumnID(related.TargetResourceType) ||
+		len(related.Route) == 0 {
+		return fmt.Errorf("%s.relatedEligibility requires an exact input anchor, choice, target, and route", path)
+	}
+	priorNode, priorResource := related.Route[0].FromNodeID, related.Route[0].FromResourceType
+	for index, hop := range related.Route {
+		if !validConstructionColumnID(hop.EdgeID) || !validConstructionColumnID(hop.FromNodeID) ||
+			!validConstructionColumnID(hop.ToNodeID) || !validConstructionColumnID(hop.FromResourceType) ||
+			!validConstructionColumnID(hop.ToResourceType) || !validConstructionColumnID(hop.Relationship) ||
+			hop.FromNodeID != priorNode || hop.FromResourceType != priorResource ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("%s.relatedEligibility.route[%d] is invalid or discontinuous", path, index)
+		}
+		priorNode, priorResource = hop.ToNodeID, hop.ToResourceType
+	}
+	if priorNode != related.TargetNodeID || priorResource != related.TargetResourceType {
+		return fmt.Errorf("%s.relatedEligibility route terminal differs from its exact target", path)
+	}
+	if related.ContributorPolicy != "ALL_MATCHES" {
+		return fmt.Errorf("%s.relatedEligibility contributor policy must be ALL_MATCHES", path)
+	}
+	if related.ContributorPredicate == nil {
+		if related.ContributorSource != nil || related.ContributorChoiceID != "" {
+			return fmt.Errorf("%s.relatedEligibility contributor source and choice require a predicate", path)
+		}
+	} else {
+		if related.ContributorSource == nil || !validConstructionColumnID(related.ContributorChoiceID) {
+			return fmt.Errorf("%s.relatedEligibility predicate requires an exact contributor source and choice", path)
+		}
+		source := *related.ContributorSource
+		if source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+			!validConstructionColumnID(source.CandidateID) || !validConstructionColumnID(source.Path) || !validConstructionColumnID(source.LogicalType) ||
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+			return fmt.Errorf("%s.relatedEligibility contributor source must be an exact target scalar", path)
+		}
+		if err := validateConstructionRelatedPredicate(source, related.ContributorPredicate, path+".relatedEligibility.contributorPredicate"); err != nil {
+			return err
+		}
+	}
+	switch related.MatchKind {
+	case RelatedEligibilityExists, RelatedEligibilityAbsent:
+		if related.Threshold != nil {
+			return fmt.Errorf("%s.relatedEligibility threshold is only valid for COUNT_AT_LEAST", path)
+		}
+	case RelatedEligibilityCountAtLeast:
+		if related.Threshold == nil || *related.Threshold <= 0 {
+			return fmt.Errorf("%s.relatedEligibility COUNT_AT_LEAST requires a positive threshold", path)
+		}
+	default:
+		return fmt.Errorf("%s.relatedEligibility match kind is unsupported", path)
+	}
+	expected := make(map[string]bool, len(input))
+	for id := range input {
+		expected[id] = true
+	}
+	return requireExactStageOutputIDs(expected, output, path)
 }
 
 func validateConstructionRelatedField(related ConstructionRelatedField, input, output map[string]StageColumn, path string) error {

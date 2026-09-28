@@ -536,6 +536,21 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		base.Kind, base.RelatedExpand = ir.PhysicalStageRelatedExpandOp, &physicalExpand
 		base.OutputProjections = projections
 		outputSchema, outputIdentity = compiled, constructionRowID
+	case recipe.ConstructionRelatedEligibilityOp:
+		related := step.Operation.RelatedEligibility
+		if related == nil {
+			return constructionStageResult{}, fmt.Errorf("related eligibility payload is required")
+		}
+		physicalFilter, derivedLets, projections, compiled, err := lowerConstructionRelatedEligibility(
+			plan, step, *related, inputByID, outputByID, inputRow, inputIdentity,
+			rootResourceType, policy, usedVariables, index,
+		)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.Filter, base.DerivedLets = ir.PhysicalStageRelatedEligibilityOp, &physicalFilter, derivedLets
+		base.OutputProjections = projections
+		outputSchema, outputIdentity = compiled, inputIdentity
 	case recipe.ConstructionRelatedFieldOp:
 		related := step.Operation.RelatedField
 		if related == nil {
@@ -569,7 +584,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		}
 	}
 	outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedEligibilityOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
 			Name: outputIdentity, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
@@ -583,7 +598,7 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 	base.RowIdentityColumn = outputIdentity
 	base.InputColumns = inputColumns
 	base.OutputColumns = toPhysicalStageColumns(outputSchema)
-	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
+	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedEligibilityOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.InputProjections = inputProjections
 	}
 	descriptor := CompiledStageDescriptor{
@@ -1076,6 +1091,7 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
 		capability(recipe.ConstructionRelatedExpandOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key or exact related-record identity"),
+		capability(recipe.ConstructionRelatedEligibilityOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related eligibility requires a retained root key or exact related-record identity on this stage"),
 		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
 	}
 }
@@ -1125,7 +1141,7 @@ func activeRelatedRecordColumn(schema []CompiledOutputColumn) (CompiledOutputCol
 
 func preservesActiveRelatedRecord(operation ir.PhysicalStageOperationKind) bool {
 	switch operation {
-	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedFieldOp:
+	case ir.PhysicalStageDeriveOp, ir.PhysicalStageFilterOp, ir.PhysicalStageRelatedEligibilityOp, ir.PhysicalStageRelatedSourceOp, ir.PhysicalStageRelatedFieldOp:
 		return true
 	default:
 		return false

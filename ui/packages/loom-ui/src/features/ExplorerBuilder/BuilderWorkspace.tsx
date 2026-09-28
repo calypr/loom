@@ -109,6 +109,7 @@ import {
   type ConstructionCandidateIntent,
 } from './constructionWorkspace/useConstructionLifecycle';
 import { ConstructionOperationEditor } from './constructionOperations/ConstructionOperationEditor';
+import { FilterRowsEditor } from './constructionOperations/FilterRowsEditor';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
 import {
   RelatedSourceStepEditor,
@@ -244,7 +245,8 @@ const editableConstructionFamily = (
   operation: ConstructionOperation,
 ): Extract<ConstructionOperationFamily, 'KEEP_ROWS' | 'CALCULATE' | 'RESHAPE'> | undefined => {
   switch (operation.kind) {
-    case 'FILTER': return 'KEEP_ROWS';
+    case 'FILTER':
+    case 'RELATED_ELIGIBILITY': return 'KEEP_ROWS';
     case 'DERIVE': return 'CALCULATE';
     case 'PIVOT':
     case 'UNPIVOT':
@@ -2165,6 +2167,19 @@ const BuilderWorkspaceContent = ({
     setEditingConstructionStepId(undefined);
     setActiveConstructionFamily((current) => current === family ? undefined : family);
   };
+  const openCodedValueCatalog = () => {
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setPairedColumnSuggestion(undefined);
+    setFeatureMode('catalog');
+    setAddColumnsSource({ context: addSourceContext, key: 'all' });
+    setAddSourceSearch({ context: addSourceContext, query: '' });
+    setActiveConstructionFamily('ADD_COLUMNS');
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('[aria-label="Add columns editor"] #feature-catalog-search')?.focus();
+    });
+  };
   const selectConstructionHistory = (selection: ConstructionHistorySelection) => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection(selection);
@@ -2480,8 +2495,21 @@ const BuilderWorkspaceContent = ({
               {constructionLifecycle.capabilities.message}
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
-            <ConstructionOperationEditor
-              family={activeOperation.family}
+            activeOperation.family === 'KEEP_ROWS' ? (
+              <FilterRowsEditor
+                key={`${ownerKey}:${table.outputId}:${constructionLifecycle.capabilities.response.selectedStage.id}:${editingConstructionStep?.id ?? 'new'}`}
+                project={projectId} explorerId={state.explorerId} authResourcePath={authResourcePath}
+                snapshotToken={state.catalog.snapshotToken} outputId={table.outputId} catalog={state.catalog}
+                construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
+                capabilities={constructionLifecycle.capabilities.response}
+                editingStep={editingConstructionStep}
+                selectedColumns={selectedColumnIds}
+                disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                onCandidateChange={constructionLifecycle.onCandidateChange}
+                onEditStep={editConstructionStep}
+              />
+            ) : <ConstructionOperationEditor
+              family="CALCULATE"
               construction={table.document.construction ?? constructionLifecycle.capabilities.response.baseConstruction}
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
@@ -2510,8 +2538,7 @@ const BuilderWorkspaceContent = ({
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
               onAddCodedValues={() => {
-                setAddColumnsSource({ context: addSourceContext, key: 'all' });
-                selectConstructionFamily('ADD_COLUMNS');
+                openCodedValueCatalog();
               }}
               relatedExpandContext={{
                 project: projectId,
@@ -2987,8 +3014,7 @@ const BuilderWorkspaceContent = ({
                           setFeatureMode('catalog');
                         }}
                         onBrowseAll={() => {
-                          setPairedColumnSuggestion(undefined);
-                          setFeatureMode('catalog');
+                          openCodedValueCatalog();
                         }}
                       />
                     ) : null}

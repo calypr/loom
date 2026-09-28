@@ -642,6 +642,10 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					break
 				}
 			}
+		case authoringv2.ConstructionOperationRelatedEligibility:
+			if step.Operation.RelatedEligibility == nil {
+				return fmt.Errorf("related-eligibility step %q has no operation payload", step.ID)
+			}
 		case authoringv2.ConstructionOperationRelatedField:
 			if step.Operation.RelatedField == nil {
 				return fmt.Errorf("related-field step %q has no operation payload", step.ID)

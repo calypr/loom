@@ -1001,27 +1001,27 @@ export const ConceptCatalog = ({
       ) : null}
       <div className="border-b border-slate-200 px-4 py-4 sm:px-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Find features</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-950">Add coded values or fields</h2>
+        <h2 className="mt-1 text-xl font-semibold text-slate-950">Add coded value columns</h2>
         <p className="mt-1 text-sm text-slate-600">
           {resourceType
-            ? `Search fields and concepts on the selected ${resourceType} graph node.`
-            : `Search fields and coded concepts across the authorized dataset, starting from ${rowRoot} rows.`}
+            ? `Find coded values on the selected ${resourceType} graph node.`
+            : `Find coded values across the authorized dataset, starting from ${rowRoot} rows.`}
         </p>
         <p className="mt-1 text-sm text-slate-700">
-          Choose a concept for a code and its matching value. Choose a field to add a raw FHIR path.
+          The code label names the column; its paired value fills the cells. Loom keeps the exact code, system, and source behind the label.
         </p>
         <p className="mt-1 text-xs text-slate-500">
           Concept counts describe observed source occurrences. This catalog does not report a per-code denominator or coverage across the current table rows.
         </p>
         <form className="mt-4 flex gap-2" onSubmit={submitSearch}>
-          <label className="sr-only" htmlFor="feature-catalog-search">Search features</label>
+          <label className="sr-only" htmlFor="feature-catalog-search">Search coded values and raw fields</label>
           <input
             id="feature-catalog-search"
             type="search"
             aria-label="Search features by field name, concept, or code"
             value={queryInput}
             onChange={(event) => setQueryInput(event.currentTarget.value)}
-            placeholder="Search a field, concept, or code"
+            placeholder="Search a code or label"
             className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-blue-500 focus:border-blue-500"
           />
           <button
@@ -1083,7 +1083,7 @@ export const ConceptCatalog = ({
           <section aria-labelledby="feature-catalog-concepts-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-concepts-title" className="text-sm font-semibold text-slate-800">
-                {query ? `Concepts for “${query}”` : resourceType ? `Concepts on ${resourceType}` : 'Concepts across the dataset'}
+                {query ? `Coded values for “${query}”` : resourceType ? `Coded values on ${resourceType}` : 'Coded values across the dataset'}
               </h3>
               <span className="text-xs text-slate-500">{semanticItems.length} on this page</span>
             </div>
@@ -1142,7 +1142,10 @@ export const ConceptCatalog = ({
           </div>
           </section>
 
-          <section className="mt-6 border-t border-slate-200 pt-5" aria-labelledby="feature-catalog-fields-title">
+          <details className="mt-6 border-t border-slate-200 pt-5" data-testid="feature-catalog-raw-fields" open={layout !== 'panel' ? true : undefined}>
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">Raw FHIR fields (advanced)</summary>
+            <p className="mt-2 text-xs text-slate-600">Use a source path when you need a row ID, date, grouping field, or a value without a coded pairing.</p>
+          <section className="mt-3" aria-labelledby="feature-catalog-fields-title">
             <div className="flex items-center justify-between gap-3">
               <h3 id="feature-catalog-fields-title" className="text-sm font-semibold text-slate-800">Fields {resourceType ? `on ${resourceType}` : query ? 'matching this search' : `on ${rowRoot}`}</h3>
               <span className="text-xs text-slate-500">{fieldItems.length} available</span>
@@ -1176,6 +1179,7 @@ export const ConceptCatalog = ({
               ))}
             </div>
           </section>
+          </details>
         </div>
 
         <aside className="bg-slate-50/70 p-4 sm:p-5">

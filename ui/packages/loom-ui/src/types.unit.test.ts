@@ -386,7 +386,7 @@ describe('staged construction contract', () => {
     }).success).toBe(false);
   });
 
-  it('parses stage cardinality and GROUP/EXPAND capabilities using exact wire values', () => {
+  it('parses stage cardinality and all advertised construction capabilities', () => {
     const stage = {
       id: 'source_projection',
       inputStageId: '',
@@ -394,6 +394,7 @@ describe('staged construction contract', () => {
       capabilities: [
         { kind: 'GROUP', supported: true },
         { kind: 'EXPAND', supported: true },
+        { kind: 'RELATED_ELIGIBILITY', supported: true },
       ],
     };
     const response = {
@@ -409,6 +410,8 @@ describe('staged construction contract', () => {
 
     expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.columns[0]?.cardinality)
       .toBe('many');
+    expect(constructionCapabilitiesResponseSchema.parse(response).selectedStage.capabilities)
+      .toContainEqual({ kind: 'RELATED_ELIGIBILITY', supported: true });
     expect(constructionCapabilitiesResponseSchema.safeParse({
       ...response,
       selectedStage: {

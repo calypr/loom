@@ -1330,6 +1330,27 @@ const constructionOperationSchema = z.discriminatedUnion('kind', [
     }).strict(),
   }).strict(),
   z.object({
+    kind: z.literal('RELATED_ELIGIBILITY'),
+    relatedEligibility: z.object({
+      anchorColumnId: opaqueIdSchema,
+      choiceId: z.string().min(1),
+      targetNodeId: opaqueIdSchema,
+      targetResourceType: opaqueIdSchema,
+      route: z.array(constructionRouteStepSchema).min(1),
+      contributorRule: z.object({
+        policy: z.literal('ALL_MATCHES'),
+        predicate: contributorPredicateSchema.optional(),
+      }).strict(),
+      contributorSource: relatedSourceSchema.shape.source.optional(),
+      contributorChoiceId: z.string().min(1).optional(),
+      match: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('EXISTS') }).strict(),
+        z.object({ kind: z.literal('ABSENT') }).strict(),
+        z.object({ kind: z.literal('COUNT_AT_LEAST'), threshold: z.number().int().positive() }).strict(),
+      ]),
+    }).strict(),
+  }).strict(),
+  z.object({
     kind: z.literal('RELATED_FIELD'),
     relatedField: z.object({
       choiceId: z.string().min(1),
@@ -1355,7 +1376,7 @@ export const constructionSchema = z.object({
 export type Construction = z.infer<typeof constructionSchema>;
 
 const constructionOperationCapabilitySchema = z.object({
-  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD']),
+  kind: z.enum(['PIVOT', 'DERIVE', 'FILTER', 'UNPIVOT', 'GROUP', 'EXPAND', 'RELATED_SOURCE', 'RELATED_EXPAND', 'RELATED_FIELD', 'RELATED_ELIGIBILITY']),
   supported: z.boolean(),
   reasonCode: z.string().optional(),
   reason: z.string().optional(),

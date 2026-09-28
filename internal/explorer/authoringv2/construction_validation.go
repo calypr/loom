@@ -298,6 +298,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
 		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.Expand != nil,
 		step.Operation.Combine != nil, step.Operation.RelatedSource != nil, step.Operation.RelatedExpand != nil,
+		step.Operation.RelatedEligibility != nil,
 		step.Operation.RelatedField != nil,
 	} {
 		if present {
@@ -352,6 +353,11 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
 		return validateConstructionRelatedExpand(step, input, inputColumns)
+	case ConstructionOperationRelatedEligibility:
+		if step.Operation.RelatedEligibility == nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionRelatedEligibility(step, input, inputColumns)
 	case ConstructionOperationRelatedField:
 		if step.Operation.RelatedField == nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -360,6 +366,84 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	default:
 		return fmt.Errorf("unsupported operation kind %q", step.Operation.Kind)
 	}
+}
+
+func validateConstructionRelatedEligibility(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	related := step.Operation.RelatedEligibility
+	if !requiredID(related.AnchorColumnID) {
+		return fmt.Errorf("relatedEligibility.anchorColumnId must identify a retained row resource")
+	}
+	if !requiredID(related.ChoiceID) || !requiredID(related.TargetNodeID) || !requiredID(related.TargetResourceType) || len(related.Route) == 0 {
+		return fmt.Errorf("relatedEligibility requires an exact route choice and target")
+	}
+	for index, hop := range related.Route {
+		if !requiredID(hop.EdgeID) || !requiredID(hop.FromNodeID) || !requiredID(hop.ToNodeID) ||
+			!requiredID(hop.FromResourceType) || !requiredID(hop.ToResourceType) || !requiredID(hop.Relationship) ||
+			(hop.StorageDirection != "INBOUND" && hop.StorageDirection != "OUTBOUND") ||
+			(hop.MatchMode != "OPTIONAL" && hop.MatchMode != "REQUIRED") {
+			return fmt.Errorf("relatedEligibility.route[%d] is incomplete", index)
+		}
+		if index > 0 && (related.Route[index-1].ToNodeID != hop.FromNodeID || related.Route[index-1].ToResourceType != hop.FromResourceType) {
+			return fmt.Errorf("relatedEligibility.route is discontinuous at step %d", index)
+		}
+	}
+	last := related.Route[len(related.Route)-1]
+	if last.ToNodeID != related.TargetNodeID || last.ToResourceType != related.TargetResourceType {
+		return fmt.Errorf("relatedEligibility.route must end at its exact target node and resource type")
+	}
+	if related.ContributorRule.Policy != ConstructionRelatedAllMatches {
+		return fmt.Errorf("relatedEligibility.contributorRule policy must be ALL_MATCHES")
+	}
+	if predicate := related.ContributorRule.Predicate; predicate == nil {
+		if related.ContributorSource != nil || related.ContributorChoiceID != "" {
+			return fmt.Errorf("relatedEligibility contributor source and choice require a predicate")
+		}
+	} else {
+		if related.ContributorSource == nil || !requiredID(related.ContributorChoiceID) {
+			return fmt.Errorf("relatedEligibility predicate requires an exact contributor source and choice")
+		}
+		source := *related.ContributorSource
+		if source.Kind != capability.ConstructionChoiceSourceField || source.NodeID != related.TargetNodeID || source.ResourceType != related.TargetResourceType ||
+			!requiredID(source.CandidateID) || !requiredID(source.Path) || !requiredID(source.LogicalType) ||
+			(source.Cardinality != "optional_one" && source.Cardinality != "required_one") {
+			return fmt.Errorf("relatedEligibility contributor source must be one exact scalar field on the target resource")
+		}
+		if predicate.CandidateID != source.CandidateID {
+			return fmt.Errorf("relatedEligibility predicate candidateId must match its contributor source")
+		}
+		if err := predicate.Validate(); err != nil {
+			return fmt.Errorf("relatedEligibility.contributorRule.predicate: %w", err)
+		}
+		if predicate.Quantifier != "" {
+			return fmt.Errorf("relatedEligibility scalar contributor predicate must not specify a quantifier")
+		}
+		if predicate.Operator == ContributorEquals {
+			wantKind := ContributorString
+			switch strings.ToLower(strings.TrimSpace(source.LogicalType)) {
+			case "string":
+			case "code":
+				wantKind = ContributorValueCode
+			default:
+				return fmt.Errorf("relatedEligibility EQUALS predicate supports only string or code fields")
+			}
+			if predicate.Value.Kind != wantKind {
+				return fmt.Errorf("relatedEligibility predicate value kind does not match the contributor field")
+			}
+		}
+	}
+	switch related.Match.Kind {
+	case ConstructionRelatedEligibilityExists, ConstructionRelatedEligibilityAbsent:
+		if related.Match.Threshold != nil {
+			return fmt.Errorf("relatedEligibility threshold is only valid for COUNT_AT_LEAST")
+		}
+	case ConstructionRelatedEligibilityCountAtLeast:
+		if related.Match.Threshold == nil || *related.Match.Threshold <= 0 {
+			return fmt.Errorf("relatedEligibility COUNT_AT_LEAST requires a positive threshold")
+		}
+	default:
+		return fmt.Errorf("relatedEligibility match kind must be EXISTS, ABSENT, or COUNT_AT_LEAST")
+	}
+	return validateDeclaredOutputIDs(step.Outputs, orderedStageIDs(inputColumns))
 }
 
 func validateConstructionRelatedField(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {

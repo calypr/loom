@@ -169,6 +169,16 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 			if err := validatePhysicalStageRelatedExpand(stage, *stage.RelatedExpand, bindVars); err != nil {
 				return fmt.Errorf("%s related expansion: %w", path, err)
 			}
+		case PhysicalStageRelatedEligibilityOp:
+			if stage.Filter == nil || stage.RelatedSource != nil || stage.RelatedExpand != nil || stage.RelatedField != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil {
+				return fmt.Errorf("%s RELATED_ELIGIBILITY requires only a filter and optional typed count LET", path)
+			}
+			if err := validatePhysicalStageRelatedEligibility(stage, bindVars); err != nil {
+				return fmt.Errorf("%s related eligibility: %w", path, err)
+			}
+			if err := validateStageRowOperations(stage, bindVars, true); err != nil {
+				return err
+			}
 		case PhysicalStageRelatedFieldOp:
 			if stage.RelatedField == nil || stage.RelatedExpand != nil || stage.RelatedSource != nil || stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil || stage.Unpivot != nil || len(stage.DerivedLets) != 0 {
 				return fmt.Errorf("%s RELATED_FIELD requires only a related-field payload", path)
@@ -448,6 +458,51 @@ func validatePhysicalStageRelatedExpand(stage PhysicalConstructionStage, related
 func physicalValueMatches(expression PhysicalExpression, variable, path string) bool {
 	return expression.Kind == PhysicalValueExpression && expression.Value != nil && expression.Value.Variable == variable &&
 		len(expression.Value.Path) == 1 && expression.Value.Path[0] == path
+}
+
+func validatePhysicalStageRelatedEligibility(stage PhysicalConstructionStage, bindVars map[string]any) error {
+	filter := stage.Filter
+	if filter.Expression == nil {
+		return fmt.Errorf("eligible-row filter must use a typed predicate expression")
+	}
+	switch filter.Expression.Kind {
+	case PhysicalExistsPredicate:
+		if filter.Expression.Exists == nil || len(stage.DerivedLets) != 0 {
+			return fmt.Errorf("EXISTS requires one correlated subplan and no scalar LET")
+		}
+	case PhysicalNotPredicate:
+		if len(filter.Expression.Children) != 1 || filter.Expression.Children[0].Kind != PhysicalExistsPredicate ||
+			filter.Expression.Children[0].Exists == nil || len(stage.DerivedLets) != 0 {
+			return fmt.Errorf("ABSENT requires NOT over one correlated EXISTS subplan and no scalar LET")
+		}
+	case PhysicalComparisonPredicate:
+		comparison := filter.Expression.Comparison
+		if comparison == nil || strings.ToUpper(strings.TrimSpace(comparison.Operator)) != "GTE" || comparison.LeftExpression != nil ||
+			comparison.Left.Variable == "" || comparison.Right == nil || comparison.Right.BindKey == "" || len(stage.DerivedLets) != 1 {
+			return fmt.Errorf("COUNT_AT_LEAST requires a scalar GTE comparison and one count LET")
+		}
+		let := stage.DerivedLets[0].ExpressionLet
+		if stage.DerivedLets[0].Kind != PhysicalExpressionLetOp || let == nil || let.Variable != comparison.Left.Variable {
+			return fmt.Errorf("count comparison must use the variable produced by its typed LET")
+		}
+		count := let.Expression
+		if count.Kind != PhysicalCallExpression || count.Call == nil || strings.ToLower(strings.TrimSpace(count.Call.Name)) != "length" || len(count.Call.Args) != 1 {
+			return fmt.Errorf("count LET must apply LENGTH to one related-resource subplan")
+		}
+		array := count.Call.Args[0]
+		if array.Kind != PhysicalSubplanExpression || array.Subplan == nil || !array.Subplan.Unique || array.Subplan.Sort == nil ||
+			array.Subplan.Return.Kind != PhysicalValueExpression || array.Subplan.Return.Value == nil ||
+			!reflect.DeepEqual(*array.Subplan.Sort, *array.Subplan.Return.Value) || len(array.Subplan.Sort.Path) != 1 || array.Subplan.Sort.Path[0] != "_id" {
+			return fmt.Errorf("COUNT_AT_LEAST must count a sorted, distinct terminal document _id subplan")
+		}
+		threshold, ok := bindVars[comparison.Right.BindKey].(int)
+		if !ok || threshold <= 0 {
+			return fmt.Errorf("COUNT_AT_LEAST threshold must be a positive integer bind")
+		}
+	default:
+		return fmt.Errorf("related eligibility supports only EXISTS, ABSENT, or COUNT_AT_LEAST")
+	}
+	return nil
 }
 
 func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related PhysicalStageRelatedSource, bindVars map[string]any) error {

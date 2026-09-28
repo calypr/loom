@@ -467,6 +467,11 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 		}
 		column.Nullable = step.Operation.RelatedExpand.EmptyPolicy == ConstructionExpandEmptyPreserveParent
 		outputs = append(outputs, column)
+	case ConstructionOperationRelatedEligibility:
+		if step.Operation.RelatedEligibility == nil {
+			return nil, fmt.Errorf("relatedEligibility payload is required")
+		}
+		outputs = append(outputs, input...)
 	case ConstructionOperationRelatedField:
 		if step.Operation.RelatedField == nil {
 			return nil, fmt.Errorf("relatedField payload is required")

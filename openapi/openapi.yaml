@@ -3327,7 +3327,7 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
@@ -3337,6 +3337,7 @@ components:
         combine: {$ref: '#/components/schemas/ConstructionCombine'}
         relatedSource: {$ref: '#/components/schemas/ConstructionRelatedSource'}
         relatedExpand: {$ref: '#/components/schemas/ConstructionRelatedExpand'}
+        relatedEligibility: {$ref: '#/components/schemas/ConstructionRelatedEligibility'}
         relatedField: {$ref: '#/components/schemas/ConstructionRelatedField'}
     ConstructionRelatedSource:
       type: object
@@ -3390,6 +3391,30 @@ components:
         contributorChoiceId: {type: string, minLength: 1}
         emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
         relatedRecordColumnId: {type: string, minLength: 1}
+    ConstructionRelatedEligibility:
+      type: object
+      additionalProperties: false
+      required: [anchorColumnId, choiceId, targetNodeId, targetResourceType, route, contributorRule, match]
+      properties:
+        anchorColumnId: {type: string, minLength: 1}
+        choiceId: {type: string, minLength: 1}
+        targetNodeId: {type: string, minLength: 1}
+        targetResourceType: {type: string, minLength: 1}
+        route:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+        contributorRule: {$ref: '#/components/schemas/RelatedSourceContributorRule'}
+        contributorSource: {$ref: '#/components/schemas/RelatedSourceField'}
+        contributorChoiceId: {type: string, minLength: 1}
+        match: {$ref: '#/components/schemas/ConstructionRelatedEligibilityMatch'}
+    ConstructionRelatedEligibilityMatch:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: {type: string, enum: [EXISTS, ABSENT, COUNT_AT_LEAST]}
+        threshold: {type: integer, minimum: 1}
     ConstructionRelatedField:
       type: object
       additionalProperties: false
@@ -3689,7 +3714,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}

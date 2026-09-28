@@ -21,16 +21,17 @@ const (
 type ConstructionOperationKind string
 
 const (
-	ConstructionOperationPivot         ConstructionOperationKind = "PIVOT"
-	ConstructionOperationDerive        ConstructionOperationKind = "DERIVE"
-	ConstructionOperationFilter        ConstructionOperationKind = "FILTER"
-	ConstructionOperationUnpivot       ConstructionOperationKind = "UNPIVOT"
-	ConstructionOperationGroup         ConstructionOperationKind = "GROUP"
-	ConstructionOperationExpand        ConstructionOperationKind = "EXPAND"
-	ConstructionOperationCombine       ConstructionOperationKind = "COMBINE"
-	ConstructionOperationRelatedSource ConstructionOperationKind = "RELATED_SOURCE"
-	ConstructionOperationRelatedExpand ConstructionOperationKind = "RELATED_EXPAND"
-	ConstructionOperationRelatedField  ConstructionOperationKind = "RELATED_FIELD"
+	ConstructionOperationPivot              ConstructionOperationKind = "PIVOT"
+	ConstructionOperationDerive             ConstructionOperationKind = "DERIVE"
+	ConstructionOperationFilter             ConstructionOperationKind = "FILTER"
+	ConstructionOperationUnpivot            ConstructionOperationKind = "UNPIVOT"
+	ConstructionOperationGroup              ConstructionOperationKind = "GROUP"
+	ConstructionOperationExpand             ConstructionOperationKind = "EXPAND"
+	ConstructionOperationCombine            ConstructionOperationKind = "COMBINE"
+	ConstructionOperationRelatedSource      ConstructionOperationKind = "RELATED_SOURCE"
+	ConstructionOperationRelatedExpand      ConstructionOperationKind = "RELATED_EXPAND"
+	ConstructionOperationRelatedEligibility ConstructionOperationKind = "RELATED_ELIGIBILITY"
+	ConstructionOperationRelatedField       ConstructionOperationKind = "RELATED_FIELD"
 )
 
 // Construction stores the ordered, durable operations applied after the
@@ -122,17 +123,18 @@ type StageColumn struct {
 }
 
 type ConstructionOperation struct {
-	Kind          ConstructionOperationKind  `json:"kind"`
-	Pivot         *ConstructionPivot         `json:"pivot,omitempty"`
-	Derive        *ConstructionDerive        `json:"derive,omitempty"`
-	Filter        *ConstructionFilter        `json:"filter,omitempty"`
-	Unpivot       *ConstructionUnpivot       `json:"unpivot,omitempty"`
-	Group         *ConstructionGroup         `json:"group,omitempty"`
-	Expand        *ConstructionExpand        `json:"expand,omitempty"`
-	Combine       *ConstructionCombine       `json:"combine,omitempty"`
-	RelatedSource *ConstructionRelatedSource `json:"relatedSource,omitempty"`
-	RelatedExpand *ConstructionRelatedExpand `json:"relatedExpand,omitempty"`
-	RelatedField  *ConstructionRelatedField  `json:"relatedField,omitempty"`
+	Kind               ConstructionOperationKind       `json:"kind"`
+	Pivot              *ConstructionPivot              `json:"pivot,omitempty"`
+	Derive             *ConstructionDerive             `json:"derive,omitempty"`
+	Filter             *ConstructionFilter             `json:"filter,omitempty"`
+	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
+	Group              *ConstructionGroup              `json:"group,omitempty"`
+	Expand             *ConstructionExpand             `json:"expand,omitempty"`
+	Combine            *ConstructionCombine            `json:"combine,omitempty"`
+	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
+	RelatedExpand      *ConstructionRelatedExpand      `json:"relatedExpand,omitempty"`
+	RelatedEligibility *ConstructionRelatedEligibility `json:"relatedEligibility,omitempty"`
+	RelatedField       *ConstructionRelatedField       `json:"relatedField,omitempty"`
 }
 
 // ConstructionRelatedSource adds one compiler-authorized field from related
@@ -164,6 +166,32 @@ type ConstructionRelatedExpand struct {
 	EmptyPolicy           ConstructionExpandEmptyPolicy      `json:"emptyPolicy"`
 	RelatedRecordColumnID string                             `json:"relatedRecordColumnId"`
 }
+
+// ConstructionRelatedEligibility filters rows by the number of distinct
+// terminal resources reached through an exact authorized route. It preserves
+// the input schema and row identity.
+type ConstructionRelatedEligibility struct {
+	AnchorColumnID      string                              `json:"anchorColumnId"`
+	ChoiceID            string                              `json:"choiceId"`
+	TargetNodeID        string                              `json:"targetNodeId"`
+	TargetResourceType  string                              `json:"targetResourceType"`
+	Route               []capability.ConstructionRouteStep  `json:"route"`
+	ContributorRule     ConstructionRelatedContributorRule  `json:"contributorRule"`
+	ContributorSource   *ConstructionRelatedFieldSource     `json:"contributorSource,omitempty"`
+	ContributorChoiceID string                              `json:"contributorChoiceId,omitempty"`
+	Match               ConstructionRelatedEligibilityMatch `json:"match"`
+}
+
+type ConstructionRelatedEligibilityMatch struct {
+	Kind      string `json:"kind"`
+	Threshold *int   `json:"threshold,omitempty"`
+}
+
+const (
+	ConstructionRelatedEligibilityExists       = "EXISTS"
+	ConstructionRelatedEligibilityAbsent       = "ABSENT"
+	ConstructionRelatedEligibilityCountAtLeast = "COUNT_AT_LEAST"
+)
 
 // ConstructionRelatedField adds one scalar field from the exact terminal
 // resource retained by a preceding RELATED_EXPAND stage.

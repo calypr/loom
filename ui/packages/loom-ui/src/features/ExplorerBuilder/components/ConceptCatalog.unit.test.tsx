@@ -343,7 +343,7 @@ describe('ConceptCatalog', () => {
     expect(screen.getByRole('checkbox', { name: 'Select Patient.id' })).toBeEnabled();
     expect(await screen.findByRole('checkbox', { name: 'Select Hemoglobin A1c' })).toBeEnabled();
     expect(
-      screen.getByRole('heading', { name: 'Concepts across the dataset' })
+      screen.getByRole('heading', { name: 'Coded values across the dataset' })
         .compareDocumentPosition(screen.getByRole('heading', { name: 'Fields on Patient' })) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByRole('checkbox', { name: 'Select Observation id' })).not.toBeInTheDocument();

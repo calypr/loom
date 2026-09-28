@@ -181,6 +181,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	baseRelatedSources := make(map[string]authoringv2.ConstructionRelatedSource)
 	baseRelatedExpands := make(map[string]authoringv2.ConstructionRelatedExpand)
+	baseRelatedEligibility := make(map[string]authoringv2.ConstructionRelatedEligibility)
 	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
 	for _, step := range base.construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
@@ -188,6 +189,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		}
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedExpand && step.Operation.RelatedExpand != nil {
 			baseRelatedExpands[step.ID] = *step.Operation.RelatedExpand
+		}
+		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedEligibility && step.Operation.RelatedEligibility != nil {
+			baseRelatedEligibility[step.ID] = *step.Operation.RelatedEligibility
 		}
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedField && step.Operation.RelatedField != nil {
 			baseRelatedFields[step.ID] = *step.Operation.RelatedField
@@ -213,6 +217,16 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 				continue
 			}
 			if err := reauthorizeConstructionRelatedExpand(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedExpand); err != nil {
+				return ConstructionProposalResponse{}, err
+			}
+		case authoringv2.ConstructionOperationRelatedEligibility:
+			if step.Operation.RelatedEligibility == nil {
+				continue
+			}
+			if prior, exists := baseRelatedEligibility[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedEligibility) {
+				continue
+			}
+			if err := reauthorizeConstructionRelatedEligibility(ctx, base, candidateDocument.RootResourceType, step, *step.Operation.RelatedEligibility); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
 		case authoringv2.ConstructionOperationRelatedField:
@@ -427,6 +441,26 @@ func reauthorizeConstructionRelatedExpand(
 		return nil
 	}
 	return reauthorizeRelatedExpandContributor(ctx, base, anchor.ResourceType, related)
+}
+
+func reauthorizeConstructionRelatedEligibility(
+	ctx context.Context,
+	base constructionBase,
+	rootResourceType string,
+	step authoringv2.ConstructionStep,
+	related authoringv2.ConstructionRelatedEligibility,
+) error {
+	// RELATED_ELIGIBILITY shares RELATED_EXPAND's signed route and contributor
+	// choices. Reuse that exact-stage/anchor reauthorization path; its row-grain
+	// policy fields are irrelevant because this operation emits no expanded row.
+	return reauthorizeConstructionRelatedExpand(ctx, base, rootResourceType, step, authoringv2.ConstructionRelatedExpand{
+		AnchorColumnID: related.AnchorColumnID, ChoiceID: related.ChoiceID,
+		TargetNodeID: related.TargetNodeID, TargetResourceType: related.TargetResourceType,
+		Route: related.Route, ContributorRule: related.ContributorRule,
+		ContributorSource: related.ContributorSource, ContributorChoiceID: related.ContributorChoiceID,
+		EmptyPolicy:           authoringv2.ConstructionExpandEmptyExclude,
+		RelatedRecordColumnID: "__related_eligibility_probe",
+	})
 }
 
 func relatedExpandInputStageID(step authoringv2.ConstructionStep) (string, error) {

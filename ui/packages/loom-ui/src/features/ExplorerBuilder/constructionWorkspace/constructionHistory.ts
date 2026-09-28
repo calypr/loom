@@ -216,6 +216,20 @@ const formatStep = (
         editable: true,
       };
     }
+    case 'RELATED_ELIGIBILITY': {
+      const eligibility = step.operation.relatedEligibility;
+      const rule = eligibility.match.kind === 'ABSENT'
+        ? 'no matching records'
+        : eligibility.match.kind === 'COUNT_AT_LEAST'
+          ? `at least ${eligibility.match.threshold} matching records`
+          : 'at least one matching record';
+      return {
+        id: step.id,
+        title: 'Filter by related records',
+        summary: `Keep rows with ${rule} from ${eligibility.targetResourceType} via ${eligibility.route.map(relationshipLabel).join(' → ')}${contributorCondition(eligibility.contributorRule.predicate, eligibility.contributorSource?.path ?? 'the selected field')}.`,
+        editable: true,
+      };
+    }
     case 'RELATED_FIELD': {
       const field = step.operation.relatedField;
       const output = step.outputs.find((column) => column.id === field.outputColumnId)?.label ?? field.source.path;

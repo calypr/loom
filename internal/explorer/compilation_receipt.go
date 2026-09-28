@@ -354,7 +354,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 			seenOperations := make(map[string]struct{}, len(stage.Capabilities))
 			for choiceIndex, choice := range stage.Capabilities {
 				switch choice.Kind {
-				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_FIELD":
+				case "PIVOT", "DERIVE", "FILTER", "UNPIVOT", "GROUP", "EXPAND", "RELATED_SOURCE", "RELATED_EXPAND", "RELATED_ELIGIBILITY", "RELATED_FIELD":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d].capabilities[%d] has unsupported operation %q", outputID, index, choiceIndex, choice.Kind)
 				}
@@ -455,7 +455,7 @@ func validateReceiptConstructionStages(stagesByOutput map[string][]ReceiptConstr
 					if active.TargetNodeID != stage.RelatedExpand.TargetNodeID || active.TargetResourceType != stage.RelatedExpand.TargetResourceType || active.TerminalIdentityColumn != stage.RelatedExpand.TerminalIdentityColumn {
 						return fmt.Errorf("constructionStages[%q][%d] active terminal identity differs from RELATED_EXPAND metadata", outputID, index)
 					}
-				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_FIELD":
+				case "FILTER", "DERIVE", "RELATED_SOURCE", "RELATED_ELIGIBILITY", "RELATED_FIELD":
 				default:
 					return fmt.Errorf("constructionStages[%q][%d] cannot carry an active related record through %q", outputID, index, stage.Operation)
 				}
