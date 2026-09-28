@@ -655,7 +655,7 @@ try {
         const expectedGroups = Object.groupBy(rawRows, row => row.systems[0] ?? '');
         state.rawOracle = { sourceRecords: rawRows.length, groups: Object.fromEntries(Object.entries(expectedGroups).map(([key, rows]) => [key, rows.length])) };
         assert(rawRows.length > 0 && Object.keys(expectedGroups).length > 0);
-        await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label="includedStructure[].structure.coding[].system: Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
+        await browserEval(browser.cdp, `document.querySelector('[role="dialog"] input[aria-label$=": Use the first value"]').click();[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.innerText.trim()==='Add 1 column').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
@@ -664,12 +664,14 @@ try {
         await writeFile(join(evidenceDirectory,'bounded-bodystructure-group.json'),JSON.stringify({pageURL,state,responses},null,2));
         assert(state.afterAdd.configured, 'The field was not saved as a second column');
         await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
+        await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.startsWith('Summarize into groups'))`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Summarize into groups')).click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 30000);
         state.groupEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-group"]')?.innerText.slice(0,2400),advancedClosed:!document.querySelector('[data-testid="construction-reshape-group-advanced"]')?.open,defaultSummary:document.querySelector('select[aria-label="Summary 1"]')?.value,keys:[...document.querySelectorAll('[data-testid="construction-reshape-group"] input[aria-label^="Group by"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled}))};`);
-        assert(state.groupEditor.advancedClosed && state.groupEditor.defaultSummary === 'COUNT_ROWS', 'Group must open with a count default and Advanced settings closed');
+        assert(state.groupEditor.advancedClosed && state.groupEditor.defaultSummary === 'COUNT_ROWS' && state.groupEditor.text.includes('Choose what each group should report.'), 'Group must explain its count default with Advanced settings closed');
         const groupStarted = Date.now();
-        await browserEval(browser.cdp, `document.querySelector('input[aria-label="Group by includedStructure[].structure.coding[].system"]').click();return true;`);
+        assert(state.groupEditor.keys.some(key => key.label === 'Group by Included Structure Structure Coding System' && !key.disabled), 'Group key should use the readable FHIR field label');
+        await browserEval(browser.cdp, `document.querySelector('input[aria-label="Group by Included Structure Structure Coding System"]').click();return true;`);
         await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);
         state.timingsMs.groupProposal = Date.now() - groupStarted;
         state.groupProposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText.slice(0,1400),preview:document.querySelector('[data-testid="construction-proposal-preview"]')?.innerText.slice(0,1400),applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
@@ -693,7 +695,7 @@ try {
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
         await browserEval(browser.cdp, `document.querySelector('[data-testid^="construction-edit-step-"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-group"]'))`, 30000);
-        state.savedGroupEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-group"]')?.innerText.slice(0,1300),keyChecked:document.querySelector('input[aria-label="Group by includedStructure[].structure.coding[].system"]')?.checked,advancedClosed:!document.querySelector('[data-testid="construction-reshape-group-advanced"]')?.open};`);
+        state.savedGroupEditor = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="construction-reshape-group"]')?.innerText.slice(0,1300),keyChecked:document.querySelector('input[aria-label="Group by Included Structure Structure Coding System"]')?.checked,advancedClosed:!document.querySelector('[data-testid="construction-reshape-group-advanced"]')?.open};`);
         assert.equal(state.savedGroupEditor.keyChecked, true, 'Saved group key is not editable');
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-group-advanced"] summary').click();const input=document.querySelector('input[aria-label="Summary output label 1"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'CDA record count');input.dispatchEvent(new Event('input',{bubbles:true}));return true;`);
         await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`, 30000);

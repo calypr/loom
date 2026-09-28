@@ -1467,7 +1467,7 @@ const GroupEditor = (props: {
 
       <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
         <legend className="px-1 text-sm font-semibold text-slate-800">Summaries</legend>
-        <p className="text-sm text-slate-600">Choose the value to calculate for each group. Count rows works without a selected field.</p>
+        <p className="text-sm text-slate-600">Choose what each group should report. Count rows works without a selected field.</p>
         {props.form.aggregates.length === 0 ? (
           <p role="status" className="text-sm text-amber-900">Add at least one summary before proposing this group.</p>
         ) : null}
