@@ -380,7 +380,7 @@ export const ConstructionWorkspace = ({
           <dl className="flex gap-5 text-right text-xs text-slate-500">
             <div>
               <dt>{previewRowCount !== undefined && previewSampled === false ? 'Total rows' : 'Preview rows'}</dt>
-              <dd className="text-lg font-semibold text-slate-900">{previewRowCount === undefined ? '—' : `${previewRowCount.toLocaleString()}${previewSampled ? '+' : ''}`}</dd>
+              <dd className="text-lg font-semibold text-slate-900">{previewRowCount === undefined ? '—' : previewRowCount.toLocaleString()}</dd>
               {previewRowCount !== undefined && previewSampled ? <p className="text-[10px] text-slate-500">Full count not measured</p> : null}
             </div>
             <div>

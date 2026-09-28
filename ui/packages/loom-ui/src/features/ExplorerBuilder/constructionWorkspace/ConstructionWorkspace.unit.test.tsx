@@ -149,7 +149,7 @@ describe('ConstructionWorkspace', () => {
     expect(preview).toHaveAttribute('data-current-draft-version', '7');
     expect(preview).toHaveAttribute('data-current-draft-digest', 'digest-789');
     expect(screen.getByText('Preview rows')).toBeInTheDocument();
-    expect(screen.getByText('25+')).toBeInTheDocument();
+    expect(screen.getByText('25')).toBeInTheDocument();
     expect(screen.getByText('Full count not measured')).toBeInTheDocument();
     expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
       screen.getByTestId('construction-action-add-columns'),
