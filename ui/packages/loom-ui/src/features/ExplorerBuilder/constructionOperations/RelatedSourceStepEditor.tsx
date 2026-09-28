@@ -449,6 +449,7 @@ export const RelatedSourceStepEditor = ({
           relatedSourceAvailability={support}
           suppressUnavailableNotices
           initialSelection={initialSelection}
+          initialFieldSource={relatedSource.source}
           onAddSelected={useSelectedField}
         />
       </div>

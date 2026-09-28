@@ -4,6 +4,7 @@ import type {
   ConstructionChoiceOption,
   ConstructionChoiceSearchSource,
   ExplorerBuilderCatalog,
+  FieldChoiceSource,
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
@@ -483,6 +484,7 @@ export const ConceptCatalog = ({
   relatedSourceAvailability,
   suppressUnavailableNotices = false,
   initialSelection,
+  initialFieldSource,
   pairedColumnSuggestion,
   onPairedColumnSuggestionHandled,
   onAddSelected,
@@ -505,6 +507,7 @@ export const ConceptCatalog = ({
   readonly relatedSourceAvailability?: CatalogRelatedSourceAvailability;
   readonly suppressUnavailableNotices?: boolean;
   readonly initialSelection?: CatalogInitialSelection;
+  readonly initialFieldSource?: Pick<FieldChoiceSource, 'candidateId' | 'nodeId' | 'path'>;
   readonly pairedColumnSuggestion?: PairedColumnSuggestion;
   readonly onPairedColumnSuggestionHandled?: (requestId: string) => void;
   readonly onAddSelected?: (
@@ -698,6 +701,17 @@ export const ConceptCatalog = ({
     ),
     [catalog, query, resourceType, routeContext, rowRoot, sourceNodeId],
   );
+  const appliedInitialSelection = useRef(false);
+  useEffect(() => {
+    if (appliedInitialSelection.current || !initialFieldSource) return;
+    const item = fieldItems.find((candidate) => candidate.kind === 'FIELD' &&
+      candidate.candidate.candidateId === initialFieldSource.candidateId &&
+      candidate.candidate.nodeId === initialFieldSource.nodeId &&
+      candidate.candidate.fieldPath === initialFieldSource.path);
+    if (!item) return;
+    appliedInitialSelection.current = true;
+    setSelected((current) => current.size > 0 ? current : new Map([[catalogItemKey(item), item]]));
+  }, [fieldItems, initialFieldSource]);
   const semanticItems = useMemo(
     () => semanticCatalogItems(response?.entries ?? [], resourceType, sourceNodeId),
     [resourceType, response?.entries, sourceNodeId],

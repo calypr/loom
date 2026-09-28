@@ -2750,8 +2750,11 @@ try {
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"]'))`, 30000);
         results.savedContributorEditor = await browserEval(browser.cdp,
           'const editor=document.querySelector("[data-testid=\\"related-source-step-editor\\"]");return {text:editor.innerText.slice(0,4500),controls:[...editor.querySelectorAll("input,button")].filter(element=>element.offsetParent!==null).map(element=>({tag:element.tagName,label:element.getAttribute("aria-label"),text:element.innerText.slice(0,70),disabled:element.disabled,value:element.value})).slice(0,35)};');
-        assert(results.savedContributorEditor.text.includes('Fields on Observation'), 'Saved editor did not open its related Observation source');
-        await clickDOM('[data-testid="related-source-step-editor"] input[aria-label="Select Observation.id"]', 'Select saved Observation.id field');
+        const savedSource = await browserEval(browser.cdp,
+          'return document.querySelector("[data-testid=\\"related-source-step-source\\"]")?.selectedOptions[0]?.textContent;');
+        assert(savedSource?.startsWith('Observation — related source'), 'Saved editor did not restore its related Observation source');
+        await waitForBrowser(browser.cdp,
+          'document.querySelector("[data-testid=\\"related-source-step-editor\\"] input[aria-label=\\"Select Observation.id\\"]")?.checked===true', 30000);
         await clickButtonText('Add 1 selected feature', 'Open saved Observation.id choices');
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
         await waitForBrowser(browser.cdp,
