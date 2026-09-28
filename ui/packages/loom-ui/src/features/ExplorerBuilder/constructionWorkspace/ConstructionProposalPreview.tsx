@@ -64,7 +64,7 @@ export const ConstructionProposalPreview = ({
       {preview.partialValidation
         ? partialValidationMessage
         : preview.sampled === false
-        ? `Showing all ${preview.rowCount} rows in this proposal.`
+        ? `Showing all ${preview.rowCount} ${preview.rowCount === 1 ? 'row' : 'rows'} in this proposal.`
         : `Showing ${preview.rows?.length ?? 0} preview rows. Full-output coverage is unavailable before publication.`}
     </p>
   </div>

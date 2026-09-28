@@ -1284,7 +1284,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-4">
       <header>
         <h3 className="font-semibold text-slate-900">Change the table shape</h3>
-        <p className="mt-1 text-sm text-slate-600">Choose a change below. Each option shows what happens to rows and columns.</p>
+        <p className="mt-1 text-sm text-slate-600">Choose what the new rows or columns should represent.</p>
       </header>
 
       {props.onAddCodedValues && form.kind !== 'pivot' ? (
@@ -1331,7 +1331,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-group"
             title="Summarize into groups"
-            rows="One row per group, or one row for the whole table."
+            rows="Count or summarize records by chosen fields."
             columns="Keep the group fields and add counts or summaries of selected fields."
             supported={groupSupport.supported}
             reason={groupSupport.reason}
@@ -1342,10 +1342,12 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-coded-group"
             title="Group by coded value"
-            rows="One row per code, counting each source record once per code."
+            rows="Count source records for each code."
             columns="Replace current columns with system, version, code, and source record count."
             supported={codedGroupSupport.supported && Boolean(stage.codedGroupChoices?.length)}
-            reason={codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No executable Coding fields are available at this stage.')}
+            reason={stage.operation && !codedGroupSupport.supported
+              ? 'Available on starting records before other table changes.'
+              : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
             selected={form.kind === 'coded-group'}
             disabled={disabled}
             onChoose={() => updateForm(initialCodedGroupForm(stage))}
@@ -1353,7 +1355,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
             title="Expand a repeated value"
-            rows="One row per item in a selected list. Choose how empty lists behave."
+            rows="Make one row for each value in a list."
             columns="Replace the list with its item; optionally add the item's position."
             supported={expandSupport.supported}
             reason={expandReason}
@@ -1364,7 +1366,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-related-expand"
             title="Expand related records"
-            rows="One row per related record found for each current row. Choose how no matches behave."
+            rows="Make one row for each matching related record."
             columns="Keep current columns and add the related record ID."
             supported={relatedExpandSupport.supported && Boolean(props.relatedExpandContext)}
             reason={props.relatedExpandContext ? relatedExpandSupport.reason : 'Related path search is unavailable.'}
@@ -1375,7 +1377,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-pivot"
             title="Turn categories into columns"
-            rows="Combine rows that share the selected group fields."
+            rows="Make one column for each category."
             columns="Add one column for each accepted category, filled from a selected value field."
             supported={newPivotSupport.supported}
             reason={newPivotSupport.reason}
@@ -1386,7 +1388,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           <ReshapeChoice
             testId="construction-reshape-choice-unpivot"
             title="Turn columns into rows"
-            rows="Make one row for each selected column's value."
+            rows="Make one row for each chosen column."
             columns="Replace those columns with a source-name column and a value column."
             supported={unpivotSupport.supported}
             reason={unpivotSupport.reason}
@@ -1495,13 +1497,13 @@ const ReshapeChoice = (props: {
     type="button"
     data-testid={props.testId}
     aria-pressed={props.selected}
+    aria-label={`${props.title}. ${props.rows} ${props.columns}${props.reason ? ` ${props.reason}` : ''}`}
     disabled={props.disabled || !props.supported}
     onClick={props.onChoose}
-    className={`grid gap-1 rounded-lg border p-3 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${props.selected ? 'border-blue-700 bg-blue-50' : 'border-slate-200'}`}
+    className={`grid gap-0.5 rounded-lg border px-3 py-2 text-left enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 ${props.selected ? 'border-blue-700 bg-blue-50' : 'border-slate-200'}`}
   >
     <span className="text-sm font-semibold text-slate-900">{props.title}</span>
-    <span className="text-sm text-slate-600"><strong className="font-medium text-slate-800">Rows:</strong> {props.rows}</span>
-    <span className="text-sm text-slate-600"><strong className="font-medium text-slate-800">Columns:</strong> {props.columns}</span>
+    <span className="text-xs text-slate-600">{props.rows}</span>
     {!props.supported || props.reason ? <span className="text-xs text-amber-900">{props.reason}</span> : null}
   </button>
 );

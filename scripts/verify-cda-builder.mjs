@@ -10,7 +10,7 @@ const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').re
 const pageURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
 const browser = await launchBrowser('/private/tmp');
-if (action === 'Verify related source chooser' || action === 'Inspect selected Patient route' || action === 'Inspect compact Rows') {
+if (action === 'Verify related source chooser' || action === 'Inspect selected Patient route' || action === 'Inspect compact Rows' || action === 'Inspect reshape options') {
   await browser.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 const responses = [];
@@ -2223,8 +2223,11 @@ try {
   } else if (action === 'Inspect reshape options') {
     await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
     await waitForBrowser(browser.cdp, `document.body.innerText.includes('Turn categories into columns')`, 30000);
+    await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-reshape-editor"]').scrollIntoView({block:'center'});return true;`);
     const state=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-reshape-editor"]');return {text:panel?.innerText.slice(0,4500),options:[...panel.querySelectorAll('button')].map(button=>({text:button.innerText,disabled:button.disabled,title:button.getAttribute('title')}))};`);
     await mkdir(evidenceDirectory,{recursive:true});
+    const screenshot=await browser.cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+    await writeFile(join(evidenceDirectory,'reshape-options.png'),Buffer.from(screenshot.data,'base64'));
     await writeFile(join(evidenceDirectory,'reshape-options.json'),JSON.stringify({pageURL,state,responses},null,2));
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/construction-capabilities'))},null,2));
   } else if (action === 'Open paired concepts from Reshape') {

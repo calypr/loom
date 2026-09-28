@@ -179,7 +179,7 @@ describe('ConstructionReshapeEditor', () => {
 
     fireEvent.click(screen.getByTestId('construction-reshape-choice-group'));
     expect(screen.getByTestId('construction-reshape-group')).toBeInTheDocument();
-    expect(screen.getByText(/One row per group, or one row for the whole table/)).toBeInTheDocument();
+    expect(screen.getByText('Count or summarize records by chosen fields.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Group by Tags')).not.toBeInTheDocument();
     expect(controlValue('Summary 1')).toBe('COUNT_ROWS');
     const advanced = screen.getByTestId('construction-reshape-group-advanced');

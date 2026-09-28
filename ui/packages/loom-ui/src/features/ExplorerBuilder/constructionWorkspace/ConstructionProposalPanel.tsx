@@ -111,7 +111,7 @@ export const ConstructionProposalPanel = ({
         <div data-testid="construction-proposal-ready">
           <h3 className="font-semibold text-emerald-950">Proposal preview</h3>
           <p className="mt-1 text-sm text-slate-700">
-            {state.preview.rowCount.toLocaleString()} rows and {state.preview.columns.length} columns
+            {state.preview.rowCount.toLocaleString()} {state.preview.rowCount === 1 ? 'row' : 'rows'} and {state.preview.columns.length} {state.preview.columns.length === 1 ? 'column' : 'columns'}
             {' '}· checked in {state.response.previewDurationMs} ms.
           </p>
           {relatedColumnId ? (

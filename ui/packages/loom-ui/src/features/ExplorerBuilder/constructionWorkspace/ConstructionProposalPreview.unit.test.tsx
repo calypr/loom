@@ -28,7 +28,7 @@ describe('ConstructionProposalPreview', () => {
 
   it('identifies a preview that exhausted the output', () => {
     render(<ConstructionProposalPreview preview={preview(false)} />);
-    expect(screen.getByText('Showing all 1 rows in this proposal.')).toBeInTheDocument();
+    expect(screen.getByText('Showing all 1 row in this proposal.')).toBeInTheDocument();
   });
 
   it('explains when only displayed construction groups were validated', () => {
