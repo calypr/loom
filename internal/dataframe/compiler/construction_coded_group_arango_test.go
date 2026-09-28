@@ -1,10 +1,20 @@
 package compiler
 
 import (
+	"context"
+	"encoding/json"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	store "github.com/calypr/loom/internal/store/arango"
+	"github.com/google/uuid"
 )
 
 func TestConstructionCodedGroupCountsDistinctRootCodingTuplesAgainstArango(t *testing.T) {
@@ -60,6 +70,152 @@ func TestConstructionCodedGroupCountsDistinctRootCodingTuplesAgainstArango(t *te
 	}
 	if repeated := executeConstructionOutput(t, ctx, client, output, project, generation); !reflect.DeepEqual(constructionRowIdentities(repeated), constructionRowIdentities(rows)) {
 		t.Fatalf("coded grouping row IDs changed between executions: %#v then %#v", constructionRowIdentities(rows), constructionRowIdentities(repeated))
+	}
+}
+
+func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	project, generation := "loom_coded_group_inline_"+suffix, "generation-coded-group-inline"
+	fixtureCollection := "loom_coded_group_inline_roots_" + suffix
+	populationCollection := "loom_coded_group_inline_members_" + suffix
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+		{Name: fixtureCollection}, {Name: populationCollection},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	insertCodedGroupResources(t, ctx, client, fixtureCollection, project, generation, []map[string]any{
+		{"id": "visible-a", "auth_resource_path": "Observation/visible", "component": []any{codedGroupComponent("visible-a")}},
+		{"id": "visible-b", "auth_resource_path": "Observation/visible", "component": []any{codedGroupComponent("visible-b")}},
+		{"id": "hidden", "auth_resource_path": "Observation/hidden", "component": []any{codedGroupComponent("hidden")}},
+	})
+
+	bindings := recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"Observation/visible"},
+	}
+	allOutput := constructionCodedGroupTestOutput()
+	allCompiled := lowerConstructionOutput(t, allOutput, bindings)
+	allQuery, err := CompileRecipeOutputWithPolicy(allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	allQuery.BindVars["@root_collection"] = fixtureCollection
+	allSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, allCompiled, fixtureCollection)
+	allRows := executeReshapeOracleQuery(t, ctx, client, allQuery)
+	assertCodedGroupSourceIDsMatchCodes(t, allRows, allSourceIDs)
+
+	selectionID := "selection-" + t.Name()
+	insertCodedGroupPopulationMembers(t, ctx, client, populationCollection, selectionID, project, generation, []string{"visible-a", "hidden"})
+	selectedOutput := constructionCodedGroupTestOutput()
+	selectedOutput.Population = &recipe.PopulationConstraint{
+		SelectionRevisionID: selectionID, MembershipDigest: "sha256:coded-group-inline-members",
+		MemberCount: 2, ResourceType: "Observation",
+	}
+	selectedBindings := bindings
+	selectedBindings.SelectionProject = project
+	selectedBindings.SelectionMembersCollection = populationCollection
+	selectedCompiled := lowerConstructionOutput(t, selectedOutput, selectedBindings)
+	selectedQuery, err := CompileRecipeOutputWithPolicy(selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedQuery.BindVars["@root_collection"] = fixtureCollection
+	selectedQuery.BindVars["@population_source_collection"] = fixtureCollection
+	selectedSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, selectedCompiled, fixtureCollection)
+	selectedRows := executeReshapeOracleQuery(t, ctx, client, selectedQuery)
+	assertCodedGroupSourceIDsMatchCodes(t, selectedRows, selectedSourceIDs)
+}
+
+func insertCodedGroupResources(t *testing.T, ctx context.Context, client *store.Client, collection, project, generation string, payloads []map[string]any) {
+	t.Helper()
+	documents := make([]json.RawMessage, 0, len(payloads))
+	for _, payload := range payloads {
+		id := payload["id"].(string)
+		document, err := json.Marshal(map[string]any{
+			"_key": project + "_" + id, "id": id, "project": project, "project_id": project,
+			"dataset_generation": generation, "resourceType": "Observation", "payload": payload,
+			"auth_resource_path": payload["auth_resource_path"],
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, collection, documents, false, "document"); err != nil {
+		t.Fatalf("insert coded-group resource fixture: %v", err)
+	}
+}
+
+func codedGroupComponent(code string) map[string]any {
+	return map[string]any{"code": map[string]any{"coding": []any{
+		map[string]any{"system": "urn:loom:inline-test", "code": code},
+	}}}
+}
+
+func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client *store.Client, collection, selectionID, project, generation string, ids []string) {
+	t.Helper()
+	documents := make([]json.RawMessage, 0, len(ids))
+	for _, id := range ids {
+		document, err := json.Marshal(map[string]any{
+			"_key": selectionID + "_" + id, "id": id, "selectionId": selectionID,
+			"project": project, "generation": generation, "resourceType": "Observation",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, document)
+	}
+	if err := client.InsertBatchRaw(ctx, collection, documents, false, "document"); err != nil {
+		t.Fatalf("insert coded-group population members: %v", err)
+	}
+}
+
+func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *store.Client, compiled lower.CompiledRecipeOutput, collection string) []string {
+	t.Helper()
+	plan := ir.ClonePhysicalPlan(compiled.Plan)
+	plan.StageSequence = nil
+	rootVariable := plan.Operations[0].RootScan.Variable
+	terminal := &plan.Operations[len(plan.Operations)-1]
+	if terminal.Kind != ir.PhysicalReturnOp || terminal.Return == nil {
+		t.Fatalf("source plan has no terminal projection: %#v", terminal)
+	}
+	terminal.Return.Projections = []ir.PhysicalProjection{{
+		Name: "resource_id", Value: ir.PhysicalValue{Variable: rootVariable, Path: []string{"id"}},
+	}}
+	rendered, err := aql.RenderPhysicalPlan(plan)
+	if err != nil {
+		t.Fatalf("render authorized source projection: %v", err)
+	}
+	rendered.BindVars["@root_collection"] = collection
+	if _, populationSource := rendered.BindVars["@population_source_collection"]; populationSource {
+		rendered.BindVars["@population_source_collection"] = collection
+	}
+	ids := make([]string, 0, 4)
+	if err := client.QueryRows(ctx, rendered.Query, 100, rendered.BindVars, func(row map[string]any) error {
+		id, _ := row["resource_id"].(string)
+		ids = append(ids, id)
+		return nil
+	}); err != nil {
+		t.Fatalf("execute authorized source projection: %v\n%s", err, rendered.Query)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func assertCodedGroupSourceIDsMatchCodes(t *testing.T, rows []map[string]any, sourceIDs []string) {
+	t.Helper()
+	codes := make([]string, 0, len(rows))
+	for _, row := range rows {
+		code, _ := row["code"].(string)
+		if row["code_system"] != "urn:loom:inline-test" || !constructionNumericEqual(row["source_records"], 1) {
+			t.Errorf("coded-group row = %#v, want one authorized source per code", row)
+		}
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	if !reflect.DeepEqual(codes, sourceIDs) {
+		t.Fatalf("inlined CODED_GROUP codes = %#v, authorized source projection IDs = %#v", codes, sourceIDs)
 	}
 }
 

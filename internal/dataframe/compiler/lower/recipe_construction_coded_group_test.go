@@ -60,19 +60,23 @@ func TestConstructionCodedGroupCompilesNestedAndDirectGeneratedCodingPaths(t *te
 				t.Fatal(err)
 			}
 			for _, expected := range []string{
-				"DOCUMENT(@@root_collection,",
+				"FOR root IN @@root_collection",
+				"FILTER root.project == @project",
+				"FILTER root.dataset_generation == @dataset_generation",
 				".payload[",
 				"IS_ARRAY(",
 				"construction_coded_system",
 				"construction_coded_version",
 				"construction_coded_code",
 				"AGGREGATE " + stage.CodedGroup.CountVariable + " = SUM(1)",
-				"CODED_GROUP_SOURCE_ID_MISSING",
 				"TO_STRING([\"construction\"",
 			} {
 				if !strings.Contains(rendered.Query, expected) {
 					t.Errorf("AQL is missing %q:\n%s", expected, rendered.Query)
 				}
+			}
+			if strings.Contains(rendered.Query, "__loom_construction_source_projection") || strings.Contains(rendered.Query, "DOCUMENT(@@root_collection,") {
+				t.Fatalf("direct root CODED_GROUP should consume the physical RootScan row without a materialized source projection:\n%s", rendered.Query)
 			}
 			if strings.Contains(rendered.Query, "display") || strings.Contains(rendered.Query, "ordinal") {
 				t.Fatalf("coding display or ordinal must not enter grouping or row identity:\n%s", rendered.Query)

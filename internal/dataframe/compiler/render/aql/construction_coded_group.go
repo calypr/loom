@@ -6,7 +6,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.PhysicalConstructionStage, inputRows string) ([]string, error) {
+func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.PhysicalConstructionStage, inputRows, sourceRootVariable string) ([]string, error) {
 	coded := stage.CodedGroup
 	if coded == nil {
 		return nil, fmt.Errorf("coded-group stage is missing payload")
@@ -14,28 +14,35 @@ func (r *physicalPlanRenderer) renderConstructionCodedGroupStage(stage ir.Physic
 	if _, ok := r.collectionKeys[coded.RootCollectionBindKey]; !ok {
 		return nil, fmt.Errorf("root collection bind %q is not an authorized collection binding", coded.RootCollectionBindKey)
 	}
-	rootDocument := r.newInternalVariable("construction_coded_group_root")
+	rootDocument := sourceRootVariable
+	if rootDocument == "" {
+		rootDocument = r.newInternalVariable("construction_coded_group_root")
+	}
 	rawCodings := r.newInternalVariable("construction_coded_group_raw")
 	candidate := r.newInternalVariable("construction_coded_group_candidate")
 	valid := r.newInternalVariable("construction_coded_group_valid")
 	sourceTuples := r.newInternalVariable("construction_coded_group_source_tuples")
 	tuple := r.newInternalVariable("construction_coded_group_tuple")
-	rootKeyBind := r.newInternalBindKeyWithValue("construction_coded_group_source_id", coded.SourceIdentityColumn)
+	var rootKeyBind string
+	if sourceRootVariable == "" {
+		rootKeyBind = r.newInternalBindKeyWithValue("construction_coded_group_source_id", coded.SourceIdentityColumn)
+	}
 	systemKeyVariable := r.newInternalVariable("construction_coded_system")
 	versionKeyVariable := r.newInternalVariable("construction_coded_version")
 	codeKeyVariable := r.newInternalVariable("construction_coded_code")
-	lines := []string{
-		fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, inputRows),
-		fmt.Sprintf("    FILTER ASSERT(TYPENAME(%s[@%s]) == \"string\" AND %s[@%s] != \"\", \"CODED_GROUP_SOURCE_ID_MISSING\")",
-			stage.InputRowVariable, rootKeyBind, stage.InputRowVariable, rootKeyBind),
+	lines := make([]string, 0, 24)
+	if sourceRootVariable == "" {
+		lines = append(lines,
+			fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, inputRows),
+			fmt.Sprintf("    FILTER ASSERT(TYPENAME(%s[@%s]) == \"string\" AND %s[@%s] != \"\", \"CODED_GROUP_SOURCE_ID_MISSING\")",
+				stage.InputRowVariable, rootKeyBind, stage.InputRowVariable, rootKeyBind),
+			fmt.Sprintf("    LET %s = DOCUMENT(@@%s, %s[@%s])", rootDocument, coded.RootCollectionBindKey, stage.InputRowVariable, rootKeyBind),
+			fmt.Sprintf("    FILTER %s != null", rootDocument),
+			fmt.Sprintf("    FILTER %s.project == @project", rootDocument),
+			fmt.Sprintf("    FILTER %s.dataset_generation == @dataset_generation", rootDocument),
+		)
 	}
-	lines = append(lines,
-		fmt.Sprintf("    LET %s = DOCUMENT(@@%s, %s[@%s])", rootDocument, coded.RootCollectionBindKey, stage.InputRowVariable, rootKeyBind),
-		fmt.Sprintf("    FILTER %s != null", rootDocument),
-		fmt.Sprintf("    FILTER %s.project == @project", rootDocument),
-		fmt.Sprintf("    FILTER %s.dataset_generation == @dataset_generation", rootDocument),
-		fmt.Sprintf("    LET %s = (", rawCodings),
-	)
+	lines = append(lines, fmt.Sprintf("    LET %s = (", rawCodings))
 	pathExpression := rootDocument + ".payload"
 	for index, segment := range coded.PathSegments {
 		attribute := fmt.Sprintf("%s[%q]", pathExpression, segment.Name)

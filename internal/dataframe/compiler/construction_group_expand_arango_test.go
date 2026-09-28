@@ -464,10 +464,14 @@ func insertConstructionReshapeRows(t *testing.T, ctx context.Context, client *st
 	documents := make([]json.RawMessage, 0, len(payloads))
 	for _, payload := range payloads {
 		id := payload["id"].(string)
-		document, err := json.Marshal(map[string]any{
+		resource := map[string]any{
 			"_key": project + "_" + id, "id": id, "project": project, "project_id": project,
 			"dataset_generation": generation, "resourceType": "Observation", "payload": payload,
-		})
+		}
+		if authResourcePath, ok := payload["auth_resource_path"]; ok {
+			resource["auth_resource_path"] = authResourcePath
+		}
+		document, err := json.Marshal(resource)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -25,7 +25,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
-	if !inlineSourceForKeylessCount {
+	inlineCodedGroupRoot := codedGroupSourceRootVariable(sourcePlan, sequence, stages, options)
+	inlineSourceIntoFirstStage := inlineSourceForKeylessCount || inlineCodedGroupRoot != ""
+	if !inlineSourceIntoFirstStage {
 		pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	}
 	collectionKeys, err := collectionBindKeys(plan)
@@ -78,7 +80,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 	}
-	if inlineSourceForKeylessCount {
+	if inlineSourceIntoFirstStage {
 		sourceOptions.omitTerminalReturn = true
 	}
 	source, err := renderPhysicalPlanWithOptions(sourcePlan, sourceOptions)
@@ -133,7 +135,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		lines = append(lines, groupLines...)
 	}
 	priorRows := constructionSourceVariable
-	if !inlineSourceForKeylessCount {
+	if !inlineSourceIntoFirstStage {
 		lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
 		for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
 			lines = append(lines, "  "+line)
@@ -145,7 +147,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	for index, stage := range stages {
 		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
 		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
-		if inlineSourceForKeylessCount && index == 0 {
+		if inlineSourceIntoFirstStage && index == 0 {
 			for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
 				lines = append(lines, "  "+line)
 			}
@@ -161,7 +163,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			continue
 		}
 		if stage.Kind == ir.PhysicalStageCodedGroupOp {
-			rendered, renderErr := renderer.renderConstructionCodedGroupStage(stage, priorRows)
+			rootVariable := ""
+			if inlineCodedGroupRoot != "" && index == 0 {
+				rootVariable = inlineCodedGroupRoot
+			}
+			rendered, renderErr := renderer.renderConstructionCodedGroupStage(stage, priorRows, rootVariable)
 			if renderErr != nil {
 				return RenderedPhysicalPlan{}, fmt.Errorf("render stage %q coded group: %w", stage.ID, renderErr)
 			}
@@ -310,6 +316,49 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	}
 	query := strings.Join(lines, "\n") + "\n"
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(renderer.bindVars, query)}, nil
+}
+
+// codedGroupSourceRootVariable returns the physical root variable only when
+// the first construction stage can consume the source query's rows directly.
+// The source query still renders every root filter, auth predicate, population
+// selection, and execution window; only its terminal projection is omitted.
+func codedGroupSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
+		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
+		stages[0].Kind != ir.PhysicalStageCodedGroupOp || stages[0].CodedGroup == nil ||
+		stages[0].InputStageID != sequence.SourceStageID || !stages[0].CodedGroup.SourceRowsUnique ||
+		stages[0].CodedGroup.SourceIdentityColumn != "_key" || len(sourcePlan.Operations) < 2 ||
+		sourcePlan.Operations[0].Kind != ir.PhysicalRootScanOp || sourcePlan.Operations[0].RootScan == nil {
+		return ""
+	}
+	root := sourcePlan.Operations[0].RootScan
+	if root.Variable == "" || root.CollectionBindKey != stages[0].CodedGroup.RootCollectionBindKey {
+		return ""
+	}
+	returns := 0
+	for index, operation := range sourcePlan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 || operation.RootScan == nil {
+				return ""
+			}
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
+			ir.PhysicalSetOp, ir.PhysicalSortOp, ir.PhysicalLimitOp:
+			// These source operations preserve one row per selected root.
+		case ir.PhysicalReturnOp:
+			returns++
+			if operation.Return == nil || index != len(sourcePlan.Operations)-1 {
+				return ""
+			}
+		default:
+			return ""
+		}
+	}
+	if returns != 1 {
+		return ""
+	}
+	return root.Variable
 }
 
 func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence) {
