@@ -1175,6 +1175,7 @@ try {
     const tableName = `Observation coded group QA ${Date.now()}`;
     const state = { tableName, observationID, expected: Object.fromEntries(expected), timingsMs: {} };
     const tablesBefore = await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].filter(button=>button.innerText.trim().startsWith('▤')).map(button=>button.innerText.trim().split(String.fromCharCode(10)).at(-1));`);
+    assert(tablesBefore.length > 0, 'Coded-group browser QA needs a baseline table so it can remove its temporary table afterward');
     let created = false;
     let selectedURL = pageURL;
     try {
