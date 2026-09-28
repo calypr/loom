@@ -1,8 +1,10 @@
-## Peter mode
+## Default workflow
 
-When the user invokes `$peter-mode` or asks to enter Peter mode, use the
-project-local `peter-mode` skill as the pstack entry point. Do not invoke or
-load `pstack:poteto-mode` first. Peter mode replaces poteto-mode for that task.
+Use the project-local `.codex/skills/peter-mode/SKILL.md` as the default
+workflow for Loom work. It uses focused verification and calls a specialized
+pstack skill only when the task needs one. Do not load `pstack:poteto-mode` as
+the automatic entry point. Follow a different skill when the user explicitly
+requests it.
 
 ## GitNexus
 
@@ -22,7 +24,7 @@ This project uses GitNexus as its local repository knowledge graph.
 When the parent assignment says that a design is frozen, treat the assignment
 as an implementation stage that starts after discovery and architecture work.
 
-- Start at the implementation step of the selected pstack workflow. Do not
+- Start at the implementation step of the selected workflow. Do not
   repeat `how`, `architect`, `figure-it-out`, an arena, or broad discovery that
   the parent already completed.
 - Read the named source and required skills, then produce a patch in the first
@@ -40,7 +42,7 @@ as an implementation stage that starts after discovery and architecture work.
 - For broad changes, implement one compiler-complete or user-visible unit at a
   time. End each unit with a focused check before starting the next unit.
 
-If the task has no frozen design, use the normal pstack routing rules. This
+If the task has no frozen design, use the Peter mode routing rules. This
 section limits repeated analysis. It does not prohibit needed investigation or
 architecture work.
 
