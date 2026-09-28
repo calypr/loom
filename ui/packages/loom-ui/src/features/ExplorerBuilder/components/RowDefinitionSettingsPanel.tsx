@@ -213,6 +213,23 @@ export const RowDefinitionSettingsPanel = ({
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
   const settingsRequestEpoch = useRef(0);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const proposalController = useRef<AbortController | undefined>(undefined);
+  const proposalRequestEpoch = useRef(0);
+
+  const cancelPendingPreview = () => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = undefined;
+    proposalController.current?.abort();
+    proposalController.current = undefined;
+    proposalRequestEpoch.current += 1;
+  };
+
+  useEffect(() => () => {
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    proposalController.current?.abort();
+    proposalRequestEpoch.current += 1;
+  }, [table.outputId, snapshotToken, draftVersion, draftDigest]);
 
   useEffect(() => {
     setProposalState((current) => current.kind === 'fresh' && !isCurrentProposal(
@@ -221,6 +238,7 @@ export const RowDefinitionSettingsPanel = ({
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
+    cancelPendingPreview();
     const requestEpoch = ++settingsRequestEpoch.current;
     setSettings({ kind: 'loading' });
     setProposalState({ kind: 'none' });
@@ -244,28 +262,46 @@ export const RowDefinitionSettingsPanel = ({
     }
   };
 
-  const propose = async () => {
-    if (settings.kind !== 'editing') return;
-    const selected = settings.options.find((option) => option.value === settings.selectionId);
+  const propose = async (selection?: RowDefinitionSelection) => {
+    const selected = selection ?? (settings.kind === 'editing'
+      ? settings.options.find((option) => option.value === settings.selectionId)?.selection
+      : undefined);
     if (!selected) return;
-    setProposalState({ kind: 'proposing', selection: selected.selection });
+    cancelPendingPreview();
+    const requestEpoch = proposalRequestEpoch.current;
+    const controller = new AbortController();
+    proposalController.current = controller;
+    setProposalState({ kind: 'proposing', selection: selected });
     try {
       const proposal = await client.proposeRowDefinition({
         project, explorerId, authResourcePath, snapshotToken, expectedDraftVersion: draftVersion,
-        expectedDraftDigest: draftDigest, outputId: table.outputId, selection: selected.selection,
-      });
+        expectedDraftDigest: draftDigest, outputId: table.outputId, selection: selected,
+      }, controller.signal);
+      if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
       if (!isCurrentProposal(proposal, table, snapshotToken, draftVersion, draftDigest)) {
-        setProposalState({ kind: 'stale', selection: selected.selection });
+        setProposalState({ kind: 'stale', selection: selected });
         return;
       }
-      setProposalState({ kind: 'fresh', selection: selected.selection, proposal });
+      setProposalState({ kind: 'fresh', selection: selected, proposal });
     } catch (error) {
+      if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
       setProposalState({ kind: 'none' });
       setSettings({
         kind: 'error',
         message: requestFailureMessage(error, 'Loom could not preview this row definition. The saved draft was not changed.'),
       });
+    } finally {
+      if (proposalController.current === controller) proposalController.current = undefined;
     }
+  };
+
+  const schedulePreview = (selection: RowDefinitionSelection) => {
+    cancelPendingPreview();
+    setProposalState({ kind: 'none' });
+    previewTimer.current = setTimeout(() => {
+      previewTimer.current = undefined;
+      void propose(selection);
+    }, 300);
   };
 
   const apply = async () => {
@@ -286,6 +322,7 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const cancel = () => {
+    cancelPendingPreview();
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
     setProposalState({ kind: 'none' });
@@ -317,7 +354,7 @@ export const RowDefinitionSettingsPanel = ({
     const preferred = options.find((option) => option.value === `explicit:${revision.revisionId}:ERROR`) ??
       options.find((option) => option.value.startsWith(`explicit:${revision.revisionId}:`));
     setSettings({ kind: 'editing', choices, options, selectionId: preferred?.value ?? options[0]!.value });
-    setProposalState({ kind: 'none' });
+    schedulePreview((preferred ?? options[0]!).selection);
     setGroupAuthoringOpen(false);
   };
 
@@ -377,7 +414,7 @@ export const RowDefinitionSettingsPanel = ({
                       const next = settings.options.find((option) => option.shapeValue === event.currentTarget.value);
                       if (!next) return;
                       setSettings({ ...settings, selectionId: next.value });
-                      setProposalState({ kind: 'none' });
+                      schedulePreview(next.selection);
                     }}
                   >
                     {shapeOptions(settings.options).map((option) => <option key={option.shapeValue} value={option.shapeValue}>{option.shapeLabel}</option>)}
@@ -394,8 +431,10 @@ export const RowDefinitionSettingsPanel = ({
                         value={settings.selectionId}
                         disabled={disabled || proposalState.kind === 'proposing' || proposalState.kind === 'applying'}
                         onChange={(event) => {
-                          setSettings({ ...settings, selectionId: event.currentTarget.value });
-                          setProposalState({ kind: 'none' });
+                          const next = selectedPolicies.find((option) => option.value === event.currentTarget.value);
+                          if (!next) return;
+                          setSettings({ ...settings, selectionId: next.value });
+                          schedulePreview(next.selection);
                         }}
                       >
                         {selectedPolicies.map((option) => <option key={option.value} value={option.value}>{option.policyLabel}</option>)}

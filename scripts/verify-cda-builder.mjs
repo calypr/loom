@@ -9,8 +9,8 @@ const explorerId = process.argv[3] ?? 'cda-builder-full-qa-1790439585678';
 const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
 const pageURL = `${uiOrigin}/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
-const browser = await launchBrowser('/private/tmp');
-if (action === 'Verify related source chooser' || action === 'Inspect selected Patient route' || action === 'Inspect compact Rows' || action === 'Inspect reshape options') {
+const browser = action === 'Verify bounded indirect related route' ? null : await launchBrowser('/private/tmp');
+if (browser && (action === 'Verify related source chooser' || action === 'Inspect selected Patient route' || action === 'Inspect compact Rows' || action === 'Inspect reshape options')) {
   await browser.cdp.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 }
 const responses = [];
@@ -29,7 +29,7 @@ const chooseRelatedSource = async (resourceType) => {
   await waitForBrowser(browser.cdp, `document.querySelector('[data-source-key=${JSON.stringify(source.key)}]')?.getAttribute('aria-pressed')==='true'`, 30000);
   return { source, sources };
 };
-browser.cdp.on('Network.requestWillBeSent', (event) => {
+browser?.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/')) requestStartedAt.set(event.requestId,Date.now());
   if (event.request.url.includes('/authoring/v2/commands')) requests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-proposals')) proposalRequests.push({ requestId: event.requestId, postData: event.request.postData });
@@ -37,16 +37,44 @@ browser.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/construction-capabilities')) capabilityRequests.push({ requestId: event.requestId, postData: event.request.postData });
   if (event.request.url.includes('/authoring/v2/construction-category-discoveries')) categoryDiscoveryRequests.push({ requestId: event.requestId, postData: event.request.postData });
 });
-browser.cdp.on('Network.responseReceived', (event) => {
+browser?.cdp.on('Network.responseReceived', (event) => {
   if (event.response.url.includes('/authoring/v2/')) {
     responses.push({ requestId: event.requestId, path: new URL(event.response.url).pathname, status: event.response.status, elapsedMs:Date.now()-(requestStartedAt.get(event.requestId)??Date.now()) });
   }
 });
 
 try {
-  await navigate(browser.cdp, pageURL);
-  await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
-  if (action === 'Inspect compact Rows') {
+  if (action === 'Verify bounded indirect related route') {
+    const targetExplorer = process.argv[3] ?? 'cda-builder-full-qa-1790440983382';
+    const journeyOrigin = process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008';
+    const stdout = execFileSync(process.execPath, ['scripts/verify-cda-indirect-specimen-patient.mjs', targetExplorer], {
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+      env: { ...process.env, LOOM_CDA_UI_ORIGIN: journeyOrigin },
+    });
+    const journey = JSON.parse(stdout);
+    assert.equal(journey.outcome, 'passed', JSON.stringify(journey));
+    assert.equal(journey.cleanup?.complete, true, 'Indirect route journey did not clean up its temporary table');
+    assert(journey.clickCount > 0, 'Indirect route journey recorded no browser clicks');
+    assert(journey.preselectionRouteCoverage?.observedCoverageBins, 'Indirect route match counts were not captured');
+    await mkdir(evidenceDirectory, { recursive: true });
+    await writeFile(join(evidenceDirectory, 'bounded-indirect-related-route.json'), JSON.stringify(journey, null, 2));
+    console.log(JSON.stringify({
+      action,
+      explorerId: targetExplorer,
+      outcome: journey.outcome,
+      evidenceDirectory: journey.evidenceDirectory,
+      canonicalEvidence: join(evidenceDirectory, 'bounded-indirect-related-route.json'),
+      elapsedMs: journey.elapsedMs,
+      clickCount: journey.clickCount,
+      preselectionRouteCoverage: journey.preselectionRouteCoverage,
+      previewTimingsMs: journey.previewTimingsMs,
+      cleanup: journey.cleanup,
+    }, null, 2));
+  } else {
+    await navigate(browser.cdp, pageURL);
+    await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
+    if (action === 'Inspect compact Rows') {
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]'))`, 30000);
     await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').scrollIntoView({block:'center'});return true;`);
     const before = await browserEval(browser.cdp, `const card=document.querySelector('[data-testid="construction-rows-settings-trigger"]');return {cardText:card?.innerText,cardHeight:card?.getBoundingClientRect().height,cardDisabled:card?.disabled,visibleRowPanels:[...document.querySelectorAll('[aria-label="Row definition"],[aria-label="Row definition settings"],[aria-label="Starting collection"]')].filter(node=>node.getBoundingClientRect().height>0).map(node=>({label:node.getAttribute('aria-label'),text:node.innerText.slice(0,180)}))};`);
@@ -478,8 +506,12 @@ try {
         await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.textContent?.trim()==='Apply columns'&&!button.disabled))`, 30000);
         state.componentCodeProposal = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`);
         assert(state.componentCodeProposal.includes(rowValues[0].value), 'The component code proposal did not render the raw CDA value');
+        const commandsBeforeCodeColumn = responses.filter(response => response.path.endsWith('/commands')).length;
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.textContent?.trim()==='Apply columns'&&!button.disabled).click();return true;`);
-        await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
+        const commandDeadline = Date.now() + 30000;
+        while (responses.filter(response => response.path.endsWith('/commands')).length === commandsBeforeCodeColumn && Date.now() < commandDeadline) await new Promise(resolve => setTimeout(resolve, 25));
+        assert.equal(responses.filter(response => response.path.endsWith('/commands')).at(-1)?.status, 200, 'The repeated code column was not saved');
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview'&&!button.disabled))`, 30000);
 
         const sourcePreviewStarted = Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
@@ -503,11 +535,10 @@ try {
         const selectedShape = state.rowShapeControls.options.find(option => option.label.includes('Component → Code → Coding'));
         assert(selectedShape && !selectedShape.disabled, 'The repeated component code option is missing or disabled in Configure rows');
         state.selectedShape = { label: selectedShape.label, disabled: selectedShape.disabled, selected: selectedShape.selected, policy: 'PRESERVE_PARENT' };
+        const rowProposalStarted = Date.now();
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(selectedShape.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
         const defaultPolicy = await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]')?.selectedOptions[0]?.textContent;`);
         assert.equal(defaultPolicy, 'Keep records with no values as one empty row');
-        const rowProposalStarted = Date.now();
-        await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
         state.timingsMs.expandedProposal = Date.now() - rowProposalStarted;
         state.expandedProposal = await browserEval(browser.cdp, `return {preview:document.querySelector('[aria-label="Row definition preview"]')?.innerText,dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,2400),applyDisabled:[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition')?.disabled};`);
@@ -533,7 +564,7 @@ try {
         state.expandedProposal.repeatMeasurement = 'Not repeated; this records the first change from source-record rows to three item rows.';
         await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition').click();return true;`);
         await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"]')`, 30000);
-        state.afterApply = await browserEval(browser.cdp, `return {dialogs:[...document.querySelectorAll('[role="dialog"]')].map(dialog=>dialog.innerText),rowSetting:document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,500),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText)};`);
+        state.afterApply = await browserEval(browser.cdp, `return {dialogs:[...document.querySelectorAll('[role="dialog"]')].map(dialog=>dialog.innerText),rowSetting:document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.slice(0,500),alerts:[...document.querySelectorAll('[role="alert"]')].map(element=>element.innerText)};`);
         assert.equal(state.afterApply.dialogs.length, 0, 'Apply row definition left its editor open');
 
         await navigate(browser.cdp, pageURL);
@@ -580,13 +611,13 @@ try {
           if (!isOpen) await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
           await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
         };
-        state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,400);`);
+        state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.slice(0,400);`);
         assert(state.expandedRowSetting.includes('Component → Code → Coding'), 'The expanded row meaning was not restored after reload');
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         state.editBackControls = await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');return {current:select.selectedOptions[0]?.textContent,records:[...select.options].map(option=>({label:option.textContent,value:option.value,disabled:option.disabled})).find(option=>option.value==='records'),buttons:[...document.querySelectorAll('[role="dialog"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
         assert(state.editBackControls.records && !state.editBackControls.records.disabled);
-        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value='records';select.dispatchEvent(new Event('change',{bubbles:true}));[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Preview row change').click();return true;`);
+        await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value='records';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[aria-label="Row definition preview"]')) || Boolean(document.querySelector('[role="dialog"] [role="alert"]'))`, 30000);
         state.editBackProposal = await browserEval(browser.cdp, `return {preview:document.querySelector('[aria-label="Row definition preview"]')?.innerText,dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,1200),applyDisabled:[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Apply row definition')?.disabled};`);
         assert(state.editBackProposal.preview?.includes('Base rows: 3') && state.editBackProposal.preview.includes('Candidate rows: 1'), state.editBackProposal.dialog);
@@ -656,7 +687,7 @@ try {
           'The restored preview did not render a bounded multi-row sample consistent with its virtualized total');
         assert.equal(state.restoredSourcePreview.historyCount, 0, 'The temporary filter remains after removal');
         await openSourceSetup();
-        state.restoredRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,400);`);
+        state.restoredRowSetting = await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText.slice(0,400);`);
         assert(state.restoredRowSetting.includes(`Current table rows: One row per ${resourceType} record.`),
           `The source-record row definition was not restored: ${state.restoredRowSetting}`);
         state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
@@ -4401,7 +4432,8 @@ try {
   await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(join(evidenceDirectory, `${action.toLowerCase().replaceAll(' ', '-')}-baseline.json`), JSON.stringify({ pageURL, state, responses }, null, 2));
   console.log(JSON.stringify({ evidenceDirectory, editorText: state.text.slice(state.text.indexOf('PROPOSED CHANGE'), state.text.indexOf('Source and column setup')), firstField:state.firstField, controls: state.controls.filter(control => control.label?.includes('filter') || control.label?.includes('condition') || control.label?.includes('column') || control.label?.includes('Apply')).slice(0, 60), responses }, null, 2));
+    }
   }
 } finally {
-  await browser.close();
+  await browser?.close();
 }

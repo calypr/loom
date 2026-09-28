@@ -198,14 +198,48 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' } },
-    })));
+    }), expect.any(AbortSignal)));
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'expanded:expanded-choice:EXCLUDE' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Preview row change' }));
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } },
-    })));
+    }), expect.any(AbortSignal)));
+  });
+
+  it('previews the latest row choice without a Preview click', async () => {
+    const { proposeRowDefinition } = renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'New row shape' });
+    fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
+      target: { value: 'expanded:expanded-choice:EXCLUDE' },
+    });
+
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(1));
+    expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } },
+    }), expect.any(AbortSignal));
+    expect(await screen.findByText('Candidate rows: 2')).toBeInTheDocument();
+  });
+
+  it('cancels an in-flight row preview when the policy changes', async () => {
+    const { proposeRowDefinition } = renderSettings();
+    proposeRowDefinition.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    const shape = await screen.findByRole('combobox', { name: 'New row shape' });
+    fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(1));
+    const firstSignal = proposeRowDefinition.mock.calls[0]?.[1] as AbortSignal;
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
+      target: { value: 'expanded:expanded-choice:EXCLUDE' },
+    });
+    expect(firstSignal.aborted).toBe(true);
+    await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledTimes(2));
+    expect(proposeRowDefinition.mock.calls[1]?.[0].selection.expanded.emptyCollectionPolicy).toBe('EXCLUDE');
+    expect(await screen.findByText('Candidate rows: 2')).toBeInTheDocument();
   });
 
   it('explains that field grouping belongs in Reshape while its direct row proposal is unavailable', async () => {
@@ -250,7 +284,7 @@ describe('RowDefinitionSettingsPanel', () => {
       expectedDraftVersion: 4,
       expectedDraftDigest: 'draft-digest-4',
       selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: 'grouprev_0123456789abcdef', unassignedMemberPolicy: 'EXCLUDE' } },
-    }));
+    }), expect.any(AbortSignal));
     expect(onApply).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply row definition' }));
@@ -379,7 +413,7 @@ describe('RowDefinitionSettingsPanel', () => {
     await screen.findByRole('button', { name: 'Apply row definition' });
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPLICIT_GROUP', explicitGroup: { revisionId: revisionID, unassignedMemberPolicy: 'ERROR' } },
-    }));
+    }), expect.any(AbortSignal));
     fireEvent.click(screen.getByRole('button', { name: 'Apply row definition' }));
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
   });

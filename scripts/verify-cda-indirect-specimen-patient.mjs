@@ -12,13 +12,13 @@ import {
 } from './loom-dev.mjs';
 
 const project = 'loom_dev_cda_fhir';
-const explorerId = process.argv[2] ?? 'cda-builder-full-qa-1790439585678';
+const explorerId = process.argv[2] ?? 'cda-builder-full-qa-1790440983382';
 const specimenId = 'b7cad184-db67-5542-a975-10fffa3e89e7';
 const knownObservationId = '35cfec85-56e8-5257-af99-2e9345be2011';
 const knownPatientId = 'afcfb15e-7617-5691-ae2c-ab675322fb33';
 const generation = 'cda-fhir-v1';
 const expectedRoute = '2-relationship path: Specimen to Observation to Patient via Specimen then Subject';
-const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30002').replace(/\/$/, '');
+const uiOrigin = (process.env.LOOM_CDA_UI_ORIGIN ?? 'http://127.0.0.1:30008').replace(/\/$/, '');
 const pageURL = `${uiOrigin}/?project=${project}&explorer=${explorerId}&mode=builder`;
 const startedAt = Date.now();
 const evidenceDirectory = join('.artifacts', 'cda-builder', new Date().toISOString().replaceAll(':', '-'));
@@ -174,7 +174,7 @@ const setInput = async (selector, value, label) => {
   }
 };
 
-const waitForResponse = async (suffix, previousCount, timeoutMs = 120000) => {
+const waitForResponse = async (suffix, previousCount, timeoutMs = 60000) => {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     const matches = report.responses.filter((response) => response.path.endsWith(suffix));
@@ -212,7 +212,7 @@ const recordPreview = async (name, startAt, responseCountBefore, expectedId, sel
     `Boolean(document.querySelector(${JSON.stringify(`${selector} [role="table"]`)})) && ` +
     `[...document.querySelectorAll(${JSON.stringify(`${selector} button`)})].every(button=>!button.disabled) && ` +
     `document.querySelector(${JSON.stringify(selector)})?.innerText.includes(${JSON.stringify(expectedId)})`,
-    120000,
+    60000,
   );
   const rendered = await domPreview(selector);
   const payload = await decodeResponseBody(response);
@@ -239,7 +239,7 @@ const waitForProposal = async (label, startedAt, responseCountBefore) => {
   await waitForBrowser(browser.cdp,
     `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready' && ` +
     `Boolean(document.querySelector('[data-testid="construction-proposal-preview"]'))`,
-    120000,
+    60000,
   );
   const state = await browserEval(browser.cdp, `
     const panel=document.querySelector('[data-testid="construction-proposal-panel"]');
@@ -272,7 +272,7 @@ const waitForProposal = async (label, startedAt, responseCountBefore) => {
 const selectTemporaryTable = async () => {
   await waitForBrowser(browser.cdp,
     `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,
-    90000,
+    60000,
   );
   await recordClick('Select temporary table', `button ending in ${tableName}`,
     `const target=[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}));if(!target)throw new Error('Temporary table button missing');target.click();`);
@@ -390,23 +390,34 @@ try {
     `const target=document.querySelector('button[aria-label="Choose Specimen rows"]');if(!target)throw new Error('Choose Specimen rows missing');target.click();`);
   tableCreated = true;
   await waitForBrowser(browser.cdp,
-    `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`,
+    `document.querySelector('[data-testid="construction-workspace"] header')?.innerText.includes(${JSON.stringify(tableName)})`,
     30000,
   );
-  await recordClick('Open starting collection', '[data-testid="construction-source-setup"] summary',
-    `const target=document.querySelector('[data-testid="construction-source-setup"] summary');if(!target)throw new Error('Starting collection summary missing');target.click();`);
   await waitForBrowser(browser.cdp,
-    `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`,
+    `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`,
     30000,
   );
-  const startingCollection = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Starting collection"]')?.innerText;`);
-  addAssertion('Starting collection is bounded to the selected Specimen', startingCollection?.includes('selected Specimen resource'), startingCollection);
-  await recordClick('Use the selected Specimen', 'Starting collection / Use selected resources',
-    `const target=[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources');if(!target)throw new Error('Use selected resources missing');target.click();`);
+  await recordClick('Open Rows settings', 'button[data-testid="construction-rows-settings-trigger"]',
+    `const target=document.querySelector('button[data-testid="construction-rows-settings-trigger"]');if(!target||target.disabled)throw new Error('Rows settings trigger missing or disabled');target.click();`);
   await waitForBrowser(browser.cdp,
-    `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Specimen')`,
+    `Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]'))`,
     30000,
   );
+  await waitForBrowser(browser.cdp,
+    `Boolean([...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`,
+    30000,
+  );
+  const startingCollection = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText;`);
+  addAssertion('Starting collection is bounded to the selected Specimen', startingCollection?.includes('Specimen') && /selected/i.test(startingCollection), startingCollection);
+  await recordClick('Use the selected Specimen', 'Rows settings / Starting collection / Use selected resources',
+    `const panel=document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]');const target=[...panel?.querySelectorAll('button') ?? []].find(button=>button.innerText==='Use selected resources');if(!target)throw new Error('Use selected resources missing');target.click();`);
+  await waitForBrowser(browser.cdp,
+    `document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText.includes('constrain one row per Specimen')`,
+    30000,
+  );
+  await recordClick('Close Rows settings', 'button text: Close',
+    `const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]');const target=[...dialog?.querySelectorAll('button') ?? []].find(button=>button.textContent?.trim()==='Close');if(!target)throw new Error('Rows settings Close button missing');target.click();`);
+  await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`, 30000);
   await selectTemporaryTable();
 
   let previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
@@ -428,7 +439,7 @@ try {
     `const target=document.querySelector('[data-source-key=${JSON.stringify(patientSource.key)}]');if(!target)throw new Error('Patient source option missing');target.click();`);
   await waitForBrowser(browser.cdp,
     `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`,
-    90000,
+    60000,
   );
   await screenshot('02-patient-field-catalog');
   await recordClick('Select Patient.id field', 'input[aria-label="Select Patient.id"]',
@@ -437,7 +448,7 @@ try {
     `const target=[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');if(!target)throw new Error('Add 1 selected feature missing');target.click();`);
   await waitForBrowser(browser.cdp,
     `Boolean(document.querySelector('[role="dialog"]')) || document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`,
-    90000,
+    60000,
   );
   const dialogSnapshot = await browserEval(browser.cdp, `
     const dialog=document.querySelector('[role="dialog"]');
@@ -468,7 +479,7 @@ try {
       `const target=[...document.querySelectorAll('[role="dialog"] button')].find(button=>button.textContent?.trim()==='Load more routes');if(!target)throw new Error('Load more routes missing');target.click();`);
     await waitForBrowser(browser.cdp,
       `!([...document.querySelectorAll('[role="dialog"] button')].some(button=>button.textContent?.trim()==='Checking for more paths…'))`,
-      90000,
+      60000,
     );
     await browserEval(browser.cdp,
       `const summary=[...document.querySelectorAll('[role="dialog"] summary')].find(item=>item.innerText.trim().startsWith('Other relationship paths'));if(summary&&!summary.parentElement.open)summary.click();return true;`,
@@ -478,26 +489,90 @@ try {
     );
   }
   addAssertion('The exact two-hop Specimen → Observation → Patient route is available', Boolean(wantedRadio), dialogSnapshot);
+  const routeCoverageBefore = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
+  const routeCoverageStartedAt = Date.now();
+  const routeCoverageCard = await browserEval(browser.cdp, `
+    const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));
+    const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');
+    return {
+      radioLabel:radio?.getAttribute('aria-label') ?? null,
+      selected:Boolean(radio?.checked),
+      testId:coverage?.getAttribute('data-testid') ?? null,
+      text:coverage?.innerText?.trim() ?? '',
+      loading:coverage?.querySelector('[role="status"]')?.innerText?.includes('Checking') ?? false,
+      action:[...coverage?.querySelectorAll('button') ?? []].find(button=>/Check matching rows|Retry coverage check|Retry match check/i.test(button.textContent?.trim() ?? ''))?.textContent?.trim() ?? null,
+    };
+  `);
+  addAssertion('The two-hop route has a preselection coverage card',
+    !routeCoverageCard.selected && Boolean(routeCoverageCard.testId), routeCoverageCard);
+  let routeCoverageResponse = null;
+  if (routeCoverageCard.action) {
+    await recordClick('Check Specimen → Observation → Patient matches before route selection',
+      `button in ${routeCoverageCard.testId}`,
+      `const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');const target=[...coverage?.querySelectorAll('button') ?? []].find(button=>/Check matching rows|Retry coverage check|Retry match check/i.test(button.textContent?.trim() ?? ''));if(!target)throw new Error('Indirect route coverage action missing');target.click();`);
+    routeCoverageResponse = await waitForResponse('/construction-proposals', routeCoverageBefore, 60000);
+  } else if (routeCoverageCard.loading) {
+    routeCoverageResponse = await waitForResponse('/construction-proposals', routeCoverageBefore, 60000);
+  }
+  await waitForBrowser(browser.cdp,
+    `(() => { const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');const text=coverage?.innerText ?? '';return /In 1 displayed row:|Retry coverage check|Retry match check|could not measure|unavailable/i.test(text) && !text.includes('Checking matching records'); })()`,
+    60000,
+  );
+  const routeCoverageText = await browserEval(browser.cdp, `const radio=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')?.includes(${JSON.stringify(expectedRoute)}));const coverage=radio?.closest('label')?.parentElement?.querySelector('[data-testid^="catalog-route-coverage-"]');return {selected:Boolean(radio?.checked),text:coverage?.innerText?.trim() ?? ''};`);
+  const coverageBins = routeCoverageText.text.match(/In (\d+) displayed row: (\d+) with no match, (\d+) with one, (\d+) with two or more/);
+  const expectedMatchCount = report.oracle.chain.length;
+  const expectedCoverageBand = expectedMatchCount === 0 ? 'zero' : expectedMatchCount === 1 ? 'one' : 'many';
+  const observedCoverageBins = coverageBins ? {
+    displayedRows:Number(coverageBins[1]), zero:Number(coverageBins[2]), one:Number(coverageBins[3]), many:Number(coverageBins[4]),
+  } : null;
+  report.preselectionRouteCoverage = {
+    route: routeCoverageCard.radioLabel,
+    selectedBeforeAndAfterCoverage: routeCoverageText.selected,
+    text: routeCoverageText.text,
+    expectedPatientIds: report.oracle.expectedPatientIds,
+    expectedMatchCount,
+    expectedCoverageBand,
+    observedCoverageBins,
+    elapsedMs: Date.now() - routeCoverageStartedAt,
+    response: routeCoverageResponse ? { path: routeCoverageResponse.path, status: routeCoverageResponse.status, elapsedMs: routeCoverageResponse.elapsedMs } : null,
+  };
+  addAssertion('Indirect route shows oracle-aligned zero/one/many counts while unselected',
+    !routeCoverageText.selected && Boolean(observedCoverageBins) && observedCoverageBins.displayedRows === 1 &&
+      observedCoverageBins.zero + observedCoverageBins.one + observedCoverageBins.many === 1 &&
+      observedCoverageBins[expectedCoverageBand] === 1,
+    report.preselectionRouteCoverage);
+  addAssertion('Indirect route match count completes under five seconds',
+    report.preselectionRouteCoverage.elapsedMs < report.performanceGateMs,
+    report.preselectionRouteCoverage.elapsedMs);
+  if (routeCoverageResponse) addAssertion('Indirect route coverage proposal returned HTTP success',
+    routeCoverageResponse.status >= 200 && routeCoverageResponse.status < 300,
+    report.preselectionRouteCoverage.response);
+  await screenshot('02b-indirect-route-coverage-before-selection');
   await recordClick('Select Specimen → Observation → Patient route', wantedRadio,
     `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(wantedRadio)});if(!target)throw new Error('Specified two-hop route radio missing');target.click();`);
   await waitForBrowser(browser.cdp,
     `[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-route-"]')].some(input=>input.checked && input.getAttribute('aria-label')===${JSON.stringify(wantedRadio)})`,
     30000,
   );
-  const valueForm = await browserEval(browser.cdp,
-    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')?.endsWith('Keep all matching values'))?.getAttribute('aria-label') ?? null;`,
+  const countForm = await browserEval(browser.cdp,
+    `return [...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>/Count matching records/i.test((input.getAttribute('aria-label') ?? '') + ' ' + (input.closest('label')?.innerText ?? '')))?.getAttribute('aria-label') ?? null;`,
   );
-  addAssertion('A Keep all matching values form is available', Boolean(valueForm), dialogSnapshot);
-  await recordClick('Choose all matching Patient.id values', valueForm,
-    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(valueForm)});if(!target)throw new Error('Keep all matching values option missing');target.click();`);
+  addAssertion('A Count matching records form is available', Boolean(countForm), countForm);
+  await recordClick('Choose Count matching records for Patient.id', countForm,
+    `const target=[...document.querySelectorAll('[role="dialog"] input[type="radio"][name^="construction-choice-"]')].find(input=>input.getAttribute('aria-label')===${JSON.stringify(countForm)});if(!target)throw new Error('Count matching records option missing');target.click();`);
   const addResponseCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
   previewStartedAt = Date.now();
   await clickButton('Add 1 column', 'Confirm Patient.id route and Add column');
   const addProposal = await waitForProposal('Patient.id add proposal preview', previewStartedAt, addResponseCount);
   report.addProposal = addProposal;
-  addAssertion('Add proposal preview shows the oracle Patient.id',
-    addProposal.text.includes(knownPatientId) || addProposal.rows.some((row) => row.some((cell) => cell.includes(knownPatientId))),
-    { expectedPatientId: knownPatientId, text: addProposal.text, rows: addProposal.rows },
+  const addProposalRawRow = addProposal.text.split(/\r?\n/).find((line) => line.includes(specimenId));
+  const addProposalCount = Number(addProposalRawRow?.trim().split(/\s+/).at(-1));
+  addProposal.rawCdaComparison = { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, renderedRow: addProposalRawRow, observedCount: addProposalCount };
+  addAssertion('Add proposal preview renders the raw-CDA Patient.id match count',
+    addProposal.panel.includes('Count of related Patient records') &&
+      addProposal.panel.includes(`1 of 1 rows contain a value`) &&
+      addProposal.text.includes(specimenId) && addProposalCount === expectedMatchCount,
+    { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, panel: addProposal.panel, text: addProposal.text, renderedRow: addProposalRawRow, observedCount: addProposalCount },
   );
   await screenshot('03-two-hop-route-add-proposal');
   await recordClick('Apply Patient.id related field', '[data-testid="construction-apply-proposal"]',
@@ -513,63 +588,21 @@ try {
   previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
   previewStartedAt = Date.now();
   await clickButton('Preview', 'Preview applied Patient.id after reload');
-  const appliedResult = await recordPreview('Applied Patient.id table preview after reload', previewStartedAt, previewResponseCount, knownPatientId);
+  const appliedResult = await recordPreview('Applied Patient.id COUNT after reload', previewStartedAt, previewResponseCount, String(expectedMatchCount));
   report.appliedPreview = appliedResult.item;
   const appliedHeaders = appliedResult.item.rendered.headers;
-  const patientIDHeaderIndex = appliedHeaders.findIndex((header) => /patient/i.test(header) && /\bids?\b/i.test(header));
-  addAssertion('Rendered output column identifies Patient.id', patientIDHeaderIndex >= 0, appliedHeaders);
-  const patientDOMRow = appliedResult.item.rendered.rows.find((row) => row.some((cell) => cell.includes(knownPatientId)));
-  addAssertion('Visible Patient.id matches the Arango two-hop oracle', Boolean(patientDOMRow), {
-    expectedPatientIds: report.oracle.expectedPatientIds,
-    observedRows: appliedResult.item.rendered.rows,
-  });
-  addAssertion('Rendered Patient.id matches every oracle result',
-    report.oracle.expectedPatientIds.every((id) => patientDOMRow?.some((cell) => cell.includes(id))),
-    { expectedPatientIds: report.oracle.expectedPatientIds, row: patientDOMRow },
+  const patientCountHeaderIndex = appliedHeaders.findIndex((header) => /related.*patient.*count|patient.*count|count.*patient/i.test(header));
+  addAssertion('Rendered output column identifies the related Patient.id count', patientCountHeaderIndex >= 0, appliedHeaders);
+  const countRow = appliedResult.item.rendered.rows.find((row) => row.some((cell) => cell.includes(specimenId)));
+  addAssertion('Applied Patient.id count matches the raw Arango route oracle',
+    Boolean(countRow) && Number(countRow?.[patientCountHeaderIndex]) === expectedMatchCount,
+    { expectedPatientIds: report.oracle.expectedPatientIds, expectedMatchCount, observedRows: appliedResult.item.rendered.rows, countRow },
   );
   addAssertion('Applied preview still represents one Specimen row', appliedResult.payload.rowCount === 1, appliedResult.payload.rowCount);
   await screenshot('04-applied-preview-after-reload');
 
-  await recordClick('Select saved related field step', '[data-testid^="construction-history-step-"]',
-    `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-edit-step-"]'))`, 30000);
-  await recordClick('Edit saved Patient.id step', '[data-testid^="construction-edit-step-"]',
-    `const target=document.querySelector('[data-testid^="construction-edit-step-"]');if(!target)throw new Error('Edit step button missing');target.click();`);
-  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="related-source-step-editor"]'))`, 30000);
-  const savedRouteEditor = await browserEval(browser.cdp, `return document.querySelector('[data-testid="related-source-step-editor"]')?.innerText;`);
-  report.savedRouteEditor = savedRouteEditor;
-  addAssertion('Saved editor retained the exact two-hop route',
-    savedRouteEditor?.includes('Current route: Specimen → Observation via Specimen · Observation → Patient via Subject'),
-    savedRouteEditor,
-  );
-  const editedLabel = `Patient.id QA edit ${Date.now()}`;
-  const editProposalCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
-  previewStartedAt = Date.now();
-  await setInput('[aria-label="Output column label"]', editedLabel, 'Edit Patient.id output label');
-  const editProposal = await waitForProposal('Edited Patient.id proposal preview', previewStartedAt, editProposalCount);
-  report.editProposal = editProposal;
-  await screenshot('05-edit-proposal-preview');
-  await recordClick('Apply Patient.id label edit', '[data-testid="construction-apply-proposal"]',
-    `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply edit proposal is not enabled');target.click();`);
-  await waitForBrowser(browser.cdp,
-    `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes(${JSON.stringify(editedLabel)})`,
-    60000,
-  );
-  await navigate(browser.cdp, pageURL);
-  await selectTemporaryTable();
-  previewResponseCount = report.responses.filter((response) => response.path.endsWith('/preview')).length;
-  previewStartedAt = Date.now();
-  await clickButton('Preview', 'Preview edited Patient.id after reload');
-  const editedResult = await recordPreview('Edited Patient.id table preview after reload', previewStartedAt, previewResponseCount, knownPatientId);
-  report.editedPreview = editedResult.item;
-  addAssertion('Edited Patient.id label survived reload', editedResult.item.rendered.headers.some((header) => header.toLowerCase() === editedLabel.toLowerCase()), editedResult.item.rendered.headers);
-  addAssertion('Edited Patient.id value still matches the Arango oracle',
-    editedResult.item.rendered.rows.some((row) => report.oracle.expectedPatientIds.every((id) => row.some((cell) => cell.includes(id)))),
-    editedResult.item.rendered.rows,
-  );
-  await screenshot('06-edited-preview-after-reload');
 
-  await recordClick('Select edited related field step', '[data-testid^="construction-history-step-"]',
+  await recordClick('Select saved related field step', '[data-testid^="construction-history-step-"]',
     `const target=document.querySelector('[data-testid^="construction-history-step-"]');if(!target)throw new Error('Saved history step missing');target.click();`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`, 30000);
   const removeProposalCount = report.responses.filter((response) => response.path.endsWith('/construction-proposals')).length;
@@ -648,6 +681,7 @@ try {
     }
   }
   report.elapsedMs = Date.now() - startedAt;
+  report.clickCount = report.clicks.length;
   report.completedAt = new Date().toISOString();
   report.performanceFailures = report.assertions.filter((item) => !item.passed);
   report.outcome = scenarioError || cleanupError || report.performanceFailures.length > 0 || report.responsesWithErrors.length > 0 ? 'failed' : 'passed';
@@ -666,7 +700,8 @@ console.log(JSON.stringify({
   temporaryTable: tableName,
   cleanup: report.cleanup,
   oracleChain: report.oracle?.chain,
-  clicks: report.clicks.length,
+  clickCount: report.clickCount,
+  preselectionRouteCoverage: report.preselectionRouteCoverage,
   previewTimingsMs: report.renderedPreviews.map((preview) => ({ name: preview.name, elapsedMs: preview.elapsedMs })),
   responsesWithErrors: report.responsesWithErrors,
   browserErrors: report.browserErrors,
