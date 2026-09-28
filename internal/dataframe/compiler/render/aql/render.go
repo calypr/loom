@@ -134,7 +134,7 @@ func physicalStageColumnByID(columns []ir.PhysicalStageColumn, id string) (ir.Ph
 func RenderPhysicalPlanWithDynamicCategoryPivotPreview(plan ir.PhysicalPlan) (RenderedPhysicalPlan, error) {
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("dynamic category preview requires a terminal Pivot preview")
 	}
 	stage := sequence.Stages[0]
@@ -156,7 +156,7 @@ func RenderPhysicalPlanWithTwoScanPivotPreview(plan ir.PhysicalPlan, indexHint s
 	}
 	sequence := plan.StageSequence
 	if sequence == nil || !sequence.PreviewTerminalPivotWindow || sequence.PreviewLimitBindKey == "" ||
-		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || len(sequence.Stages) != 1 {
+		sequence.PreviewSourceWindowByRootID || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || len(sequence.Stages) != 1 {
 		return RenderedPhysicalPlan{}, fmt.Errorf("two-scan preview requires a terminal Pivot preview")
 	}
 	stage := sequence.Stages[0]

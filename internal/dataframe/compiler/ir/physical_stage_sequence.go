@@ -27,6 +27,20 @@ type PhysicalStageSequence struct {
 	// the typed composite Combine boundary.
 	OutputAuthResourcePathBindKey string
 	CellTraceReturn               *PhysicalCellTraceReturn
+	RowLineageReturn              *PhysicalRowLineageReturn
+}
+
+// PhysicalRowLineageReturn selects source records for one final construction
+// row. It is a diagnostic terminal over the canonical source and Group stage;
+// it never attaches contributor arrays to ordinary preview rows.
+type PhysicalRowLineageReturn struct {
+	RowIDBindKey        string
+	OffsetBindKey       string
+	LimitBindKey        string
+	FetchLimitBindKey   string
+	ResourceType        string
+	ResourceIDColumn    string
+	OccurrenceKeyColumn string
 }
 
 type PhysicalStageColumn struct {

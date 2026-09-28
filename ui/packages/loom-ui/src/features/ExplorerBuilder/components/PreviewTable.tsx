@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   ExplorerBuilderColumn,
   ExplorerBuilderEmission,
   ExplorerBuilderPreviewResult,
   ExplorerBuilderPreviewRowSource,
+  ExplorerBuilderRowLineageResponse,
   ConstructionStageColumn,
 } from '../../../types';
 import type { DraftTable } from '../authoring/model';
@@ -20,6 +21,16 @@ const PREVIEW_ROW_GUTTER_WIDTH = 64;
 type OwnerRecordInspectorState = {
   readonly columnLabel: string;
   readonly value: unknown;
+};
+
+type RowLineageState = {
+  readonly rowId: string;
+  readonly contributors: NonNullable<ExplorerBuilderRowLineageResponse['contributors']>;
+  readonly nextOffset?: number;
+  readonly loading: boolean;
+  readonly status?: ExplorerBuilderRowLineageResponse['status'];
+  readonly reasonCode?: string;
+  readonly error?: string;
 };
 
 export type PreviewTablePresentationChange =
@@ -90,6 +101,7 @@ export const PreviewTable = ({
   onLimitChange,
   onColumnChange,
   onColumnsChange,
+  onRowLineage,
 }: {
   readonly preview?: ExplorerBuilderPreviewResult;
   readonly table?: DraftTable;
@@ -99,6 +111,11 @@ export const PreviewTable = ({
   readonly onColumnsChange: (
     changes: ReadonlyArray<PreviewTablePresentationChange>,
   ) => void;
+  readonly onRowLineage?: (
+    rowId: string,
+    offset: number,
+    signal: AbortSignal,
+  ) => Promise<ExplorerBuilderRowLineageResponse>;
 }) => {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsMenuRef = useDismissibleLayer<HTMLDivElement>(
@@ -110,6 +127,47 @@ export const PreviewTable = ({
   const [ownerRecordInspector, setOwnerRecordInspector] =
     useState<OwnerRecordInspectorState>();
   const [inspectedRow, setInspectedRow] = useState<{ number: number; identity: string; source?: ExplorerBuilderPreviewRowSource }>();
+  const [rowLineage, setRowLineage] = useState<RowLineageState>();
+  const lineageAbortRef = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => lineageAbortRef.current?.abort(), [preview?.receiptId, preview?.outputId]);
+  const loadRowLineage = (rowId: string, offset: number) => {
+    if (!onRowLineage) return;
+    lineageAbortRef.current?.abort();
+    const controller = new AbortController();
+    lineageAbortRef.current = controller;
+    setRowLineage((previous) => ({
+      rowId,
+      contributors: offset > 0 && previous?.rowId === rowId ? previous.contributors : [],
+      loading: true,
+    }));
+    void onRowLineage(rowId, offset, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      setRowLineage((previous) => ({
+        rowId,
+        contributors: [
+          ...(offset > 0 && previous?.rowId === rowId ? previous.contributors : []),
+          ...(result.contributors ?? []),
+        ],
+        nextOffset: result.hasMore ? result.nextOffset : undefined,
+        loading: false,
+        status: result.status,
+        reasonCode: result.reasonCode,
+      }));
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      setRowLineage((previous) => ({
+        rowId,
+        contributors: offset > 0 && previous?.rowId === rowId ? previous.contributors : [],
+        loading: false,
+        error: error instanceof Error ? error.message : 'Unable to load source records.',
+      }));
+    });
+  };
+  const closeInspectedRow = () => {
+    lineageAbortRef.current?.abort();
+    setInspectedRow(undefined);
+    setRowLineage(undefined);
+  };
   const draggedColumnRef = React.useRef<string | undefined>(undefined);
   const { viewport, ref: previewScrollRef } =
     useVirtualViewport<HTMLDivElement>();
@@ -476,11 +534,16 @@ export const PreviewTable = ({
                       className="absolute left-0 top-0 border-b border-slate-100 px-2 py-2.5 text-left font-medium text-blue-700 hover:underline"
                       style={{ width: PREVIEW_ROW_GUTTER_WIDTH, height: PREVIEW_ROW_HEIGHT }}
                       onClick={() => {
+                        lineageAbortRef.current?.abort();
+                        setRowLineage(undefined);
                         setInspectedRow({
                           number: rowIndex + 1,
                           identity: rowIdentity,
                           source: preview?.rowSources?.[rowIndex],
                         });
+                        if (preview?.rowSources?.[rowIndex]?.kind === 'COMPOSITE' && preview.rowLineageCapability.status === 'AVAILABLE') {
+                          loadRowLineage(rowIdentity, 0);
+                        }
                       }}
                     >
                       {rowIndex + 1}
@@ -543,7 +606,7 @@ export const PreviewTable = ({
                 <h3 className="font-semibold text-slate-950">Row {inspectedRow.number}</h3>
                 <p className="mt-1 text-sm text-slate-600">Stable identity for this preview row. Use it to check whether edits preserve the same rows.</p>
               </div>
-              <button type="button" className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={() => setInspectedRow(undefined)}>Close</button>
+              <button type="button" className="ml-auto rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700" onClick={closeInspectedRow}>Close</button>
             </div>
             {inspectedRow.source?.kind === 'SINGLE' ? (
               <div className="mt-4 rounded-md border border-slate-200 p-3 text-sm">
@@ -551,7 +614,38 @@ export const PreviewTable = ({
                 <p className="mt-1 break-all text-slate-700">{inspectedRow.source.resourceType}/{inspectedRow.source.id}</p>
               </div>
             ) : inspectedRow.source?.kind === 'COMPOSITE' ? (
-              <p className="mt-4 text-sm text-slate-600">This row combines records. Its individual source records are not available in this preview.</p>
+              <div className="mt-4 text-sm text-slate-700">
+                <p className="font-medium text-slate-800">Source records in this row</p>
+                {preview?.rowLineageCapability.status === 'AVAILABLE' && onRowLineage ? (
+                  <>
+                    {rowLineage?.loading && rowLineage.contributors.length === 0 ? <p className="mt-2">Loading source records…</p> : null}
+                    {rowLineage?.error ? <p role="alert" className="mt-2 text-red-700">Could not load source records: {rowLineage.error}</p> : null}
+                    {rowLineage?.status === 'UNAVAILABLE' || rowLineage?.status === 'INCOMPLETE' ? (
+                      <p className="mt-2 text-amber-800">Source records could not be fully listed{rowLineage.reasonCode ? ` (${rowLineage.reasonCode})` : ''}.</p>
+                    ) : null}
+                    {rowLineage?.status === 'COMPLETE' && rowLineage.contributors.length === 0 ? <p className="mt-2">No source records contributed to this row.</p> : null}
+                    {rowLineage?.contributors.length ? (
+                      <ul className="mt-2 max-h-64 overflow-y-auto rounded-md border border-slate-200 p-2">
+                        {rowLineage.contributors.map((contributor) => (
+                          <li key={contributor.occurrenceKey} className="break-all py-1">
+                            {contributor.resourceType}/{contributor.resourceId}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {rowLineage?.nextOffset !== undefined ? (
+                      <button type="button" disabled={rowLineage.loading} className="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-blue-700 disabled:text-slate-400" onClick={() => {
+                        const nextOffset = rowLineage.nextOffset;
+                        if (nextOffset !== undefined) loadRowLineage(inspectedRow.identity, nextOffset);
+                      }}>
+                        {rowLineage.loading ? 'Loading…' : 'Show more source records'}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="mt-2 text-slate-600">Source records cannot be listed for this table shape{preview?.rowLineageCapability.status === 'UNAVAILABLE' && preview.rowLineageCapability.operation ? ` after ${preview.rowLineageCapability.operation}` : ''}.</p>
+                )}
+              </div>
             ) : (
               <p className="mt-4 text-sm text-slate-600">Source record details are unavailable for this row.</p>
             )}

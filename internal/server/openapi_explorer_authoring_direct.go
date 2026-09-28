@@ -436,6 +436,20 @@ func (h *explorerHTTPHandlers) previewAuthoringDirect(ctx context.Context, proje
 	result.Sampled = !preview.Summary.Complete || preview.Summary.Truncated
 	partialValidation := preview.Summary.PartialValidation
 	result.PartialValidation = &partialValidation
+	capability := preview.Summary.RowLineageCapability
+	result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusAVAILABLE
+	if !capability.Available {
+		result.RowLineageCapability.Status = loomapi.RowLineageCapabilityStatusUNAVAILABLE
+		reasonCode := capability.ReasonCode
+		if reasonCode == "" {
+			reasonCode = "ROW_LINEAGE_UNAVAILABLE"
+		}
+		result.RowLineageCapability.ReasonCode = &reasonCode
+		if capability.Operation != "" {
+			operation := capability.Operation
+			result.RowLineageCapability.Operation = &operation
+		}
+	}
 	return result, nil
 }
 
@@ -501,6 +515,53 @@ func (h *explorerHTTPHandlers) traceExplorerCellDirect(ctx context.Context, proj
 		trace.Contributions = append(trace.Contributions, wire)
 	}
 	result.Trace = trace
+	return result, nil
+}
+
+func (h *explorerHTTPHandlers) traceExplorerRowLineageDirect(ctx context.Context, project, explorerID string, body *loomapi.TraceExplorerRowLineageJSONRequestBody) (loomapi.RowLineageResponse, error) {
+	var result loomapi.RowLineageResponse
+	if err := h.authoringReadDirect(ctx, project); err != nil {
+		return result, err
+	}
+	if body == nil {
+		return result, malformedRouteError("rowLineage", errors.New("receiptId, outputId, and rowId are required"))
+	}
+	request := lifecycle.RowLineageRequest{
+		Project: project, ExplorerID: explorerID,
+		ReceiptID: body.ReceiptId, OutputID: body.OutputId, RowID: body.RowId,
+	}
+	if body.Offset != nil {
+		request.Offset = *body.Offset
+	}
+	if body.Limit != nil {
+		request.Limit = *body.Limit
+	}
+	value, err := h.application.RowLineage(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.ReceiptId = value.ReceiptID
+	result.OutputId = value.OutputID
+	result.RowId = value.RowID
+	result.Status = loomapi.RowLineageResponseStatus(value.Status)
+	result.HasMore = &value.HasMore
+	if value.NextOffset != nil {
+		result.NextOffset = value.NextOffset
+	}
+	contributors := make([]loomapi.RowLineageContributor, 0, len(value.Contributors))
+	for _, contributor := range value.Contributors {
+		contributors = append(contributors, loomapi.RowLineageContributor{
+			ResourceType: contributor.ResourceType, ResourceId: contributor.ResourceID,
+			OccurrenceKey: contributor.OccurrenceKey,
+		})
+	}
+	result.Contributors = &contributors
+	if value.ReasonCode != "" {
+		result.ReasonCode = &value.ReasonCode
+	}
+	if value.Operation != "" {
+		result.Operation = &value.Operation
+	}
 	return result, nil
 }
 

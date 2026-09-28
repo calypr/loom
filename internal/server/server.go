@@ -520,6 +520,17 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return recipeEngine.CellTrace(ctx, resolved, request)
 		},
+		RowLineage: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
+			if receipt == nil {
+				return dataframeexecution.RowLineageResult{}, fmt.Errorf("compilation receipt is required")
+			}
+			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
+			if err != nil {
+				logger.Error("Explorer receipt row lineage resolution failed", "receipt_id", receipt.ID, "error", err)
+				return dataframeexecution.RowLineageResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
+			}
+			return recipeEngine.RowLineage(ctx, resolved, request)
+		},
 		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
 			if receipt == nil {
 				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")

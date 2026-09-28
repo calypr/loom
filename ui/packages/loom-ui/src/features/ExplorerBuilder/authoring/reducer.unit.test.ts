@@ -102,6 +102,7 @@ describe('semantic Builder hydration', () => {
     const preview = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2' as const,
       kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
       receiptId: 'receipt_preview',
       outputId: 'Specimen',
       columns: [],

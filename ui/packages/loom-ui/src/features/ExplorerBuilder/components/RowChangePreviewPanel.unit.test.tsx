@@ -10,6 +10,7 @@ afterEach(cleanup);
 const preview: ExplorerBuilderPreviewResult = {
   apiVersion: 'loom.calypr.org/explorer-authoring/v2',
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'candidate-receipt',
   outputId: 'table',
   columns: [{ column: 'patient_id', label: 'Patient ID', logicalType: 'string', filterable: true, chartable: false }],

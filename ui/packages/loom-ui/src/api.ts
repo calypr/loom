@@ -37,6 +37,7 @@ import {
   explicitGroupRevisionSummarySchema,
   rowChangeAssessmentSchema,
   semanticInventoryBrowseResponseSchema,
+  explorerBuilderRowLineageResponseSchema,
   type ExplorerBuilderCatalog,
   type ExplorerBuilderCommand,
   type ExplorerBuilderCompileResult,
@@ -72,6 +73,7 @@ import {
   type ExplorerRuntimeV1,
   type RowChangeAssessment,
   type SemanticInventoryBrowseResponse,
+  type ExplorerBuilderRowLineageResponse,
 } from './types';
 import type { ExplorerAuthoringDiagnostic } from './types';
 import {
@@ -178,6 +180,14 @@ export interface CellTraceArgs extends ExplorerAuthoringStateArgs {
   readonly outputId: string;
   readonly rowId: string;
   readonly column: string;
+  readonly offset?: number;
+  readonly limit?: number;
+}
+
+export interface RowLineageArgs extends ExplorerAuthoringStateArgs {
+  readonly receiptId: string;
+  readonly outputId: string;
+  readonly rowId: string;
   readonly offset?: number;
   readonly limit?: number;
 }
@@ -683,6 +693,10 @@ export interface LoomClient {
     args: CellTraceArgs,
     signal?: AbortSignal,
   ) => Promise<CellTraceResponse>;
+  readonly rowLineage: (
+    args: RowLineageArgs,
+    signal?: AbortSignal,
+  ) => Promise<ExplorerBuilderRowLineageResponse>;
   readonly prepareArtifact: (
     args: PrepareArtifactArgs,
     signal?: AbortSignal,
@@ -1360,6 +1374,14 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       ...(args.offset === undefined ? {} : { offset: args.offset }),
       ...(args.limit === undefined ? {} : { limit: args.limit }),
     }, signal)).then((value) => cellTraceResponseSchema.parse(value));
+  const rowLineage = (args: RowLineageArgs, signal?: AbortSignal) =>
+    request(authoringPath(args, '/row-lineage'), withJson({
+      receiptId: args.receiptId,
+      outputId: args.outputId,
+      rowId: args.rowId,
+      ...(args.offset === undefined ? {} : { offset: args.offset }),
+      ...(args.limit === undefined ? {} : { limit: args.limit }),
+    }, signal)).then((value) => explorerBuilderRowLineageResponseSchema.parse(value));
   const prepareArtifact = (args: PrepareArtifactArgs, signal?: AbortSignal) =>
     request(authoringPath(args, '/artifacts'), withJson({
       revisionId: args.revisionId,
@@ -1597,6 +1619,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
     preview,
     populationMapping,
     cellTrace,
+    rowLineage,
     prepareArtifact,
     artifactDownloadURL,
     listInterpretationLibraries,

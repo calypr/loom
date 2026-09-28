@@ -229,6 +229,9 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 	if sequence.CellTraceReturn != nil {
 		return fmt.Errorf("cell-trace plans cannot feed a private ClickHouse Combine")
 	}
+	if sequence.RowLineageReturn != nil {
+		return fmt.Errorf("row-lineage plans cannot feed a private ClickHouse Combine")
+	}
 	if err := prefix.ValidateScope(); err != nil {
 		return err
 	}

@@ -80,6 +80,10 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 			Kind: PhysicalCellTraceReturnOp, CellTraceReturn: sequence.CellTraceReturn,
 		}).CellTraceReturn
 	}
+	if sequence.RowLineageReturn != nil {
+		rowLineage := *sequence.RowLineageReturn
+		copy.RowLineageReturn = &rowLineage
+	}
 	copy.Stages = make([]PhysicalConstructionStage, len(sequence.Stages))
 	for index, stage := range sequence.Stages {
 		cloned := stage

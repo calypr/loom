@@ -53,6 +53,7 @@ const capabilities: ConstructionCapabilitiesResponse = {
 const preview: ExplorerBuilderPreviewResult = {
   apiVersion: EXPLORER_AUTHORING_API_VERSION,
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'filter-female-proposal',
   outputId: capabilitiesRequest.outputId,
   columns: [{ column: 'id', label: 'ID', logicalType: 'string', filterable: true, chartable: false }],

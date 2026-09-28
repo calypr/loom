@@ -99,6 +99,9 @@ type PopulationMappingExecutor func(context.Context, *explorer.CompilationReceip
 // and authorization bindings validated by lifecycle.
 type CellTraceExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error)
 
+// RowLineageExecutor pages source records for one row in the immutable receipt output.
+type RowLineageExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error)
+
 // TableShapeExclusionExecutor enumerates exact exclusions from one validated
 // candidate receipt under its existing authorization bindings.
 type TableShapeExclusionExecutor func(context.Context, *explorer.CompilationReceipt, recipe.RuntimeBindings, dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error)
@@ -165,6 +168,7 @@ type Config struct {
 	PopulationMapping            PopulationMappingExecutor
 	PopulationMappingCursorCodec PopulationMappingCursorCodec
 	CellTrace                    CellTraceExecutor
+	RowLineage                   RowLineageExecutor
 	TableShapeExclusions         TableShapeExclusionExecutor
 	MaterializeReceipt           ReceiptMaterializer
 	ReceiptLookup                ReceiptReader
@@ -422,6 +426,28 @@ type CellTraceRequest struct {
 	Column     string
 	Offset     int
 	Limit      int
+}
+
+type RowLineageRequest struct {
+	Project    string
+	ExplorerID string
+	ReceiptID  string
+	OutputID   string
+	RowID      string
+	Offset     int
+	Limit      int
+}
+
+type RowLineageResult struct {
+	ReceiptID    string
+	OutputID     string
+	RowID        string
+	Status       string
+	Contributors []dataframeexecution.RowLineageContributor
+	HasMore      bool
+	NextOffset   *int
+	ReasonCode   string
+	Operation    string
 }
 
 type CellTraceBinding struct {

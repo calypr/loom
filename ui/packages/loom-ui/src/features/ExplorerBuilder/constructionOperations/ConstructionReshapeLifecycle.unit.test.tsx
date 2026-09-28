@@ -89,6 +89,7 @@ const makeClient = () => {
   const preview = vi.fn(async (args: { readonly receiptId: string; readonly outputId: string }): Promise<ExplorerBuilderPreviewResult> => ({
     apiVersion: EXPLORER_AUTHORING_API_VERSION,
     kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
     receiptId: args.receiptId,
     outputId: args.outputId,
     columns: [{ column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false }],

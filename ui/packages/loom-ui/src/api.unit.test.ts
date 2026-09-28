@@ -871,6 +871,22 @@ describe('Loom project paths', () => {
     );
   });
 
+  it('requests a receipt-bound page of row contributors', async () => {
+    const response = {
+      receiptId: 'receipt-1', outputId: 'patients', rowId: 'group-1', status: 'COMPLETE',
+      contributors: [{ resourceType: 'Patient', resourceId: 'patient-1', occurrenceKey: 'one' }],
+      hasMore: false,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(response), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const client = createLoomClient({ fetch });
+
+    await expect(client.rowLineage({ project: 'NCPI_ACCEPTANCE', explorerId: 'default', receiptId: 'receipt-1', outputId: 'patients', rowId: 'group-1', offset: 25, limit: 25 })).resolves.toEqual(response);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/projects/NCPI_ACCEPTANCE/explorers/default/authoring/v2/row-lineage',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ receiptId: 'receipt-1', outputId: 'patients', rowId: 'group-1', offset: 25, limit: 25 }) }),
+    );
+  });
+
   it('parses a bounded population coverage report', () => {
     expect(populationMappingResponseSchema.parse({
       binding: { receiptId: 'receipt-1', outputId: 'patients', project: 'NCPI_ACCEPTANCE', explorerId: 'default', generation: 'generation-1', scopeDigest: 'scope-1', selectionRevisionId: 'selection-1', membershipDigest: 'members-1', resourceType: 'DocumentReference' },

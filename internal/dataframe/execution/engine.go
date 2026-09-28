@@ -74,7 +74,8 @@ type PreviewSummary struct {
 	Truncated bool
 	// PartialValidation marks compiler-bounded construction previews that
 	// validate only the displayed deterministic sample of complete groups.
-	PartialValidation bool
+	PartialValidation    bool
+	RowLineageCapability compiler.RowLineageCapability
 }
 
 type Config struct {
@@ -681,6 +682,12 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		stream.stream = e.previewQueryRows
 	}
 	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: time.Since(loweringStarted), Complete: true, PartialValidation: query.PartialValidation}
+	for _, output := range resolved.Compiled.Outputs {
+		if output.Name == request.Output {
+			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
+			break
+		}
+	}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()

@@ -11,6 +11,7 @@ const preview = (
 ): ExplorerBuilderPreviewResult => ({
   apiVersion: EXPLORER_AUTHORING_API_VERSION,
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'candidate',
   outputId: 'table',
   columns: [{ column: 'new_value', label: 'New value', logicalType: 'string', filterable: false, chartable: false }],

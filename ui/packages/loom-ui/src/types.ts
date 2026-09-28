@@ -2539,6 +2539,26 @@ export const explorerBuilderPreviewRowSourceSchema = z.discriminatedUnion('kind'
   z.object({ kind: z.literal('UNAVAILABLE') }).strict(),
 ]);
 export type ExplorerBuilderPreviewRowSource = z.infer<typeof explorerBuilderPreviewRowSourceSchema>;
+export const explorerBuilderRowLineageCapabilitySchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('AVAILABLE') }).strict(),
+  z.object({ status: z.literal('UNAVAILABLE'), reasonCode: z.string().min(1), operation: z.string().optional() }).strict(),
+]);
+export const explorerBuilderRowLineageResponseSchema = z.object({
+  receiptId: opaqueIdSchema,
+  outputId: opaqueIdSchema,
+  rowId: z.string().min(1),
+  status: z.enum(['COMPLETE', 'INCOMPLETE', 'UNAVAILABLE']),
+  contributors: z.array(z.object({
+    resourceType: opaqueIdSchema,
+    resourceId: z.string().min(1),
+    occurrenceKey: z.string().min(1),
+  }).strict()).optional(),
+  hasMore: z.boolean().optional(),
+  nextOffset: z.number().int().nonnegative().optional(),
+  reasonCode: z.string().min(1).optional(),
+  operation: z.string().min(1).optional(),
+}).strict();
+export type ExplorerBuilderRowLineageResponse = z.infer<typeof explorerBuilderRowLineageResponseSchema>;
 export const explorerBuilderPreviewResultSchema = z
   .object({
     apiVersion: z.literal(EXPLORER_AUTHORING_API_VERSION),
@@ -2548,6 +2568,7 @@ export const explorerBuilderPreviewResultSchema = z
     columns: z.array(explorerBuilderPreviewColumnSchema),
     rows: z.array(unknownRecordSchema).nullable(),
     rowSources: z.array(explorerBuilderPreviewRowSourceSchema).optional(),
+    rowLineageCapability: explorerBuilderRowLineageCapabilitySchema,
     rowCount: z.number().int().nonnegative(),
     sampled: z.boolean().optional(),
     partialValidation: z.boolean().optional(),

@@ -376,6 +376,7 @@ describe('ConstructionWorkspace', () => {
     const preview: ExplorerBuilderPreviewResult = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'proposal-123',
       outputId: 'patients',
       columns: [],

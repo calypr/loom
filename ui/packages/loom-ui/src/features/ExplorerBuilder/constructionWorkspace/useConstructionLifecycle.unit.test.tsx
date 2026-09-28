@@ -64,6 +64,7 @@ const proposalResponse = (): ConstructionProposalResponse => ({
 const proposalPreview: ExplorerBuilderPreviewResult = {
   apiVersion: EXPLORER_AUTHORING_API_VERSION,
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'proposal-1',
   outputId: 'patients',
   columns: [{

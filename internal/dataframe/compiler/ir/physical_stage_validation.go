@@ -207,9 +207,46 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		return fmt.Errorf("final output schema differs from the final stage")
 	}
 	if sequence.CellTraceReturn != nil {
+		if sequence.RowLineageReturn != nil {
+			return fmt.Errorf("cell trace and row lineage cannot share a terminal")
+		}
 		if err := validatePhysicalStageCellTrace(sequence, *sequence.CellTraceReturn, bindVars); err != nil {
 			return fmt.Errorf("cell trace: %w", err)
 		}
+	}
+	if sequence.RowLineageReturn != nil {
+		if err := validatePhysicalStageRowLineage(sequence, *sequence.RowLineageReturn, bindVars); err != nil {
+			return fmt.Errorf("row lineage: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal PhysicalRowLineageReturn, bindVars map[string]any) error {
+	if len(sequence.Stages) != 1 {
+		return fmt.Errorf("row lineage requires exactly one construction stage")
+	}
+	stage := sequence.Stages[0]
+	if stage.Kind != PhysicalStageGroupOp || stage.Group == nil || stage.InputStageID != sequence.SourceStageID ||
+		stage.ID != sequence.FinalStageID || stage.RowIdentityColumn != sequence.FinalRowIdentity {
+		return fmt.Errorf("row lineage requires a terminal Group over the direct source projection")
+	}
+	if terminal.ResourceType == "" || terminal.ResourceIDColumn == "" || terminal.OccurrenceKeyColumn == "" {
+		return fmt.Errorf("resource type, source resource ID, and occurrence key columns are required")
+	}
+	for _, key := range []string{terminal.RowIDBindKey, terminal.OffsetBindKey, terminal.LimitBindKey, terminal.FetchLimitBindKey} {
+		if err := requireBind(bindVars, key); err != nil {
+			return err
+		}
+	}
+	if _, ok := bindVars[terminal.RowIDBindKey].(string); !ok {
+		return fmt.Errorf("row ID bind %q must be a string", terminal.RowIDBindKey)
+	}
+	offset, offsetOK := bindVars[terminal.OffsetBindKey].(int)
+	limit, limitOK := bindVars[terminal.LimitBindKey].(int)
+	fetchLimit, fetchOK := bindVars[terminal.FetchLimitBindKey].(int)
+	if !offsetOK || offset < 0 || !limitOK || limit < 1 || limit > 100 || !fetchOK || fetchLimit != limit+1 {
+		return fmt.Errorf("row lineage requires a nonnegative offset and a page of 1 through 100 plus one row")
 	}
 	return nil
 }

@@ -3171,6 +3171,16 @@ const BuilderWorkspaceContent = ({
                         }}
                         onColumnChange={(change) => applyPresentationChanges([change])}
                         onColumnsChange={applyPresentationChanges}
+                        onRowLineage={tablePreview ? (rowId, offset, signal) => loomClient.rowLineage({
+                          project: projectId,
+                          explorerId: state.explorerId,
+                          authResourcePath,
+                          receiptId: tablePreview.receiptId,
+                          outputId: tablePreview.outputId,
+                          rowId,
+                          offset,
+                          limit: 25,
+                        }, signal) : undefined}
                       />
                     )}
                   </>

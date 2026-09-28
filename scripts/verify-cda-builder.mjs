@@ -712,8 +712,30 @@ try {
         state.savedGroup.rowSources = savedGroupResponse.rowSources;
         assert(savedGroupResponse.rowSources?.every(source => source.kind === 'COMPOSITE'), 'Grouped rows must not claim one starting FHIR record');
         assert(typeof state.savedGroup.rowIdentity === 'string' && state.savedGroup.rowIdentity.length > 0, 'Saved Group preview did not expose a stable row identity');
+        assert.equal(savedGroupResponse.rowLineageCapability?.status, 'AVAILABLE', 'Grouped row must advertise source lineage');
+        const lineageStarted = Date.now();
         await browserEval(browser.cdp, `document.querySelector('button[aria-label="Inspect row 1 identity"]').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary'))`, 30000);
+        await waitForBrowser(browser.cdp, `document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li').length > 0`, 30000);
+        state.timingsMs.lineageFirstPage = Date.now() - lineageStarted;
+        assert(state.timingsMs.lineageFirstPage < 5000, `First lineage page took ${state.timingsMs.lineageFirstPage} ms`);
+        state.savedGroup.contributorPages = 1;
+        for (let page = 0; page < 10; page += 1) {
+          const before = await browserEval(browser.cdp, `return document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li').length;`);
+          const hasMore = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] button')].some(button => button.textContent?.trim() === 'Show more source records');`);
+          if (!hasMore) break;
+          const pageStarted = Date.now();
+          await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] button')].find(button => button.textContent?.trim() === 'Show more source records').click();return true;`);
+          await waitForBrowser(browser.cdp, `document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li').length > ${before}`, 30000);
+          const elapsed = Date.now() - pageStarted;
+          assert(elapsed < 5000, `Lineage page ${page + 2} took ${elapsed} ms`);
+          state.savedGroup.contributorPages += 1;
+        }
+        state.savedGroup.contributors = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"][aria-label="Row 1 identity"] ul li')].map(item => item.textContent.trim());`);
+        const displayedGroupKey = state.savedGroup.rows[0].find(cell => cell.includes('https://cda.readthedocs.io/'));
+        const expectedContributors = expectedGroups[displayedGroupKey]?.map(row => `BodyStructure/${row.id}`);
+        assert(expectedContributors, `No CDA source group for ${displayedGroupKey}`);
+        assert.deepEqual([...state.savedGroup.contributors].sort(), [...expectedContributors].sort(), 'Grouped row contributors differ from CDA source records');
         await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row 1 identity"] summary').click();return true;`);
         state.savedGroup.identityDialog = await browserEval(browser.cdp, `return document.querySelector('[role="dialog"][aria-label="Row 1 identity"]')?.innerText;`);
         assert(state.savedGroup.identityDialog.includes(state.savedGroup.rowIdentity), 'Row identity inspector differs from the preview response');

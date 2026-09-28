@@ -9,6 +9,7 @@ import { ConstructionProposalPreview } from './ConstructionProposalPreview';
 const preview = (sampled: boolean, partialValidation = false): ExplorerBuilderPreviewResult => ({
   apiVersion: 'loom.calypr.org/explorer-authoring/v2',
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'receipt-1',
   outputId: 'patients',
   columns: [{ column: 'id', label: 'ID', logicalType: 'string', filterable: true, chartable: false }],

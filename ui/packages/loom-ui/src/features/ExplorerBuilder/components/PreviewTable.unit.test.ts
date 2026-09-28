@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   Construction,
   ExplorerBuilderPreviewResult,
@@ -44,6 +44,7 @@ const table: DraftTable = {
 const preview: ExplorerBuilderPreviewResult = {
   apiVersion: 'loom.calypr.org/explorer-authoring/v2',
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'receipt_preview',
   outputId: 'Specimen',
   columns: [firstColumn, secondColumn].map((value) => ({
@@ -211,13 +212,41 @@ describe('PreviewTable column controls', () => {
       rowSources: [{ kind: 'COMPOSITE' }],
     } }));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
-    expect(screen.getByText(/This row combines records/)).toBeInTheDocument();
+    expect(screen.getByText(/Source records cannot be listed for this table shape/)).toBeInTheDocument();
     expect(screen.queryByText('Specimen/specimen-1')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     view.rerender(React.createElement(PreviewTable, { ...props, preview: { ...sourcePreview, rowSources: undefined } }));
     fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
     expect(screen.getByText('Source record details are unavailable for this row.')).toBeInTheDocument();
+  });
+
+  it('lists bounded source records for a grouped row and loads the next page', async () => {
+    const onRowLineage = vi.fn()
+      .mockResolvedValueOnce({ receiptId: preview.receiptId, outputId: preview.outputId, rowId: 'group-row', status: 'COMPLETE', contributors: [{ resourceType: 'BodyStructure', resourceId: 'body-1', occurrenceKey: 'one' }], hasMore: true, nextOffset: 1 })
+      .mockResolvedValueOnce({ receiptId: preview.receiptId, outputId: preview.outputId, rowId: 'group-row', status: 'COMPLETE', contributors: [{ resourceType: 'BodyStructure', resourceId: 'body-2', occurrenceKey: 'two' }], hasMore: false });
+    render(React.createElement(PreviewTable, {
+      preview: {
+        ...preview,
+        rows: [{ ...preview.rows![0], __loom_row_id: 'group-row' }],
+        rowSources: [{ kind: 'COMPOSITE' }],
+        rowLineageCapability: { status: 'AVAILABLE' },
+      },
+      table,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      onRowLineage,
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect row 1 identity' }));
+    expect(onRowLineage).toHaveBeenCalledWith('group-row', 0, expect.any(AbortSignal));
+    expect(await screen.findByText('BodyStructure/body-1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show more source records' }));
+    await waitFor(() => expect(screen.getByText('BodyStructure/body-2')).toBeInTheDocument());
+    expect(onRowLineage).toHaveBeenCalledWith('group-row', 1, expect.any(AbortSignal));
+    expect(screen.queryByRole('button', { name: 'Show more source records' })).not.toBeInTheDocument();
   });
 
   it('shows related construction outputs in the preview after applying a saved construction', () => {

@@ -143,7 +143,7 @@ func renderRelatedEligibilityCountRows(plan ir.PhysicalPlan, sequence *ir.Physic
 }
 
 func terminalRelatedEligibilityCountRowsOnly(plan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, options physicalRenderOptions) bool {
-	if sequence == nil || sequence.CellTraceReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
+	if sequence == nil || sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow ||
 		sequence.OutputAuthResourcePathBindKey != "" || len(sequence.Stages) != 2 ||
 		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
 		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview || options.dynamicPivotPreview || options.pivotGroupTupleFilter != nil {

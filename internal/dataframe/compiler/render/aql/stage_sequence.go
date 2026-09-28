@@ -115,6 +115,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
 		projectionPresenceMarkerRows:    presenceMarkerRows,
 	}
+	if sequence.RowLineageReturn != nil {
+		return renderer.renderConstructionRowLineage(source.Query, stages[0], *sequence.RowLineageReturn)
+	}
 
 	lines := make([]string, 0, 16)
 	if options.twoScanPivotPreview {

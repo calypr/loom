@@ -806,6 +806,34 @@ paths:
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+  /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/row-lineage:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    post:
+      operationId: traceExplorerRowLineage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RowLineageRequest'
+      responses:
+        '200':
+          description: Receipt-bound page of source records contributing to one preview row.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RowLineageResponse'
+        '400': {$ref: '#/components/responses/AuthoringBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
+        '500': {$ref: '#/components/responses/AuthoringInternalError'}
+        '503': {$ref: '#/components/responses/AuthoringUnavailable'}
+        '504': {$ref: '#/components/responses/AuthoringGatewayTimeout'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/interpretation-preview:
     parameters:
       - $ref: '#/components/parameters/Project'
@@ -5258,7 +5286,7 @@ components:
     PreviewResponse:
       type: object
       additionalProperties: false
-      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowSources, rowCount, sampled, diagnostics]
+      required: [apiVersion, kind, receiptId, outputId, columns, rows, rowSources, rowLineageCapability, rowCount, sampled, diagnostics]
       properties:
         apiVersion: {$ref: '#/components/schemas/APIVersion'}
         kind: {type: string, enum: [ExplorerBuilderPreview]}
@@ -5276,6 +5304,8 @@ components:
           type: array
           description: Per-row source identity metadata, aligned one-to-one with rows. SINGLE is emitted only when the compiler carries one exact root FHIR resource identity; grouped results are COMPOSITE and unsupported sources are UNAVAILABLE.
           items: {$ref: '#/components/schemas/PreviewRowSource'}
+        rowLineageCapability:
+          $ref: '#/components/schemas/RowLineageCapability'
         rowCount: {type: integer, minimum: 0}
         sampled:
           type: boolean
@@ -5295,6 +5325,48 @@ components:
         kind: {type: string, enum: [SINGLE, COMPOSITE, UNAVAILABLE]}
         resourceType: {type: string, minLength: 1}
         id: {type: string, minLength: 1}
+    RowLineageCapability:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: {type: string, enum: [AVAILABLE, UNAVAILABLE]}
+        reasonCode: {type: string, minLength: 1}
+        operation: {type: string, minLength: 1}
+    RowLineageRequest:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, rowId]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        rowId: {type: string, minLength: 1}
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 25}
+    RowLineageContributor:
+      type: object
+      additionalProperties: false
+      required: [resourceType, resourceId, occurrenceKey]
+      properties:
+        resourceType: {type: string, minLength: 1}
+        resourceId: {type: string, minLength: 1}
+        occurrenceKey: {type: string, minLength: 1}
+    RowLineageResponse:
+      type: object
+      additionalProperties: false
+      required: [receiptId, outputId, rowId, status]
+      properties:
+        receiptId: {type: string, minLength: 1}
+        outputId: {type: string, minLength: 1}
+        rowId: {type: string, minLength: 1}
+        status: {type: string, enum: [COMPLETE, INCOMPLETE, UNAVAILABLE]}
+        contributors:
+          type: array
+          items: {$ref: '#/components/schemas/RowLineageContributor'}
+        hasMore: {type: boolean}
+        nextOffset: {type: integer, minimum: 0}
+        reasonCode: {type: string, minLength: 1}
+        operation: {type: string, minLength: 1}
     CellTraceRequest:
       type: object
       additionalProperties: false

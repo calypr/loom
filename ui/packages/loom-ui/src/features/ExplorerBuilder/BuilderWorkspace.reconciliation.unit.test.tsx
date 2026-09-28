@@ -34,6 +34,7 @@ const mockLoomClient = vi.hoisted(() => ({
   discoverConstructionCategories: vi.fn(),
   proposeConstruction: vi.fn(),
   preview: vi.fn(),
+  browseSemanticInventory: vi.fn(),
 }));
 
 vi.mock('../../react', () => ({
@@ -401,6 +402,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
 
   beforeEach(() => {
     mockLoomClient.getSelection.mockReset();
+    mockLoomClient.browseSemanticInventory.mockResolvedValue({ state: 'complete', entries: [] });
     resolveContext = vi.fn(async (args: { snapshotToken: string; expectedDraftVersion: number; expectedDraftDigest: string }) => ({
       snapshotToken: args.snapshotToken,
       draftVersion: args.expectedDraftVersion,
@@ -515,6 +517,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       resolvedRequest({
         apiVersion,
         kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
         receiptId: 'receipt-1',
         outputId: 'specimens',
         columns: receipt.outputs[0].columns,
@@ -844,6 +847,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     mockLoomClient.preview.mockResolvedValue({
       apiVersion,
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'gender-filter-proposal',
       outputId: 'specimens',
       columns: [{ column: 'specimen_identifier', label: 'Specimen identifier', logicalType: 'string', filterable: true, chartable: false }],
@@ -919,6 +923,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       resolvedRequest({
         apiVersion,
         kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
         receiptId: 'receipt-1',
         outputId: 'specimens',
         columns: receipt.outputs[0].columns,
@@ -1262,6 +1267,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         resolvedRequest({
           apiVersion,
           kind: 'ExplorerBuilderPreview',
+          rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
           receiptId: 'receipt-1',
           outputId: 'specimens',
           columns: receipt.outputs[0].columns,

@@ -337,6 +337,43 @@ func (r *HTTPRoutes) TraceExplorerCell(ctx context.Context, request loomapi.Trac
 	}
 }
 
+func (r *HTTPRoutes) TraceExplorerRowLineage(ctx context.Context, request loomapi.TraceExplorerRowLineageRequestObject) (loomapi.TraceExplorerRowLineageResponseObject, error) {
+	if r == nil || r.explorer == nil {
+		status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerRowLineage", explorerUnavailable("rowLineage", "ROW_LINEAGE_UNAVAILABLE", "Explorer row lineage is not configured"))
+		if status == http.StatusServiceUnavailable {
+			return loomapi.TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+		}
+		return nil, unexpectedResponseStatus("traceExplorerRowLineage", status)
+	}
+	value, err := r.explorer.traceExplorerRowLineageDirect(ctx, string(request.Project), string(request.ExplorerId), request.Body)
+	if err == nil {
+		return loomapi.TraceExplorerRowLineage200JSONResponse(value), nil
+	}
+	status, failure := authoringErrorForOpenAPI(ctx, "traceExplorerRowLineage", err)
+	switch status {
+	case http.StatusUnauthorized:
+		return loomapi.TraceExplorerRowLineage401JSONResponse{ServiceUnauthorizedJSONResponse: authoringUnauthorizedResponse(failure)}, nil
+	case http.StatusBadRequest:
+		return loomapi.TraceExplorerRowLineage400JSONResponse{AuthoringBadRequestJSONResponse: loomapi.AuthoringBadRequestJSONResponse(failure)}, nil
+	case http.StatusForbidden:
+		return loomapi.TraceExplorerRowLineage403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.TraceExplorerRowLineage404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusConflict:
+		return loomapi.TraceExplorerRowLineage409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.TraceExplorerRowLineage422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
+	case http.StatusInternalServerError:
+		return loomapi.TraceExplorerRowLineage500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
+	case http.StatusServiceUnavailable:
+		return loomapi.TraceExplorerRowLineage503JSONResponse{AuthoringUnavailableJSONResponse: loomapi.AuthoringUnavailableJSONResponse(failure)}, nil
+	case http.StatusGatewayTimeout:
+		return loomapi.TraceExplorerRowLineage504JSONResponse{AuthoringGatewayTimeoutJSONResponse: loomapi.AuthoringGatewayTimeoutJSONResponse(failure)}, nil
+	default:
+		return nil, unexpectedResponseStatus("traceExplorerRowLineage", status)
+	}
+}
+
 func (r *HTTPRoutes) CheckExplorerPopulationMapping(ctx context.Context, request loomapi.CheckExplorerPopulationMappingRequestObject) (loomapi.CheckExplorerPopulationMappingResponseObject, error) {
 	project := string(request.Project)
 	explorerID := string(request.ExplorerId)

@@ -359,6 +359,7 @@ const configureInitialTableFlow = (
   const preview: ExplorerBuilderPreviewResult = {
     apiVersion,
     kind: 'ExplorerBuilderPreview',
+    rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
     receiptId: 'receipt-1',
     outputId: 'patients',
     columns: [{
@@ -840,6 +841,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     mockLoomClient.preview.mockResolvedValue({
       apiVersion,
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'related-source-proposal',
       outputId: 'patients',
       columns: [{ column: 'patient_row_key', label: 'Patient row key', logicalType: 'string', filterable: true, chartable: false }],
@@ -1175,6 +1177,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     mockLoomClient.preview.mockResolvedValue({
       apiVersion,
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'edit-related-proposal',
       outputId: 'patients',
       columns: [
@@ -1476,6 +1479,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     const preview: ExplorerBuilderPreviewResult = {
       apiVersion,
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'specimen-receipt',
       outputId: 'specimens',
       columns: [{

@@ -95,6 +95,7 @@ const receipt: ExplorerBuilderCompileResult = {
 const preview: ExplorerBuilderPreviewResult = {
   apiVersion: EXPLORER_AUTHORING_API_VERSION,
   kind: 'ExplorerBuilderPreview',
+  rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
   receiptId: 'receipt-1',
   outputId: 'patients',
   columns: [],

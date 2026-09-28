@@ -1272,6 +1272,7 @@ describe('explorerBuilderCommandSchema', () => {
     const response = {
       apiVersion: 'loom.calypr.org/explorer-authoring/v2',
       kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
       receiptId: 'receipt-1', outputId: 'patients',
       columns: [unitColumn, unitlessColumn],
       rows: [{ body_height: 180, patient_id: 'patient-1' }], rowCount: 1,
