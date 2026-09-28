@@ -5,6 +5,8 @@
 .gitnexus/
 .codex/config.toml
 .audit/
+/docs/prototypes/construction-workspace/
+/TODO.md
 /CDA-FHIR/
 /META_SMALL/
 /compiler.test
