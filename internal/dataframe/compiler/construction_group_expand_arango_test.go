@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -85,10 +86,48 @@ func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) 
 	if !strings.Contains(query.Query, "COLLECT WITH COUNT INTO ") {
 		t.Fatalf("count-only query does not use streaming row count:\n%s", query.Query)
 	}
-	for _, bufferedRows := range []string{"construction_group_input_rows", "construction_group_all_rows"} {
+	for _, bufferedRows := range []string{
+		"construction_group_input_rows",
+		"construction_group_all_rows",
+		"LET __loom_construction_source_projection = (",
+	} {
 		if strings.Contains(query.Query, bufferedRows) {
-			t.Errorf("count-only query retains %q:\n%s", bufferedRows, query.Query)
+			t.Errorf("keyless count-only query retains %q:\n%s", bufferedRows, query.Query)
 		}
+	}
+	if strings.Contains(query.Query, "SORT root.id ASC") {
+		t.Fatalf("keyless count-only query sorts source rows before counting:\n%s", query.Query)
+	}
+	collectAt := strings.Index(query.Query, "COLLECT WITH COUNT INTO")
+	limitAt := strings.LastIndex(query.Query, "LIMIT @limit")
+	if collectAt < 0 || limitAt < collectAt {
+		t.Fatalf("preview bound is not applied after the exact keyless count:\n%s", query.Query)
+	}
+	if strings.Contains(query.Query[:collectAt], "SORT ") {
+		t.Fatalf("keyless count query sorts source rows before the count:\n%s", query.Query)
+	}
+	if query.PartialValidation {
+		t.Fatal("exact keyless count was marked as partial validation")
+	}
+
+	restricted := compileConstructionOutputQueryWithBindings(t, constructionCountRowsOnlyOutput(), "construction-count-rows-only", "generation-count-rows-only", recipe.RuntimeBindings{
+		AuthScopeMode:     authscope.ReadScopeRestricted,
+		AuthResourcePaths: []string{"Specimen/visible"},
+	})
+	for _, scopedPredicate := range []string{
+		"root.project == @project",
+		"root.dataset_generation == @dataset_generation",
+		"root.auth_resource_path IN @auth_resource_paths",
+	} {
+		if !strings.Contains(restricted.Query, scopedPredicate) {
+			t.Errorf("inlined count source lost canonical scope predicate %q:\n%s", scopedPredicate, restricted.Query)
+		}
+	}
+	if restricted.BindVars["auth_resource_paths_unrestricted"] != false {
+		t.Fatalf("inlined count source bypassed restricted authorization: %#v", restricted.BindVars)
+	}
+	if paths, ok := restricted.BindVars["auth_resource_paths"].([]string); !ok || len(paths) != 1 || paths[0] != "Specimen/visible" {
+		t.Fatalf("inlined count source changed the authorized paths: %#v", restricted.BindVars["auth_resource_paths"])
 	}
 
 	keyedQuery := compileConstructionOutputQuery(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyError), "construction-count-rows-only", "generation-count-rows-only")

@@ -16,10 +16,13 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		return RenderedPhysicalPlan{}, fmt.Errorf("physical construction stage sequence is required")
 	}
 	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
+	inlineSourceForKeylessCount := terminalKeylessCountRowsOnly(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
-	pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
+	if !inlineSourceForKeylessCount {
+		pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
+	}
 	collectionKeys, err := collectionBindKeys(plan)
 	if err != nil {
 		return RenderedPhysicalPlan{}, err
@@ -64,12 +67,16 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			SourcePaths:               options.pivotGroupKeySourcePaths,
 		}
 	}
-	source, err := renderPhysicalPlanWithOptions(sourcePlan, physicalRenderOptions{
+	sourceOptions := physicalRenderOptions{
 		rootIndexHint:                   options.rootIndexHint,
 		pivotGroupTupleFilter:           options.pivotGroupTupleFilter,
 		preserveProjectionPresenceNames: options.preserveProjectionPresenceNames,
 		projectionPresenceMarkerColumn:  options.projectionPresenceMarkerColumn,
-	})
+	}
+	if inlineSourceForKeylessCount {
+		sourceOptions.omitTerminalReturn = true
+	}
+	source, err := renderPhysicalPlanWithOptions(sourcePlan, sourceOptions)
 	if err != nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("render source projection: %w", err)
 	}
@@ -117,15 +124,24 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 		}
 		lines = append(lines, groupLines...)
 	}
-	lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
-	for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
-		lines = append(lines, "  "+line)
-	}
-	lines = append(lines, ")")
 	priorRows := constructionSourceVariable
+	if !inlineSourceForKeylessCount {
+		lines = append(lines, fmt.Sprintf("LET %s = (", constructionSourceVariable))
+		for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
+			lines = append(lines, "  "+line)
+		}
+		lines = append(lines, ")")
+	} else {
+		priorRows = ""
+	}
 	for index, stage := range stages {
 		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
 		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
+		if inlineSourceForKeylessCount && index == 0 {
+			for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
+				lines = append(lines, "  "+line)
+			}
+		}
 		if stage.Kind == ir.PhysicalStageGroupOp {
 			rendered, renderErr := renderer.renderConstructionGroupStage(stage, priorRows)
 			if renderErr != nil {
@@ -308,6 +324,19 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 		}
 		operation.Return.Projections = projections
 	}
+}
+
+func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {
+	if sequence == nil || sequence.CellTraceReturn != nil || sequence.PreviewSourceWindowByRootID || len(sequence.Stages) != 1 {
+		return false
+	}
+	stage := sequence.Stages[0]
+	return stage.ID == sequence.FinalStageID &&
+		stage.InputStageID == sequence.SourceStageID &&
+		stage.Kind == ir.PhysicalStageGroupOp &&
+		stage.Group != nil &&
+		len(stage.Group.Keys) == 0 &&
+		constructionGroupCountsOnlyRows(stage.Group)
 }
 
 // pruneUnusedRelatedOutputsForCountRows keeps row-changing stages intact and

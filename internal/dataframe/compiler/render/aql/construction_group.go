@@ -33,7 +33,11 @@ func (r *physicalPlanRenderer) renderConstructionGroupStage(stage ir.PhysicalCon
 			rowSource = fmt.Sprintf("(LENGTH(%s) == 0 ? [null] : %s)", rowsVariable, rowsVariable)
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
+	if inputRows != "" {
+		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, rowSource))
+	} else if !countRowsOnly || len(group.Keys) != 0 {
+		return nil, fmt.Errorf("only keyless COUNT_ROWS groups can consume the current source scope")
+	}
 	collectKeys := make([]string, 0, len(group.Keys))
 	sortKeys := make([]string, 0, len(group.Keys))
 	identityParts := []string{"[\"construction\", @" + group.ConstructionIDBindKey + "]", "[\"operation\", \"GROUP\"]"}

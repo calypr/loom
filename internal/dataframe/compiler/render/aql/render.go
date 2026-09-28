@@ -196,6 +196,7 @@ type physicalRenderOptions struct {
 	internalPrefix                  string
 	terminalProjectionColumn        string
 	omitTerminalRowSort             bool
+	omitTerminalReturn              bool
 	preserveProjectionPresenceNames map[string]struct{}
 	projectionPresenceMarkerColumn  string
 	twoScanPivotPreview             bool
@@ -362,6 +363,9 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 		}
 		lines = append(lines, line...)
 	}
+	if options.omitTerminalReturn && (layout.returnOp == nil || layout.mappingReturn != nil || layout.traceReturn != nil || layout.exclusionReturn != nil) {
+		return RenderedPhysicalPlan{}, fmt.Errorf("omitting the terminal RETURN requires a generic physical RETURN")
+	}
 	if layout.mappingReturn != nil {
 		mappingLines, mappingErr := renderer.renderPopulationMappingReturn(*layout.mappingReturn)
 		if mappingErr != nil {
@@ -380,6 +384,7 @@ func renderPhysicalPlanWithOptions(plan ir.PhysicalPlan, options physicalRenderO
 			return RenderedPhysicalPlan{}, fmt.Errorf("render table-shape exclusion RETURN: %w", exclusionErr)
 		}
 		lines = append(lines, exclusionLines...)
+	} else if options.omitTerminalReturn {
 	} else {
 		returnExpression, returnErr := renderer.renderReturn(*layout.returnOp)
 		if returnErr != nil {
