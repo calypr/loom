@@ -371,7 +371,7 @@ describe('ConceptCatalog', () => {
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
         constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
-        title: 'id',
+        title: 'Patient ID',
       },
       {
         constructionChoice: { choiceId: 'choice-4548-4', form: 'ALL' },
@@ -579,7 +579,7 @@ describe('ConceptCatalog', () => {
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([{
       constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
-      title: 'id',
+      title: 'Patient ID',
     }]));
     expect(screen.queryByRole('dialog', { name: 'Choose how to add these fields' })).not.toBeInTheDocument();
   });
@@ -683,18 +683,18 @@ describe('ConceptCatalog', () => {
     expect(await screen.findByRole('dialog', { name: 'Choose how to add these fields' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('radio', {
-      name: 'amount: Keep all matching values',
+      name: 'Amount: Keep all matching values',
     }));
     fireEvent.click(screen.getByRole('button', { name: 'Add 2 columns' }));
 
     await waitFor(() => expect(onAddSelected).toHaveBeenCalledWith([
       {
         constructionChoice: { choiceId: 'field-choice-id', form: 'VALUE' },
-        title: 'id',
+        title: 'Patient ID',
       },
       {
         constructionChoice: { choiceId: 'diagnostic-report-amount-choice', form: 'ALL' },
-        title: 'amount',
+        title: 'Amount',
         relatedSource: { choice: relatedChoice, candidate: relatedCandidate },
       },
     ]));

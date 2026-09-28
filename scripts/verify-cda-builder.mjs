@@ -3413,7 +3413,7 @@ try {
     };
     const openColumnControls=async()=>{
       await click('Open column controls','[data-testid="construction-source-setup"] summary');
-      if(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label^="Display name for configured resourceType"]')?.offsetParent);`)){
+      if(!await browserEval(browser.cdp, `return Boolean(document.querySelector('input[aria-label^="Display name for configured Resource Type"]')?.offsetParent);`)){
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-source-setup"] button')].find(button=>button.innerText==='Advanced graph').click();return true;`);
         state.clicks.push('Open advanced graph');
       }
@@ -3434,6 +3434,10 @@ try {
       await click('Open Add columns','button[aria-label^="Add columns:"]');
       await click('Open raw FHIR fields','[aria-label="Add columns editor"] [data-testid="feature-catalog-raw-fields"] summary');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Specimen.resourceType"]:not(:disabled)'))`,30000);
+      state.fieldChoice=await browserEval(browser.cdp, `return document.querySelector('input[aria-label="Select Specimen.resourceType"]')?.closest('article')?.querySelector('h3')?.innerText;`);
+      assert.equal(state.fieldChoice,'Resource Type','The field choice lacks its readable label');
+      state.nestedFieldChoice=await browserEval(browser.cdp, `return document.querySelector('input[aria-label="Select Specimen.collection.bodySite.reference.reference"]')?.closest('article')?.querySelector('h3')?.innerText;`);
+      assert.equal(state.nestedFieldChoice,'Collection Body Site Reference','The nested field choice still exposes its raw FHIR path as the heading');
       await click('Select Specimen.resourceType','input[aria-label="Select Specimen.resourceType"]');
       const add=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');return {disabled:button?.disabled,visible:button?.offsetParent!==null};`);
       assert(add&&!add.disabled&&add.visible,'Add 1 selected feature is unavailable');
@@ -3447,14 +3451,14 @@ try {
       assert(state.proposalTimeMs<5000,`Direct field proposal took ${state.proposalTimeMs} ms`);
       state.proposed=await browserEval(browser.cdp, `const panel=document.querySelector('[data-testid="construction-choice-proposal-panel"]');const table=document.querySelector('[data-testid="construction-proposal-preview"]');return {headers:[...table.querySelectorAll('thead th')].map(node=>node.innerText.trim()),rows:[...table.querySelectorAll('tbody tr')].slice(0,5).map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim())),applyDisabled:[...panel.querySelectorAll('button')].find(button=>button.innerText.trim()==='Apply columns')?.disabled};`);
       assert.equal(state.proposed.applyDisabled,false,'Direct field Apply was disabled despite rendered rows');
-      assert(state.proposed.headers.some(header=>header.toLowerCase().startsWith('resourcetype')),'Direct field is absent from proposed rows');
+      assert(state.proposed.headers.some(header=>header.toLowerCase().startsWith('resource type')),'Direct field is absent from proposed rows');
       assert.equal(responses.filter(response=>response.path.endsWith('/commands')).length,priorCommands,'Direct field saved before Apply');
       await click('Apply direct field','[data-testid="construction-choice-proposal-panel"] button:first-of-type');
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes('resourceType· string')`,30000);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('Resource Type· string')`,30000);
       assert.equal(responses.filter(response=>response.path.endsWith('/commands')).length,priorCommands+1,'Adding a direct field did not save once');
       assert.equal(responses.filter(response=>response.path.endsWith('/commands')).at(-1)?.status,200,'Adding a direct field failed');
       const added=await preview('afterAdd');
-      assert.deepEqual(added.headers,[...original.headers,'RESOURCETYPE']);
+      assert.deepEqual(added.headers,[...original.headers,'RESOURCE TYPE']);
       const ids=added.rows.map(row=>row[0]);
       const script=`print(JSON.stringify(db._query(${JSON.stringify(`FOR d IN Specimen FILTER d.project == "loom_dev_cda_fhir" AND d.dataset_generation == "cda-fhir-v1" AND d.id IN ${JSON.stringify(ids)} RETURN {id:d.id,resourceType:d.payload.resourceType}`)}).toArray()))`;
       const output=execFileSync('rtk',['docker','exec','loom-dev-6d7df93d6a37-arangodb-1','arangosh','--server.database','loom_dev','--javascript.execute-string',script],{encoding:'utf8',maxBuffer:200000});
@@ -3466,7 +3470,7 @@ try {
       const persisted=await preview('afterReload');
       assertSharedRows(persisted,added,'Added field changed after reload');
       await openColumnControls();
-      const label='input[aria-label="Display name for configured resourceType"]';
+      const label='input[aria-label="Display name for configured Resource Type"]';
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(label)}))`,30000);
       await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(label)});input.focus();input.select();return true;`);
       await browser.cdp.send('Input.insertText',{text:renamed});

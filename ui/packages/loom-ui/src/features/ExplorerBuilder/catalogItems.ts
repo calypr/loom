@@ -164,10 +164,26 @@ export const catalogItemKey = (item: CatalogItem): string => {
   }
 };
 
+const fieldPathLabel = (path: string): string => {
+  const words: string[] = [];
+  for (const segment of path.replace(/^root\./, '').split('.')) {
+    const readable = segment.replace(/\[\]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+    if (!readable || words.at(-1)?.toLowerCase() === readable.toLowerCase()) continue;
+    words.push(readable.toLowerCase() === 'id' ? 'ID' : readable[0].toUpperCase() + readable.slice(1));
+  }
+  return words.join(' ');
+};
+
 export const catalogItemLabel = (item: CatalogItem): string => {
   switch (item.kind) {
-    case 'FIELD':
-      return item.candidate.label.trim() || item.candidate.fieldPath;
+    case 'FIELD': {
+      const label = item.candidate.label.trim();
+      const path = item.candidate.fieldPath.replace(/^root\./, '');
+      if (label && label !== item.candidate.fieldPath && label !== path && label !== `${item.constructionChoice.source.resourceType}.${path}`) return label;
+      return path === 'id'
+        ? `${item.constructionChoice.source.resourceType} ID`
+        : fieldPathLabel(path);
+    }
     case 'SEMANTIC':
       return item.item.display.trim() || item.item.code.trim() || item.item.sourcePath;
     default: {
