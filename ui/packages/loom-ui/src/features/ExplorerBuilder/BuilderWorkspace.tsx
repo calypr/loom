@@ -99,6 +99,7 @@ import { ConstructionProposalPreview } from './constructionWorkspace/Constructio
 import { PreviewValueCoverage } from './constructionWorkspace/PreviewValueCoverage';
 import {
   constructionHistorySteps,
+  constructionRowMeaning,
 } from './constructionWorkspace/constructionHistory';
 import {
   sourceProjectionAvailability,
@@ -784,17 +785,19 @@ const BuilderWorkspaceContent = ({
   useEffect(() => {
     setPairedColumnSuggestion(undefined);
   }, [state.explorerId, state.catalog.snapshotToken, table?.outputId, table?.document.rootResourceType]);
-  const rowMeaning = !table?.document.rootResourceType
+  const sourceRowMeaning = !table?.document.rootResourceType
     ? 'Choose what one row represents to start this table.'
-    : table.document.output.rowLabel?.trim() ||
+    : table.document.rows.kind === 'GROUPS'
+      ? table.document.rows.groups.source.kind === 'FIELD'
+        ? `One row per distinct ${table.document.rows.groups.source.field.fieldPath} value.`
+        : 'One row per saved group.'
+      : table.document.rows.kind === 'EXPANDED'
+        ? `One row per value in ${table.document.rows.expanded.scopePath}.`
+        : table.document.output.rowLabel?.trim() ||
       state.catalog.nodes.find(
         (node) => node.resourceType === table.document.rootResourceType,
       )?.rowGrain ||
-      (table.document.rows.kind === 'RECORDS'
-        ? 'One row per source record.'
-        : table.document.rows.kind === 'GROUPS'
-          ? 'One row per group.'
-          : 'One row per expanded value.');
+      'One row per source record.';
   const focusedFeature = useMemo(() => {
     if (!featureFocus) return undefined;
     const targetTable = state.tables.find((candidate) => candidate.outputId === featureFocus.outputId);
@@ -2305,7 +2308,13 @@ const BuilderWorkspaceContent = ({
       : undefined;
   const sourceColumns = sourceStageDescriptors?.find(
     (stage) => stage.id === constructionSourceStageId,
-  )?.columns ?? [];
+  )?.columns ?? (table?.document.columns ?? []).map((column) => ({
+    id: column.column,
+    name: column.column,
+    label: column.label,
+    type: column.logicalType,
+  }));
+  const rowMeaning = constructionRowMeaning(sourceRowMeaning, table?.document.construction, sourceColumns);
   const persistedConstructionHistory = constructionHistorySteps(
     table?.document.construction,
     sourceColumns,

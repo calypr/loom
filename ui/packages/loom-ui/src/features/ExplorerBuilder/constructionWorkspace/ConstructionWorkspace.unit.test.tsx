@@ -9,12 +9,50 @@ import {
   ConstructionWorkspace,
   type ConstructionOperationFamily,
 } from './ConstructionWorkspace';
-import { constructionHistorySteps } from './constructionHistory';
+import { constructionHistorySteps, constructionRowMeaning } from './constructionHistory';
 import { constructionProposalIsApplicable } from './ConstructionProposalPanel';
 import { sourceProjectionAvailability } from './sourceProjectionAvailability';
 import type { Construction, ConstructionProposalResponse, ExplorerBuilderPreviewResult } from '../../../types';
 
 describe('ConstructionWorkspace', () => {
+  it('keeps the visible row meaning aligned with the last row-changing step', () => {
+    const sourceColumns = [
+      { id: 'status', name: 'status', label: 'Status' },
+      { id: 'codes', name: 'codes', label: 'Diagnosis codes' },
+    ];
+    const grouped: Construction = {
+      version: 1,
+      steps: [
+        {
+          id: 'group-status', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+          operation: { kind: 'GROUP', group: {
+            constructionId: 'group-status', keys: [{ inputColumnId: 'status', outputColumnId: 'status' }],
+          } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+        {
+          id: 'filter-status', inputs: [{ kind: 'STEP_OUTPUT', stepId: 'group-status' }],
+          operation: { kind: 'FILTER', filter: { columnId: 'status', operator: 'EXISTS' } },
+          outputs: [{ id: 'status', name: 'status', label: 'Status' }],
+        },
+      ],
+    };
+    expect(constructionRowMeaning('One row per Patient.', grouped, sourceColumns))
+      .toBe('One row per distinct combination of Status.');
+    const expanded: Construction = {
+      version: 1,
+      steps: [{
+        id: 'expand-codes', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'EXPAND', expand: {
+          constructionId: 'expand-codes', inputColumnId: 'codes', outputColumnId: 'code', emptyPolicy: 'PRESERVE_PARENT',
+        } },
+        outputs: [{ id: 'code', name: 'code', label: 'Diagnosis code' }],
+      }],
+    };
+    expect(constructionRowMeaning('One row per Patient.', expanded, sourceColumns))
+      .toBe('One row per value in Diagnosis codes from each input row.');
+  });
+
   it('shows executable operation families and omits Calculate and Combine creation actions', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 

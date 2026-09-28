@@ -267,3 +267,58 @@ export const constructionHistorySteps = (
 
   return result;
 };
+
+export const constructionRowMeaning = (
+  sourceMeaning: string,
+  construction: Construction | undefined,
+  sourceColumns: ReadonlyArray<ConstructionStageColumn>,
+): string => {
+  if (!construction) return sourceMeaning;
+  const source = new Map(sourceColumns.map((column) => [column.id, column] as const));
+  const stages = new Map<string, ReadonlyMap<string, ConstructionStageColumn>>();
+  let meaning = sourceMeaning;
+
+  for (const step of construction.steps) {
+    const inputRef = step.inputs[0];
+    const input = inputRef?.kind === 'STEP_OUTPUT'
+      ? stages.get(inputRef.stepId) ?? source
+      : source;
+    const column = (id: string) => input.get(id)?.label ?? step.outputs.find((item) => item.id === id)?.label ?? 'a selected column';
+    switch (step.operation.kind) {
+      case 'GROUP': {
+        const keys = (step.operation.group.keys ?? []).map((key) => column(key.inputColumnId));
+        meaning = keys.length > 0
+          ? `One row per distinct combination of ${keys.join(', ')}.`
+          : 'One row summarizing all input rows.';
+        break;
+      }
+      case 'PIVOT': {
+        const keys = step.operation.pivot.groupKeyIds.map(column);
+        meaning = keys.length > 0
+          ? `One row per distinct combination of ${keys.join(', ')}.`
+          : 'One row summarizing all input rows.';
+        break;
+      }
+      case 'EXPAND':
+        meaning = `One row per value in ${column(step.operation.expand.inputColumnId)} from each input row.`;
+        break;
+      case 'RELATED_EXPAND':
+        meaning = `One row per matching ${step.operation.relatedExpand.targetResourceType} for each input row${
+          step.operation.relatedExpand.emptyPolicy === 'PRESERVE_PARENT' ? '; rows with no match remain' : ''}.`;
+        break;
+      case 'UNPIVOT':
+        meaning = `One row per selected column from each input row${
+          step.operation.unpivot.nullRowPolicy === 'DROP' ? ' when it has a value' : ''}.`;
+        break;
+      case 'COMBINE':
+        if (step.operation.combine.kind !== 'MEMBERSHIP') {
+          meaning = 'Rows from combined tables; matching or appended records may change the row count.';
+        }
+        break;
+      default:
+        break;
+    }
+    stages.set(step.id, new Map(step.outputs.map((output) => [output.id, output] as const)));
+  }
+  return meaning;
+};
