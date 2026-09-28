@@ -49,7 +49,7 @@ import { PopulationPanel } from './components/PopulationPanel';
 import { RowChangeRepairPanel } from './components/RowChangeRepairPanel';
 import { RowChangePreviewPanel } from './components/RowChangePreviewPanel';
 import { RowDefinitionPanel } from './components/RowDefinitionPanel';
-import { RowDefinitionSettingsPanel } from './components/RowDefinitionSettingsPanel';
+import { RowDefinitionSettingsPanel, rowScopeLabel } from './components/RowDefinitionSettingsPanel';
 import { TableShapeSettingsPanel } from './components/TableShapeSettingsPanel';
 import { InterpretationPanel, type InterpretationContextState } from './components/InterpretationPanel';
 import {
@@ -791,10 +791,10 @@ const BuilderWorkspaceContent = ({
     ? 'Choose what one row represents to start this table.'
     : table.document.rows.kind === 'GROUPS'
       ? table.document.rows.groups.source.kind === 'FIELD'
-        ? `One row per distinct ${table.document.rows.groups.source.field.fieldPath} value.`
+        ? `One row per distinct ${rowScopeLabel(table.document.rows.groups.source.field.fieldPath)} value.`
         : 'One row per saved group.'
       : table.document.rows.kind === 'EXPANDED'
-        ? `One row per value in ${table.document.rows.expanded.scopePath}.`
+        ? `One row per value in ${rowScopeLabel(table.document.rows.expanded.scopePath)}.`
         : table.document.output.rowLabel?.trim().toLowerCase().startsWith('one row per')
           ? table.document.output.rowLabel!.trim()
           : `One row per ${table.document.rootResourceType} record.`;

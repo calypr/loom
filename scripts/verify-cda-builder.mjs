@@ -301,8 +301,8 @@ try {
         state.rowChoices = decodedRowChoices;
         const expandedChoice = decodedRowChoices.find(option => option.fieldPath === 'component[].code.coding[]');
         assert(expandedChoice, 'Configure rows does not offer the raw repeated component coding path');
-        assert(expandedChoice.label.includes('Component → Code → Coding') && expandedChoice.label.includes('(component[].code.coding[])'),
-          'Configure rows does not distinguish this choice by breadcrumb and exact FHIR path');
+        assert(expandedChoice.label === 'One row per value in Component → Code → Coding',
+          'Configure rows does not distinguish this choice with a readable path breadcrumb');
         assert.equal(expandedChoice.disabled, false, 'The component coding row choice is disabled');
         state.repeatedPathChoices = [...new Set(decodedRowChoices.map(option => option.fieldPath))];
         assert(state.repeatedPathChoices.length > 1, 'The chooser does not contain multiple repeated paths to compare');
@@ -372,7 +372,7 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-row-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         state.rowShapeControls = await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');return {dialog:document.querySelector('[role="dialog"]')?.innerText.slice(0,1800),options:[...select.options].map(option=>({label:option.textContent,value:option.value,disabled:option.disabled,selected:option.selected})),buttons:[...document.querySelectorAll('[role="dialog"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
-        const selectedShape = state.rowShapeControls.options.find(option => option.label.includes('component[].code.coding[]'));
+        const selectedShape = state.rowShapeControls.options.find(option => option.label.includes('Component → Code → Coding'));
         assert(selectedShape && !selectedShape.disabled, 'The repeated component code option is missing or disabled in Configure rows');
         state.selectedShape = { label: selectedShape.label, disabled: selectedShape.disabled, selected: selectedShape.selected, policy: 'PRESERVE_PARENT' };
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(selectedShape.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
@@ -445,7 +445,7 @@ try {
           await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
         };
         state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,400);`);
-        assert(state.expandedRowSetting.includes('component[].code.coding[]'), 'The expanded row meaning was not restored after reload');
+        assert(state.expandedRowSetting.includes('Component → Code → Coding'), 'The expanded row meaning was not restored after reload');
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-row-setup"] button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         state.editBackControls = await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');return {current:select.selectedOptions[0]?.textContent,records:[...select.options].map(option=>({label:option.textContent,value:option.value,disabled:option.disabled})).find(option=>option.value==='records'),buttons:[...document.querySelectorAll('[role="dialog"] button')].map(button=>({text:button.innerText,disabled:button.disabled}))};`);
@@ -893,7 +893,7 @@ try {
         const rawBodyStructures = JSON.parse(oracleOutput.slice(oracleOutput.indexOf('[')));
         const rawIDs = new Set(rawBodyStructures.map(row => row.id));
         state.rawOracle = { sourceRecords: rawBodyStructures.length, maximumIncludedValues: Math.max(...rawBodyStructures.map(row => row.includedCount)) };
-        const expanded = state.options.find(option => option.label.includes('(includedStructure[])'));
+        const expanded = state.options.find(option => option.label === 'One row per value in Included Structure');
         assert(expanded, 'BodyStructure included locations row shape is missing');
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value=${JSON.stringify(expanded.value)};select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
         assert.equal(await browserEval(browser.cdp, `return document.querySelector('select[aria-label="Unmatched record policy"]')?.selectedOptions[0]?.textContent;`), 'Keep records with no values as one empty row');
@@ -919,11 +919,11 @@ try {
         state.timingsMs.expandedPreview = Date.now() - expandedPreviewStarted;
         state.expandedPreview = await browserEval(browser.cdp, `return {text:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,4000),headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,26).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowMeaning:document.querySelector('[data-testid="construction-workspace"] header h1 + p')?.innerText};`);
         assert(state.expandedPreview.rows.length > 0 && state.expandedPreview.rows.every(row => rawIDs.has(row[0])), 'Expanded row IDs do not match raw CDA BodyStructure records');
-        assert.equal(state.expandedPreview.rowMeaning, 'One row per value in includedStructure[].');
+        assert.equal(state.expandedPreview.rowMeaning, 'One row per value in Included Structure.');
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
         state.expandedRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,350);`);
-        assert(state.expandedRowSetting?.includes('Current rows: One row per value in includedStructure[]'), 'Expanded row meaning was not restored after reload');
+        assert(state.expandedRowSetting?.includes('Current table rows: One row per value in Included Structure.'), 'Expanded row meaning was not restored after reload');
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Configure rows').click();return true;`);
         await waitForBrowser(browser.cdp, `Boolean(document.querySelector('select[aria-label="New row shape"]'))`, 30000);
         await browserEval(browser.cdp, `const select=document.querySelector('select[aria-label="New row shape"]');select.value='records';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
@@ -949,7 +949,7 @@ try {
         await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"]')?.open===true`, 30000);
         state.restoredRowSetting = await browserEval(browser.cdp, `return document.querySelector('[aria-label="Row definition settings"]')?.innerText.slice(0,350);`);
-        assert(state.restoredRowSetting?.includes('Current rows: One row per source record'), 'Source-record row meaning was not restored after reload');
+        assert(state.restoredRowSetting?.includes('Current table rows: One row per BodyStructure record.'), 'Source-record row meaning was not restored after reload');
         state.clicks = 19;
         state.timingsMs.totalBeforeCleanup = Date.now() - journeyStarted;
         state.errors = responses.filter(response => response.status >= 400);

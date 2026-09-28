@@ -37,7 +37,7 @@ const unassignedMemberLabel = (policy: string): string => {
   }
 };
 
-const fieldPathLabel = (path: string): string => path
+export const rowScopeLabel = (path: string): string => path
   .split('.')
   .map((segment) => segment.replace(/\[\]/g, ''))
   .filter(Boolean)
@@ -75,14 +75,22 @@ const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<
     selection: { kind: 'RECORDS' },
   }];
   const pathCounts = new Map<string, number>();
+  const labelPaths = new Map<string, Set<string>>();
   for (const choice of choices.choices) {
-    if (choice.kind === 'EXPANDED') pathCounts.set(choice.fieldPath, (pathCounts.get(choice.fieldPath) ?? 0) + 1);
+    if (choice.kind !== 'EXPANDED') continue;
+    pathCounts.set(choice.fieldPath, (pathCounts.get(choice.fieldPath) ?? 0) + 1);
+    const label = rowScopeLabel(choice.fieldPath);
+    const paths = labelPaths.get(label) ?? new Set<string>();
+    paths.add(choice.fieldPath);
+    labelPaths.set(label, paths);
   }
   for (const choice of choices.choices) {
     if (choice.kind !== 'EXPANDED') continue;
     const occurrence = (pathCounts.get(choice.fieldPath) ?? 0) > 1 ? ` · ${choice.occurrenceSummary}` : '';
     const shapeValue = `expanded:${choice.choiceId}`;
-    const shapeLabel = `One row per value in ${fieldPathLabel(choice.fieldPath)} (${choice.fieldPath})${occurrence}`;
+    const label = rowScopeLabel(choice.fieldPath);
+    const disambiguation = (labelPaths.get(label)?.size ?? 0) > 1 ? ` (${choice.fieldPath})` : '';
+    const shapeLabel = `One row per value in ${label}${disambiguation}${occurrence}`;
     for (const policy of choice.policies) {
       if (policy.name !== 'emptyCollectionPolicy') continue;
       for (const emptyCollectionPolicy of [...policy.options].sort((left, right) =>
@@ -138,7 +146,7 @@ const describeCurrentRows = (rows: ExplorerRowDefinition): string => {
         }
       }
     case 'EXPANDED':
-      return `One row per value in ${rows.expanded.scopePath} · ${emptyCollectionLabel(rows.expanded.emptyCollectionPolicy)}`;
+      return `One row per value in ${rowScopeLabel(rows.expanded.scopePath)} · ${emptyCollectionLabel(rows.expanded.emptyCollectionPolicy)}`;
     default: {
       const _exhaustive: never = rows;
       return _exhaustive;

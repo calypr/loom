@@ -187,7 +187,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     const select = await screen.findByRole('combobox', { name: 'New row shape' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();
-    expect(screen.getAllByRole('option', { name: /One row per value in Name \(name\[\]\)/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: 'One row per value in Name' })).toHaveLength(1);
     expect(screen.getAllByRole('option', { name: /One row per saved group/ })).toHaveLength(1);
     expect(listRowDefinitionChoices).toHaveBeenCalledWith(expect.objectContaining({
       project: 'project-a', explorerId: 'explorer-a', outputId: 'patients', snapshotToken: 'snapshot-1',
@@ -215,7 +215,7 @@ describe('RowDefinitionSettingsPanel', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
   });
 
-  it('shows path breadcrumbs and exact FHIR paths when semantic choice labels repeat', async () => {
+  it('distinguishes repeated field choices with readable path breadcrumbs', async () => {
     const ambiguousChoices: RowDefinitionChoicesResponse = {
       ...choices,
       choices: [
@@ -227,8 +227,23 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
 
-    expect(screen.getAllByRole('option', { name: /Component → Code → Coding \(component\[\]\.code\.coding\[\]\)/ })).toHaveLength(1);
-    expect(screen.getAllByRole('option', { name: /Category → Coding \(category\[\]\.coding\[\]\)/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: 'One row per value in Component → Code → Coding' })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: 'One row per value in Category → Coding' })).toHaveLength(1);
+  });
+
+  it('shows exact paths only when different fields have the same readable breadcrumb', async () => {
+    renderSettings({ choicesValue: {
+      ...choices,
+      choices: [
+        { ...choices.choices[0]!, choiceId: 'nested-component', fieldPath: 'component[].code.coding[]' },
+        { ...choices.choices[0]!, choiceId: 'direct-component', fieldPath: 'component.code.coding[]' },
+      ],
+    } });
+    fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
+    await screen.findByRole('combobox', { name: 'New row shape' });
+
+    expect(screen.getByRole('option', { name: 'One row per value in Component → Code → Coding (component[].code.coding[])' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'One row per value in Component → Code → Coding (component.code.coding[])' })).toBeTruthy();
   });
 
   it('distinguishes the same path on different route occurrences', async () => {
@@ -243,8 +258,8 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'New row shape' });
 
-    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence first via Subject/ })).toHaveLength(1);
-    expect(screen.getAllByRole('option', { name: /component\[\]\.code\.coding\[\].*Occurrence second via Focus/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /Component → Code → Coding.*Occurrence first via Subject/ })).toHaveLength(1);
+    expect(screen.getAllByRole('option', { name: /Component → Code → Coding.*Occurrence second via Focus/ })).toHaveLength(1);
   });
 
   it('authors exact overlapping groups from the owned selection before previewing and applying the receipt-backed proposal', async () => {
