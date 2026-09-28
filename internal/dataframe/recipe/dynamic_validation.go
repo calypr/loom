@@ -24,6 +24,9 @@ func validateDynamicColumns(items []DynamicColumn, path string, budget *int) err
 		if dynamic.MaxColumns < 0 {
 			return validationError("invalid_limit", dp+".maxColumns", "must not be negative")
 		}
+		if !dynamic.ValueMode.Valid() {
+			return validationError("invalid_value_mode", dp+".valueMode", fmt.Sprintf("unsupported value mode %q", dynamic.ValueMode))
+		}
 		seenColumns := map[string]bool{}
 		for columnIndex, column := range dynamic.Columns {
 			if strings.TrimSpace(column) == "" {

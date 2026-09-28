@@ -593,7 +593,8 @@ type ExpansionIdentity struct{}
 // DynamicColumn discovers a bounded set of key/value columns. The compiler
 // freezes discovered keys before materialization.
 type DynamicColumn struct {
-	Name string `json:"name"`
+	Name      string    `json:"name"`
+	ValueMode ValueMode `json:"valueMode,omitempty"`
 	// ColumnPrefix controls the public prefix of frozen dynamic columns. When
 	// omitted, Name remains the prefix for backwards compatibility. An explicit
 	// empty string permits a dynamic family such as URL-keyed extensions to

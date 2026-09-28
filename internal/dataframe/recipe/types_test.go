@@ -141,6 +141,30 @@ func TestParseRoundTripsFieldLabelAndColumnID(t *testing.T) {
 	}
 }
 
+func TestParseRoundTripsDynamicColumnValueMode(t *testing.T) {
+	input := `{"recipeSchemaVersion":1,"name":"dynamic","translationVersion":"1","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"resource","dynamicColumns":[{"name":"identifiers","valueMode":"ALL","source":{"select":"root.identifier[]"},"key":{"select":"item.system"},"value":{"select":"item.value"},"columns":["diagnosis"]}]}]}`
+	bundle, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := bundle.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := Parse(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Outputs[0].DynamicColumns[0].ValueMode; got != ValueModeAll {
+		t.Fatalf("round-tripped dynamic value mode = %q, want %q", got, ValueModeAll)
+	}
+
+	invalid := strings.Replace(input, `"valueMode":"ALL"`, `"valueMode":"EVERY"`, 1)
+	if _, err := Parse([]byte(invalid)); err == nil || !strings.Contains(err.Error(), "invalid_value_mode") {
+		t.Fatalf("expected invalid dynamic value mode, got %v", err)
+	}
+}
+
 func TestParseStillRejectsUnknownBuilderFieldMetadata(t *testing.T) {
 	input := `{"recipeSchemaVersion":1,"name":"builder","translationVersion":"interactive","outputs":[{"name":"DocumentReference","rootResourceType":"DocumentReference","rowGrain":"resource","fields":[{"name":"status","expr":{"select":"root.status"},"logicalTypo":"scalar"}]}]}`
 	if _, err := Parse([]byte(input)); err == nil || !strings.HasPrefix(err.Error(), "parse_error ") {

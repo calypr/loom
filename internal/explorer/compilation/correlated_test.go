@@ -129,7 +129,7 @@ func TestCompileAuthoringIdentifierBindingLowersToSystemKeyedDynamicColumn(t *te
 	document := authoringv2.Document{Rows: authoringv2.RecordsRowDefinition(),
 		Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "out", Title: "Output"}, RootResourceType: "Patient",
 		Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"},
-		Columns: []authoringv2.Column{{Column: "case_id", Label: "Case ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{
+		Columns: []authoringv2.Column{{Column: "case_id", Label: "Case ID", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceIdentifierBySystem, Lookup: &authoringv2.LookupSource{ProjectionMode: "ALL",
 			Identifier: &fhirschema.IdentifierBinding{OwnerPath: "identifier[]", SystemPath: "system", ValuePath: "value", SystemURI: "urn:study:case-id", LogicalType: "string"},
 		}}}},
 	}
@@ -143,6 +143,9 @@ func TestCompileAuthoringIdentifierBindingLowersToSystemKeyedDynamicColumn(t *te
 		t.Fatalf("compiled dynamic columns = %#v", dynamics)
 	}
 	dynamic := dynamics[0]
+	if dynamic.ValueMode != recipe.ValueModeAll {
+		t.Fatalf("identifier projection mode = %q, want ALL", dynamic.ValueMode)
+	}
 	if dynamic.Source.Select != "root.identifier[]" || dynamic.Key == nil || dynamic.Key.Select != "item.system" || dynamic.Value == nil || dynamic.Value.Select != "item.value" || dynamic.ColumnSourceKeys["case_id"] != "urn:study:case-id" {
 		t.Fatalf("lowered identifier dynamic column = %#v", dynamic)
 	}

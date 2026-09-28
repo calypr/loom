@@ -716,7 +716,7 @@ func TestCompileResolvedRecipePlanLowersTraversalDynamicMap(t *testing.T) {
 }
 
 func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) {
-	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic-exact", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "resource", TraversalColumnNaming: recipe.TraversalColumnNamingExact, Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
+	bundle := recipe.Bundle{RecipeSchemaVersion: 1, Name: "nested-dynamic-exact", TranslationVersion: "test", Outputs: []recipe.Output{{Name: "Specimen", RootResourceType: "Specimen", RowGrain: "resource", TraversalColumnNaming: recipe.TraversalColumnNamingExact, Traversals: []recipe.Traversal{{Name: "subject_Patient", ToResourceType: "Patient", Alias: "patient", DynamicColumns: []recipe.DynamicColumn{{Name: "identifiers", ValueMode: recipe.ValueModeAll, Source: recipe.Expression{Select: "patient.identifier[]"}, Key: &recipe.Expression{Select: "item.value"}, Columns: []string{"identifier"}}}}}}}}
 	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
 	if err != nil {
 		t.Fatal(err)
@@ -734,10 +734,19 @@ func TestCompileResolvedRecipePlanNamesTraversalDynamicMapExactly(t *testing.T) 
 	}
 	found := false
 	for _, column := range compiled.Outputs[0].OutputSchema {
-		found = found || column.Name == "identifiers_identifier"
+		if column.Name == "identifiers_identifier" {
+			found = column.Cardinality == string(expression.Many) && !column.Nullable
+		}
 	}
 	if !found {
-		t.Fatalf("exact dynamic column missing from output schema: %#v", compiled.Outputs[0].OutputSchema)
+		t.Fatalf("exact dynamic column is not array-valued in output schema: %#v", compiled.Outputs[0].OutputSchema)
+	}
+	rendered, err := aql.RenderPhysicalPlan(compiled.Outputs[0].Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.Query, "FOR __loom_keyed_item IN __loom_keyed_group") || !strings.Contains(rendered.Query, "HAS(") {
+		t.Fatalf("all-values dynamic column did not lower to an array with empty fallback: %s", rendered.Query)
 	}
 }
 

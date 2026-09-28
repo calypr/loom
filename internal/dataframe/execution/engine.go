@@ -169,6 +169,7 @@ type OutputStream struct {
 type DynamicColumnCheck struct {
 	ColumnName       string
 	ValueType        string
+	Many             bool
 	AllowUnknownKeys bool
 }
 
@@ -947,7 +948,7 @@ func dynamicChecks(metadata []lower.DynamicColumnMetadata) map[string]map[string
 		if checks[column.DynamicName] == nil {
 			checks[column.DynamicName] = map[string]DynamicColumnCheck{}
 		}
-		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, AllowUnknownKeys: column.AllowUnknownKeys}
+		checks[column.DynamicName][column.SourceKey] = DynamicColumnCheck{ColumnName: column.Name, ValueType: column.ValueType, Many: column.Many, AllowUnknownKeys: column.AllowUnknownKeys}
 	}
 	return checks
 }

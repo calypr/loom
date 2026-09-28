@@ -107,6 +107,24 @@ func TestMaterializePostQueryAllowsFixedLookupAfterConstructionDropsRuntimeKeys(
 	}
 }
 
+func TestMaterializePostQueryValidatesAllValuesAfterConstruction(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"condition_identifier": {
+			"https://cda.readthedocs.io/diagnosis": {ColumnName: "diagnosis", ValueType: "string", Many: true, AllowUnknownKeys: true},
+		},
+	}
+	for _, values := range []any{[]any{}, []any{"C50.9", "C50.8"}} {
+		if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": values}, checks); err != nil {
+			t.Fatalf("valid diagnosis list %#v rejected: %v", values, err)
+		}
+	}
+	for _, values := range []any{"C50.9", nil, []any{"C50.9", 42}} {
+		if _, err := materializePostQueryRowWithChecks(map[string]any{"diagnosis": values}, checks); err == nil {
+			t.Fatalf("invalid diagnosis list %#v accepted", values)
+		}
+	}
+}
+
 func TestMaterializePostQueryStripsDynamicMetadata(t *testing.T) {
 	checks := map[string]map[string]DynamicColumnCheck{
 		"code": {"a": {ColumnName: "code_a", ValueType: "string"}},

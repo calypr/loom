@@ -123,6 +123,7 @@ type DynamicColumnMetadata struct {
 	DynamicName      string
 	SourceKey        string
 	ValueType        string
+	Many             bool
 	AllowUnknownKeys bool
 	Discovered       bool
 }

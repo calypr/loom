@@ -42,7 +42,11 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 		if kind == "" || kind == "unknown" {
 			kind = string(expression.KindString)
 		}
-		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: string(expression.OptionalOne), Nullable: true, Discovered: dynamic.Discovered}
+		cardinality, nullable := string(expression.OptionalOne), true
+		if dynamic.Many {
+			cardinality, nullable = string(expression.Many), false
+		}
+		logical[dynamic.Name] = CompiledOutputColumn{Name: dynamic.Name, SemanticPath: dynamic.SemanticPath, Kind: kind, Cardinality: cardinality, Nullable: nullable, Discovered: dynamic.Discovered}
 	}
 	addLogical := func(name, semanticPath, kind, cardinality string, nullable, discovered bool, normalizedUnit *unit.UnitIdentity) {
 		if strings.TrimSpace(name) == "" {

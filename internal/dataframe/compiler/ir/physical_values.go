@@ -290,6 +290,8 @@ type PhysicalMapReduction string
 const (
 	PhysicalMapFirst       PhysicalMapReduction = "FIRST"
 	PhysicalMapFirstSorted PhysicalMapReduction = "FIRST_SORTED"
+	PhysicalMapAll         PhysicalMapReduction = "ALL"
+	PhysicalMapDistinct    PhysicalMapReduction = "DISTINCT"
 )
 
 type PhysicalKeyedMap struct {

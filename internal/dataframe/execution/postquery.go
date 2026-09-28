@@ -60,7 +60,7 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 				if !column.AllowUnknownKeys {
 					return fmt.Errorf("dynamic runtime key metadata is missing for %q", dynamicName)
 				}
-				if actual, exists := row[column.ColumnName]; exists && !dynamicValueMatches(actual, column.ValueType) {
+				if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
 					return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 				}
 			}
@@ -82,7 +82,7 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 				}
 				return &DynamicDriftError{DynamicName: dynamicName, Key: key, FrozenKeyCount: len(allowed)}
 			}
-			if actual, exists := row[column.ColumnName]; exists && !dynamicValueMatches(actual, column.ValueType) {
+			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
 				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 			}
 		}
@@ -112,6 +112,30 @@ func dynamicRuntimeKeys(value any) ([]any, error) {
 	default:
 		return nil, fmt.Errorf("expected an array")
 	}
+}
+
+func dynamicColumnValueMatches(value any, column DynamicColumnCheck) bool {
+	if !column.Many {
+		return dynamicValueMatches(value, column.ValueType)
+	}
+	var items []any
+	switch typed := value.(type) {
+	case []any:
+		items = typed
+	case []string:
+		items = make([]any, len(typed))
+		for index, item := range typed {
+			items[index] = item
+		}
+	default:
+		return false
+	}
+	for _, item := range items {
+		if !dynamicValueMatches(item, column.ValueType) {
+			return false
+		}
+	}
+	return true
 }
 
 func dynamicValueMatches(value any, logicalType string) bool {

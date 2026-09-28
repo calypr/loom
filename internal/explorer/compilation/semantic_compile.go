@@ -806,7 +806,7 @@ func semanticFixedLookup(column authoringv2.Column, resourceType, alias, leaf, l
 		return recipe.DynamicColumn{}, fmt.Errorf("unsupported source kind %q", column.Source.Kind)
 	}
 	key := recipe.Expression{Select: keyPath}
-	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: sourceKey}}, nil
+	return recipe.DynamicColumn{Name: "fixed_" + shortHash(column.Column), ValueMode: projectionValueMode(column.Source.ProjectionMode()), ColumnPrefix: &empty, Source: recipe.Expression{Select: alias + "." + sourcePath}, Key: &key, Value: &value, Columns: []string{leaf}, MaxColumns: 1, ColumnTypes: map[string]string{leaf: logicalType}, ColumnSourceKeys: map[string]string{leaf: sourceKey}}, nil
 }
 
 func semanticAggregate(column authoringv2.Column, alias, resourceType string, contributorWhere *recipe.Filter) (recipe.Aggregate, string, error) {

@@ -87,7 +87,15 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			runtimeName = dynamic.ScopeAlias + "__" + dynamic.Name
 		}
 		familyVariable := dynamicFamilyVariable(*plan, runtimeName)
-		keyedMap := ir.PhysicalExpression{Kind: ir.PhysicalKeyedMapExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, KeyedMap: &ir.PhysicalKeyedMap{Source: ir.ClonePhysicalExpression(source), ItemVariable: "dynamic_item", ItemKey: ir.ClonePhysicalExpression(key), ItemValue: ir.ClonePhysicalExpression(value), Reduction: ir.PhysicalMapFirstSorted, FlattenSource: true}}
+		reduction := ir.PhysicalMapFirstSorted
+		many := dynamic.ValueMode == recipe.ValueModeAll || dynamic.ValueMode == recipe.ValueModeDistinct
+		switch dynamic.ValueMode {
+		case recipe.ValueModeAll:
+			reduction = ir.PhysicalMapAll
+		case recipe.ValueModeDistinct:
+			reduction = ir.PhysicalMapDistinct
+		}
+		keyedMap := ir.PhysicalExpression{Kind: ir.PhysicalKeyedMapExpression, Cardinality: ir.PhysicalObjectCardinality, NullBehavior: ir.PhysicalPreserveNull, KeyedMap: &ir.PhysicalKeyedMap{Source: ir.ClonePhysicalExpression(source), ItemVariable: "dynamic_item", ItemKey: ir.ClonePhysicalExpression(key), ItemValue: ir.ClonePhysicalExpression(value), Reduction: reduction, FlattenSource: true}}
 		insertPhysicalExpressionLet(plan, returnOp, familyVariable, keyedMap)
 		returnOp++
 		runtimeKey := ir.PhysicalExpression{Kind: ir.PhysicalObjectKeysExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, ObjectKeys: &ir.PhysicalObjectKeys{ObjectVariable: familyVariable}}
@@ -103,7 +111,11 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			}
 			matchBindKey := nextDynamicBindKey(plan.BindVars, projectionPrefix+dynamic.Name, index)
 			plan.BindVars[matchBindKey] = column.Column.SourceKey
-			lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: value.Cardinality, NullBehavior: value.NullBehavior, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: matchBindKey}}
+			lookupCardinality, lookupNullBehavior := value.Cardinality, value.NullBehavior
+			if many {
+				lookupCardinality, lookupNullBehavior = ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull
+			}
+			lookup := ir.PhysicalExpression{Kind: ir.PhysicalObjectLookupExpression, Cardinality: lookupCardinality, NullBehavior: lookupNullBehavior, ObjectLookup: &ir.PhysicalObjectLookup{ObjectVariable: familyVariable, KeyBindKey: matchBindKey}}
 			semanticPath := strings.TrimSpace(dynamic.ResourceType)
 			if semanticPath == "" {
 				semanticPath = output.RootResourceType
@@ -114,7 +126,7 @@ func appendRecipeDynamicColumns(plan *ir.PhysicalPlan, output semantic.OutputPla
 			if column.Column.SourceKey != "" {
 				semanticPath += "[" + column.Column.SourceKey + "]"
 			}
-			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
+			entry := DynamicColumnMetadata{Name: outputName, SemanticPath: semanticPath, DynamicName: runtimeName, SourceKey: column.Column.SourceKey, ValueType: column.Column.ValueType, Many: many, AllowUnknownKeys: dynamic.AllowUnknownKeys, Discovered: dynamic.Discovered}
 			if projectionIndex, exists := projectionIndexes[outputName]; exists {
 				if output.Collision != "overwrite" {
 					return nil, fmt.Errorf("dynamic column %q collides with another output column", outputName)

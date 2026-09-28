@@ -104,6 +104,19 @@ make dev
 remain usable. Use `verify-fast` or `verify-full` for the isolated, destructive
 end-to-end product journey; they intentionally create a fresh owned project.
 
+For the loaded CDA Builder, run the related identifier multiplicity journey
+against an Explorer with a Specimen table:
+
+```bash
+LOOM_CDA_UI_ORIGIN=http://127.0.0.1:30008 node scripts/verify-cda-identifier-multiplicity.mjs <explorer-id>
+```
+
+It duplicates the Specimen table, adds a Condition identifier through the
+Patient route with all matching values, checks the rendered value and preview
+time, then reloads, removes the column, and deletes its duplicate. Inspect its
+report under `.artifacts/cda-builder/`; this is one CDA slice, not a substitute
+for the full Builder feature ledger.
+
 ## Cleanup
 
 Stop the services and keep the isolated database volumes:

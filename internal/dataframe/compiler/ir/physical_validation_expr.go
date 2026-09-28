@@ -207,7 +207,7 @@ func validatePhysicalKeyedMap(keyed PhysicalKeyedMap, defined map[string]bool, b
 	if !physicalVariablePattern.MatchString(keyed.ItemVariable) {
 		return fmt.Errorf("keyed map item variable %q is unsafe", keyed.ItemVariable)
 	}
-	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted {
+	if keyed.Reduction != PhysicalMapFirst && keyed.Reduction != PhysicalMapFirstSorted && keyed.Reduction != PhysicalMapAll && keyed.Reduction != PhysicalMapDistinct {
 		return fmt.Errorf("unsupported keyed map reduction %q", keyed.Reduction)
 	}
 	if err := validatePhysicalExpression(keyed.Source, defined, bindVars); err != nil {

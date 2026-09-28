@@ -33,7 +33,11 @@ func (r *physicalPlanRenderer) renderExpression(expression ir.PhysicalExpression
 		if _, ok := r.bindVars[expression.ObjectLookup.KeyBindKey]; !ok {
 			return "", fmt.Errorf("object lookup bind %q is not defined", expression.ObjectLookup.KeyBindKey)
 		}
-		return fmt.Sprintf("%s[@%s]", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey), nil
+		lookup := fmt.Sprintf("%s[@%s]", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey)
+		if expression.NullBehavior == ir.PhysicalEmptyOnNull {
+			return fmt.Sprintf("(HAS(%s, @%s) ? %s : [])", expression.ObjectLookup.ObjectVariable, expression.ObjectLookup.KeyBindKey, lookup), nil
+		}
+		return lookup, nil
 	case ir.PhysicalKeyedMapExpression:
 		return r.renderKeyedMap(expression)
 	case ir.PhysicalObjectKeysExpression:
@@ -149,8 +153,13 @@ func (r *physicalPlanRenderer) renderKeyedMap(expression ir.PhysicalExpression) 
 		sourceLoop = "FLATTEN(" + source + ")"
 	}
 	values := "FIRST(__loom_keyed_group[*].__loom_keyed_value)"
-	if keyed.Reduction == ir.PhysicalMapFirstSorted {
+	switch keyed.Reduction {
+	case ir.PhysicalMapFirstSorted:
 		values = "FIRST(SORTED_UNIQUE(__loom_keyed_group[*].__loom_keyed_value))"
+	case ir.PhysicalMapAll:
+		values = "(FOR __loom_keyed_item IN __loom_keyed_group[*].__loom_keyed_value SORT __loom_keyed_item RETURN __loom_keyed_item)"
+	case ir.PhysicalMapDistinct:
+		values = "SORTED_UNIQUE(__loom_keyed_group[*].__loom_keyed_value)"
 	}
 	return fmt.Sprintf(`MERGE(
 	  FOR %s IN %s
