@@ -6,6 +6,22 @@ pstack skill only when the task needs one. Do not load `pstack:poteto-mode` as
 the automatic entry point. Follow a different skill when the user explicitly
 requests it.
 
+## Verification skills
+
+- For the local Compose Builder, load `.codex/skills/verify/SKILL.md` and run
+  the relevant browser path. On the loaded CDA dataset, use its `verify-current`
+  guidance and `scripts/verify-cda-builder.mjs` for feature-specific DOM checks.
+  A small development fixture does not establish CDA correctness.
+- For the authenticated Calypr Builder deployment, load
+  `.codex/skills/verify-loom-ui/SKILL.md`. It targets that deployment, not the
+  local Compose Builder.
+- For ingestion, publication, ClickHouse, or GraphQL behavior against the
+  locked NCPI fixture, load `.codex/skills/verify-loom/SKILL.md` and run its
+  applicable acceptance path.
+- Match the verifier to the changed behavior. A successful API response alone
+  does not verify a visible Builder feature; check its browser result and saved
+  state when those are part of the task.
+
 ## GitNexus
 
 This project uses GitNexus as its local repository knowledge graph.
