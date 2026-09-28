@@ -3378,7 +3378,7 @@ try {
     console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.path.endsWith('/commands')||response.path.endsWith('/preview'))},null,2));
     assert(Math.max(state.before.elapsedMs,state.reordered.elapsedMs,state.restored.elapsedMs)<=5000,'A CDA reorder preview exceeded 5 seconds');
   } else if (action === 'Verify direct scalar lifecycle') {
-    const copyName='Specimen copy';
+    const tableName=`CDA direct scalar QA ${Date.now()}`;
     const renamed='CDA resource type';
     const state={clicks:[],controls:[],previews:{},errors:[]};
     let created=false;
@@ -3389,12 +3389,12 @@ try {
       await browserEval(browser.cdp, `document.querySelector(${JSON.stringify(selector)}).click();return true;`);
       state.clicks.push(label);
     };
-    const selectCopy=async()=>{
-      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}))`,30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)})).click();return true;`);
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${copyName}`)})`,30000);
+    const selectTable=async()=>{
+      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`,30000);
     };
-    const reload=async()=>{await navigate(browser.cdp,pageURL);await selectCopy();};
+    const reload=async()=>{await navigate(browser.cdp,pageURL);await selectTable();};
     const preview=async(stage)=>{
       const started=Date.now();
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
@@ -3419,15 +3419,21 @@ try {
       }
     };
     try{
-      assert(!await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}));`),'Temporary Specimen copy already exists');
-      await click('Duplicate Specimen','button[aria-label="Duplicate table"]');
+      const newTable=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table');return button?{disabled:button.disabled,visible:button.offsetParent!==null}:null;`);
+      assert(newTable&&!newTable.disabled&&newTable.visible,'New table is missing, hidden, or disabled');
+      state.controls.push({label:'New table',...newTable});
+      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim()==='New table').click();return true;`);
+      state.clicks.push('New table');
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Specimen rows"]:not(:disabled)'))`,30000);
+      await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Specimen rows"]').click();return true;`);
+      state.clicks.push('Choose Specimen rows');
       created=true;
-      await selectCopy();
+      await selectTable();
       const original=await preview('before');
-      assert.deepEqual(original.headers,['SPECIMEN ID','SUBJECT.REFERENCE','COLLECTION.BODYSITE.REFERENCE.REFERENCE']);
+      assert.deepEqual(original.headers,['SPECIMEN ID']);
       await click('Open Add columns','button[aria-label^="Add columns:"]');
       await click('Open raw FHIR fields','[aria-label="Add columns editor"] [data-testid="feature-catalog-raw-fields"] summary');
-      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Specimen.resourceType"]'))`,30000);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Specimen.resourceType"]:not(:disabled)'))`,30000);
       await click('Select Specimen.resourceType','input[aria-label="Select Specimen.resourceType"]');
       const add=await browserEval(browser.cdp, `const button=[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature');return {disabled:button?.disabled,visible:button?.offsetParent!==null};`);
       assert(add&&!add.disabled&&add.visible,'Add 1 selected feature is unavailable');
@@ -3481,9 +3487,9 @@ try {
     }finally{
       if(created){
         await navigate(browser.cdp,pageURL);
-        await selectCopy();
-        await click('Delete temporary copy','button[aria-label="Delete table"]');
-        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(copyName)}))`,30000);
+        await selectTable();
+        await click('Delete temporary table','button[aria-label="Delete table"]');
+        await waitForBrowser(browser.cdp, `![...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`,30000);
       }
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,'direct-scalar-lifecycle.json'),JSON.stringify({pageURL,state,responses},null,2));
