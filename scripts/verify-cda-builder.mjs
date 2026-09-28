@@ -1316,14 +1316,17 @@ try {
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`, 30000);
       await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Observation rows"]').click();return true;`);
       created=true;
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)})`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]:not(:disabled)')?.innerText.includes('Observation'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Observation')`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row definition settings"] button').click();return true;`);
       await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Add columns:"]').click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select primary_disease_type"]:not(:disabled)'))`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('input[aria-label="Select primary_disease_type"]').click();[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature').click();return true;`);
+      await browserEval(browser.cdp, `const input=document.querySelector('input[aria-label="Select primary_disease_type"]');if(!input)throw new Error('Coded concept choice disappeared before selection');input.click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature'&&!button.disabled))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Add columns editor"] button')].find(button=>button.textContent?.trim()==='Add 1 selected feature'&&!button.disabled).click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"]'))`, 30000);
       state.choice=await browserEval(browser.cdp, `return {text:document.querySelector('[role="dialog"]')?.innerText.slice(0,4000),radios:[...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>({label:input.getAttribute('aria-label'),text:input.closest('label')?.innerText,disabled:input.disabled}))};`);
       if (action === 'Verify bounded Observation concept') {
@@ -1332,7 +1335,7 @@ try {
         state.choiceProposal=await browserEval(browser.cdp, `return document.querySelector('[data-testid="construction-choice-proposal-panel"]')?.innerText;`);
         assert(state.choiceProposal.includes(expected), 'Coded concept proposal did not show the CDA value before Apply');
         await browserEval(browser.cdp, `[...document.querySelectorAll('[data-testid="construction-choice-proposal-panel"] button')].find(button=>button.innerText.trim()==='Apply columns'&&!button.disabled).click();return true;`);
-        await waitForBrowser(browser.cdp, `document.body.innerText.includes('2 configured')`, 30000);
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured primary_disease_type"]')) && Boolean(document.querySelector('input[aria-label="Display name for configured Observation ID"]'))`, 30000);
         state.added=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),remove:[...document.querySelectorAll('button[aria-label^="Remove "]')].map(button=>button.getAttribute('aria-label')).filter(label=>label.includes('primary_disease')),body:document.body.innerText.slice(0,1000)};`);
         let previewStarted=Date.now();
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
@@ -1579,14 +1582,14 @@ try {
       await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose Patient rows"]').click();return true;`);
       state.clicks.push('Choose Patient rows');
       created=true;
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)})`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]:not(:disabled)')?.innerText.includes('Patient'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
       await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
       state.clicks.push('Use two selected CDA Patients');
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Patient')`, 30000);
-      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record'&&!button.disabled))`, 30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record'&&!button.disabled))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record').click();return true;`);
       state.clicks.push('One row per related record');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] label:nth-of-type(1) select'))`, 30000);
       await browserEval(browser.cdp, `const select=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');if(!select)throw new Error('Related type selector missing');select.value='Observation';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
@@ -1703,7 +1706,7 @@ try {
         const relatedPreviewRequest=responses.filter(response=>response.path.endsWith('/preview')).at(-1);
         state.relatedPreviewCapability=JSON.parse((await browser.cdp.send('Network.getResponseBody',{requestId:relatedPreviewRequest.requestId})).body).rowLineageCapability;
         assert.equal(state.relatedPreviewCapability?.status,'AVAILABLE',`Related row lineage unavailable: ${JSON.stringify(state.relatedPreviewCapability)}`);
-        state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()],rowMeaning:document.querySelector('[aria-label="Row definition settings"] p')?.innerText};`);
+        state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()],rowMeaning:document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText};`);
         assert.match(state.saved.rowMeaning, /One row per matching Observation for each input row; rows with no match remain/);
         const oracle=JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json','utf8'));
         const observed=new Set(oracle.patients.find(patient=>patient.patientId===patientIDs[0]).subjectObservations.map(item=>item.id));
@@ -1768,9 +1771,9 @@ try {
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'`, 30000);
-        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowMeaning:document.querySelector('[aria-label="Row definition settings"] p')?.innerText};`);
+        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowMeaning:document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText};`);
         assert.deepEqual(new Set(state.restored.rows.map(row=>row[0])),new Set(patientIDs));
-        assert.equal(state.restored.rowMeaning, 'Current table rows: One row per Patient record.');
+        assert(state.restored.rowMeaning.includes('Current table rows: One row per Patient record.'), state.restored.rowMeaning);
       }
       state.clickCount = await browserEval(browser.cdp, `return Number(sessionStorage.getItem('loomRelatedRowsClicks') || 0);`);
       await mkdir(evidenceDirectory,{recursive:true});
@@ -1802,10 +1805,15 @@ try {
       await browserEval(browser.cdp, `const input=document.querySelector('#first-table-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(tableName)});input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[aria-label="Choose BodyStructure rows"]').click();return true;`);
       state.interactions += 2;
       created = true;
-      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(tableName)}) && Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]:not(:disabled)')?.innerText.includes('BodyStructure'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
       state.interactions++;
-      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'))`, 30000);
+      try {
+        await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'))`, 8000);
+      } catch (error) {
+        const panel = await browserEval(browser.cdp, `return {text:document.querySelector('[aria-label="Starting collection"]')?.innerText,dialog:document.querySelector('[role="dialog"][aria-label="Row definition settings"]')?.innerText.slice(0,1200)};`);
+        throw new Error(`Starting collection did not offer the selected resources: ${JSON.stringify(panel)}`, { cause: error });
+      }
       state.before=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,buttons:[...document.querySelectorAll('[aria-label="Starting collection"] button')].map(button=>({text:button.innerText,disabled:button.disabled})),table:document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.slice(0,500)};`);
       assert.equal(state.before.buttons.find(button=>button.text==='Use selected resources')?.disabled,false);
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
@@ -1813,6 +1821,8 @@ try {
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per BodyStructure')`, 30000);
       state.attachedPanel=await browserEval(browser.cdp, `return {text:document.querySelector('[aria-label="Starting collection"]')?.innerText,buttons:[...document.querySelectorAll('[aria-label="Starting collection"] button')].map(button=>({text:button.innerText,disabled:button.disabled})),attached:document.querySelector('[aria-label="Starting collection"]')?.getAttribute('data-attached-selection-revision-id')};`);
       assert.equal(state.attachedPanel.attached,selectionID);
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row definition settings"] button').click();return true;`);
+      state.interactions++;
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
@@ -1822,14 +1832,20 @@ try {
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
       state.interactions++;
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]:not(:disabled)')?.innerText.includes('BodyStructure'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use all authorized rows'))`, 30000);
+      state.reloadedPanel=await browserEval(browser.cdp, `return document.querySelector('[aria-label="Starting collection"]')?.innerText;`);
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row definition settings"] button').click();return true;`);
+      state.interactions++;
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
-      state.reloadedPreview=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      state.reloadedPreview=await browserEval(browser.cdp, `return {rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
       assert(state.reloadedPreview.rows.some(row=>row.includes(selectedID)));
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
+      state.interactions++;
       const coverageAvailable=await browserEval(browser.cdp, `return Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Check selected-resource coverage'&&!button.disabled));`);
       if (coverageAvailable) {
         await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Check selected-resource coverage').click();return true;`);
@@ -1841,15 +1857,18 @@ try {
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use all authorized rows').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('ready to constrain this table')`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[role="dialog"][aria-label="Row definition settings"] button').click();return true;`);
+      state.interactions++;
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='26'`, 30000);
-      state.clearedPreview=await browserEval(browser.cdp, `return {panel:document.querySelector('[aria-label="Starting collection"]')?.innerText,rowcount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+      state.clearedPreview=await browserEval(browser.cdp, `return {rowSummary:document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.innerText,rowcount:document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount'),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1,4).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
       await navigate(browser.cdp,pageURL);
       await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`, 30000);
       await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
       state.interactions++;
-      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-source-setup"] summary').click();return true;`);
+      await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-rows-settings-trigger"]:not(:disabled)')?.innerText.includes('BodyStructure'))`, 30000);
+      await browserEval(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
       state.interactions++;
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('every authorized BodyStructure resource')`, 30000);
       state.restoredPanel=await browserEval(browser.cdp, `return document.querySelector('[aria-label="Starting collection"]')?.innerText;`);
