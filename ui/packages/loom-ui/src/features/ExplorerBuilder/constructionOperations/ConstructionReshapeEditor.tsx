@@ -154,6 +154,7 @@ export interface ConstructionReshapeEditorProps {
   readonly construction: Construction;
   readonly capabilities: ReshapeCapabilities;
   readonly editingStep?: ConstructionReshapeStep;
+  readonly initialKind?: 'related-expand';
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly pivotDiscovery?: ConstructionReshapePivotDiscovery;
   readonly onDiscoverCategories?: (request: ConstructionReshapePivotDiscoveryRequest) => void;
@@ -954,8 +955,9 @@ const editorContextKey = (
 const formForStep = (
   editingStep: ConstructionReshapeStep | undefined,
   stage: ReshapeStage,
+  initialKind?: 'related-expand',
 ): ReshapeForm => {
-  if (!editingStep) return { kind: 'choose' };
+  if (!editingStep) return { kind: initialKind ?? 'choose' };
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
@@ -1071,7 +1073,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const { construction, capabilities, editingStep, disabled, onCandidateChange, onEditStep } = props;
   const stage = capabilities.selectedStage;
   const contextKey = editorContextKey(capabilities, editingStep);
-  const [form, setForm] = useState<ReshapeForm>(() => formForStep(editingStep, stage));
+  const [form, setForm] = useState<ReshapeForm>(() => formForStep(editingStep, stage, props.initialKind));
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
   const automaticallySelectedPivotPairs = useRef(new Set<string>());
@@ -1091,7 +1093,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscovery = props.pivotDiscovery;
 
   useEffect(() => {
-    setForm(formForStep(editingStep, capabilities.selectedStage));
+    setForm(formForStep(editingStep, capabilities.selectedStage, props.initialKind));
     setFormContextKey(contextKey);
     setContractUnavailable(false);
     onCandidateChange(undefined);

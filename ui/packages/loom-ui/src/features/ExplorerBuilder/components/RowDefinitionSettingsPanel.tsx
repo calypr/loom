@@ -171,9 +171,12 @@ export const RowDefinitionSettingsPanel = ({
   draftVersion,
   draftDigest,
   table,
+  currentRowMeaning,
   selection,
   disabled,
   onApply,
+  relatedRows,
+  onChooseRelatedRows,
 }: {
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
   readonly project: string;
@@ -183,9 +186,12 @@ export const RowDefinitionSettingsPanel = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
   readonly table: DraftTable;
+  readonly currentRowMeaning: string;
   readonly selection?: SelectionRevision;
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
+  readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
+  readonly onChooseRelatedRows: () => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
@@ -294,7 +300,7 @@ export const RowDefinitionSettingsPanel = ({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold text-slate-900">What does one row represent?</h2>
-          <p className="mt-1 text-xs text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
+          <p className="mt-1 text-xs text-slate-600">Current table rows: {currentRowMeaning}</p>
         </div>
         <button
           type="button"
@@ -305,11 +311,29 @@ export const RowDefinitionSettingsPanel = ({
           Configure rows
         </button>
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+        <button
+          type="button"
+          className="rounded-md border border-blue-700 bg-white px-3 py-2 font-medium text-blue-800 hover:bg-blue-50 disabled:border-slate-300 disabled:text-slate-400"
+          disabled={disabled || !relatedRows.supported}
+          onClick={onChooseRelatedRows}
+        >
+          One row per related record
+        </button>
+        <p className="text-xs text-slate-600">
+          {relatedRows.supported
+            ? 'Choose a relationship, which records qualify, and what happens when there is no match.'
+            : relatedRows.reason ?? 'Checking available related row paths…'}
+        </p>
+      </div>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
           <div role="dialog" aria-modal="true" aria-labelledby="row-definition-dialog-title" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-xl bg-white p-5 shadow-xl">
             <h3 id="row-definition-dialog-title" className="text-lg font-semibold text-slate-900">Choose what one row represents</h3>
-            <p className="mt-1 text-sm text-slate-600">Current rows: {describeCurrentRows(table.document.rows)}</p>
+            <p className="mt-1 text-sm text-slate-600">Starting row shape: {describeCurrentRows(table.document.rows)}</p>
+            {currentRowMeaning !== describeCurrentRows(table.document.rows) ? (
+              <p className="mt-1 text-xs text-slate-500">Current table result: {currentRowMeaning}. Changing the starting rows may affect later steps.</p>
+            ) : null}
             {settings.kind === 'loading' ? <p className="mt-4" role="status">Loading row choices…</p> : null}
             {settings.kind === 'error' ? <p className="mt-4 text-red-800" role="alert">{settings.message}</p> : null}
             {settings.kind === 'error' ? (

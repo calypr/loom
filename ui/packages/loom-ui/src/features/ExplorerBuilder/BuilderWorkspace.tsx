@@ -462,6 +462,8 @@ const BuilderWorkspaceContent = ({
     useState<PairedColumnSuggestion>();
   const [activeConstructionFamily, setActiveConstructionFamily] =
     useState<ConstructionOperationFamily>();
+  const [relatedRowsEntry, setRelatedRowsEntry] = useState(0);
+  const [openReshapeOnRelatedRows, setOpenReshapeOnRelatedRows] = useState(false);
   const [addColumnsSource, setAddColumnsSource] = useState<{
     readonly context: string;
     readonly key: string;
@@ -793,11 +795,9 @@ const BuilderWorkspaceContent = ({
         : 'One row per saved group.'
       : table.document.rows.kind === 'EXPANDED'
         ? `One row per value in ${table.document.rows.expanded.scopePath}.`
-        : table.document.output.rowLabel?.trim() ||
-      state.catalog.nodes.find(
-        (node) => node.resourceType === table.document.rootResourceType,
-      )?.rowGrain ||
-      'One row per source record.';
+        : table.document.output.rowLabel?.trim().toLowerCase().startsWith('one row per')
+          ? table.document.output.rowLabel!.trim()
+          : `One row per ${table.document.rootResourceType} record.`;
   const focusedFeature = useMemo(() => {
     if (!featureFocus) return undefined;
     const targetTable = state.tables.find((candidate) => candidate.outputId === featureFocus.outputId);
@@ -2168,7 +2168,16 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
+    setOpenReshapeOnRelatedRows(false);
     setActiveConstructionFamily((current) => current === family ? undefined : family);
+  };
+  const chooseRelatedRows = () => {
+    constructionLifecycle.cancel();
+    setConstructionHistorySelection({ kind: 'source' });
+    setEditingConstructionStepId(undefined);
+    setOpenReshapeOnRelatedRows(true);
+    setRelatedRowsEntry((current) => current + 1);
+    setActiveConstructionFamily('RESHAPE');
   };
   const openCodedValueCatalog = () => {
     constructionLifecycle.cancel();
@@ -2279,6 +2288,21 @@ const BuilderWorkspaceContent = ({
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
     );
+  const relatedExpandCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'RELATED_EXPAND',
+  );
+  const relatedRowsAvailability = capabilityIsForAppendStage &&
+    relatedExpandCapability?.supported &&
+    Boolean(capabilityStage?.relatedExpandAnchors?.length)
+    ? { supported: true }
+    : {
+        supported: false,
+        reason: constructionLifecycle.capabilities.status === 'error'
+          ? constructionLifecycle.capabilities.message
+          : constructionLifecycle.capabilities.status !== 'ready'
+            ? 'Checking available related row paths…'
+            : relatedExpandCapability?.reason ?? 'This table has no executable related-record row path at the current stage.',
+      };
   const relatedSourceUnavailableReason = hasUnsupportedSavedSourceColumns
     ? 'Remove unsupported saved source fields before adding related fields.'
     : editingConstructionStep
@@ -2540,9 +2564,11 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
+              key={`${table.outputId}:${relatedRowsEntry}:${openReshapeOnRelatedRows ? 'related-rows' : 'choose'}`}
               construction={construction ?? constructionLifecycle.capabilities.response.baseConstruction}
               capabilities={constructionLifecycle.capabilities.response}
               editingStep={editingConstructionStep}
+              initialKind={openReshapeOnRelatedRows ? 'related-expand' : undefined}
               selectedColumns={selectedColumnIds}
               pivotDiscovery={constructionLifecycle.pivotDiscovery}
               onDiscoverCategories={constructionLifecycle.onDiscoverCategories}
@@ -2955,8 +2981,11 @@ const BuilderWorkspaceContent = ({
                         draftVersion={state.draftVersion}
                         draftDigest={state.draftDigest}
                         table={table}
+                        currentRowMeaning={rowMeaning}
                         selection={activePopulationSelection}
                         disabled={pendingCommands > 0 || state.reconciliation === 'pending'}
+                        relatedRows={relatedRowsAvailability}
+                        onChooseRelatedRows={chooseRelatedRows}
                         onApply={(proposalId) => applyCommands([{
                           type: 'APPLY_ROW_DEFINITION_PROPOSAL', outputId: table.outputId, proposalId,
                         }])}

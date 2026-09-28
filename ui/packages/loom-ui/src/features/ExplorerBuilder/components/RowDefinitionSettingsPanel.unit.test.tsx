@@ -83,6 +83,12 @@ const sourceSelection: SelectionRevision = {
   createdAt: '2026-09-20T00:00:00.000Z',
 };
 
+const relatedRowProps = {
+  currentRowMeaning: 'One row per source record',
+  relatedRows: { supported: false, reason: 'No executable route' },
+  onChooseRelatedRows: vi.fn(),
+};
+
 const selectionPage = {
   revision: sourceSelection,
   members: [
@@ -97,14 +103,19 @@ const renderSettings = (overrides: {
   draftDigest?: string;
   proposalValue?: RowDefinitionProposal;
   choicesValue?: RowDefinitionChoicesResponse;
+  relatedRowsSupported?: boolean;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
   const getSelection = vi.fn().mockResolvedValue(selectionPage);
   const createExplicitGroupRevision = vi.fn();
   const onApply = vi.fn().mockResolvedValue(true);
+  const onChooseRelatedRows = vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      {...relatedRowProps}
+      relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
+      onChooseRelatedRows={onChooseRelatedRows}
       client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
       project="project-a"
       explorerId="explorer-a"
@@ -116,12 +127,26 @@ const renderSettings = (overrides: {
       onApply={onApply}
     />,
   );
-  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply };
+  return { ...view, listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, onApply, onChooseRelatedRows };
 };
 
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  it('opens executable related rows from the row decision card', () => {
+    const { onChooseRelatedRows } = renderSettings({ relatedRowsSupported: true });
+    fireEvent.click(screen.getByRole('button', { name: 'One row per related record' }));
+    expect(onChooseRelatedRows).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('explains when the backend has no executable related row path', () => {
+    const { onChooseRelatedRows } = renderSettings();
+    expect(screen.getByRole('button', { name: 'One row per related record' })).toBeDisabled();
+    expect(screen.getByText('No executable route')).toBeInTheDocument();
+    expect(onChooseRelatedRows).not.toHaveBeenCalled();
+  });
+
   it('defaults repeated values to preserving unmatched records and allows an explicit policy change', async () => {
     const { proposeRowDefinition } = renderSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
@@ -158,7 +183,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
   it('previews and applies only the server-issued explicit-group proposal', async () => {
     const { listRowDefinitionChoices, proposeRowDefinition, onApply } = renderSettings();
-    expect(screen.getByText('Current rows: One row per source record')).toBeTruthy();
+    expect(screen.getByText('Current table rows: One row per source record')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     const select = await screen.findByRole('combobox', { name: 'New row shape' });
     expect(screen.getByRole('option', { name: 'One row per source record' })).toBeTruthy();
@@ -253,6 +278,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn().mockResolvedValue(true);
     render(
       <RowDefinitionSettingsPanel
+        {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
         explorerId="explorer-a"
@@ -309,6 +335,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn();
     render(
       <RowDefinitionSettingsPanel
+        {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
         explorerId="explorer-a"
@@ -354,6 +381,7 @@ describe('RowDefinitionSettingsPanel', () => {
     }));
     render(
       <RowDefinitionSettingsPanel
+        {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
@@ -399,6 +427,7 @@ describe('RowDefinitionSettingsPanel', () => {
     }));
     render(
       <RowDefinitionSettingsPanel
+        {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
@@ -424,6 +453,7 @@ describe('RowDefinitionSettingsPanel', () => {
       client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       draftVersion: 4, draftDigest: 'draft-digest-4', table, disabled: false, onApply,
+      ...relatedRowProps,
     };
     const view = render(<RowDefinitionSettingsPanel {...props} />);
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
@@ -468,6 +498,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const onApply = vi.fn().mockResolvedValue(true);
     render(
       <RowDefinitionSettingsPanel
+        {...relatedRowProps}
         client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() }}
         project="project-a"
         explorerId="explorer-a"

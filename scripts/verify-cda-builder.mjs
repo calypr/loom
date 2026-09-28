@@ -1239,6 +1239,9 @@ try {
     const patientIDs = ['02f8e963-73b8-50ea-b840-c4a80719a06a','54b50ad3-aa10-5483-85e2-5382aac7d374'];
     const tableName = `Patient related expansion QA ${Date.now()}`;
     const state = { tableName, patientIDs, timingsMs: {}, clicks: [] };
+    const clickCounter = `document.addEventListener('click', () => sessionStorage.setItem('loomRelatedRowsClicks', String(Number(sessionStorage.getItem('loomRelatedRowsClicks') || 0) + 1)), true);`;
+    await browser.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: clickCounter });
+    await browserEval(browser.cdp, `sessionStorage.setItem('loomRelatedRowsClicks', '0');${clickCounter}return true;`);
     let created = false;
     try {
       state.selection=await browserEval(browser.cdp, `const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';const builder=await (await fetch(base+'/authoring/v2/builder')).json();const response=await fetch(base+'/selections',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snapshotToken:builder.catalog.snapshotToken,idempotencyKey:'cda-related-expand-${Date.now()}',source:{kind:'resources',resources:{refs:${JSON.stringify(patientIDs)}.map(id=>({project:'loom_dev_cda_fhir',generation:builder.catalog.generation,resourceType:'Patient',id}))}}})});return {status:response.status,body:await response.json()};`);
@@ -1257,11 +1260,9 @@ try {
       await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
       state.clicks.push('Use two selected CDA Patients');
       await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Patient')`, 30000);
-      await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
-      state.clicks.push('Reshape');
-      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')))`, 30000);
-      await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')).click();return true;`);
-      state.clicks.push('Expand related records');
+      await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record'&&!button.disabled))`, 30000);
+      await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record').click();return true;`);
+      state.clicks.push('One row per related record');
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"] label:nth-of-type(1) select'))`, 30000);
       await browserEval(browser.cdp, `const select=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');if(!select)throw new Error('Related type selector missing');select.value='Observation';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
       state.clicks.push('Choose Observation');
@@ -1374,7 +1375,8 @@ try {
         await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Preview row limit"]')?.value==='100'`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='40'`, 30000);
-        state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()]};`);
+        state.saved=await browserEval(browser.cdp, `const scroll=document.querySelector('[data-testid="preview-table-scroll"]');const rows=new Map();for(let top=0;top<=scroll.scrollHeight;top+=Math.max(200,scroll.clientHeight-100)){scroll.scrollTop=top;await new Promise(resolve=>setTimeout(resolve,35));for(const row of scroll.querySelectorAll('[role="row"]')){const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText);if(cells.length)rows.set(row.style.top,cells)}}return {rowcount:scroll.querySelector('[role="table"]')?.getAttribute('aria-rowcount'),headers:[...scroll.querySelectorAll('[role="columnheader"]')].map(cell=>cell.innerText),rows:[...rows.values()],rowMeaning:document.querySelector('[aria-label="Row definition settings"] p')?.innerText};`);
+        assert.match(state.saved.rowMeaning, /One row per matching Observation for each input row; rows with no match remain/);
         const oracle=JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json','utf8'));
         const observed=new Set(oracle.patients.find(patient=>patient.patientId===patientIDs[0]).subjectObservations.map(item=>item.id));
         const manyRows=state.saved.rows.filter(row=>row[0]===patientIDs[0]);
@@ -1419,9 +1421,11 @@ try {
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='3'`, 30000);
-        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
+        state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText)),rowMeaning:document.querySelector('[aria-label="Row definition settings"] p')?.innerText};`);
         assert.deepEqual(new Set(state.restored.rows.map(row=>row[0])),new Set(patientIDs));
+        assert.equal(state.restored.rowMeaning, 'Current table rows: One row per Patient record.');
       }
+      state.clickCount = await browserEval(browser.cdp, `return Number(sessionStorage.getItem('loomRelatedRowsClicks') || 0);`);
       await mkdir(evidenceDirectory,{recursive:true});
       await writeFile(join(evidenceDirectory,action === 'Verify bounded related contributor condition' ? 'bounded-related-contributor-condition.json' : 'bounded-related-expansion-inspection.json'),JSON.stringify({pageURL,state,responses},null,2));
       console.log(JSON.stringify({evidenceDirectory,state,responses:responses.filter(response=>response.status>=400)},null,2));
@@ -2068,9 +2072,8 @@ try {
     }
     }
   } else if (action === 'Expand Specimen Patient performance') {
-    await browserEval(browser.cdp, `document.querySelector('button[aria-label^="Reshape:"]').click();return true;`);
-    await waitForBrowser(browser.cdp, `document.body.innerText.includes('Expand related records')`, 30000);
-    await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.startsWith('Expand related records')).click();return true;`);
+    await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record'&&!button.disabled))`, 30000);
+    await browserEval(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].find(button=>button.innerText.trim()==='One row per related record').click();return true;`);
     await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-related-expand-editor"]'))`, 30000);
     await browserEval(browser.cdp, `const select=[...document.querySelectorAll('[data-testid="construction-related-expand-editor"] label')].find(label=>label.innerText.startsWith('Related record type'))?.querySelector('select');select.value='Patient';select.dispatchEvent(new Event('change',{bubbles:true}));return true;`);
     await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('input[type="radio"][name^="related-expand-route-"]')].find(input=>input.getAttribute('aria-label')==='Specimen to Patient through subject'))`, 30000);
