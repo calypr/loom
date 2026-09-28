@@ -203,7 +203,11 @@ type PhysicalTraversal struct {
 	Direction             PhysicalTraversalDirection
 	EdgeCollectionBindKey string
 	EdgeLabelBindKey      string
-	TargetTypeBindKey     string
+	// SourceTypeBindKey retains the typed FHIR resource at the source endpoint.
+	// Ordinary forward traversal does not need it, but reverse semijoin plans
+	// use the opposite edge discriminator to preserve the exact typed route.
+	SourceTypeBindKey string
+	TargetTypeBindKey string
 	// EdgeTargetTypeField is a compiler-owned fhir_edge discriminator used
 	// alongside TargetTypeBindKey. For a parent-to-child INBOUND route it is
 	// from_type; for a proven forward OUTBOUND route it is to_type. The node

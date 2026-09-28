@@ -82,6 +82,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 	}
 	strategy, endpointField, endpointJoinField, endpointIndexFields := physicalTraversalStrategyForRoute(request.Policy, route)
 	labelBind := prefix + "_label"
+	sourceTypeBind := prefix + "_source_type"
 	typeBind := prefix + "_target_type"
 	edgeCollectionBind := prefix + "_edge_collection"
 	return TraversalLoweringResult{
@@ -92,6 +93,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 			Direction:             route.Direction,
 			EdgeCollectionBindKey: edgeCollectionBind,
 			EdgeLabelBindKey:      labelBind,
+			SourceTypeBindKey:     sourceTypeBind,
 			TargetTypeBindKey:     typeBind,
 			EdgeTargetTypeField:   route.targetEdgeTypeField(),
 			Strategy:              strategy,
@@ -101,6 +103,7 @@ func BuildPhysicalTraversal(request TraversalLoweringRequest) (TraversalLowering
 		},
 		BindVars: map[string]any{
 			labelBind:          request.EdgeLabel,
+			sourceTypeBind:     request.FromType,
 			typeBind:           request.ToType,
 			edgeCollectionBind: "fhir_edge",
 		},

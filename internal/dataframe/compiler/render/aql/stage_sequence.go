@@ -15,6 +15,11 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	if sequence == nil {
 		return RenderedPhysicalPlan{}, fmt.Errorf("physical construction stage sequence is required")
 	}
+	if rendered, eligible, err := renderRelatedEligibilityCountRows(plan, sequence, options); err != nil {
+		return RenderedPhysicalPlan{}, err
+	} else if eligible {
+		return rendered, nil
+	}
 	stages := pruneUnusedRelatedOutputsForCountRows(sequence)
 	inlineSourceForKeylessCount := terminalKeylessCountRowsOnly(sequence)
 	sourcePlan := ir.ClonePhysicalPlan(plan)
