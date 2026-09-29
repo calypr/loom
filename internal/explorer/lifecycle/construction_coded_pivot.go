@@ -61,7 +61,7 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 		durableSource := &authoringv2.ConstructionCodedPivotSource{
 			Family: family.Family, CandidateID: family.Candidate.ID,
 			NodeID: family.Candidate.NodeID, FieldPath: family.Candidate.FieldPath,
-			Route: append([]capability.ConstructionRouteStep(nil), route...),
+			Route: append([]capability.ConstructionRouteStep{}, route...),
 		}
 		if existing, exists := priorByStep[step.ID]; exists && existing.Source != nil && !reflect.DeepEqual(existing.Source, durableSource) {
 			return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected family differs from the saved coded Pivot source", nil, nil)
@@ -118,7 +118,7 @@ func (s *Service) resolveCodedPivotCategoryChoice(
 	source, ok := identity.Source.(capability.SemanticBindingChoiceSource)
 	if !ok || source.Version != "" || source.BindingID != frame.Family.BindingID || source.ResourceType != frame.Family.ResourceType ||
 		source.SourcePath != frame.Family.SourcePath || source.SourceCanonical != frame.Family.SourceCanonical || source.SourceProfile != frame.Family.SourceProfile ||
-		source.OwningScope != frame.Family.OwningScope || source.ValueSelector != frame.Family.ValuePath || source.LogicalType != frame.Family.LogicalType ||
+		source.OwningScope != frame.Family.OwningScope || source.ValueSelector != frame.FieldPath || source.LogicalType != frame.Family.LogicalType ||
 		!reflect.DeepEqual(identity.Route, route) {
 		return catalog.SemanticInventoryEntry{}, capability.Candidate{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "category choice does not belong to the selected coded family and route", nil)
 	}

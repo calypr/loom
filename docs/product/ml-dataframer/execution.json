@@ -103,12 +103,14 @@
     },
     "codedPivotImplementation": {
       "feature": "Choose coded source categories in Rows before adding visible columns",
-      "status": "implementation_in_progress",
-      "domUsability": "Rows entry and compact category editor implemented; production CDA browser path pending",
-      "resultCorrectness": "Unproven until backend lowering and independent CDA source comparison pass",
-      "persistence": "Saved category editor reopens in a focused UI test; live Apply and reload pending",
-      "verification": "Focused Rows, reshape, coded Pivot editor, table navigation, and API client tests pass; TypeScript production build and OpenAPI ownership check pass",
-      "remaining": "Finish backend lowering, deploy the single stack, run bounded CDA browser path, and measure preview latency"
+      "status": "browser_apply_reload_remove_passed",
+      "domUsability": "Rows → Categories to columns offered direct Observation component integer values; the researcher selected Days to collection in the same editor. The path took 17 clicks including table setup, preview, reload, and removal.",
+      "resultCorrectness": "A one-record CDA Observation produced Days to collection = 162 in proposal and saved preview. An independent Arango read found the same system, code, and valueInteger pairing on that record.",
+      "persistence": "Applied the coded Pivot, reloaded and previewed the saved value, removed the operation from step history, and reloaded with no construction steps. The disposable table was deleted.",
+      "proposalBrowserMs": 3059,
+      "savedPreviewBrowserMs": 2512,
+      "artifact": ".artifacts/cda-builder/bounded-coded-pivot.json",
+      "remaining": "Edit a saved coded Pivot and verify a second direct code/value family; ordinary full-table performance still needs separate measurement"
     },
     "pivotCategoryDiscovery": {
       "feature": "Find category values in the Rows pivot editor",

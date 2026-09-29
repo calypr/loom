@@ -233,22 +233,23 @@ export const useConstructionLifecycle = ({
   const onCandidateChange = useCallback((intent: ConstructionCandidateIntent | undefined) => {
     invalidateProposalRequest();
     candidateIntent.current = intent;
-    if (!intent || !capabilitiesRequest) {
+    const currentRequest = capabilitiesRequestRef.current;
+    if (!intent || !currentRequest) {
       setProposalLoad({ key: requestKey, state: { status: 'idle' } });
       return;
     }
 
     const generation = proposalGeneration.current;
     const args: ProposeConstructionArgs = {
-      project: capabilitiesRequest.project,
-      explorerId: capabilitiesRequest.explorerId,
-      ...(capabilitiesRequest.authResourcePath
-        ? { authResourcePath: capabilitiesRequest.authResourcePath }
+      project: currentRequest.project,
+      explorerId: currentRequest.explorerId,
+      ...(currentRequest.authResourcePath
+        ? { authResourcePath: currentRequest.authResourcePath }
         : {}),
-      snapshotToken: capabilitiesRequest.snapshotToken,
-      expectedDraftVersion: capabilitiesRequest.expectedDraftVersion,
-      expectedDraftDigest: capabilitiesRequest.expectedDraftDigest,
-      outputId: capabilitiesRequest.outputId,
+      snapshotToken: currentRequest.snapshotToken,
+      expectedDraftVersion: currentRequest.expectedDraftVersion,
+      expectedDraftDigest: currentRequest.expectedDraftDigest,
+      outputId: currentRequest.outputId,
       ...intent,
       limit: previewLimit,
       requestId: `construction-proposal-${window.crypto.randomUUID()}`,
@@ -279,7 +280,7 @@ export const useConstructionLifecycle = ({
             });
             return;
           }
-          await getPreview(response, capabilitiesRequest, controller);
+          await getPreview(response, currentRequest, controller);
         },
       ).catch((error: unknown) => {
         if (
@@ -295,7 +296,7 @@ export const useConstructionLifecycle = ({
         });
       });
     }, 300);
-  }, [capabilitiesRequest, client, getPreview, invalidateProposalRequest, previewLimit, requestKey]);
+  }, [client, getPreview, invalidateProposalRequest, previewLimit, requestKey]);
 
   const retry = useCallback(() => {
     if (candidateIntent.current) onCandidateChange(candidateIntent.current);

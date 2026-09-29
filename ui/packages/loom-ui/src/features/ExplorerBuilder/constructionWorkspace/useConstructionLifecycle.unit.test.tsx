@@ -107,6 +107,29 @@ const categoriesFor = (args: DiscoverConstructionCategoriesArgs): ConstructionCa
 afterEach(() => vi.useRealTimers());
 
 describe('useConstructionLifecycle', () => {
+  it('keeps the candidate callback stable when the same draft request is rebuilt during preview', async () => {
+    vi.useFakeTimers();
+    const proposeConstruction = vi.fn(async () => proposalResponse());
+    const client = {
+      getConstructionCapabilities: vi.fn(async (args: GetConstructionCapabilitiesArgs) => capabilitiesFor(args)),
+      discoverConstructionCategories: vi.fn(async (args: DiscoverConstructionCategoriesArgs) => categoriesFor(args)),
+      proposeConstruction,
+      preview: vi.fn(async () => proposalPreview),
+    } satisfies ConstructionLifecycleClient;
+    const { result, rerender } = renderHook(() => useConstructionLifecycle({
+      client,
+      capabilitiesRequest: { ...request },
+    }));
+    await act(async () => { await Promise.resolve(); });
+    const candidateCallback = result.current.onCandidateChange;
+    act(() => result.current.onCandidateChange({ candidateConstruction: { version: 1, steps: [] } }));
+    rerender();
+    expect(result.current.onCandidateChange).toBe(candidateCallback);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(proposeConstruction).toHaveBeenCalledTimes(1);
+    expect(result.current.proposal.status).toBe('ready');
+  });
+
   it('loads an exact candidate preview before enabling Apply and sends removal-only requests without changedStepId', async () => {
     vi.useFakeTimers();
     const proposeConstruction = vi.fn(async (
