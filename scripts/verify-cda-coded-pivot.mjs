@@ -4,11 +4,15 @@ import { browserEval, launchBrowser, navigate, waitForBrowser } from './loom-dev
 
 const explorerId = 'cda-builder-full-qa-1790440983382';
 const observationId = '485e2567-b566-56f3-b5bd-5f025f37cd95';
+const mode = process.argv[2] === 'string' ? 'string' : 'integer';
+const expected = mode === 'string'
+  ? [{ label: 'Specimen type', value: 'analyte' }, { label: 'Primary disease type', value: 'Ductal and lobular neoplasms' }]
+  : [{ label: 'Days to collection', value: '162' }];
 const baseURL = `http://127.0.0.1:30008/?project=loom_dev_cda_fhir&explorer=${explorerId}&mode=builder`;
-const artifact = '.artifacts/cda-builder/bounded-coded-pivot.json';
-const tableName = `Coded pivot QA ${Date.now()}`;
+const artifact = `.artifacts/cda-builder/bounded-coded-pivot-${mode}.json`;
+const tableName = `Coded pivot ${mode} QA ${Date.now()}`;
 const browser = await launchBrowser('/private/tmp');
-const state = { tableName, observationId, clicks: 0, timingsMs: {}, requests: [] };
+const state = { tableName, observationId, mode, expected, clicks: 0, timingsMs: {}, requests: [] };
 let selectedURL = baseURL;
 let created = false;
 const started = new Map();
@@ -61,22 +65,24 @@ try {
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('section[aria-label="Coded values as columns"]'))`);
   await waitForBrowser(browser.cdp, `!document.querySelector('section[aria-label="Coded values as columns"] [role="status"]')`);
   state.sources = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[name="coded-pivot-source"]')].map(input=>({text:input.closest('label')?.innerText,checked:input.checked,disabled:input.disabled}));`);
-  const matching = state.sources.findIndex(source => source.text?.includes('component') && source.text?.toLowerCase().includes('integer'));
-  assert(matching >= 0, 'Direct component integer source is missing');
+  const matching = state.sources.findIndex(source => source.text?.includes('component') && source.text?.toLowerCase().includes(mode));
+  assert(matching >= 0, `Direct component ${mode} source is missing`);
   await click(`document.querySelectorAll('input[name="coded-pivot-source"]')[${matching}].click();return true;`);
-  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].find(input=>input.closest('label')?.innerText.toLowerCase().includes('days to collection')))`);
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].find(input=>input.closest('label')?.innerText.toLowerCase().includes(${JSON.stringify(expected[0].label.toLowerCase())})))`);
   state.categories = await browserEval(browser.cdp, `return [...document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')].map(input=>({text:input.closest('label')?.innerText,disabled:input.disabled}));`);
-  const category = state.categories.findIndex(item => item.text?.toLowerCase().includes('days to collection'));
-  assert(category >= 0 && !state.categories[category].disabled, JSON.stringify(state.categories));
   const proposalStarted = Date.now();
-  await click(`document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')[${category}].click();return true;`);
+  for (const pair of expected) {
+    const category = state.categories.findIndex(item => item.text?.toLowerCase().includes(pair.label.toLowerCase()));
+    assert(category >= 0 && !state.categories[category].disabled, JSON.stringify(state.categories));
+    await click(`document.querySelectorAll('section[aria-label="Coded values as columns"] input[type="checkbox"]')[${category}].click();return true;`);
+  }
   await waitForBrowser(browser.cdp, `['ready','error'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`);
   state.timingsMs.proposal = Date.now() - proposalStarted;
   state.proposal = await browserEval(browser.cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,applyDisabled:document.querySelector('[data-testid="construction-apply-proposal"]')?.disabled};`);
   assert.equal(state.proposal.status, 'ready', state.proposal.text);
   assert.equal(state.proposal.applyDisabled, false);
   state.proposal.visibleRows = await browserEval(browser.cdp, `return document.body.innerText.slice(-500);`);
-  assert(state.proposal.visibleRows?.includes('162'), JSON.stringify(state.proposal));
+  for (const pair of expected) assert(state.proposal.visibleRows?.includes(pair.value), JSON.stringify(state.proposal));
   await click(`document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
   await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`);
   await navigate(browser.cdp, selectedURL);
@@ -84,11 +90,11 @@ try {
   await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
   const previewStarted = Date.now();
   await click(`[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes('162')`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected.at(-1).value)})`);
   state.timingsMs.preview = Date.now() - previewStarted;
   state.saved = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
   assert.equal(state.saved.rows.length, 1, JSON.stringify(state.saved));
-  assert(state.saved.rows[0].includes('162'), JSON.stringify(state.saved));
+  for (const pair of expected) assert(state.saved.rows[0].includes(pair.value), JSON.stringify(state.saved));
   await click(`document.querySelector('[data-testid^="construction-history-step-"]').click();return true;`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]'))`);
   await click(`document.querySelector('[data-testid^="construction-remove-step-"]').click();return true;`);

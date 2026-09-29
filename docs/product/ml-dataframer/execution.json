@@ -104,13 +104,15 @@
     "codedPivotImplementation": {
       "feature": "Choose coded source categories in Rows before adding visible columns",
       "status": "browser_apply_reload_remove_passed",
-      "domUsability": "Rows → Categories to columns offered direct Observation component integer values; the researcher selected Days to collection in the same editor. The path took 17 clicks including table setup, preview, reload, and removal.",
-      "resultCorrectness": "A one-record CDA Observation produced Days to collection = 162 in proposal and saved preview. An independent Arango read found the same system, code, and valueInteger pairing on that record.",
-      "persistence": "Applied the coded Pivot, reloaded and previewed the saved value, removed the operation from step history, and reloaded with no construction steps. The disposable table was deleted.",
-      "proposalBrowserMs": 3059,
-      "savedPreviewBrowserMs": 2512,
-      "artifact": ".artifacts/cda-builder/bounded-coded-pivot.json",
-      "remaining": "Edit a saved coded Pivot and verify a second direct code/value family; ordinary full-table performance still needs separate measurement"
+      "domUsability": "Rows → Categories to columns offered direct Observation component values by type. The integer path took 17 clicks; the two-column string path took 18 clicks, including table setup, preview, reload, and removal.",
+      "resultCorrectness": "One selected CDA Observation produced Days to collection = 162 and, in a separate string family, Specimen type = analyte and Primary disease type = Ductal and lobular neoplasms. Independent Arango reads matched all three code/value pairings.",
+      "persistence": "Applied each coded Pivot, reloaded and previewed saved values, removed the operation from step history, and reloaded with no construction steps. Both disposable tables were deleted.",
+      "proposalBrowserMs": 3041,
+      "savedPreviewBrowserMs": 2535,
+      "stringProposalBrowserMs": 3276,
+      "stringSavedPreviewBrowserMs": 2511,
+      "artifacts": [".artifacts/cda-builder/bounded-coded-pivot-integer.json", ".artifacts/cda-builder/bounded-coded-pivot-string.json"],
+      "remaining": "Edit a saved coded Pivot; ordinary full-table performance still needs separate measurement"
     },
     "pivotCategoryDiscovery": {
       "feature": "Find category values in the Rows pivot editor",
@@ -120,7 +122,7 @@
       "persistence": "The bounded table pivot applied, survived reload, and was removed through the saved-step UI",
       "performance": "BodyStructure discovery took 1.834 seconds in Chrome. A warm Specimen overflow request took 2.54 seconds, including a 675 ms witness. One cold request took 8.55 seconds; the earlier timeout cause remains unconfirmed.",
       "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
-      "remaining": "Measure cold and concurrent category requests; verify coded-source pivot separately"
+      "remaining": "Measure cold and concurrent category requests"
     },
     "codedPivotAvailability": {
       "feature": "Check direct coded-source availability before offering a Rows pivot",
@@ -129,7 +131,7 @@
       "resultCorrectness": "The editor's source inventory returned no direct paired source for the 135 authorized BodyStructure records",
       "persistence": "No edit was made; this is an availability decision",
       "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
-      "remaining": "Verify the enabled coded Pivot path on a resource with a direct paired source"
+      "remaining": "The enabled Observation coded Pivot path is verified; check other resource types as the CDA catalog exposes direct paired sources"
     },
     "directSourceColumnsEvidence": {
       "feature": "Add direct BodyStructure fields to a constructed CDA table",
