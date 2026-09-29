@@ -160,6 +160,173 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	}
 }
 
+func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories(t *testing.T) {
+	output := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
+	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(scanned.Query, "__loom_construction_stage_") || strings.Contains(scanned.Query, "related_expand_records") ||
+		strings.Contains(scanned.Query, "related_field_document") {
+		t.Fatalf("parent-preserving related prefix was not narrowed to the direct root category scan:\n%s", scanned.Query)
+	}
+	if strings.Contains(scanned.Query, "LET __loom_category_rows =") {
+		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", scanned.Query)
+	}
+	if scanned.CategoryIndex == nil || !reflect.DeepEqual(scanned.CategoryIndex.Fields, []string{"project", "dataset_generation", "payload.gender", "auth_resource_path"}) {
+		t.Fatalf("direct root category index = %+v, want the exact category path after generation", scanned.CategoryIndex)
+	}
+	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) {
+		t.Fatalf("direct root category query omitted its non-forcing category index hint:\n%s", scanned.Query)
+	}
+	if !strings.Contains(scanned.Query, "LET __loom_category_nonnull = (") || !strings.Contains(scanned.Query, "LET __loom_category_null = (") {
+		t.Fatalf("direct root category query omitted its indexed null/non-null branches:\n%s", scanned.Query)
+	}
+	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
+	if scanned.OverflowWitness == nil || !strings.Contains(scanned.OverflowWitness.Query, "FILTER NOT (") {
+		t.Fatalf("direct root category scan omitted its exact missing-value witness: %+v", scanned.OverflowWitness)
+	}
+	assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+	terminalStage, found := compiledStageByID(output.Stages, "add_status")
+	if !found {
+		t.Fatal("compiled output lost terminal related-field stage")
+	}
+	wantSchemaDigest, err := categoryHash(terminalStage.Columns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned.Proof.Version != 2 || scanned.Proof.StageID != "add_status" || scanned.Proof.ColumnID != "category_id" ||
+		scanned.Proof.ValueColumnID != "value_id" || scanned.Proof.OutputSchemaDigest != wantSchemaDigest ||
+		scanned.Proof.PlanFingerprint == "" || scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
+		t.Fatalf("root-category optimization lost exact stage and pivot-pair proof identity: %#v", scanned.Proof)
+	}
+}
+
+func assertCategoryScanBindVarsMatchQuery(t *testing.T, query string, bindVars map[string]any) {
+	t.Helper()
+	want := map[string]struct{}{}
+	for index := 0; index < len(query); index++ {
+		if query[index] != '@' {
+			continue
+		}
+		collection := false
+		if index+1 < len(query) && query[index+1] == '@' {
+			collection = true
+			index++
+		}
+		start := index + 1
+		end := start
+		for end < len(query) && categoryScanIdentifierByte(query[end]) {
+			end++
+		}
+		if end > start {
+			key := query[start:end]
+			if collection {
+				key = "@" + key
+			}
+			want[key] = struct{}{}
+			index = end - 1
+		}
+	}
+	got := make(map[string]struct{}, len(bindVars))
+	for key := range bindVars {
+		got[key] = struct{}{}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("query bind vars = %v, query references = %v\n%s", got, want, query)
+	}
+}
+
+func TestCategoryScanRootCategoryFastPathRejectsUnsafePrefixes(t *testing.T) {
+	tests := []struct {
+		name   string
+		output recipe.Output
+	}{
+		{name: "related expand excludes empty parents", output: categoryScanRelatedRecipeOutput(recipe.ExpansionExclude, false, false)},
+		{name: "filter drops parents", output: categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, true, false)},
+		{name: "category projection is renamed", output: categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, true)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := compilePopulationMappingOutput(t, test.output)
+			stageID := "add_status"
+			categoryID := "category_id"
+			scanned, err := CompileCategoryScanStageWithPolicy(output, stageID, categoryID, "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(scanned.Query, "__loom_construction_stage_") || scanned.CategoryIndex != nil {
+				t.Fatalf("unsafe stage prefix bypassed construction evaluation or got a direct root index:\n%s", scanned.Query)
+			}
+		})
+	}
+}
+
+func categoryScanRelatedRecipeOutput(emptyPolicy recipe.ExpansionEmptyPolicy, withFilter, renameCategory bool) recipe.Output {
+	categoryName := "category"
+	if renameCategory {
+		categoryName = "renamed_category"
+	}
+	sourceColumns := []recipe.StageColumn{
+		{ID: "category_id", Name: "category"},
+		{ID: "value_id", Name: "value"},
+	}
+	expandedColumns := append(append([]recipe.StageColumn(nil), sourceColumns...), recipe.StageColumn{
+		ID: "related_id", Name: "related_id", Label: "Related resource ID", Type: "string",
+		Nullable: emptyPolicy == recipe.ExpansionPreserveParent,
+	})
+	steps := []recipe.ConstructionStep{{
+		ID: "expand_related", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedExpandOp, RelatedExpand: &recipe.ConstructionRelatedExpand{
+			AnchorColumnID: "_key", ChoiceID: "related-choice", TargetNodeID: "observation-node", TargetResourceType: "Observation",
+			Route: []recipe.ConstructionRelatedRouteStep{{
+				EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node",
+				FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient",
+				StorageDirection: "INBOUND", MatchMode: "OPTIONAL",
+			}}, ContributorPolicy: "ALL_MATCHES", EmptyPolicy: emptyPolicy, RelatedRecordColumnID: "related_id",
+		}}, Outputs: expandedColumns,
+	}}
+	priorStageID := "expand_related"
+	if withFilter {
+		steps = append(steps, recipe.ConstructionStep{
+			ID: "keep_value", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: priorStageID}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+				ColumnID: "value_id", Operator: recipe.FilterExists,
+			}},
+			Outputs: expandedColumns,
+		})
+		priorStageID = "keep_value"
+	}
+	fieldColumns := append(append([]recipe.StageColumn(nil), expandedColumns...), recipe.StageColumn{
+		ID: "related_status", Name: "related_status", Label: "Unrelated related status", Type: "string", Nullable: true,
+	})
+	steps = append(steps, recipe.ConstructionStep{
+		ID: "add_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: priorStageID}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedFieldOp, RelatedField: &recipe.ConstructionRelatedField{
+			ChoiceID: "related-status-choice", OutputColumnID: "related_status",
+			Source: recipe.ConstructionRelatedFieldSource{
+				CandidateID: "observation-status", NodeID: "observation-node", ResourceType: "Observation",
+				Path: "Observation.status", Cardinality: "optional_one", LogicalType: "string",
+			},
+		}}, Outputs: fieldColumns,
+	})
+	for index := range steps {
+		for columnIndex := range steps[index].Outputs {
+			if steps[index].Outputs[columnIndex].ID == "category_id" {
+				steps[index].Outputs[columnIndex].Name = categoryName
+			}
+		}
+	}
+	return recipe.Output{
+		Name: "related_category_scan", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "category", ColumnID: "category_id", Expr: recipe.Expression{Select: "root.gender"}},
+			{Name: "value", ColumnID: "value_id", Expr: recipe.Expression{Select: "root.multipleBirthInteger"}},
+		},
+		Construction: &recipe.Construction{Version: 1, SourceColumns: sourceColumns, Steps: steps},
+	}
+}
+
 func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T) {
 	output := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
 	scanned, err := CompileCategoryScanStageWithPolicy(output, "keep_positive", "status_id", "total_id", 256, ir.DefaultPhysicalOptimizationPolicy())

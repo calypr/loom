@@ -76,6 +76,12 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if err := ctx.Err(); err != nil {
 		return CategoryScanResult{}, err
 	}
+	if compiled.CategoryIndex != nil && e.preparePreviewIndex != nil {
+		_ = e.preparePreviewIndex(ctx, *compiled.CategoryIndex)
+		if err := ctx.Err(); err != nil {
+			return CategoryScanResult{}, err
+		}
+	}
 	if compiled.PreviewCoveringIndex != nil {
 		schedulePreviewIndexPrewarm(ctx, e, *compiled.PreviewCoveringIndex)
 	}

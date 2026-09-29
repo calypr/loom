@@ -220,13 +220,16 @@ func insertConstructionPreviewRootIDWindow(plan *ir.PhysicalPlan) bool {
 	}
 	root := plan.Operations[0].RootScan.Variable
 	insertAt := -1
+	lastFilter := 0
 	for index, operation := range plan.Operations {
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
 			if index != 0 {
 				return false
 			}
-		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalFilterOp:
+			lastFilter = index
+		case ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp, ir.PhysicalSetOp:
 		case ir.PhysicalReturnOp:
 			if insertAt >= 0 || index != len(plan.Operations)-1 {
 				return false
@@ -239,6 +242,7 @@ func insertConstructionPreviewRootIDWindow(plan *ir.PhysicalPlan) bool {
 	if insertAt <= 1 {
 		return false
 	}
+	insertAt = lastFilter + 1
 	window := []ir.PhysicalOperation{
 		{
 			Kind:   ir.PhysicalSortOp,

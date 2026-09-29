@@ -7,6 +7,10 @@ func TestValidPivotPreviewIndexRequiresCompilerOwnedPaths(t *testing.T) {
 	if !validPivotPreviewIndex("Specimen", "loom_pivot_preview_abcdef12", fields) {
 		t.Fatal("valid covering index specification was rejected")
 	}
+	categoryFields := []string{"project", "dataset_generation", "payload.status", "auth_resource_path"}
+	if !validPivotPreviewIndex("Observation", "loom_pivot_preview_category", categoryFields) {
+		t.Fatal("valid category-ordered index specification was rejected")
+	}
 	for _, test := range []struct {
 		name       string
 		collection string

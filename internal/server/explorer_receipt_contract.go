@@ -157,7 +157,13 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	if err != nil {
 		return nil, err
 	}
-	stored, err := persistValidatedReceipt(ctx, recipeEngine, &receipt, bindings, explorerService.StoreCompilationReceipt)
+	if err := validateReceiptResolution(&receipt, &resolved); err != nil {
+		return nil, receiptCompilationConflict(receipt.ID, err)
+	}
+	if err := validateReceiptEnginePublicColumns(&receipt, resolved); err != nil {
+		return nil, receiptCompilationConflict(receipt.ID, contractMismatch("public_columns", "", "receipt public columns", err.Error()))
+	}
+	stored, err := explorerService.StoreCompilationReceipt(ctx, receipt)
 	if err != nil {
 		return nil, err
 	}

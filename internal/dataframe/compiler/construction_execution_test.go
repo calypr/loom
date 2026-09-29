@@ -66,6 +66,33 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 	}
 }
 
+func TestRootGroupedPivotPreviewBoundsParentsBeforeRelatedExpansion(t *testing.T) {
+	output := constructionPreviewPivotOutput("root.id", false)
+	expand := relatedExpandOracleOutput(recipe.ExpansionPreserveParent).Construction.Steps[1]
+	expand.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}}
+	expand.Outputs = append(append([]recipe.StageColumn(nil), output.Construction.SourceColumns...), recipe.StageColumn{ID: "observation-id", Name: "observation_id", Type: "string", Nullable: true})
+	pivot := output.Construction.Steps[0]
+	pivot.Inputs = []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: expand.ID}}
+	output.Construction.Steps = []recipe.ConstructionStep{expand, pivot}
+	query := compileConstructionPivotPreview(t, output, 3)
+	limit := strings.Index(query.Query, "LIMIT @limit")
+	stage := strings.Index(query.Query, "LET __loom_construction_stage_1")
+	if !query.PartialValidation || limit < 0 || stage < limit || !strings.Contains(query.Query[stage:], "COLLECT") {
+		t.Fatalf("preview must bound parents but retain complete related contributions and grouping:\n%s", query.Query)
+	}
+	full := compileConstructionPivotPreview(t, output, 0)
+	if strings.Contains(full.Query, "LIMIT @limit") || full.PartialValidation {
+		t.Fatal("preview window leaked into full execution")
+	}
+	expand.Operation.RelatedExpand.EmptyPolicy = recipe.ExpansionExclude
+	expand.Outputs[len(expand.Outputs)-1].Nullable = false
+	output.Construction.Steps[0] = expand
+	query = compileConstructionPivotPreview(t, output, 3)
+	if strings.Contains(query.Query[:strings.Index(query.Query, "LET __loom_construction_stage_1")], "LIMIT @limit") {
+		t.Fatal("dropping unmatched parents must not use a source-root window")
+	}
+}
+
 func TestConstructionPreviewBoundsProvenRootIDPivotBeforeSourceMaterialization(t *testing.T) {
 	query := compileConstructionPivotPreview(t, constructionPreviewPivotOutput("root.id", false), 3)
 	sourceStart := strings.Index(query.Query, "LET __loom_construction_source_projection = (")

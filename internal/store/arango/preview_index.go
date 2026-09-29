@@ -66,7 +66,11 @@ func validPivotPreviewIndex(collection, name string, fields []string) bool {
 	if collection == "" || !validIndexPath(collection) || !strings.HasPrefix(name, pivotPreviewIndexPrefix) || !validIndexPath(name) {
 		return false
 	}
-	if len(fields) < 4 || len(fields) > 32 || fields[0] != "project" || fields[1] != "dataset_generation" || fields[2] != "auth_resource_path" {
+	if len(fields) < 4 || len(fields) > 32 || fields[0] != "project" || fields[1] != "dataset_generation" {
+		return false
+	}
+	categoryOrdered := len(fields) == 4 && strings.HasPrefix(fields[2], "payload.") && fields[3] == "auth_resource_path"
+	if fields[2] != "auth_resource_path" && !categoryOrdered {
 		return false
 	}
 	seen := make(map[string]struct{}, len(fields))

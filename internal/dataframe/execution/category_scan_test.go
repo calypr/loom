@@ -280,3 +280,25 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 		t.Fatalf("stage category scan result = %#v", result)
 	}
 }
+
+func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
+	prepared := false
+	engine := &Engine{
+		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
+			prepared = true
+			return nil
+		},
+		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			if !prepared {
+				t.Fatal("category query ran before its index was prepared")
+			}
+			return visit(map[string]any{"present": true, "value": "final"})
+		},
+	}
+	compiled := compiledCategoryScan(256)
+	compiled.CategoryIndex = &compiler.PreviewCoveringIndexSpec{Collection: "Observation", Name: "category_test", Fields: []string{"project", "dataset_generation", "payload.status"}}
+	result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+	if err != nil || !result.Complete || len(result.Values) != 1 {
+		t.Fatalf("category result=%#v error=%v", result, err)
+	}
+}

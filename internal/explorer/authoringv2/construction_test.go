@@ -233,6 +233,33 @@ func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
 		accepted.Construction.SourceProjections[0].OwnerStepID != "pivot_step" || len(accepted.Construction.Steps) != 2 {
 		t.Fatalf("Pivot inputs leaked into source columns or were not persisted privately: %#v", accepted.Construction)
 	}
+	t.Run("removal rebuilds preceding passthrough stages", func(t *testing.T) {
+		withPrefix := cloneDocumentForConstructionChange(accepted)
+		prefix := ConstructionStep{
+			ID: "keep_patient", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{ColumnID: "patient_id", Operator: ConstructionFilterExists}},
+			Outputs:   append([]StageColumn(nil), sourceColumns...),
+		}
+		withPrefix.Construction.Steps[0].Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: prefix.ID}}
+		withPrefix.Construction.Steps = append([]ConstructionStep{prefix}, withPrefix.Construction.Steps...)
+		if err := withPrefix.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		removed, _, err := withPrefix.ProposeStepRemoval("pivot_step", nil)
+		if err != nil || len(removed.Construction.Steps) != 1 || len(removed.Construction.Steps[0].Outputs) != 2 {
+			t.Fatalf("preceding schema was not restored: %v %#v", err, removed.Construction)
+		}
+		candidate := *withPrefix.Construction
+		candidate.Steps = candidate.Steps[:1]
+		removed, _, err = withPrefix.AnalyzeConstructionCandidate(candidate, "", []string{"pivot_step"})
+		if err != nil || len(removed.Construction.Steps[0].Outputs) != 2 {
+			t.Fatalf("candidate removal did not restore preceding schema: %v", err)
+		}
+		if _, _, err := withPrefix.AnalyzeConstructionCandidate(*removed.Construction, "", []string{"pivot_step"}); err != nil {
+			t.Fatalf("canonical removal candidate cannot be committed: %v", err)
+		}
+
+	})
 	removed, impact, err := accepted.ProposeStepRemoval("pivot_step", nil)
 	if err != nil {
 		t.Fatalf("remove Pivot and owned inputs: %v", err)

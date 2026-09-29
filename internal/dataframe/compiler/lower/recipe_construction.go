@@ -163,7 +163,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	sequence.FinalRowIdentity = priorIdentity
 	sequence.FinalColumns = toPhysicalStageColumns(priorSchema)
 	sequence.PreviewSourceWindowByRootID = constructionRootIDPivotFastPathEligible(plan, sequence, descriptors, rootResourceType)
-	if sequence.PreviewSourceWindowByRootID {
+	if sequence.PreviewSourceWindowByRootID && len(sequence.Stages) == 1 {
 		sequence.Stages[0].GroupedPivot.OneInputRowPerGroup = true
 	}
 	plan.StageSequence = sequence
@@ -174,10 +174,10 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 }
 
 func constructionRootIDPivotFastPathEligible(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, descriptors []CompiledStageDescriptor, rootResourceType string) bool {
-	if plan == nil || sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || len(descriptors) != 2 {
+	if plan == nil || sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) == 0 || len(descriptors) != len(sequence.Stages)+1 {
 		return false
 	}
-	stage := sequence.Stages[0]
+	stage := sequence.Stages[len(sequence.Stages)-1]
 	if stage.Kind != ir.PhysicalStagePivotOp || stage.GroupedPivot == nil || len(stage.GroupedPivot.GroupKeys) == 0 {
 		return false
 	}
@@ -185,7 +185,36 @@ func constructionRootIDPivotFastPathEligible(plan *ir.PhysicalPlan, sequence *ir
 		return false
 	}
 	if stage.GroupedPivot.CodedCorrelation != nil {
+		if len(sequence.Stages) != 1 {
+			return false
+		}
 		return constructionCodedPivotHasDirectRootKey(plan, stage.GroupedPivot, descriptors[0].Columns, rootResourceType)
+	}
+	if len(sequence.Stages) > 1 {
+		if len(stage.GroupedPivot.GroupKeys) != 1 {
+			return false
+		}
+		key := stage.GroupedPivot.GroupKeys[0].Column
+		for _, prefix := range sequence.Stages[:len(sequence.Stages)-1] {
+			switch prefix.Kind {
+			case ir.PhysicalStageRelatedExpandOp:
+				if prefix.RelatedExpand == nil || prefix.RelatedExpand.EmptyPolicy != "PRESERVE_PARENT" {
+					return false
+				}
+			case ir.PhysicalStageRelatedFieldOp:
+			default:
+				return false
+			}
+			carried := false
+			for _, projection := range prefix.OutputProjections {
+				if projection.Name == key && projection.Expression == nil && projection.Value.Variable == prefix.InputRowVariable && len(projection.Value.Path) == 1 && projection.Value.Path[0] == key {
+					carried = true
+				}
+			}
+			if !carried {
+				return false
+			}
+		}
 	}
 	return groupedPivotHasDirectRootIDKey(plan, stage.GroupedPivot.GroupKeys, descriptors[0].Columns, rootResourceType)
 }
@@ -226,7 +255,7 @@ func constructionRootIDPivotSourceEligible(plan *ir.PhysicalPlan, rootResourceTy
 			if index != 0 {
 				return false
 			}
-		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp, ir.PhysicalSetOp:
 		case ir.PhysicalReturnOp:
 			returns++
 			if index != len(plan.Operations)-1 {

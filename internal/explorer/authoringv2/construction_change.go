@@ -143,6 +143,13 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 		}
 	}
 
+	projectionOwners := make(map[string]bool, len(remove)+1)
+	if changedStepID != "" {
+		projectionOwners[changedStepID] = true
+	}
+	for id := range remove {
+		projectionOwners[id] = true
+	}
 	impact := ConstructionImpact{ChangedStepID: changedStepID, RemovedStepIDs: make([]string, 0, len(remove)), AffectedStepIDs: make([]string, 0)}
 	expectedIndex := 0
 	firstChanged := len(base.Construction.Steps)
@@ -166,7 +173,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 			}
 		} else if oldIndex < firstChanged && !reflect.DeepEqual(oldStep, candidateSteps[expectedIndex]) {
 			if !constructionCanCarrySourceProjection(oldStep.Operation.Kind) ||
-				!stepDiffOnlyChangesOwnedProjection(oldStep, candidateSteps[expectedIndex], changedStepID,
+				!stepDiffOnlyChangesOwnedProjection(oldStep, candidateSteps[expectedIndex], projectionOwners,
 					base.Construction.SourceProjections, cloned.SourceProjections) {
 				return d, ConstructionImpact{}, fmt.Errorf("candidate changes step %q before the changed step", oldStep.ID)
 			}
@@ -238,6 +245,9 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 			}
 			break
 		}
+	}
+	if len(base.Construction.SourceProjections) != len(result.Construction.SourceProjections) || (len(base.Construction.SourceProjections) > 0 && !reflect.DeepEqual(base.Construction.SourceProjections, result.Construction.SourceProjections)) {
+		start = 0
 	}
 	for index := start; index < len(result.Construction.Steps); index++ {
 		impact.AffectedStepIDs = append(impact.AffectedStepIDs, result.Construction.Steps[index].ID)
@@ -319,8 +329,12 @@ func (d Document) ProposeStepRemoval(stepID string, removeStepIDs []string) (Doc
 			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: candidate.Construction.Steps[index-1].ID}}
 		}
 	}
-	if firstRemoved < len(candidate.Construction.Steps) {
-		if err := recalculateCandidateStages(&candidate, firstRemoved, &impact); err != nil {
+	recalculateFrom := firstRemoved
+	if len(d.Construction.SourceProjections) != len(candidate.Construction.SourceProjections) || (len(d.Construction.SourceProjections) > 0 && !reflect.DeepEqual(d.Construction.SourceProjections, candidate.Construction.SourceProjections)) {
+		recalculateFrom = 0
+	}
+	if recalculateFrom < len(candidate.Construction.Steps) {
+		if err := recalculateCandidateStages(&candidate, recalculateFrom, &impact); err != nil {
 			return d, ConstructionImpact{}, err
 		}
 	}
@@ -401,7 +415,7 @@ func isNewOwnedPivotInput(step ConstructionStep, ownerStepID string, existing []
 
 func stepDiffOnlyChangesOwnedProjection(
 	oldStep, candidate ConstructionStep,
-	ownerStepID string,
+	ownerStepIDs map[string]bool,
 	oldProjections, projections []ConstructionSourceProjection,
 ) bool {
 	oldWithoutOutputs, candidateWithoutOutputs := oldStep, candidate
@@ -411,7 +425,7 @@ func stepDiffOnlyChangesOwnedProjection(
 	}
 	oldOwned := make(map[string]StageColumn)
 	for _, projection := range oldProjections {
-		if projection.OwnerStepID == ownerStepID {
+		if ownerStepIDs[projection.OwnerStepID] {
 			oldOwned[projection.ColumnID] = StageColumn{
 				ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID),
 				Label: projection.Label, Type: projection.LogicalType,
@@ -420,7 +434,7 @@ func stepDiffOnlyChangesOwnedProjection(
 	}
 	owned := make(map[string]StageColumn)
 	for _, projection := range projections {
-		if projection.OwnerStepID == ownerStepID {
+		if ownerStepIDs[projection.OwnerStepID] {
 			owned[projection.ColumnID] = StageColumn{
 				ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID),
 				Label: projection.Label, Type: projection.LogicalType,

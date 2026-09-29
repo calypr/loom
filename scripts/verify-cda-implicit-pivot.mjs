@@ -38,7 +38,7 @@ const click = async (source) => { state.clicks++; return browserEval(browser.cdp
 const proposalResponses = () => state.requests.filter(request => request.path.endsWith('/construction-proposals') && request.status === 200).length;
 const apply = async () => {
   await click(`document.querySelector('[data-testid="construction-apply-proposal"]').click();return true;`);
-  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-apply-proposal"]')`);
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
 };
 try {
   await navigate(browser.cdp, baseURL);
