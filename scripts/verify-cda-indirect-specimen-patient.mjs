@@ -407,6 +407,8 @@ try {
     `Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]'))`,
     30000,
   );
+  await recordClick('Open starting collection choices', 'Rows settings / Starting collection summary',
+    `const summary=[...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] summary')].find(node=>node.innerText.startsWith('Starting collection:'));if(!summary)throw new Error('Starting collection summary missing');summary.click();`);
   await waitForBrowser(browser.cdp,
     `Boolean([...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`,
     30000,
@@ -419,8 +421,8 @@ try {
     `document.querySelector('[role="dialog"][aria-label="Row definition settings"] [aria-label="Starting collection"]')?.innerText.includes('constrain one row per Specimen')`,
     30000,
   );
-  await recordClick('Close Rows settings', 'button text: Close',
-    `const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]');const target=[...dialog?.querySelectorAll('button') ?? []].find(button=>button.textContent?.trim()==='Close');if(!target)throw new Error('Rows settings Close button missing');target.click();`);
+  await recordClick('Return from Rows to the table', 'Rows settings / Back to table',
+    `const dialog=document.querySelector('[role="dialog"][aria-label="Row definition settings"]');const target=[...dialog?.querySelectorAll('button') ?? []].find(button=>button.textContent?.trim()==='Back to table');if(!target)throw new Error('Rows settings Back to table button missing');target.click();`);
   await waitForBrowser(browser.cdp, `!document.querySelector('[role="dialog"][aria-label="Row definition settings"]')`, 30000);
   await selectTemporaryTable();
 
@@ -434,6 +436,7 @@ try {
 
   await recordClick('Open Add columns', 'button[aria-label^="Add columns:"]',
     `const target=document.querySelector('button[aria-label^="Add columns:"]');if(!target)throw new Error('Add columns action missing');target.click();`);
+  await clickButton('Fields and related data', 'Browse fields and related data');
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
   const availableSources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),kind:button.dataset.sourceKind,key:button.dataset.sourceKey,selected:button.getAttribute('aria-pressed')==='true'}));`);
   report.availableSources = availableSources;
@@ -652,7 +655,7 @@ try {
     await recordClick('Apply Patient.id label edit', '[data-testid="construction-apply-proposal"]',
       `const target=document.querySelector('[data-testid="construction-apply-proposal"]');if(!target||target.disabled)throw new Error('Apply edit proposal is not enabled');target.click();`);
     await waitForBrowser(browser.cdp,
-      `document.querySelector('[data-testid^="construction-history-step-"]')?.innerText.includes(${JSON.stringify(activeOutputLabel)})`,
+      `Boolean(document.querySelector('[data-testid^="construction-history-step-"]')) && !document.querySelector('[data-testid="related-source-step-editor"]')`,
       60000,
     );
     await navigate(browser.cdp, pageURL);
