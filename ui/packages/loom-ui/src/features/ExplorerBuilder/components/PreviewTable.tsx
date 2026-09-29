@@ -102,6 +102,8 @@ export const PreviewTable = ({
   onColumnChange,
   onColumnsChange,
   onRowLineage,
+  onRemoveColumn,
+  disabled = false,
 }: {
   readonly preview?: ExplorerBuilderPreviewResult;
   readonly table?: DraftTable;
@@ -111,6 +113,8 @@ export const PreviewTable = ({
   readonly onColumnsChange: (
     changes: ReadonlyArray<PreviewTablePresentationChange>,
   ) => void;
+  readonly onRemoveColumn?: (column: string) => void;
+  readonly disabled?: boolean;
   readonly onRowLineage?: (
     rowId: string,
     offset: number,
@@ -343,7 +347,7 @@ export const PreviewTable = ({
           {columnsOpen && (
             <div className="absolute right-0 z-20 mt-1 w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
               <p className="border-b border-slate-100 px-2 pb-2 text-[11px] text-slate-500">
-                Check columns to show them. Drag rows to change table order.
+                Edit names here. Uncheck to hide a column; drag to change its order.
               </p>
               <div
                 role="list"
@@ -357,7 +361,7 @@ export const PreviewTable = ({
                       key={column.name}
                       role="listitem"
                       onDragOver={(event) => {
-                        if (!draggedColumnRef.current) return;
+                        if (disabled || !draggedColumnRef.current) return;
                         event.preventDefault();
                         const bounds =
                           event.currentTarget.getBoundingClientRect();
@@ -369,6 +373,7 @@ export const PreviewTable = ({
                         );
                       }}
                       onDrop={(event) => {
+                        if (disabled) return;
                         event.preventDefault();
                         const columnName =
                           draggedColumnRef.current ??
@@ -392,7 +397,7 @@ export const PreviewTable = ({
                       )}
                       <span
                         aria-label={`Drag ${column.label}`}
-                        draggable
+                        draggable={!disabled}
                         onDragStart={(event) => {
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData(
@@ -408,10 +413,12 @@ export const PreviewTable = ({
                       >
                         ⋮⋮
                       </span>
-                      <label className="flex min-w-0 flex-1 items-start gap-2 leading-5">
+                      <div className="flex min-w-0 flex-1 items-center gap-2 leading-5">
                         <input
                           type="checkbox"
                           className="mt-0.5 shrink-0"
+                          aria-label={column.label}
+                          disabled={disabled}
                           checked={visible}
                           onChange={(event) =>
                             onColumnChange(
@@ -423,10 +430,53 @@ export const PreviewTable = ({
                             )
                           }
                         />
-                        <span className="min-w-0 break-words">
-                          {column.label}
-                        </span>
-                      </label>
+                        <input
+                          key={column.label}
+                          aria-label={`Column name for ${column.label}`}
+                          defaultValue={column.label}
+                          disabled={disabled}
+                          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-slate-800 hover:border-slate-300 focus:border-blue-500 focus:bg-white focus:outline-none disabled:opacity-50"
+                          onBlur={(event) => {
+                            const label = event.currentTarget.value.trim();
+                            if (!label) {
+                              event.currentTarget.value = column.label;
+                              return;
+                            }
+                            if (label === column.label) return;
+                            if (column.change.kind === 'AUTHORED_COLUMN') {
+                              onColumnChange({
+                                kind: 'AUTHORED_COLUMN',
+                                column: { ...column.change.column, label },
+                              });
+                            } else {
+                              onColumnChange({
+                                ...column.change,
+                                column: { ...column.change.column, label },
+                              });
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.currentTarget.value = column.label;
+                            }
+                            if (event.key === 'Enter' || event.key === 'Escape') {
+                              event.currentTarget.blur();
+                            }
+                          }}
+                        />
+                      </div>
+                      {onRemoveColumn &&
+                      column.change.kind === 'AUTHORED_COLUMN' ? (
+                        <button
+                          type="button"
+                          aria-label={`Remove ${column.label} column`}
+                          disabled={disabled}
+                          onClick={() => onRemoveColumn(column.name)}
+                          className="shrink-0 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
                     </div>
                   );
                 })}

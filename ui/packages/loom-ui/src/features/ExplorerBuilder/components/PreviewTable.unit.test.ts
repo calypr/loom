@@ -302,6 +302,24 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByText('patient-42')).toBeInTheDocument();
   });
 
+  it('renames and removes source columns from the table menu and disables editing during saves', () => {
+    const onColumnChange = vi.fn();
+    const onRemoveColumn = vi.fn();
+    const props = { preview, table, limit: 25 as const, onLimitChange: vi.fn(), onColumnChange, onColumnsChange: vi.fn(), onRemoveColumn };
+    const rendered = render(React.createElement(PreviewTable, props));
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    const name = screen.getByRole('textbox', { name: 'Column name for First column' });
+    fireEvent.change(name, { target: { value: 'Research label' } });
+    fireEvent.blur(name);
+    expect(onColumnChange).toHaveBeenCalledWith({ kind: 'AUTHORED_COLUMN', column: { ...firstColumn, label: 'Research label' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove First column column' }));
+    expect(onRemoveColumn).toHaveBeenCalledWith('first_column');
+    rendered.rerender(React.createElement(PreviewTable, { ...props, disabled: true }));
+    expect(screen.getByRole('textbox', { name: 'Column name for First column' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove First column column' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'First column' })).toBeDisabled();
+  });
+
   it('uses the saved authored label when a preview emission still has its default label', () => {
     const authoredLabel = 'CDA primary disease';
     const configuredTable: DraftTable = {
@@ -618,7 +636,7 @@ describe('PreviewTable column controls', () => {
       'overflow-y-auto',
     );
     expect(
-      screen.getByText(/Drag rows to change table order/),
+      screen.getByText(/drag to change its order/),
     ).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
     expect(

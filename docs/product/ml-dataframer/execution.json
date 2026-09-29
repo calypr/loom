@@ -104,14 +104,17 @@
     "codedPivotImplementation": {
       "feature": "Choose coded source categories in Rows before adding visible columns",
       "status": "browser_apply_reload_remove_passed",
-      "domUsability": "Rows → Categories to columns offered direct Observation component values by type. The integer path took 17 clicks; the two-column string path took 18 clicks, including table setup, preview, reload, and removal.",
+      "domUsability": "Rows \u2192 Categories to columns offered direct Observation component values by type. The integer path took 17 clicks; the two-column string path took 18 clicks, including table setup, preview, reload, and removal.",
       "resultCorrectness": "One selected CDA Observation produced Days to collection = 162 and, in a separate string family, Specimen type = analyte and Primary disease type = Ductal and lobular neoplasms. Independent Arango reads matched all three code/value pairings.",
       "persistence": "Applied each coded Pivot, reloaded and previewed saved values, removed the operation from step history, and reloaded with no construction steps. Both disposable tables were deleted.",
       "proposalBrowserMs": 3041,
       "savedPreviewBrowserMs": 2535,
       "stringProposalBrowserMs": 3276,
       "stringSavedPreviewBrowserMs": 2511,
-      "artifacts": [".artifacts/cda-builder/bounded-coded-pivot-integer.json", ".artifacts/cda-builder/bounded-coded-pivot-string.json"],
+      "artifacts": [
+        ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        ".artifacts/cda-builder/bounded-coded-pivot-string.json"
+      ],
       "remaining": "Edit a saved coded Pivot; ordinary full-table performance still needs separate measurement"
     },
     "pivotCategoryDiscovery": {
@@ -154,6 +157,23 @@
       "removalProposalBackendMs": 534,
       "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
       "remaining": "Check the saved-step summary in a live browser with a large pivot; coded-source pivot remains separate"
+    },
+    "codedColumnLifecycleEvidence": {
+      "feature": "Add, rename, and remove a readable CDA coded column from the table",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Added Primary disease type through the paired suggestion and direct route. Renamed and removed it in the compact table Columns menu. Desktop menu remained within the viewport.",
+      "resultCorrectness": "The selected CDA Observation 008a5c3c-b733-506f-ad82-9ca42070d1be rendered Nevi and melanomas, matching the independent source pairing; renaming retained that value and removal restored only Observation ID.",
+      "persistence": "Applied, reloaded, renamed, reloaded, removed, reloaded, and confirmed restoration. Disposable table deleted.",
+      "previewBrowserMs": {
+        "initial": 632,
+        "saved": 876,
+        "renamed": 830,
+        "restored": 626
+      },
+      "artifact": ".artifacts/cda-builder/2026-09-29T17-39-07.260Z/bounded-observation-concept-inspection.json",
+      "screenshot": ".artifacts/cda-builder/column-menu/desktop.png",
+      "verification": "21 PreviewTable tests and test TypeScript check passed.",
+      "remaining": "This path covers a direct coded source. Related route selection and construction-output removal remain separate cases."
     }
   },
   "executionOrder": [
