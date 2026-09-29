@@ -251,6 +251,7 @@ const editableConstructionFamily = (
     case 'RELATED_ELIGIBILITY': return 'KEEP_ROWS';
     case 'DERIVE': return 'CALCULATE';
     case 'PIVOT':
+    case 'CODED_PIVOT':
     case 'UNPIVOT':
     case 'GROUP':
     case 'CODED_GROUP':
@@ -2184,8 +2185,16 @@ const BuilderWorkspaceContent = ({
   if (explorers.error || !builder.data) {
     return (
       <main className="p-6" role="alert">
-        Loom’s V2 Builder state could not be loaded. This Builder has no V1
-        fallback.
+        <p>Couldn’t load this dataset.</p>
+        <button
+          type="button"
+          onClick={() => {
+            void explorers.refetch();
+            void refetchBuilder();
+          }}
+        >
+          Try again
+        </button>
       </main>
     );
   }
@@ -2245,7 +2254,7 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
@@ -2363,7 +2372,7 @@ const BuilderWorkspaceContent = ({
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
     );
-  const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT') => {
+  const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
     return capabilityIsForAppendStage && capability?.supported
       ? { supported: true }
@@ -2384,6 +2393,8 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.capabilities.response.sourceInput?.supported &&
     constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
   const stageGroupingAvailability = reshapeAvailabilityFor('GROUP');
+  const codedPivotAvailability = reshapeAvailabilityFor('CODED_PIVOT');
+  const tablePivotAvailability = reshapeAvailabilityFor('PIVOT');
   const groupEntries = [
     ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'By recorded code' }] : []),
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source field' }] : []),
@@ -2393,7 +2404,9 @@ const BuilderWorkspaceContent = ({
     group: groupEntries.length > 0 ? { supported: true } : stageGroupingAvailability,
     groupEntry: groupEntries[0]?.kind ?? 'group' as const,
     groupAlternatives: groupEntries.slice(1),
-    pivot: reshapeAvailabilityFor('PIVOT'),
+    pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
+    pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
+    pivotAlternative: codedPivotAvailability.supported && tablePivotAvailability.supported ? 'pivot' as const : undefined,
   };
   const relatedExpandCapability = capabilityStage?.capabilities.find(
     (candidate) => candidate.kind === 'RELATED_EXPAND',
@@ -2741,6 +2754,15 @@ const BuilderWorkspaceContent = ({
                 snapshotToken: state.catalog.snapshotToken,
                 outputId: table.outputId,
                 catalog: state.catalog,
+              }}
+              codedPivotContext={{
+                client: loomClient,
+                project: projectId,
+                explorerId: state.explorerId,
+                authResourcePath,
+                snapshotToken: state.catalog.snapshotToken,
+                outputId: table.outputId,
+                rowRoot: table.document.rootResourceType,
               }}
               disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
               onCandidateChange={constructionLifecycle.onCandidateChange}

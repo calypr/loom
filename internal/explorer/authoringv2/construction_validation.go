@@ -8,6 +8,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
+const maxCodedPivotCategories = 50
+
 func (c *Construction) Validate(sourceColumns []Column) error {
 	if c == nil {
 		return nil
@@ -118,6 +120,11 @@ func constructionStepInputSchema(steps []ConstructionStep, source []StageColumn,
 			return nil, fmt.Errorf("CODED_GROUP currently requires the direct source projection stage; prior construction stages are not supported")
 		}
 	}
+	if step.Operation.Kind == ConstructionOperationCodedPivot {
+		if index != 0 || input.Kind != ConstructionInputSourceProjection {
+			return nil, fmt.Errorf("CODED_PIVOT currently requires the direct source projection stage; prior construction stages are not supported")
+		}
+	}
 	switch input.Kind {
 	case ConstructionInputSourceProjection:
 		if index != 0 {
@@ -168,7 +175,7 @@ func validateConstructionCombineStep(step ConstructionStep) error {
 	}
 	if step.Operation.Kind != ConstructionOperationCombine || step.Operation.Combine == nil ||
 		step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
-		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.Expand != nil || step.Operation.RelatedSource != nil {
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.CodedPivot != nil || step.Operation.Expand != nil || step.Operation.RelatedSource != nil {
 		return fmt.Errorf("operation must contain only a combine payload")
 	}
 	if err := validateStageColumns(step.Outputs); err != nil {
@@ -350,7 +357,7 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 	payloads := 0
 	for _, present := range []bool{
 		step.Operation.Pivot != nil, step.Operation.Derive != nil, step.Operation.Filter != nil,
-		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.CodedGroup != nil, step.Operation.Expand != nil,
+		step.Operation.Unpivot != nil, step.Operation.Group != nil, step.Operation.CodedGroup != nil, step.Operation.CodedPivot != nil, step.Operation.Expand != nil,
 		step.Operation.Combine != nil, step.Operation.RelatedSource != nil, step.Operation.RelatedExpand != nil,
 		step.Operation.RelatedEligibility != nil,
 		step.Operation.RelatedField != nil,
@@ -393,6 +400,11 @@ func validateConstructionStep(step ConstructionStep, inputColumns []StageColumn)
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
 		}
 		return validateConstructionCodedGroup(step, input, inputColumns)
+	case ConstructionOperationCodedPivot:
+		if step.Operation.CodedPivot == nil {
+			return fmt.Errorf("operation must contain exactly one payload matching kind")
+		}
+		return validateConstructionCodedPivot(step, input, inputColumns)
 	case ConstructionOperationExpand:
 		if step.Operation.Expand == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil || step.Operation.Unpivot != nil || step.Operation.Group != nil {
 			return fmt.Errorf("operation must contain exactly one payload matching kind")
@@ -820,6 +832,73 @@ func validateConstructionPivot(step ConstructionStep, input map[string]StageColu
 	want := make([]string, 0, len(groupIDs)+len(outputIDs))
 	want = append(want, pivot.GroupKeyIDs...)
 	for _, category := range pivot.Categories {
+		want = append(want, category.OutputColumnID)
+	}
+	return validateDeclaredOutputIDs(step.Outputs, want)
+}
+
+func validateConstructionCodedPivot(step ConstructionStep, input map[string]StageColumn, inputColumns []StageColumn) error {
+	pivot := step.Operation.CodedPivot
+	if pivot == nil || !sameOperationID(step.ID, pivot.ConstructionID) {
+		return fmt.Errorf("coded pivot constructionId must equal step id")
+	}
+	proposal := pivot.SourceChoiceID != ""
+	durable := pivot.SourceChoiceID == "" && pivot.Source != nil
+	if !proposal && !durable {
+		return fmt.Errorf("coded pivot requires either proposal sourceChoiceId or durable source facts")
+	}
+	if proposal && !requiredID(pivot.SourceChoiceID) {
+		return fmt.Errorf("coded pivot sourceChoiceId must be an exact non-empty token")
+	}
+	if pivot.Source != nil {
+		source := pivot.Source
+		family := source.Family
+		for name, value := range map[string]string{
+			"candidateId": source.CandidateID, "nodeId": source.NodeID, "fieldPath": source.FieldPath,
+			"bindingId": family.BindingID, "resourceType": family.ResourceType, "sourcePath": family.SourcePath,
+			"keyPath": family.KeyPath, "valuePath": family.ValuePath, "logicalType": family.LogicalType,
+			"ruleVersion": family.RuleVersion,
+		} {
+			if !requiredID(value) {
+				return fmt.Errorf("coded pivot source %s is required", name)
+			}
+		}
+		if family.SchemaVersion <= 0 {
+			return fmt.Errorf("coded pivot source schemaVersion must be positive")
+		}
+		if len(source.Route) != 0 {
+			return fmt.Errorf("coded pivot currently supports only direct root sources")
+		}
+	}
+	if len(pivot.Categories) == 0 || len(pivot.Categories) > maxCodedPivotCategories {
+		return fmt.Errorf("coded pivot requires 1..%d categories", maxCodedPivotCategories)
+	}
+	if !oneOf(string(pivot.DuplicatePolicy), "ERROR", "SUM", "MIN", "MAX") || !oneOf(string(pivot.MissingCellPolicy), "NULL", "ERROR") {
+		return fmt.Errorf("coded pivot duplicatePolicy or missingCellPolicy is unsupported")
+	}
+	inputIDs := make(map[string]bool, len(inputColumns))
+	for _, column := range inputColumns {
+		inputIDs[column.ID] = true
+	}
+	seenCodes, outputIDs := map[string]bool{}, map[string]bool{}
+	want := make([]string, 0, len(pivot.Categories))
+	for index, category := range pivot.Categories {
+		if !requiredID(category.OutputColumnID) || inputIDs[category.OutputColumnID] || outputIDs[category.OutputColumnID] {
+			return fmt.Errorf("coded pivot categories[%d].outputColumnId is empty, duplicated, or collides with input", index)
+		}
+		proposalCategory := proposal && requiredID(category.ChoiceID) && category.System == "" && category.Code == ""
+		durableCategory := pivot.Source != nil && category.ChoiceID == "" && requiredID(category.System) && requiredID(category.Code)
+		if !proposalCategory && !durableCategory {
+			return fmt.Errorf("coded pivot categories[%d] must contain either choiceId or durable system/code", index)
+		}
+		if category.System != "" || category.Code != "" {
+			key := category.System + "\x00" + category.Code
+			if seenCodes[key] {
+				return fmt.Errorf("coded pivot categories duplicate system/code at index %d", index)
+			}
+			seenCodes[key] = true
+		}
+		outputIDs[category.OutputColumnID] = true
 		want = append(want, category.OutputColumnID)
 	}
 	return validateDeclaredOutputIDs(step.Outputs, want)

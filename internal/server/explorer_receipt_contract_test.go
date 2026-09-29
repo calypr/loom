@@ -42,6 +42,18 @@ func TestClassifyReceiptRecipeErrorPreservesPivotReducerValidation(t *testing.T)
 	}
 }
 
+func TestClassifyReceiptRecipeErrorIdentifiesInvalidRelatedRowAnchor(t *testing.T) {
+	cause := fmt.Errorf("compile output: %w", &lower.RelatedEligibilityAnchorError{StepID: "related_step"})
+	classified := classifyReceiptRecipeError(cause)
+	var diagnostic *explorercompilation.Error
+	if !errors.As(classified, &diagnostic) || diagnostic.Code != "CONSTRUCTION_ANCHOR_INVALID" || diagnostic.Stage != "construction" {
+		t.Fatalf("classified error = %v, want related row anchor diagnostic", classified)
+	}
+	if diagnostic.Details["stepId"] != "related_step" || !errors.Is(classified, cause) {
+		t.Fatalf("classified error lost the affected step or cause: %#v", diagnostic)
+	}
+}
+
 func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	workspace, err := authoringv2.DecodeWorkspace(baselineExplorerWorkspaceV2())
@@ -738,6 +750,36 @@ func TestRelatedSourceOutputProfileMatchesSelectedForm(t *testing.T) {
 				t.Fatalf("profile shape = %q, want %q", profile.Shape, test.shape)
 			}
 		})
+	}
+}
+
+func TestCodedPivotOutputKeepsSourceProvenanceAndSelectedCategoryLoss(t *testing.T) {
+	document := authoringv2.Document{
+		Output: authoringv2.Output{ID: "specimens"},
+		Construction: &authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
+			ID: "coded-pivot-step",
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationCodedPivot, CodedPivot: &authoringv2.ConstructionCodedPivot{
+				ConstructionID: "coded-pivot-step",
+				Source: &authoringv2.ConstructionCodedPivotSource{
+					Family:      capability.SemanticFrameFamily{ResourceType: "Specimen", ValuePath: "type.coding[].display"},
+					CandidateID: "candidate-id", NodeID: "node-id",
+				},
+				Categories:      []authoringv2.ConstructionCodedPivotCategory{{System: "system", Code: "code", OutputColumnID: "category-column"}},
+				DuplicatePolicy: authoringv2.ConstructionPivotDuplicateError, MissingCellPolicy: authoringv2.ConstructionPivotMissingNull,
+			}},
+			Outputs: []authoringv2.StageColumn{{ID: "category-column", Name: "specimen_type", Label: "Specimen type", Type: "string"}},
+		}}},
+	}
+	authored := map[string]authoredOutputColumn{}
+	if err := authoredConstructionOutputs(document, authored); err != nil {
+		t.Fatal(err)
+	}
+	got := authored["specimen_type"]
+	if got.ConstructionID != "coded-pivot-step" || got.NodeID != "node-id" || got.CandidateID != "candidate-id" || got.SourceResourceType != "Specimen" || got.SourcePath != "type.coding[].display" {
+		t.Fatalf("coded pivot provenance = %+v", got)
+	}
+	if !reflect.DeepEqual(got.Quality.LossReasons, []string{"CODED_PIVOT_SELECTED_CATEGORIES_ONLY"}) {
+		t.Fatalf("coded pivot loss reasons = %v", got.Quality.LossReasons)
 	}
 }
 

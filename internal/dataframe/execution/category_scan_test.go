@@ -56,6 +56,56 @@ func TestScanCategoriesCompiledReportsCompleteAtBoundAndOverflowAtBoundPlusOne(t
 	}
 }
 
+func TestScanCategoriesCompiledUsesExactOverflowWitnessBeforeFullScan(t *testing.T) {
+	for _, test := range []struct {
+		name, witnessRows         string
+		wantFullScan, wantMissing bool
+	}{
+		{name: "proven_overflow", witnessRows: "three", wantFullScan: false},
+		{name: "inconclusive", witnessRows: "two", wantFullScan: true},
+		{name: "missing_category", witnessRows: "missing", wantMissing: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			compiled := compiledCategoryScan(2)
+			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness", BindVars: map[string]any{"scope": "same"}}
+			fullScan := false
+			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+				if query == "witness" {
+					if binds["scope"] != "same" {
+						t.Fatalf("witness binds = %#v", binds)
+					}
+					if test.witnessRows == "missing" {
+						return visit(map[string]any{"present": false, "value": nil})
+					}
+					count := 2
+					if test.witnessRows == "three" {
+						count = 3
+					}
+					for index := 0; index < count; index++ {
+						if err := visit(map[string]any{"present": true, "value": index}); err != nil {
+							return err
+						}
+					}
+					return nil
+				}
+				if query != "scan" {
+					t.Fatalf("unexpected query %q", query)
+				}
+				fullScan = true
+				return visit(map[string]any{"present": true, "value": "complete"})
+			}}
+			result, err := engine.ScanCategoriesCompiled(context.Background(), compiled)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fullScan != test.wantFullScan || result.ConclusiveMissing != test.wantMissing ||
+				result.Overflow != (test.witnessRows == "three") || result.Complete != test.wantFullScan {
+				t.Fatalf("full scan = %v, result = %#v", fullScan, result)
+			}
+		})
+	}
+}
+
 func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *testing.T) {
 	rows := []map[string]any{
 		{"present": false, "value": nil},

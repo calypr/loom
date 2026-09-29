@@ -392,6 +392,17 @@ func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageCol
 			}
 			outputs = append(outputs, column)
 		}
+	case ConstructionOperationCodedPivot:
+		if step.Operation.CodedPivot == nil {
+			return nil, fmt.Errorf("codedPivot payload is required")
+		}
+		for _, category := range step.Operation.CodedPivot.Categories {
+			column, err := produced(category.OutputColumnID)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, column)
+		}
 	case ConstructionOperationUnpivot:
 		if step.Operation.Unpivot == nil {
 			return nil, fmt.Errorf("unpivot payload is required")

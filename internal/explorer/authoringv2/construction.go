@@ -27,6 +27,7 @@ const (
 	ConstructionOperationUnpivot            ConstructionOperationKind = "UNPIVOT"
 	ConstructionOperationGroup              ConstructionOperationKind = "GROUP"
 	ConstructionOperationCodedGroup         ConstructionOperationKind = "CODED_GROUP"
+	ConstructionOperationCodedPivot         ConstructionOperationKind = "CODED_PIVOT"
 	ConstructionOperationExpand             ConstructionOperationKind = "EXPAND"
 	ConstructionOperationCombine            ConstructionOperationKind = "COMBINE"
 	ConstructionOperationRelatedSource      ConstructionOperationKind = "RELATED_SOURCE"
@@ -143,6 +144,7 @@ type ConstructionOperation struct {
 	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
 	Group              *ConstructionGroup              `json:"group,omitempty"`
 	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
+	CodedPivot         *ConstructionCodedPivot         `json:"codedPivot,omitempty"`
 	Expand             *ConstructionExpand             `json:"expand,omitempty"`
 	Combine            *ConstructionCombine            `json:"combine,omitempty"`
 	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
@@ -329,6 +331,33 @@ const (
 type ConstructionPivotCategory struct {
 	Key            TableScalar `json:"key"`
 	OutputColumnID string      `json:"outputColumnId"`
+}
+
+// ConstructionCodedPivot pivots a compiler-authorized coded value family
+// directly from root resources. Choice IDs authorize a proposal and are
+// cleared before the durable source and category facts are persisted.
+type ConstructionCodedPivot struct {
+	ConstructionID    string                             `json:"constructionId"`
+	SourceChoiceID    string                             `json:"sourceChoiceId,omitempty"`
+	Source            *ConstructionCodedPivotSource      `json:"source,omitempty"`
+	Categories        []ConstructionCodedPivotCategory   `json:"categories"`
+	DuplicatePolicy   ConstructionPivotDuplicatePolicy   `json:"duplicatePolicy"`
+	MissingCellPolicy ConstructionPivotMissingCellPolicy `json:"missingCellPolicy"`
+}
+
+type ConstructionCodedPivotSource struct {
+	Family      capability.SemanticFrameFamily     `json:"family"`
+	CandidateID string                             `json:"candidateId"`
+	NodeID      string                             `json:"nodeId"`
+	FieldPath   string                             `json:"fieldPath"`
+	Route       []capability.ConstructionRouteStep `json:"route"`
+}
+
+type ConstructionCodedPivotCategory struct {
+	ChoiceID       string `json:"choiceId,omitempty"`
+	System         string `json:"system,omitempty"`
+	Code           string `json:"code,omitempty"`
+	OutputColumnID string `json:"outputColumnId"`
 }
 
 type ConstructionDerive struct {

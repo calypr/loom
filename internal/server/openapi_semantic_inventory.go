@@ -24,6 +24,9 @@ func (h *explorerHTTPHandlers) browseSemanticInventoryDirect(ctx context.Context
 	if body.FrameId != nil {
 		req.FrameID = *body.FrameId
 	}
+	if body.SourceChoiceId != nil {
+		req.SourceChoiceID = *body.SourceChoiceId
+	}
 	if body.ResourceType != nil {
 		req.ResourceType = *body.ResourceType
 	}

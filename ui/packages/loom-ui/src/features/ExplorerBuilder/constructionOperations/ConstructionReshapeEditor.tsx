@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import type { LoomClient } from '../../../api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -10,6 +11,7 @@ import type {
 } from '../../../types';
 import { constructionSchema } from '../../../types';
 import { RelatedExpandEditor } from './RelatedExpandEditor';
+import { CodedPivotEditor } from './CodedPivotEditor';
 import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type CandidateIntent = Pick<
@@ -17,7 +19,7 @@ type CandidateIntent = Pick<
   'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource'
 >;
 
-type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
+type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
 type GroupAggregateKind = 'COUNT_ROWS' | 'COUNT_NON_NULL' | 'COUNT_DISTINCT' | 'SUM' | 'MEAN';
 type EmptyListPolicy = 'ERROR' | 'EXCLUDE' | 'PRESERVE_PARENT';
 
@@ -163,6 +165,7 @@ type ExpandForm = {
 type ReshapeForm =
   | { readonly kind: 'choose' }
   | { readonly kind: 'related-expand' }
+  | { readonly kind: 'coded-pivot' }
   | GroupForm
   | SourceGroupForm
   | CodedGroupForm
@@ -171,7 +174,7 @@ type ReshapeForm =
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
-export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'related-expand';
+export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'related-expand';
 
 const reshapeFormLabels = {
   group: 'Group records',
@@ -179,6 +182,7 @@ const reshapeFormLabels = {
   'coded-group': 'Group by coded value',
   expand: 'Expand repeated values',
   'related-expand': 'Related records',
+  'coded-pivot': 'Coded values as columns',
   pivot: 'Categories to columns',
   unpivot: 'Turn columns into rows',
 } satisfies Record<Exclude<ReshapeForm['kind'], 'choose' | 'unsupported'>, string>;
@@ -203,9 +207,18 @@ export interface ConstructionReshapeEditorProps {
     readonly outputId: string;
     readonly catalog: ExplorerBuilderCatalog;
   };
+  readonly codedPivotContext?: {
+    readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
+    readonly project: string;
+    readonly explorerId: string;
+    readonly authResourcePath?: string;
+    readonly snapshotToken: string;
+    readonly outputId: string;
+    readonly rowRoot: string;
+  };
 }
 
-export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
+export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
 const createOpaqueId = (prefix: string): string => {
   const randomPart = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
@@ -229,7 +242,7 @@ const capabilityFor = (
 };
 
 const isReshapeOperationKind = (kind: string): kind is ReshapeOperationKind =>
-  kind === 'PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'CODED_GROUP' || kind === 'EXPAND' || kind === 'RELATED_EXPAND';
+  kind === 'PIVOT' || kind === 'CODED_PIVOT' || kind === 'UNPIVOT' || kind === 'GROUP' || kind === 'CODED_GROUP' || kind === 'EXPAND' || kind === 'RELATED_EXPAND';
 
 const capabilityForStep = (stage: ReshapeStage, kind: string) =>
   isReshapeOperationKind(kind)
@@ -239,6 +252,7 @@ const capabilityForStep = (stage: ReshapeStage, kind: string) =>
 const reshapeKindLabel = (kind: ReshapeOperationKind): string => {
   switch (kind) {
     case 'PIVOT': return 'pivot';
+    case 'CODED_PIVOT': return 'coded pivot';
     case 'UNPIVOT': return 'unpivot';
     case 'GROUP': return 'group summary';
     case 'CODED_GROUP': return 'coded value grouping';
@@ -1135,6 +1149,7 @@ const formForStep = (
       ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
     if (initialKind === 'pivot') return initialPivotForm(stage, []);
+    if (initialKind === 'coded-pivot') return { kind: 'coded-pivot' };
     return { kind: initialKind ?? 'choose' };
   }
   if (sourceGroupProjection(construction, editingStep)) return initialSourceGroupForm(
@@ -1145,6 +1160,7 @@ const formForStep = (
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
   if (editingStep.operation.kind === 'PIVOT') return initialPivotForm(stage, [], editingStep);
+  if (editingStep.operation.kind === 'CODED_PIVOT') return { kind: 'coded-pivot' };
   if (editingStep.operation.kind === 'UNPIVOT') return initialUnpivotForm(stage, [], editingStep);
   return { kind: 'unsupported', message: 'This saved reshape is not supported by this editor.' };
 };
@@ -1280,6 +1296,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const expandSupport = capabilityFor(stage, 'EXPAND');
   const relatedExpandSupport = capabilityFor(stage, 'RELATED_EXPAND');
   const pivotSupport = capabilityFor(stage, 'PIVOT');
+  const codedPivotSupport = capabilityFor(stage, 'CODED_PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
   const expandColumns = listColumnsFor(stage);
   const expandReason = expandColumns.length === 0
@@ -1319,6 +1336,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       case 'expand': return expandSupport;
       case 'related-expand': return relatedExpandSupport;
       case 'pivot': return pivotSupport;
+      case 'coded-pivot': return codedPivotSupport;
       case 'unpivot': return unpivotSupport;
       default: return undefined;
     }
@@ -1519,6 +1537,16 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
             onChoose={() => updateForm({ kind: 'related-expand' })}
           />
           <ReshapeChoice
+            testId="construction-reshape-choice-coded-pivot"
+            title="Coded values as columns"
+            rows="Keep one row per source record."
+            columns="Choose coded values and use their paired values as cells."
+            supported={codedPivotSupport.supported && Boolean(props.codedPivotContext)}
+            reason={props.codedPivotContext ? codedPivotSupport.reason : 'Coded source discovery is unavailable.'}
+            disabled={disabled}
+            onChoose={() => updateForm({ kind: 'coded-pivot' })}
+          />
+          <ReshapeChoice
             testId="construction-reshape-choice-pivot"
             title="Turn categories into columns"
             rows="Make one column for each category."
@@ -1554,6 +1582,17 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           capabilities={capabilities}
           step={editingStep?.operation.kind === 'RELATED_EXPAND' ? editingStep as Extract<ConstructionStep, { readonly operation: { readonly kind: 'RELATED_EXPAND' } }> : undefined}
           disabled={disabled || !relatedExpandSupport.supported}
+          onCandidateChange={onCandidateChange}
+        />
+      ) : null}
+
+      {form.kind === 'coded-pivot' && props.codedPivotContext ? (
+        <CodedPivotEditor
+          key={`${id}:coded-pivot:${contextKey}`}
+          {...props.codedPivotContext}
+          construction={construction}
+          editingStep={editingStep}
+          disabled={disabled || !codedPivotSupport.supported}
           onCandidateChange={onCandidateChange}
         />
       ) : null}

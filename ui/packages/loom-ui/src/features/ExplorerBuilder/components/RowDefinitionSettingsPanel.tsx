@@ -80,6 +80,10 @@ type ProposalState =
   | { readonly kind: 'stale'; readonly selection: RowDefinitionSelection }
   | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
 
+type CodedSourceAvailability =
+  | { readonly kind: 'idle' | 'loading' | 'available' | 'unavailable' }
+  | { readonly kind: 'error'; readonly message: string };
+
 const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
   const options: SelectionOption[] = [{
     value: 'records',
@@ -181,7 +185,7 @@ export const RowDefinitionSettingsPanel = ({
   onChooseReshape,
   onChangeRootOccurrence,
 }: {
-  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
+  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision' | 'browseFrameSourceOptions'>;
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -203,18 +207,51 @@ export const RowDefinitionSettingsPanel = ({
       readonly kind: 'group' | 'source-group' | 'coded-group';
       readonly label: string;
     }>;
+    readonly pivotEntry?: 'pivot' | 'coded-pivot';
+    readonly pivotAlternative?: 'pivot';
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
+  const [codedSourceAvailability, setCodedSourceAvailability] = useState<CodedSourceAvailability>({ kind: 'idle' });
   const settingsRequestEpoch = useRef(0);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const proposalController = useRef<AbortController | undefined>(undefined);
   const proposalRequestEpoch = useRef(0);
+
+  const settingsOpen = settings.kind !== 'closed';
+
+  useEffect(() => {
+    if (!settingsOpen || reshapeRows.pivotEntry !== 'coded-pivot' || !reshapeRows.pivot.supported) return;
+    const controller = new AbortController();
+    setCodedSourceAvailability({ kind: 'loading' });
+    const inspect = async () => {
+      let cursor: string | undefined;
+      do {
+        const page = await client.browseFrameSourceOptions({
+          project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
+          resourceType: table.document.rootResourceType, ...(cursor ? { cursor } : {}), limit: 50,
+        }, controller.signal);
+        if (controller.signal.aborted) return;
+        if (page.sources.some((source) => source.route.length === 0 && source.resourceType === table.document.rootResourceType)) {
+          setCodedSourceAvailability({ kind: 'available' });
+          return;
+        }
+        cursor = page.nextCursor;
+      } while (cursor);
+      setCodedSourceAvailability({ kind: 'unavailable' });
+    };
+    void inspect().catch((error: unknown) => {
+      if (!controller.signal.aborted) setCodedSourceAvailability({
+        kind: 'error', message: requestFailureMessage(error, 'Coded source choices could not be loaded.'),
+      });
+    });
+    return () => controller.abort();
+  }, [settingsOpen, reshapeRows.pivotEntry, reshapeRows.pivot.supported, client, project, explorerId, authResourcePath, snapshotToken, table.outputId, table.document.rootResourceType]);
 
   const cancelPendingPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -337,7 +374,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => {
     cancel();
     onChooseReshape(kind);
   };
@@ -366,6 +403,19 @@ export const RowDefinitionSettingsPanel = ({
     schedulePreview((preferred ?? options[0]!).selection);
     setGroupAuthoringOpen(false);
   };
+
+  const directCodedSourceAvailable = codedSourceAvailability.kind === 'available';
+  const useTablePivot = reshapeRows.pivotEntry !== 'coded-pivot'
+    || ((codedSourceAvailability.kind === 'unavailable' || codedSourceAvailability.kind === 'error')
+      && reshapeRows.pivotAlternative === 'pivot');
+  const pivotSupported = reshapeRows.pivot.supported && (useTablePivot || directCodedSourceAvailable);
+  const pivotReason = reshapeRows.pivotEntry === 'coded-pivot' && !useTablePivot
+    ? codedSourceAvailability.kind === 'unavailable'
+      ? 'No direct coded value and paired value source is available for these rows.'
+      : codedSourceAvailability.kind === 'error'
+        ? codedSourceAvailability.message
+        : 'Checking available coded values…'
+    : reshapeRows.pivot.reason;
 
   return (
     <>
@@ -420,12 +470,23 @@ export const RowDefinitionSettingsPanel = ({
                     </div>
                   ) : null}
                 </div>
-                <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !reshapeRows.pivot.supported}
-                  onClick={() => chooseReshape('pivot')}
-                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
-                  <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
-                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.pivot.supported ? 'Use a category and value column from this table.' : reshapeRows.pivot.reason}</span>
-                </button>
+                <div className="rounded-lg border border-slate-200">
+                  <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !pivotSupported}
+                    onClick={() => chooseReshape(useTablePivot ? 'pivot' : 'coded-pivot')}
+                    className="w-full p-3 text-left hover:bg-blue-50 disabled:opacity-50">
+                    <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
+                    <span className="mt-1 block text-xs text-slate-600">{pivotSupported
+                      ? useTablePivot ? 'Use a category and value column from this table.' : 'Choose coded values directly from the source records.'
+                      : pivotReason}</span>
+                  </button>
+                  {reshapeRows.pivotAlternative ? <div className="border-t border-slate-100 px-2 pb-2">
+                    <button type="button" data-testid="construction-action-table-pivot-rows"
+                      disabled={disabled} onClick={() => chooseReshape('pivot')}
+                      className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50">
+                      Use existing table columns
+                    </button>
+                  </div> : null}
+                </div>
                 <button type="button" disabled={disabled || !relatedRows.supported}
                   onClick={chooseRelatedRows}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">

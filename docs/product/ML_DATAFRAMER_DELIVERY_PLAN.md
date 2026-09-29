@@ -10,6 +10,8 @@ Direct-source Group now discovers authorized, populated scalar keys in Rows and 
 
 Add columns now presents ready paired concepts with readable titles before the longer source picker. A CDA Specimen browser path displayed three suggestions in 3.68 seconds, required a choice between two populated direct routes, and saved a Specimen type column whose title and values survived reload. Five preview values matched independently queried CDA Observation components through the selected Focus relationship. The edit/remove path remains open, so this is not complete acceptance of Add columns.
 
+The next row-first path is coded values to columns. Rows now offers a signed source and category editor without pre-adding raw columns, with duplicate and missing-value choices under Advanced. The UI contract and reopened-step tests pass. Backend lowering and a bounded CDA browser path remain necessary before this operation is accepted. The first executable scope keeps one row per direct root record; grouping related coded records into a different row grain remains an explicit follow-up.
+
 Accept this subgoal only after fresh-page CDA browser paths for Rows, Add columns, Filter rows, and Reshape show their available options, render a result, save, reload, edit or remove, and restore the prior table. Check the click path and readable labels, inspect the layout at desktop and narrow widths, and record preview times; an interaction that takes more than five seconds needs a measured performance fix or an honest visible limitation. Backend and frontend success are separate checks.
 
 Revision 4. Planned on 2026-09-19. This is the only active product execution plan.

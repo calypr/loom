@@ -77,6 +77,7 @@ const (
 	ConstructionUnpivotOp            ConstructionOperationKind = "UNPIVOT"
 	ConstructionGroupOp              ConstructionOperationKind = "GROUP"
 	ConstructionCodedGroupOp         ConstructionOperationKind = "CODED_GROUP"
+	ConstructionCodedPivotOp         ConstructionOperationKind = "CODED_PIVOT"
 	ConstructionExpandOp             ConstructionOperationKind = "EXPAND"
 	ConstructionCombineOp            ConstructionOperationKind = "COMBINE"
 	ConstructionRelatedSourceOp      ConstructionOperationKind = "RELATED_SOURCE"
@@ -95,6 +96,7 @@ type ConstructionOperation struct {
 	Unpivot            *ConstructionUnpivot            `json:"unpivot,omitempty"`
 	Group              *ConstructionGroup              `json:"group,omitempty"`
 	CodedGroup         *ConstructionCodedGroup         `json:"codedGroup,omitempty"`
+	CodedPivot         *ConstructionCodedPivot         `json:"codedPivot,omitempty"`
 	Expand             *ConstructionExpand             `json:"expand,omitempty"`
 	Combine            *ConstructionCombine            `json:"combine,omitempty"`
 	RelatedSource      *ConstructionRelatedSource      `json:"relatedSource,omitempty"`
@@ -268,6 +270,41 @@ type ConstructionCodedGroupSource struct {
 	Route        []ConstructionRelatedRouteStep `json:"route"`
 }
 
+// ConstructionCodedPivot evaluates selected codes against values owned by the
+// same repeated FHIR item, then emits one row per direct root resource.
+type ConstructionCodedPivot struct {
+	ConstructionID    string                           `json:"constructionId"`
+	Source            ConstructionCodedPivotSource     `json:"source"`
+	Categories        []ConstructionCodedPivotCategory `json:"categories"`
+	DuplicatePolicy   PivotDuplicatePolicy             `json:"duplicatePolicy"`
+	MissingCellPolicy PivotMissingCellPolicy           `json:"missingCellPolicy"`
+}
+
+type ConstructionCodedPivotSource struct {
+	BindingID       string                         `json:"bindingId"`
+	ResourceType    string                         `json:"resourceType"`
+	SourcePath      string                         `json:"sourcePath"`
+	SourceCanonical string                         `json:"sourceCanonical,omitempty"`
+	SourceProfile   string                         `json:"sourceProfile,omitempty"`
+	OwningScope     string                         `json:"owningScope,omitempty"`
+	KeyPath         string                         `json:"keyPath"`
+	ValuePath       string                         `json:"valuePath"`
+	ChoiceArms      []string                       `json:"choiceArms,omitempty"`
+	LogicalType     string                         `json:"logicalType"`
+	RuleVersion     string                         `json:"ruleVersion"`
+	SchemaVersion   int                            `json:"schemaVersion"`
+	CandidateID     string                         `json:"candidateId"`
+	NodeID          string                         `json:"nodeId"`
+	FieldPath       string                         `json:"fieldPath"`
+	Route           []ConstructionRelatedRouteStep `json:"route"`
+}
+
+type ConstructionCodedPivotCategory struct {
+	System         string `json:"system"`
+	Code           string `json:"code"`
+	OutputColumnID string `json:"outputColumnId"`
+}
+
 type ConstructionGroupMissingKeyPolicy string
 
 const (
@@ -366,8 +403,15 @@ func (construction Construction) Validate(sourceFields []Field) error {
 			sourceColumns = append(sourceColumns, StageColumn{ID: field.ColumnID, Name: field.Name, Label: field.Label})
 		}
 	}
-	if err := validateStageColumns(sourceColumns, "source projection"); err != nil {
-		return err
+	allowEmptyCodedPivotSource := len(sourceColumns) == 0 && len(sourceFields) == 0 && len(construction.Steps) > 0 &&
+		construction.Steps[0].Operation.Kind == ConstructionCodedPivotOp
+	if len(sourceColumns) == 0 && !allowEmptyCodedPivotSource {
+		return fmt.Errorf("source projection must contain at least one column")
+	}
+	if len(sourceColumns) != 0 {
+		if err := validateStageColumns(sourceColumns, "source projection"); err != nil {
+			return err
+		}
 	}
 	if err := validateSourceChildLineage(sourceColumns); err != nil {
 		return err
@@ -392,8 +436,8 @@ func (construction Construction) Validate(sourceFields []Field) error {
 			return fmt.Errorf("%s.inputs must contain exactly one stage reference", path)
 		}
 		input := step.Inputs[0]
-		if step.Operation.Kind == ConstructionCodedGroupOp && (index != 0 || input.Kind != ConstructionSourceProjectionInput) {
-			return fmt.Errorf("%s CODED_GROUP currently requires the direct source projection stage; prior construction stages are not supported", path)
+		if (step.Operation.Kind == ConstructionCodedGroupOp || step.Operation.Kind == ConstructionCodedPivotOp) && (index != 0 || input.Kind != ConstructionSourceProjectionInput) {
+			return fmt.Errorf("%s %s currently requires the direct source projection stage; prior construction stages are not supported", path, step.Operation.Kind)
 		}
 		switch input.Kind {
 		case ConstructionSourceProjectionInput:
@@ -496,7 +540,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 		seenRefs[key] = true
 	}
 	if step.Operation.Combine == nil || step.Operation.Pivot != nil || step.Operation.Derive != nil || step.Operation.Filter != nil ||
-		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.Expand != nil {
+		step.Operation.Unpivot != nil || step.Operation.Group != nil || step.Operation.CodedGroup != nil || step.Operation.CodedPivot != nil || step.Operation.Expand != nil {
 		return fmt.Errorf("steps[0].operation must contain only a combine payload")
 	}
 	if err := validateStageColumns(step.Outputs, "steps[0].outputs"); err != nil {
@@ -522,7 +566,7 @@ func (construction Construction) validateTerminalCombine(sourceFields []Field) e
 
 func validateConstructionOperation(operation ConstructionOperation, input, output []StageColumn, path string, constructionIDs map[string]bool) error {
 	payloads := 0
-	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.CodedGroup != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
+	for _, present := range []bool{operation.Pivot != nil, operation.Derive != nil, operation.Filter != nil, operation.Unpivot != nil, operation.Group != nil, operation.CodedGroup != nil, operation.CodedPivot != nil, operation.Expand != nil, operation.RelatedSource != nil, operation.RelatedExpand != nil, operation.RelatedEligibility != nil, operation.RelatedField != nil} {
 		if present {
 			payloads++
 		}
@@ -670,6 +714,11 @@ func validateConstructionOperation(operation ConstructionOperation, input, outpu
 			return fmt.Errorf("%s coded group operation requires only codedGroup payload", path)
 		}
 		return validateConstructionCodedGroup(*operation.CodedGroup, inputByID, outputByID, path, constructionIDs)
+	case ConstructionCodedPivotOp:
+		if operation.CodedPivot == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.CodedGroup != nil || operation.Expand != nil || operation.Combine != nil || operation.RelatedSource != nil || operation.RelatedExpand != nil || operation.RelatedEligibility != nil || operation.RelatedField != nil {
+			return fmt.Errorf("%s coded pivot operation requires only codedPivot payload", path)
+		}
+		return validateConstructionCodedPivot(*operation.CodedPivot, inputByID, outputByID, path, constructionIDs)
 	case ConstructionExpandOp:
 		if operation.Expand == nil || operation.Pivot != nil || operation.Derive != nil || operation.Filter != nil || operation.Unpivot != nil || operation.Group != nil || operation.Combine != nil {
 			return fmt.Errorf("%s expand operation requires only expand payload", path)

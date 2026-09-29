@@ -241,7 +241,9 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if stream.page != nil {
 		t.Fatal("CODED_GROUP must scan the complete input before counting distinct source records")
 	}
-	if !strings.Contains(query.Query, "IN __loom_construction_source_projection") || strings.Contains(query.Query, "IN __loom_construction_input_1\n") {
+	groupAt := strings.Index(query.Query, "COLLECT __loom_construction_coded_group_system")
+	limitAt := strings.Index(query.Query, "LIMIT @limit")
+	if !strings.Contains(query.Query, "FOR root IN @@root_collection") || groupAt < 0 || limitAt <= groupAt {
 		t.Fatalf("full-input CODED_GROUP query has an unexpected row scope:\n%s", query.Query)
 	}
 	if stream.sourceIdentityMode != previewSourceComposite {

@@ -75,7 +75,7 @@ func requestJSON(t *testing.T, app *fiber.App, method, path, body string) testHT
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := app.Test(request)
+	response, err := app.Test(request, fiber.TestConfig{Timeout: 5 * time.Second, FailOnTimeout: true})
 	if err != nil {
 		t.Fatal(err)
 	}

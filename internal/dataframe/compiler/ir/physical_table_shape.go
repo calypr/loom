@@ -10,12 +10,13 @@ import (
 const PhysicalPivotUnlistedCategoryExcludeWithEvidence = "EXCLUDE_WITH_EVIDENCE"
 
 func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string]bool, bindVars map[string]any) error {
+	coded := pivot.CodedCorrelation != nil || len(pivot.CodedCategories) != 0 || pivot.CodedSourceVariable != ""
 	for _, variable := range []string{pivot.InputRowVariable, pivot.GroupRowsVariable, pivot.OutputRowVariable} {
 		if !physicalVariablePattern.MatchString(variable) || defined[variable] {
 			return fmt.Errorf("row variable %q is empty, unsafe, or already defined", variable)
 		}
 	}
-	if len(pivot.InputProjections) == 0 || len(pivot.GroupKeys) == 0 || len(pivot.Categories) == 0 {
+	if len(pivot.InputProjections) == 0 || len(pivot.GroupKeys) == 0 || (!coded && len(pivot.Categories) == 0) {
 		return fmt.Errorf("input projections, group keys, and categories are required")
 	}
 	if strings.TrimSpace(pivot.ConstructionID) == "" {
@@ -24,11 +25,23 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	if id, ok := bindVars[pivot.ConstructionIDBindKey].(string); !ok || id != pivot.ConstructionID {
 		return fmt.Errorf("construction ID bind does not match construction metadata")
 	}
-	if strings.TrimSpace(pivot.CategoryColumn) == "" || strings.TrimSpace(pivot.ValueColumn) == "" || pivot.CategoryColumn == pivot.ValueColumn {
-		return fmt.Errorf("category and value columns must be non-empty and distinct")
-	}
-	if !validTableScalarKind(pivot.CategoryType) || !validTableScalarKind(pivot.ValueType) {
-		return fmt.Errorf("category and value types must be scalar table types")
+	if coded {
+		if pivot.CodedCorrelation == nil || len(pivot.CodedCategories) == 0 || len(pivot.CodedCategories) > 50 ||
+			len(pivot.Categories) != 0 || pivot.CategoryColumn != "" || pivot.ValueColumn != "" || pivot.CategoryType != "" ||
+			pivot.CategoryPresenceColumn != "" || pivot.CategoryPresence != nil || pivot.UnlistedEvidenceColumn != "" ||
+			!physicalVariablePattern.MatchString(pivot.CodedSourceVariable) || !pivot.OneInputRowPerGroup || !validTableScalarKind(pivot.ValueType) {
+			return fmt.Errorf("coded grouped Pivot requires one direct source, scalar values, and 1..50 coded categories")
+		}
+	} else {
+		if pivot.CodedCorrelation != nil || len(pivot.CodedCategories) != 0 || pivot.CodedSourceVariable != "" {
+			return fmt.Errorf("ordinary grouped Pivot cannot carry coded source facts")
+		}
+		if strings.TrimSpace(pivot.CategoryColumn) == "" || strings.TrimSpace(pivot.ValueColumn) == "" || pivot.CategoryColumn == pivot.ValueColumn {
+			return fmt.Errorf("category and value columns must be non-empty and distinct")
+		}
+		if !validTableScalarKind(pivot.CategoryType) || !validTableScalarKind(pivot.ValueType) {
+			return fmt.Errorf("category and value types must be scalar table types")
+		}
 	}
 	if err := requireBind(bindVars, pivot.ConstructionIDBindKey); err != nil {
 		return fmt.Errorf("construction ID: %w", err)
@@ -51,6 +64,10 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	}
 	switch pivot.UnlistedCategoryPolicy {
 	case "ERROR", PhysicalPivotUnlistedCategoryExcludeWithEvidence:
+	case "IGNORE":
+		if !coded {
+			return fmt.Errorf("IGNORE unlisted-category policy is only valid for coded Pivot")
+		}
 	default:
 		return fmt.Errorf("unsupported unlisted-category policy %q", pivot.UnlistedCategoryPolicy)
 	}
@@ -64,6 +81,14 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 	projectionNames, err := validateTableShapeInputProjections(pivot.InputProjections, defined, bindVars)
 	if err != nil {
 		return err
+	}
+	if coded {
+		codedDefined := make(map[string]bool, len(defined)+1)
+		for variable, isDefined := range defined {
+			codedDefined[variable] = isDefined
+		}
+		codedDefined[pivot.InputRowVariable] = true
+		return validatePhysicalGroupedCodedPivot(pivot, projectionNames, codedDefined, bindVars)
 	}
 	for _, column := range []string{pivot.CategoryColumn, pivot.ValueColumn} {
 		if !projectionNames[column] {
@@ -172,6 +197,87 @@ func validatePhysicalGroupedPivot(pivot PhysicalGroupedPivot, defined map[string
 		}
 	}
 	return nil
+}
+
+func validatePhysicalGroupedCodedPivot(pivot PhysicalGroupedPivot, projectionNames, defined map[string]bool, bindVars map[string]any) error {
+	if len(pivot.GroupKeys) != 1 || pivot.GroupKeys[0].Column != "_key" || !pivot.GroupKeys[0].Hidden ||
+		pivot.GroupKeys[0].Kind != "STRING" || pivot.CodedCorrelation == nil {
+		return fmt.Errorf("coded Pivot must group by the retained hidden root _key")
+	}
+	if !projectionNames[PhysicalCodedPivotSourcePayloadColumn] {
+		return fmt.Errorf("coded Pivot source payload projection is required")
+	}
+	rootKeyProjection, payloadProjection := false, false
+	for _, projection := range pivot.InputProjections {
+		if projection.Name == "_key" {
+			rootKeyProjection = projection.Hidden && projection.Value.Variable == pivot.CodedSourceVariable &&
+				len(projection.Value.Path) == 1 && projection.Value.Path[0] == "_key"
+		}
+		if projection.Name == PhysicalCodedPivotSourcePayloadColumn {
+			payloadProjection = projection.Hidden && projection.Value.Variable == pivot.CodedSourceVariable &&
+				len(projection.Value.Path) == 1 && projection.Value.Path[0] == "payload"
+		}
+	}
+	if !rootKeyProjection || !payloadProjection {
+		return fmt.Errorf("coded Pivot source projection must carry only the direct root key and payload")
+	}
+	correlation := *pivot.CodedCorrelation
+	if correlation.Source.Variable != pivot.InputRowVariable || len(correlation.Source.Path) != 1 || correlation.Source.Path[0] != PhysicalCodedPivotSourcePayloadColumn ||
+		correlation.SystemBindKey != pivot.CodedCategories[0].SystemBindKey || correlation.CodeBindKey != pivot.CodedCategories[0].CodeBindKey {
+		return fmt.Errorf("coded Pivot correlation must read the payload from its staged root row and bind the first category")
+	}
+	if tableType, ok := physicalCodedPivotTableType(correlation.LogicalType); !ok || tableType != pivot.ValueType {
+		return fmt.Errorf("coded Pivot value type %q does not match correlated logical type %q", pivot.ValueType, correlation.LogicalType)
+	}
+	outputs, identities, bindKeys := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for index, category := range pivot.CodedCategories {
+		if !physicalPathPartPattern.MatchString(category.Output) || outputs[category.Output] || projectionNames[category.Output] {
+			return fmt.Errorf("coded Pivot category output %q is unsafe, duplicated, or collides with input", category.Output)
+		}
+		for name, key := range map[string]string{"system": category.SystemBindKey, "code": category.CodeBindKey} {
+			if !physicalBindKeyPattern.MatchString(key) || bindKeys[key] {
+				return fmt.Errorf("coded Pivot category %d %s bind is unsafe or duplicated", index, name)
+			}
+			bindKeys[key] = true
+			value, ok := bindVars[key].(string)
+			if !ok || strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
+				return fmt.Errorf("coded Pivot category %d %s bind must be an exact non-empty string", index, name)
+			}
+		}
+		system, _ := bindVars[category.SystemBindKey].(string)
+		code, _ := bindVars[category.CodeBindKey].(string)
+		identity := system + "\x00" + code
+		if identities[identity] {
+			return fmt.Errorf("coded Pivot category %d duplicates a bound system/code pair", index)
+		}
+		identities[identity], outputs[category.Output] = true, true
+		candidate := correlation
+		candidate.SystemBindKey, candidate.CodeBindKey = category.SystemBindKey, category.CodeBindKey
+		if err := validatePhysicalCorrelation(candidate, defined, bindVars); err != nil {
+			return fmt.Errorf("coded Pivot category %d correlation: %w", index, err)
+		}
+	}
+	for _, key := range pivot.GroupKeys {
+		if outputs[key.Output] {
+			return fmt.Errorf("coded Pivot category output %q collides with its root identity", key.Output)
+		}
+	}
+	return nil
+}
+
+func physicalCodedPivotTableType(logicalType string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(logicalType)) {
+	case "string", "code", "uuid", "date", "datetime":
+		return "STRING", true
+	case "integer":
+		return "INTEGER", true
+	case "decimal":
+		return "DECIMAL", true
+	case "boolean":
+		return "BOOLEAN", true
+	default:
+		return "", false
+	}
 }
 
 func validatePhysicalUnpivot(unpivot PhysicalUnpivot, defined map[string]bool, bindVars map[string]any) error {

@@ -161,6 +161,7 @@ type ConstructionProposalResponse struct {
 
 type constructionBase struct {
 	owner           *explorer.Explorer
+	explorerID      string
 	workspace       authoringv2.Workspace
 	document        authoringv2.Document
 	construction    authoringv2.Construction
@@ -228,6 +229,11 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
+	var authorizedCodedPivotSteps map[string]bool
+	candidateConstruction, authorizedCodedPivotSteps, err = s.resolveConstructionCodedPivotChoices(ctx, base, request.OutputID, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
 	candidateDocument, impact, err := base.document.AnalyzeConstructionCandidate(candidateConstruction, request.ChangedStepID, request.RemoveStepIDs)
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
@@ -237,6 +243,7 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	baseRelatedEligibility := make(map[string]authoringv2.ConstructionRelatedEligibility)
 	baseRelatedFields := make(map[string]authoringv2.ConstructionRelatedField)
 	baseCodedGroups := make(map[string]authoringv2.ConstructionCodedGroup)
+	baseCodedPivots := make(map[string]authoringv2.ConstructionCodedPivot)
 	for _, step := range base.construction.Steps {
 		if step.Operation.Kind == authoringv2.ConstructionOperationRelatedSource && step.Operation.RelatedSource != nil {
 			baseRelatedSources[step.ID] = *step.Operation.RelatedSource
@@ -252,6 +259,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		}
 		if step.Operation.Kind == authoringv2.ConstructionOperationCodedGroup && step.Operation.CodedGroup != nil {
 			baseCodedGroups[step.ID] = *step.Operation.CodedGroup
+		}
+		if step.Operation.Kind == authoringv2.ConstructionOperationCodedPivot && step.Operation.CodedPivot != nil {
+			baseCodedPivots[step.ID] = *step.Operation.CodedPivot
 		}
 	}
 	for _, step := range candidateDocument.Construction.Steps {
@@ -306,6 +316,17 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 			if err := reauthorizeConstructionCodedGroup(ctx, base, request.OutputID, step, *step.Operation.CodedGroup); err != nil {
 				return ConstructionProposalResponse{}, err
 			}
+		case authoringv2.ConstructionOperationCodedPivot:
+			if step.Operation.CodedPivot == nil {
+				continue
+			}
+			if authorizedCodedPivotSteps[step.ID] {
+				continue
+			}
+			if prior, exists := baseCodedPivots[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.CodedPivot) {
+				continue
+			}
+			return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CHOICE", "a changed coded Pivot requires current source and category choices", nil)
 		}
 	}
 	candidateWorkspace := base.workspace
@@ -839,7 +860,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 			return constructionBase{}, conflict("construction-capabilities", "INVALID_SOURCE_STAGE_DESCRIPTOR", "the compiler returned an invalid zero-column source-stage descriptor", nil, nil)
 		}
 		return constructionBase{
-			owner: owner, workspace: workspace, document: document,
+			owner: owner, explorerID: explorerID, workspace: workspace, document: document,
 			construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
 			stages: []explorer.ReceiptConstructionStage{stage}, baseDocumentSHA: baseDocumentSHA,
 		}, nil
@@ -865,7 +886,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 		return constructionBase{}, conflict("construction-capabilities", "STAGE_CAPABILITIES_UNAVAILABLE", "the compiler receipt has no stage descriptors for this output", nil, nil)
 	}
 	return constructionBase{
-		owner: owner, workspace: workspace, document: document,
+		owner: owner, explorerID: explorerID, workspace: workspace, document: document,
 		construction: *upgraded.Construction, snapshot: snapshot, authorized: authorized.Clone(), catalog: catalogSnapshot,
 		receipt: receipt, stages: receipt.ConstructionStages[outputID], baseDocumentSHA: baseDocumentSHA,
 	}, nil

@@ -26,10 +26,11 @@ type CategoryValue struct {
 }
 
 type CategoryScanResult struct {
-	Values   []CategoryValue
-	Complete bool
-	Overflow bool
-	Proof    compiler.CategoryScanProof
+	Values            []CategoryValue
+	Complete          bool
+	Overflow          bool
+	ConclusiveMissing bool
+	Proof             compiler.CategoryScanProof
 }
 
 const (
@@ -83,6 +84,37 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	queryRows := e.queryRows
 	if e.previewQueryRows != nil {
 		queryRows = e.previewQueryRows
+	}
+	if compiled.OverflowWitness != nil {
+		witnessCount := 0
+		missing := false
+		err := queryRows(ctx, compiled.OverflowWitness.Query, e.batchSize, compiled.OverflowWitness.BindVars, func(row map[string]any) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			present, ok := row[compiled.PresentColumn].(bool)
+			if !ok {
+				return fmt.Errorf("category overflow witness has invalid presence marker")
+			}
+			missing = missing || !present
+			if _, ok := row[compiled.ValueColumn]; !ok {
+				return fmt.Errorf("category overflow witness is missing value")
+			}
+			witnessCount++
+			return nil
+		})
+		if err != nil {
+			return CategoryScanResult{}, fmt.Errorf("execute category overflow witness: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return CategoryScanResult{}, err
+		}
+		if witnessCount > compiled.Proof.MaxValues {
+			return CategoryScanResult{Overflow: true, Proof: compiled.Proof}, nil
+		}
+		if missing {
+			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
+		}
 	}
 	err := queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {

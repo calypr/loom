@@ -570,6 +570,8 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		pivotCopy.InputProjections = clonePhysicalProjections(operation.GroupedPivot.InputProjections)
 		pivotCopy.GroupKeys = append([]PhysicalGroupedPivotKey(nil), operation.GroupedPivot.GroupKeys...)
 		pivotCopy.Categories = append([]PhysicalGroupedPivotCategory(nil), operation.GroupedPivot.Categories...)
+		pivotCopy.CodedCategories = append([]PhysicalGroupedCodedPivotCategory(nil), operation.GroupedPivot.CodedCategories...)
+		pivotCopy.CodedCorrelation = clonePhysicalCorrelation(operation.GroupedPivot.CodedCorrelation)
 		if operation.GroupedPivot.CategoryPresence != nil {
 			presence := clonePhysicalProjectionPresence(*operation.GroupedPivot.CategoryPresence)
 			pivotCopy.CategoryPresence = &presence

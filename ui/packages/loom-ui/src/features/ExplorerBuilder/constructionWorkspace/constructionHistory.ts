@@ -62,6 +62,17 @@ const formatStep = (
         editable: true,
       };
     }
+    case 'CODED_PIVOT': {
+      const outputs = step.operation.codedPivot.categories
+        .map((category) => step.outputs.find((column) => column.id === category.outputColumnId)?.label)
+        .filter((label): label is string => Boolean(label));
+      return {
+        id: step.id,
+        title: 'Coded values to columns',
+        summary: `Keep one row per source record and make ${outputs.join(', ') || 'the selected coded values'} into columns.`,
+        editable: true,
+      };
+    }
     case 'DERIVE': {
       const derive = step.operation.derive;
       const output = step.outputs.find((column) => column.id === derive.outputColumnId)?.label ?? 'a new column';

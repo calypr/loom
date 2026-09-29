@@ -6,6 +6,8 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
+const PhysicalCodedPivotSourcePayloadColumn = "__loom_coded_pivot_source_payload"
+
 // PhysicalPlan is the renderer-independent AQL operation graph produced after
 // semantic planning. Operations are ordered because AQL variables have lexical
 // scope: an operation may reference only variables introduced before it.
@@ -531,6 +533,16 @@ type PhysicalGroupedPivot struct {
 	ValueColumn            string
 	ValueType              string
 	Categories             []PhysicalGroupedPivotCategory
+	// CodedCorrelation is present for construction CODED_PIVOT. The renderer
+	// substitutes each coded category's bound system/code pair into this one
+	// checked owner/key/value binding, keeping category identity and value in
+	// the same owner scope.
+	CodedCorrelation *PhysicalCorrelation
+	CodedCategories  []PhysicalGroupedCodedPivotCategory
+	// CodedSourceVariable is the selected direct root scan variable. The first
+	// construction stage inlines that scan so it never materializes full root
+	// payloads into an intermediate array.
+	CodedSourceVariable    string
 	ConstructionIDBindKey  string
 	UnlistedEvidenceColumn string
 	DuplicatePolicy        string
@@ -553,6 +565,12 @@ type PhysicalGroupedPivotCategory struct {
 	MatchKind    PhysicalPivotCategoryMatchKind
 	ValueBindKey string
 	ValueKind    string
+}
+
+type PhysicalGroupedCodedPivotCategory struct {
+	Output        string
+	SystemBindKey string
+	CodeBindKey   string
 }
 
 type PhysicalPivotCategoryMatchKind string

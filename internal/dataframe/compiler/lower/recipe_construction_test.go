@@ -38,13 +38,17 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 	if compiled.OutputSchema[0].ID != "group_id" || compiled.OutputSchema[1].ID != "total_id" || compiled.OutputSchema[2].ID != "measure_id" || compiled.OutputSchema[3].ID != "amount_id" {
 		t.Fatalf("stable column IDs were lost in final schema: %#v", compiled.OutputSchema)
 	}
-	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 11 {
+	if compiled.Stages[0].ID != recipe.ConstructionSourceProjectionID || len(compiled.Stages[0].Capabilities) != 12 {
 		t.Fatalf("source stage descriptor lacks exact source capabilities: %#v", compiled.Stages[0])
 	}
+	var sourceCodedPivotCapability *StageOperationCapability
 	var sourceRelatedExpandCapability *StageOperationCapability
 	var sourceRelatedEligibilityCapability *StageOperationCapability
 	var sourceRelatedFieldCapability *StageOperationCapability
 	for _, capability := range compiled.Stages[0].Capabilities {
+		if capability.Operation == recipe.ConstructionCodedPivotOp {
+			sourceCodedPivotCapability = &capability
+		}
 		if capability.Operation == recipe.ConstructionRelatedExpandOp {
 			sourceRelatedExpandCapability = &capability
 		}
@@ -54,6 +58,9 @@ func TestCompileConstructionUsesTypedIntermediateStages(t *testing.T) {
 		if capability.Operation == recipe.ConstructionRelatedFieldOp {
 			sourceRelatedFieldCapability = &capability
 		}
+	}
+	if sourceCodedPivotCapability == nil || !sourceCodedPivotCapability.Supported {
+		t.Fatalf("source stage should support a coded Pivot with an authorized family: %#v", sourceCodedPivotCapability)
 	}
 	if sourceRelatedExpandCapability == nil || !sourceRelatedExpandCapability.Supported {
 		t.Fatalf("source stage should retain its root key for related expansion: %#v", sourceRelatedExpandCapability)
@@ -500,6 +507,12 @@ func TestDescribeConstructionSourceStageForZeroColumnOutput(t *testing.T) {
 	var relatedEligibilityCapability *StageOperationCapability
 	var relatedFieldCapability *StageOperationCapability
 	for _, capability := range descriptor.Capabilities {
+		if capability.Operation == recipe.ConstructionCodedPivotOp {
+			if !capability.Supported || capability.ReasonCode != "" {
+				t.Fatalf("zero-column direct root stage should support coded Pivot: %#v", capability)
+			}
+			continue
+		}
 		if capability.Operation == recipe.ConstructionRelatedSourceOp {
 			relatedSourceCapability = &capability
 			continue

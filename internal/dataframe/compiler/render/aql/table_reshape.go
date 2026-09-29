@@ -33,10 +33,13 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	if err != nil {
 		return nil, err
 	}
-	categoryColumnBind := r.newInternalBindKey("reshape_category_column")
-	r.bindVars[categoryColumnBind] = pivot.CategoryColumn
-	valueColumnBind := r.newInternalBindKey("reshape_value_column")
-	r.bindVars[valueColumnBind] = pivot.ValueColumn
+	categoryColumnBind, valueColumnBind := "", ""
+	if pivot.CodedCorrelation == nil {
+		categoryColumnBind = r.newInternalBindKey("reshape_category_column")
+		r.bindVars[categoryColumnBind] = pivot.CategoryColumn
+		valueColumnBind = r.newInternalBindKey("reshape_value_column")
+		r.bindVars[valueColumnBind] = pivot.ValueColumn
+	}
 	categoryPresenceBind := ""
 	if pivot.CategoryPresence != nil {
 		presence, err := r.renderProjectionPresence(*pivot.CategoryPresence)
@@ -87,12 +90,15 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 		lines = append(lines, "  SORT "+strings.Join(sort, ", "))
 	}
 
-	categoryType, err := aqlTableScalarType(pivot.CategoryType)
-	if err != nil {
-		return nil, err
+	categoryTypeBind := ""
+	if pivot.CodedCorrelation == nil {
+		categoryType, err := aqlTableScalarType(pivot.CategoryType)
+		if err != nil {
+			return nil, err
+		}
+		categoryTypeBind = r.newInternalBindKey("reshape_category_type")
+		r.bindVars[categoryTypeBind] = categoryType
 	}
-	categoryTypeBind := r.newInternalBindKey("reshape_category_type")
-	r.bindVars[categoryTypeBind] = categoryType
 	valueType, err := aqlTableScalarType(pivot.ValueType)
 	if err != nil {
 		return nil, err
@@ -105,7 +111,11 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 			categoryTypeBind, valueTypeBind, previewIdentityVariable,
 		)
 	}
-	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+len(pivot.Categories)+2)
+	categoryCount := len(pivot.Categories)
+	if pivot.CodedCorrelation != nil {
+		categoryCount = len(pivot.CodedCategories)
+	}
+	outputProjections := make([]ir.PhysicalProjection, 0, len(pivot.GroupKeys)+categoryCount+2)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output
 		if name == "" {
@@ -161,6 +171,43 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 			return nil, fmt.Errorf("unsupported grouped pivot duplicate policy %q", pivot.DuplicatePolicy)
 		}
 		cellValueVariable := r.newInternalVariable(fmt.Sprintf("reshape_cell_result_%d", index))
+		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
+		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: category.Output, Value: ir.PhysicalValue{Variable: cellValueVariable}})
+	}
+	for index, category := range pivot.CodedCategories {
+		valuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_values_%d", index))
+		typedValuesVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_typed_values_%d", index))
+		correlation := *pivot.CodedCorrelation
+		correlation.SystemBindKey, correlation.CodeBindKey = category.SystemBindKey, category.CodeBindKey
+		values, err := r.renderCodedPivotCategoryValues(correlation)
+		if err != nil {
+			return nil, fmt.Errorf("coded category %q: %w", category.Output, err)
+		}
+		lines = append(lines,
+			fmt.Sprintf("  LET %s = %s", valuesVariable, values),
+			fmt.Sprintf("  LET %s = (FOR __coded_value IN %s FILTER __coded_value != null FILTER ASSERT(TYPENAME(__coded_value) == @%s, \"TABLE_PIVOT_VALUE_TYPE_MISMATCH\") RETURN __coded_value)",
+				typedValuesVariable, valuesVariable, valueTypeBind),
+		)
+		cellValue := "null"
+		switch pivot.DuplicatePolicy {
+		case "ERROR":
+			cardinality := fmt.Sprintf("ASSERT(LENGTH(%s) <= 1, \"TABLE_PIVOT_CELL_CARDINALITY\") ? FIRST(%s) : null", valuesVariable, valuesVariable)
+			if pivot.MissingCellPolicy == "ERROR" {
+				cellValue = fmt.Sprintf("(ASSERT(LENGTH(%s) > 0, \"TABLE_PIVOT_CELL_MISSING\") ? (%s) : null)", valuesVariable, cardinality)
+			} else {
+				cellValue = "(" + cardinality + ")"
+			}
+		case "SUM", "MIN", "MAX":
+			condition := "true"
+			if pivot.MissingCellPolicy == "ERROR" {
+				condition = fmt.Sprintf("LENGTH(%s) > 0", typedValuesVariable)
+			}
+			reducer := pivot.DuplicatePolicy + "(" + typedValuesVariable + ")"
+			cellValue = fmt.Sprintf("(ASSERT(%s, \"TABLE_PIVOT_CELL_MISSING\") ? (LENGTH(%s) == 0 ? null : %s) : null)", condition, typedValuesVariable, reducer)
+		default:
+			return nil, fmt.Errorf("unsupported coded Pivot duplicate policy %q", pivot.DuplicatePolicy)
+		}
+		cellValueVariable := r.newInternalVariable(fmt.Sprintf("reshape_coded_cell_result_%d", index))
 		lines = append(lines, fmt.Sprintf("  LET %s = %s", cellValueVariable, cellValue))
 		outputProjections = append(outputProjections, ir.PhysicalProjection{Name: category.Output, Value: ir.PhysicalValue{Variable: cellValueVariable}})
 	}
@@ -222,6 +269,59 @@ func (r *physicalPlanRenderer) renderGroupedTablePivot(pivot ir.PhysicalGroupedP
 	}
 	lines = append(lines, fmt.Sprintf("  LET %s = %s", pivot.OutputRowVariable, output))
 	return lines, nil
+}
+
+func (r *physicalPlanRenderer) renderCodedPivotCategoryValues(correlation ir.PhysicalCorrelation) (string, error) {
+	if correlation.SystemBindKey == "" || correlation.CodeBindKey == "" {
+		return "", fmt.Errorf("coded category requires system and code binds")
+	}
+	owners, err := r.renderCorrelationOwners(correlation.Source, correlation.OwnerSelector)
+	if err != nil {
+		return "", err
+	}
+	owner := r.newInternalVariable("coded_pivot_owner")
+	coding := r.newInternalVariable("coded_pivot_coding")
+	codings, err := r.renderSelectorArrayFromSource(owner, correlation.KeySelector, false, false)
+	if err != nil {
+		return "", fmt.Errorf("correlation key selector: %w", err)
+	}
+	system, err := r.renderCorrelationScalar(coding, correlation.SystemSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation system selector: %w", err)
+	}
+	code, err := r.renderCorrelationScalar(coding, correlation.CodeSelector)
+	if err != nil {
+		return "", fmt.Errorf("correlation code selector: %w", err)
+	}
+	values, err := r.renderCorrelationValues(owner, correlation.ValueSelector, correlation.ValueFallbacks)
+	if err != nil {
+		return "", err
+	}
+	unsupported, err := r.renderCorrelationUnsupportedChoiceValues(owner, correlation)
+	if err != nil {
+		return "", err
+	}
+	matched := r.newInternalVariable("coded_pivot_match")
+	return fmt.Sprintf(`FLATTEN(
+  FOR %s IN %s
+    LET %s = LENGTH((
+      FOR %s IN FLATTEN(%s)
+        LET __coded_system = %s
+        LET __coded_code = %s
+        FILTER __coded_system != null AND __coded_system != ""
+        FILTER __coded_code != null AND __coded_code != ""
+        FILTER __coded_system == @%s
+        FILTER __coded_code == @%s
+        LIMIT 1
+        RETURN 1
+    )) > 0
+    FILTER %s
+    LET __coded_unsupported = %s
+    FILTER ASSERT(LENGTH(__coded_unsupported) == 0, "INVALID_CHOICE_ARM")
+    LET __coded_values = FLATTEN(%s)
+    FILTER LENGTH(__coded_values) > 0
+    RETURN __coded_values
+)`, owner, owners, matched, coding, codings, system, code, correlation.SystemBindKey, correlation.CodeBindKey, matched, unsupported, values), nil
 }
 
 func groupedPivotListedPredicate(pivot ir.PhysicalGroupedPivot, itemVariable, categoryColumnBind, categoryPresenceBind, categoryTypeBind string) (string, error) {

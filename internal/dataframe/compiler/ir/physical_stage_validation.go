@@ -98,6 +98,19 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 				return fmt.Errorf("%s output row variable does not match grouped pivot", path)
 			}
 			defined := map[string]bool{stage.InputRowVariable: true}
+			if stage.GroupedPivot.CodedCorrelation != nil {
+				if index != 0 || stage.InputStageID != sequence.SourceStageID {
+					return fmt.Errorf("%s coded Pivot must be the first stage over the direct source projection", path)
+				}
+				rootVariable, resourceType, rootErr := validateCodedPivotSourceRoot(sourceOperations, bindVars)
+				if rootErr != nil {
+					return fmt.Errorf("%s coded Pivot source: %w", path, rootErr)
+				}
+				if rootVariable != stage.GroupedPivot.CodedSourceVariable || resourceType != stage.GroupedPivot.CodedCorrelation.ResourceType {
+					return fmt.Errorf("%s coded Pivot source does not match the exact root scan", path)
+				}
+				defined[rootVariable] = true
+			}
 			if err := validatePhysicalGroupedPivot(*stage.GroupedPivot, defined, bindVars); err != nil {
 				return fmt.Errorf("%s grouped pivot: %w", path, err)
 			}
@@ -233,6 +246,40 @@ func validatePhysicalStageSequence(sequence PhysicalStageSequence, sourceOperati
 		}
 	}
 	return nil
+}
+
+func validateCodedPivotSourceRoot(sourceOperations []PhysicalOperation, bindVars map[string]any) (string, string, error) {
+	if len(sourceOperations) < 2 || sourceOperations[0].Kind != PhysicalRootScanOp || sourceOperations[0].RootScan == nil {
+		return "", "", fmt.Errorf("a direct root scan is required")
+	}
+	root := sourceOperations[0].RootScan
+	resourceType, ok := bindVars[root.CollectionBindKey].(string)
+	if !ok || strings.TrimSpace(resourceType) == "" || root.Variable == "" {
+		return "", "", fmt.Errorf("root scan collection and variable are required")
+	}
+	returns := 0
+	for index, operation := range sourceOperations {
+		switch operation.Kind {
+		case PhysicalRootScanOp:
+			if index != 0 || operation.RootScan == nil {
+				return "", "", fmt.Errorf("exactly one direct root scan is required")
+			}
+		case PhysicalFilterOp, PhysicalDerivedLetOp, PhysicalExpressionLetOp,
+			PhysicalSetOp, PhysicalSortOp, PhysicalLimitOp:
+			// These source operations preserve root row grain.
+		case PhysicalReturnOp:
+			returns++
+			if operation.Return == nil || index != len(sourceOperations)-1 {
+				return "", "", fmt.Errorf("one terminal root projection is required")
+			}
+		default:
+			return "", "", fmt.Errorf("source operation %q can multiply or replace root rows", operation.Kind)
+		}
+	}
+	if returns != 1 {
+		return "", "", fmt.Errorf("one terminal root projection is required")
+	}
+	return root.Variable, resourceType, nil
 }
 
 func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal PhysicalRowLineageReturn, bindVars map[string]any) error {
@@ -1172,7 +1219,7 @@ func validateStageProjectionNames(projections []PhysicalProjection, columns []Ph
 }
 
 func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {
-	columns := make([]string, 0, len(pivot.GroupKeys)+len(pivot.Categories)+2)
+	columns := make([]string, 0, len(pivot.GroupKeys)+len(pivot.Categories)+len(pivot.CodedCategories)+2)
 	for _, key := range pivot.GroupKeys {
 		name := key.Output
 		if name == "" {
@@ -1181,6 +1228,9 @@ func groupedPivotOutputNames(pivot PhysicalGroupedPivot) []string {
 		columns = append(columns, name)
 	}
 	for _, category := range pivot.Categories {
+		columns = append(columns, category.Output)
+	}
+	for _, category := range pivot.CodedCategories {
 		columns = append(columns, category.Output)
 	}
 	if pivot.UnlistedEvidenceColumn != "" {

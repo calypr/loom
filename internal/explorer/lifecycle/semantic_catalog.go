@@ -20,16 +20,17 @@ import (
 )
 
 type BrowseSemanticInventoryRequest struct {
-	Project       string
-	ExplorerID    string
-	SnapshotToken string
-	RowRoot       string
-	FrameID       string
-	OutputID      string
-	ResourceType  string
-	Query         string
-	Cursor        string
-	Limit         int
+	Project        string
+	ExplorerID     string
+	SnapshotToken  string
+	RowRoot        string
+	FrameID        string
+	SourceChoiceID string
+	OutputID       string
+	ResourceType   string
+	Query          string
+	Cursor         string
+	Limit          int
 }
 
 type SemanticInventoryItem struct {
@@ -66,10 +67,11 @@ type BrowseSemanticInventoryResponse struct {
 }
 
 type semanticBrowseCursor struct {
-	Context  string `json:"context"`
-	Page     string `json:"page"`
-	FrameID  string `json:"frameId,omitempty"`
-	OutputID string `json:"outputId,omitempty"`
+	Context        string `json:"context"`
+	Page           string `json:"page"`
+	FrameID        string `json:"frameId,omitempty"`
+	SourceChoiceID string `json:"sourceChoiceId,omitempty"`
+	OutputID       string `json:"outputId,omitempty"`
 }
 
 func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanticInventoryRequest) (BrowseSemanticInventoryResponse, error) {
@@ -103,7 +105,12 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 	if !rootAllowed || !resourceAllowed {
 		return result, malformed("catalog", "the row root or resource filter is not available in this snapshot", nil)
 	}
+	if req.FrameID != "" && req.SourceChoiceID != "" {
+		return result, malformed("catalog", "frameId and sourceChoiceId are mutually exclusive", nil)
+	}
 	var frame *authoringv2.FrameDefinition
+	var codedFamily *frameSourceFamilyCandidate
+	var codedRoute []capability.ConstructionRouteStep
 	bindingFilter := ""
 	if req.FrameID != "" {
 		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
@@ -141,10 +148,41 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		bindingFilter = frame.Source.BindingID
 		result.FrameID, result.FrameSource = frame.ID, frame
 	}
+	if req.SourceChoiceID != "" {
+		if strings.TrimSpace(req.OutputID) == "" || req.OutputID != strings.TrimSpace(req.OutputID) {
+			return result, malformed("catalog", "outputId is required with sourceChoiceId", nil)
+		}
+		workspace, workspaceErr := s.currentWorkspace(ctx, req.Project, req.ExplorerID)
+		if workspaceErr != nil {
+			return result, workspaceErr
+		}
+		document := findSemanticOutput(workspace, req.OutputID)
+		if document == nil || document.Route.OccurrenceID != authoringv2.RootOccurrenceID || document.RootResourceType != req.RowRoot {
+			return result, notFound("catalog", "OUTPUT_NOT_FOUND", "the output was not found for this row root", nil)
+		}
+		identity, decodeErr := capability.DecodeConstructionChoiceID(req.SourceChoiceID)
+		if decodeErr != nil || identity.SnapshotToken != snapshot.Token {
+			return result, conflict("catalog", "STALE_CONSTRUCTION_CHOICE", "reload the coded source for the current authorized snapshot", nil, decodeErr)
+		}
+		family, route, verifyErr := s.reauthorizeFrameSourceChoice(ctx, req.Project, req.ExplorerID, req.RowRoot, req.OutputID, req.SourceChoiceID, authorized, identity)
+		if verifyErr != nil {
+			return result, verifyErr
+		}
+		if len(route) != 0 || family.Family.ResourceType != req.RowRoot {
+			return result, unprocessable("catalog", "CODED_PIVOT_SOURCE_UNSUPPORTED", "coded Pivot currently requires a direct root source", nil)
+		}
+		if req.ResourceType != "" && req.ResourceType != family.Family.ResourceType {
+			return result, malformed("catalog", "resourceType must match sourceChoiceId", nil)
+		}
+		req.ResourceType = family.Family.ResourceType
+		bindingFilter = family.Family.BindingID
+		codedFamily = &family
+		codedRoute = route
+	}
 	var cursor semanticBrowseCursor
 	if req.Cursor != "" {
 		raw, err := base64.RawURLEncoding.DecodeString(req.Cursor)
-		if err != nil || json.Unmarshal(raw, &cursor) != nil || cursor.Context == "" || cursor.Page == "" || cursor.FrameID != req.FrameID || cursor.OutputID != req.OutputID {
+		if err != nil || json.Unmarshal(raw, &cursor) != nil || cursor.Context == "" || cursor.Page == "" || cursor.FrameID != req.FrameID || cursor.SourceChoiceID != req.SourceChoiceID || cursor.OutputID != req.OutputID {
 			return result, conflict("catalog", "STALE_CATALOG_CURSOR", "restart catalog search with an empty cursor", nil, nil)
 		}
 	}
@@ -189,6 +227,9 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		}
 		if plan.Readiness.Addable() {
 			if candidate, ok := semanticConstructionCandidate(snapshot, observation); ok {
+				if codedFamily != nil && (candidate.ID != codedFamily.Candidate.ID || candidate.NodeID != codedFamily.Candidate.NodeID || candidate.FieldPath != codedFamily.Candidate.FieldPath) {
+					continue
+				}
 				var route []capability.ConstructionRouteStep
 				if frame != nil {
 					if !semanticEntryMatchesFrame(entry, observation, plan, *frame) {
@@ -199,6 +240,11 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 						continue
 					}
 					route = resolvedRoute
+				} else if codedFamily != nil {
+					if observation.Key.Version != "" || !semanticEntryMatchesFrameFamily(entry, observation, plan, codedFamily.Family) {
+						continue
+					}
+					route = codedRoute
 				}
 				ownerRecordsProved := frame == nil && proveOwnerRecordsForRoute(ctx, authorized, req.RowRoot, observation, route)
 				if choice, err := semanticInventoryConstructionChoiceForRoute(snapshot, result.ContextToken, result.BuildID, route, entry, candidate, ownerRecordsProved); err == nil {
@@ -224,7 +270,7 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		result.Entries = append(result.Entries, item)
 	}
 	if page.NextCursor != "" {
-		raw, err := json.Marshal(semanticBrowseCursor{Context: result.ContextToken, Page: page.NextCursor, FrameID: req.FrameID, OutputID: req.OutputID})
+		raw, err := json.Marshal(semanticBrowseCursor{Context: result.ContextToken, Page: page.NextCursor, FrameID: req.FrameID, SourceChoiceID: req.SourceChoiceID, OutputID: req.OutputID})
 		if err != nil {
 			return BrowseSemanticInventoryResponse{}, err
 		}
@@ -268,6 +314,21 @@ func semanticEntryMatchesFrame(entry catalog.SemanticInventoryEntry, observation
 	return binding.OwnerPath == frame.Source.OwningScope && binding.KeyPath == frame.Source.KeyPath &&
 		binding.ValuePath == frame.Source.ValuePath && binding.LogicalType == frame.Source.LogicalType &&
 		reflect.DeepEqual(binding.ChoiceArms, frame.Source.ChoiceArms)
+}
+
+func semanticEntryMatchesFrameFamily(entry catalog.SemanticInventoryEntry, observation catalog.SemanticObservation, plan authoringv2.SemanticSelectionPlan, family capability.SemanticFrameFamily) bool {
+	if entry.BindingID != family.BindingID || observation.Source.Type != family.ResourceType ||
+		observation.Source.Path != family.SourcePath || observation.Source.Canonical != family.SourceCanonical ||
+		observation.Source.Profile != family.SourceProfile || observation.RuleVersion != family.RuleVersion ||
+		observation.SchemaVersion != family.SchemaVersion || observation.Key.Version != "" ||
+		plan.Source == nil || plan.Source.Kind != authoringv2.SourceCodedValue ||
+		plan.Source.Lookup == nil || plan.Source.Lookup.Binding == nil || plan.Source.Lookup.Key == nil {
+		return false
+	}
+	binding := plan.Source.Lookup.Binding
+	return binding.OwnerPath == family.OwningScope && binding.KeyPath == family.KeyPath &&
+		binding.ValuePath == family.ValuePath && binding.LogicalType == family.LogicalType &&
+		reflect.DeepEqual(binding.ChoiceArms, family.ChoiceArms)
 }
 
 func proveOwnerRecords(ctx context.Context, authorized AuthorizedCapability, rootResourceType string, observation catalog.SemanticObservation) bool {

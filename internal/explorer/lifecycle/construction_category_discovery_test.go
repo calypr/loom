@@ -52,6 +52,7 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 
 	calls := 0
 	includeMissing := false
+	conclusiveMissing := false
 	incomplete := false
 	overflow := false
 	invalidProof := false
@@ -78,6 +79,9 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 			t.Fatalf("requested category column %q was absent from the stage receipt", request.CategoryColumnID)
 		}
 		proof := compilerCategoryScanProof(request, category)
+		if conclusiveMissing {
+			proof.OverflowWitnessFingerprint = "witness"
+		}
 		if invalidProof {
 			proof.Fingerprint = ""
 		}
@@ -86,10 +90,11 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 			values = append(values, dataframeexecution.CategoryValue{Present: false})
 		}
 		return dataframeexecution.CategoryScanResult{
-			Values:   values,
-			Complete: !incomplete && !overflow,
+			Values: values,
+			Complete: !incomplete && !overflow && !conclusiveMissing,
 			Overflow: overflow,
-			Proof:    proof,
+			ConclusiveMissing: conclusiveMissing,
+			Proof: proof,
 		}, nil
 	}
 
@@ -125,6 +130,12 @@ func TestDiscoverConstructionCategoriesBindsCompleteScanToExactStageAndPair(t *t
 		t.Fatalf("missing-category discovery = %#v, error = %v; want empty unsupported result with guidance", unsupported, err)
 	}
 	includeMissing = false
+	conclusiveMissing = true
+	unsupported, err = service.DiscoverConstructionCategories(context.Background(), request)
+	if err != nil || unsupported.Outcome != constructionCategoryDiscoveryMissingUnsupported || unsupported.Complete || len(unsupported.Categories) != 0 {
+		t.Fatalf("missing-category witness result = %#v, error = %v", unsupported, err)
+	}
+	conclusiveMissing = false
 
 	incomplete = true
 	if _, err := service.DiscoverConstructionCategories(context.Background(), request); lifecycleErrorCode(err) != "CATEGORY_SCAN_INCOMPLETE" {

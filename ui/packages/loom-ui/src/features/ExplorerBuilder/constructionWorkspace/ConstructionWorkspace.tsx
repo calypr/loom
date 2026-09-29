@@ -121,7 +121,10 @@ export const ConstructionTableNavigation = ({
   readonly onDeleteTable: () => void;
   readonly onRenameTable: (outputId: string) => void;
   readonly onMoveTable: (outputId: string, beforeOutputId?: string) => void;
-}) => (
+}) => {
+  const selectedIndex = tables.findIndex((table) => table.outputId === selectedOutputId);
+  const selectedTable = tables[selectedIndex];
+  return (
   <nav aria-label="Tables" className="grid gap-1">
     <div className="mb-1 flex items-center justify-between gap-2 px-2">
       <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -138,8 +141,8 @@ export const ConstructionTableNavigation = ({
       </button>
     </div>
     <div className="flex snap-x snap-mandatory gap-1 overflow-x-auto pb-1 lg:grid lg:snap-none lg:overflow-visible lg:pb-0">
-      {tables.map((table, index) => (
-        <div key={table.outputId} className="group flex min-w-48 shrink-0 snap-start items-center gap-0.5 lg:min-w-0">
+      {tables.map((table) => (
+        <div key={table.outputId} className="flex min-w-48 shrink-0 snap-start items-center lg:min-w-0">
           <button
             type="button"
             aria-current={table.outputId === selectedOutputId ? 'page' : undefined}
@@ -147,7 +150,7 @@ export const ConstructionTableNavigation = ({
             data-testid={`construction-table-${table.outputId}`}
             onClick={() => onSelectTable(table.outputId)}
             disabled={disabled}
-            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${
+            className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors disabled:opacity-50 ${
               table.outputId === selectedOutputId
                 ? 'bg-emerald-100 font-semibold text-emerald-950'
                 : 'text-slate-700 hover:bg-white'
@@ -156,43 +159,34 @@ export const ConstructionTableNavigation = ({
             <span aria-hidden="true" className="shrink-0 text-emerald-800">▤</span>
             <span className="min-w-0 truncate">{table.title || table.outputId}</span>
           </button>
-          <button
-            type="button"
-            aria-label={`Rename ${table.title || table.outputId}`}
-            title="Rename table"
-            data-testid={`construction-rename-table-${table.outputId}`}
-            disabled={disabled}
-            onClick={() => onRenameTable(table.outputId)}
-            className="rounded px-1.5 py-1 text-xs text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-40"
-          >
-            …
-          </button>
-          <div className="flex shrink-0">
-            <button
-              type="button"
-              aria-label={`Move ${table.title || table.outputId} up`}
-              title="Move table up"
-              disabled={disabled || index === 0}
-              onClick={() => onMoveTable(table.outputId, tables[index - 1]?.outputId)}
-              className="rounded px-1 py-1 text-xs text-slate-500 hover:bg-white disabled:opacity-30"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              aria-label={`Move ${table.title || table.outputId} down`}
-              title="Move table down"
-              disabled={disabled || index === tables.length - 1}
-              onClick={() => onMoveTable(table.outputId, tables[index + 2]?.outputId)}
-              className="rounded px-1 py-1 text-xs text-slate-500 hover:bg-white disabled:opacity-30"
-            >
-              ↓
-            </button>
-          </div>
         </div>
       ))}
     </div>
-    <div className="mt-1 flex gap-3 border-t border-slate-200 px-2 pt-1.5">
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-200 px-1 pt-1.5">
+      <button
+        type="button"
+        aria-label={`Rename ${selectedTable?.title || selectedTable?.outputId || 'table'}`}
+        data-testid={selectedOutputId ? `construction-rename-table-${selectedOutputId}` : undefined}
+        disabled={disabled || !selectedTable}
+        onClick={() => selectedTable && onRenameTable(selectedTable.outputId)}
+        className="rounded px-1 py-1 text-xs font-medium text-slate-700 hover:bg-white disabled:opacity-45"
+      >
+        Rename
+      </button>
+      <button
+        type="button"
+        aria-label={`Move ${selectedTable?.title || selectedTable?.outputId || 'table'} up`}
+        disabled={disabled || selectedIndex <= 0}
+        onClick={() => selectedTable && onMoveTable(selectedTable.outputId, tables[selectedIndex - 1]?.outputId)}
+        className="rounded px-1 py-1 text-xs text-slate-600 hover:bg-white disabled:opacity-30"
+      >↑</button>
+      <button
+        type="button"
+        aria-label={`Move ${selectedTable?.title || selectedTable?.outputId || 'table'} down`}
+        disabled={disabled || selectedIndex < 0 || selectedIndex === tables.length - 1}
+        onClick={() => selectedTable && onMoveTable(selectedTable.outputId, tables[selectedIndex + 2]?.outputId)}
+        className="rounded px-1 py-1 text-xs text-slate-600 hover:bg-white disabled:opacity-30"
+      >↓</button>
       <button
         type="button"
         aria-label="Duplicate table"
@@ -215,7 +209,8 @@ export const ConstructionTableNavigation = ({
       </button>
     </div>
   </nav>
-);
+  );
+};
 
 export const ConstructionHistory = ({
   steps,

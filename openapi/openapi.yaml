@@ -3403,8 +3403,9 @@ components:
       additionalProperties: false
       required: [kind]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, CODED_PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, COMBINE, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         pivot: {$ref: '#/components/schemas/ConstructionPivot'}
+        codedPivot: {$ref: '#/components/schemas/ConstructionCodedPivot'}
         derive: {$ref: '#/components/schemas/ConstructionDerive'}
         filter: {$ref: '#/components/schemas/ConstructionFilter'}
         unpivot: {$ref: '#/components/schemas/ConstructionUnpivot'}
@@ -3550,6 +3551,42 @@ components:
       required: [key, outputColumnId]
       properties:
         key: {$ref: '#/components/schemas/ConstructionTableScalar'}
+        outputColumnId: {type: string, minLength: 1}
+    ConstructionCodedPivot:
+      type: object
+      additionalProperties: false
+      required: [constructionId, categories, duplicatePolicy, missingCellPolicy]
+      properties:
+        constructionId: {type: string, minLength: 1}
+        sourceChoiceId: {type: string, minLength: 1, description: "Signed source choice on a proposal; omitted after the source is resolved."}
+        source: {$ref: '#/components/schemas/ConstructionCodedPivotSource'}
+        categories:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: '#/components/schemas/ConstructionCodedPivotCategory'}
+        duplicatePolicy: {type: string, enum: [ERROR, SUM, MIN, MAX]}
+        missingCellPolicy: {type: string, enum: [NULL, ERROR]}
+    ConstructionCodedPivotSource:
+      type: object
+      additionalProperties: false
+      required: [family, candidateId, nodeId, fieldPath, route]
+      properties:
+        family: {$ref: '#/components/schemas/SemanticFrameFamily'}
+        candidateId: {type: string, minLength: 1}
+        nodeId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        route:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionRouteStep'}
+    ConstructionCodedPivotCategory:
+      type: object
+      additionalProperties: false
+      required: [outputColumnId]
+      properties:
+        choiceId: {type: string, minLength: 1, description: "Signed category choice on a proposal; omitted after the category is resolved."}
+        system: {type: string}
+        code: {type: string, minLength: 1}
         outputColumnId: {type: string, minLength: 1}
     ConstructionTableScalar:
       type: object
@@ -3818,7 +3855,7 @@ components:
       additionalProperties: false
       required: [kind, supported]
       properties:
-        kind: {type: string, enum: [PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
+        kind: {type: string, enum: [PIVOT, CODED_PIVOT, DERIVE, FILTER, UNPIVOT, GROUP, CODED_GROUP, EXPAND, RELATED_SOURCE, RELATED_EXPAND, RELATED_ELIGIBILITY, RELATED_FIELD]}
         supported: {type: boolean}
         reasonCode: {type: string}
         reason: {type: string}
@@ -4965,6 +5002,7 @@ components:
         rowRoot: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1, description: "Required when frameId scopes the browse to one saved output."}
         frameId: {type: string, minLength: 1}
+        sourceChoiceId: {type: string, minLength: 1, description: "Signed coded-source choice for browsing category values before creating a frame; exclusive with frameId."}
         resourceType: {type: string}
         query: {type: string, maxLength: 256}
         cursor: {type: string, maxLength: 4096}

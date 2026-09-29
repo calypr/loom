@@ -619,6 +619,38 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 					return err
 				}
 			}
+		case authoringv2.ConstructionOperationCodedPivot:
+			if step.Operation.CodedPivot == nil || step.Operation.CodedPivot.Source == nil {
+				return fmt.Errorf("coded pivot step %q has no source", step.ID)
+			}
+			pivot := step.Operation.CodedPivot
+			quality, err := pivotOutputQuality(&authoringv2.PivotConstruction{
+				DuplicatePolicy: string(pivot.DuplicatePolicy), MissingCellPolicy: string(pivot.MissingCellPolicy),
+				UnlistedCategoryPolicy: "EXCLUDE_WITH_EVIDENCE",
+			})
+			if err != nil {
+				return fmt.Errorf("coded pivot step %q: %w", step.ID, err)
+			}
+			quality.LossReasons = []string{"CODED_PIVOT_SELECTED_CATEGORIES_ONLY"}
+			if pivot.DuplicatePolicy != authoringv2.ConstructionPivotDuplicateError {
+				quality.LossReasons = append(quality.LossReasons, "TABLE_SHAPE_PIVOT_DUPLICATES_AGGREGATED")
+			}
+			for _, category := range pivot.Categories {
+				if err := addOutput(category.OutputColumnID, pivot.ConstructionID, nil, quality); err != nil {
+					return err
+				}
+				for _, output := range step.Outputs {
+					if output.ID == category.OutputColumnID {
+						metadata := nextAuthored[output.Name]
+						metadata.NodeID = pivot.Source.NodeID
+						metadata.CandidateID = pivot.Source.CandidateID
+						metadata.SourceResourceType = pivot.Source.Family.ResourceType
+						metadata.SourcePath = pivot.Source.Family.ValuePath
+						nextAuthored[output.Name] = metadata
+						break
+					}
+				}
+			}
 		case authoringv2.ConstructionOperationUnpivot:
 			if step.Operation.Unpivot == nil {
 				return fmt.Errorf("unpivot step %q has no operation payload", step.ID)

@@ -11,6 +11,14 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
+// RelatedEligibilityAnchorError identifies a saved step whose row anchor no
+// longer resolves after an earlier row-shape change.
+type RelatedEligibilityAnchorError struct{ StepID string }
+
+func (e *RelatedEligibilityAnchorError) Error() string {
+	return fmt.Sprintf("related eligibility step %q has no compiler-proven exact resource identity", e.StepID)
+}
+
 func lowerConstructionRelatedEligibility(
 	plan *ir.PhysicalPlan,
 	step recipe.ConstructionStep,
@@ -28,7 +36,7 @@ func lowerConstructionRelatedEligibility(
 	anchor, ok := input[related.AnchorColumnID]
 	if !ok || !anchor.Internal || anchor.Kind != string(expression.KindString) ||
 		(anchor.Cardinality != string(expression.RequiredOne) && anchor.Cardinality != string(expression.OptionalOne)) {
-		return ir.PhysicalFilter{}, nil, nil, nil, fmt.Errorf("related eligibility anchor is not a compiler-proven exact resource identity")
+		return ir.PhysicalFilter{}, nil, nil, nil, &RelatedEligibilityAnchorError{StepID: step.ID}
 	}
 	anchorKind, anchorNodeID, anchorResourceType := "root", related.Route[0].FromNodeID, rootResourceType
 	if related.AnchorColumnID == "_key" {

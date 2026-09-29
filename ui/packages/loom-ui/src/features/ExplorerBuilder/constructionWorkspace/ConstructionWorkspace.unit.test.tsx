@@ -93,6 +93,8 @@ describe('ConstructionWorkspace', () => {
   it('navigates named tables and keeps a history panel absent when there are no authored steps', () => {
     const onSelectTable = vi.fn();
     const onNewTable = vi.fn();
+    const onRenameTable = vi.fn();
+    const onMoveTable = vi.fn();
     render(
       <>
         <ConstructionTableNavigation
@@ -105,8 +107,8 @@ describe('ConstructionWorkspace', () => {
           onNewTable={onNewTable}
           onDuplicateTable={vi.fn()}
           onDeleteTable={vi.fn()}
-          onRenameTable={vi.fn()}
-          onMoveTable={vi.fn()}
+          onRenameTable={onRenameTable}
+          onMoveTable={onMoveTable}
         />
         <ConstructionHistory
           steps={[]}
@@ -124,6 +126,11 @@ describe('ConstructionWorkspace', () => {
     expect(onSelectTable).toHaveBeenCalledWith('visits');
     fireEvent.click(screen.getByTestId('construction-new-table'));
     expect(onNewTable).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('construction-rename-table-visits')).toBeNull();
+    fireEvent.click(screen.getByTestId('construction-rename-table-patients'));
+    expect(onRenameTable).toHaveBeenCalledWith('patients');
+    fireEvent.click(screen.getByRole('button', { name: 'Move Patients down' }));
+    expect(onMoveTable).toHaveBeenCalledWith('patients', undefined);
     expect(screen.queryByTestId('construction-history')).not.toBeInTheDocument();
   });
 

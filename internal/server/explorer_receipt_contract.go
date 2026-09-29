@@ -172,6 +172,14 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 }
 
 func classifyReceiptRecipeError(err error) error {
+	var invalidAnchor *lower.RelatedEligibilityAnchorError
+	if errors.As(err, &invalidAnchor) {
+		return &explorercompilation.Error{
+			Stage: "construction", Code: "CONSTRUCTION_ANCHOR_INVALID",
+			Message: "A related-record step no longer has a valid row anchor. Edit or remove the affected step before applying this change.",
+			Details: map[string]any{"stepId": invalidAnchor.StepID}, Cause: err,
+		}
+	}
 	var reducerType *lower.PivotReducerTypeError
 	if errors.As(err, &reducerType) {
 		return &explorercompilation.Error{

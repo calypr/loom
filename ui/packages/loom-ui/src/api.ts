@@ -312,6 +312,7 @@ export interface BrowseSemanticInventoryArgs extends ExplorerAuthoringStateArgs 
   readonly snapshotToken: string;
   readonly rowRoot: string;
   readonly frameId?: string;
+  readonly sourceChoiceId?: string;
   readonly outputId?: string;
   readonly resourceType?: string;
   readonly query?: string;
@@ -1232,6 +1233,7 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       snapshotToken: args.snapshotToken,
       rowRoot: args.rowRoot,
       ...(args.frameId ? { frameId: args.frameId } : {}),
+      ...(args.sourceChoiceId ? { sourceChoiceId: args.sourceChoiceId } : {}),
       ...(args.outputId ? { outputId: args.outputId } : {}),
       ...(args.resourceType ? { resourceType: args.resourceType } : {}),
       ...(args.query ? { query: args.query } : {}),

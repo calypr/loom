@@ -108,6 +108,10 @@ const selectionPage = {
   ],
 };
 
+const browseFrameSourceOptions = vi.fn().mockResolvedValue({
+  sources: [{ route: [], resourceType: 'Patient' }],
+});
+
 const renderSettings = (overrides: {
   draftVersion?: number;
   draftDigest?: string;
@@ -115,6 +119,8 @@ const renderSettings = (overrides: {
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
   pivotSupported?: boolean;
+  codedPivotDefault?: boolean;
+  tablePivotAlternative?: boolean;
   codedGroupDefault?: boolean;
   sourceGroupAlternative?: boolean;
   onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
@@ -133,13 +139,14 @@ const renderSettings = (overrides: {
       onChangeRootOccurrence={onChangeRootOccurrence}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
       reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
-        groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [], pivot: {
+        groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [],
+        pivotEntry: overrides.codedPivotDefault ? 'coded-pivot' : 'pivot', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
-      } }}
+      }, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
-      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
@@ -212,6 +219,38 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(await screen.findByTestId('construction-action-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('starts from coded source values when the server supports row-first pivot', async () => {
+    const { onChooseReshape } = renderSettings({ codedPivotDefault: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const pivot = await screen.findByTestId('construction-action-pivot-rows');
+    await waitFor(() => expect(pivot).toBeEnabled());
+    expect(pivot).toHaveTextContent('directly from the source records');
+    fireEvent.click(pivot);
+    expect(onChooseReshape).toHaveBeenCalledWith('coded-pivot');
+  });
+
+  it('explains the missing direct coded source before opening the pivot editor', async () => {
+    browseFrameSourceOptions.mockResolvedValueOnce({ sources: [] });
+    const { onChooseReshape } = renderSettings({ codedPivotDefault: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const pivot = await screen.findByTestId('construction-action-pivot-rows');
+    await waitFor(() => expect(pivot).toHaveTextContent('No direct coded value and paired value source'));
+    expect(pivot).toBeDisabled();
+    fireEvent.click(pivot);
+    expect(onChooseReshape).not.toHaveBeenCalled();
+  });
+
+  it('uses table columns when coded values are absent but table Pivot is available', async () => {
+    browseFrameSourceOptions.mockResolvedValueOnce({ sources: [] });
+    const { onChooseReshape } = renderSettings({ codedPivotDefault: true, tablePivotAlternative: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const pivot = await screen.findByTestId('construction-action-pivot-rows');
+    await waitFor(() => expect(pivot).toHaveTextContent('Use a category and value column from this table'));
+    expect(pivot).toBeEnabled();
+    fireEvent.click(pivot);
+    expect(onChooseReshape).toHaveBeenCalledWith('pivot');
   });
 
   it('disables row operations the backend has not declared executable', async () => {
@@ -422,7 +461,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"
@@ -481,7 +520,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"
@@ -527,7 +566,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
       />,
@@ -573,7 +612,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision, browseFrameSourceOptions }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
       />,
@@ -595,7 +634,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const proposeRowDefinition = vi.fn().mockResolvedValue(proposal);
     const onApply = vi.fn().mockResolvedValue(true);
     const props = {
-      client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
+      client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn(), browseFrameSourceOptions },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       draftVersion: 4, draftDigest: 'draft-digest-4', table, disabled: false, onApply,
       ...relatedRowProps,
@@ -646,7 +685,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn(), browseFrameSourceOptions }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"

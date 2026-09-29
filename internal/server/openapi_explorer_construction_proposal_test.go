@@ -852,6 +852,12 @@ func TestEmptyConstructionBootstrapAddFirstColumnAndProposeOperation(t *testing.
 			}
 			continue
 		}
+		if string(operation.Kind) == "CODED_PIVOT" {
+			if !operation.Supported {
+				t.Fatalf("coded pivot should be available before adding source columns: %#v", operation)
+			}
+			continue
+		}
 		if operation.Supported {
 			t.Fatalf("zero-column source unexpectedly supports %s: %#v", operation.Kind, operation)
 		}

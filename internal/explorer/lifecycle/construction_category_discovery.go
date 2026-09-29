@@ -145,13 +145,14 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 	}
 	proof := scan.Proof
 	overflow := scan.Overflow || len(scan.Values) > compiler.MaxCategoryScanValues
-	if (!overflow && !scan.Complete) ||
+	if (!overflow && !scan.ConclusiveMissing && !scan.Complete) ||
 		proof.Version != 2 || proof.Output != request.OutputID || proof.StageID != request.StageID ||
 		proof.ColumnID != request.CategoryColumnID || proof.ValueColumnID != request.ValueColumnID ||
 		proof.Column != category.Name || proof.MaxValues != compiler.MaxCategoryScanValues ||
 		proof.Kind != category.Type || proof.Cardinality != string(category.Cardinality) ||
 		strings.TrimSpace(proof.OutputSchemaDigest) == "" || strings.TrimSpace(proof.PlanFingerprint) == "" ||
-		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" {
+		strings.TrimSpace(proof.QueryFingerprint) == "" || strings.TrimSpace(proof.Fingerprint) == "" ||
+		(scan.ConclusiveMissing && strings.TrimSpace(proof.OverflowWitnessFingerprint) == "") {
 		return ConstructionCategoryDiscoveryResponse{}, unprocessable("construction-category-discovery", "CATEGORY_SCAN_INCOMPLETE", "pivot categories require a complete stage-bound scan within the supported limit", nil)
 	}
 	if overflow {
@@ -167,16 +168,18 @@ func (s *Service) DiscoverConstructionCategories(ctx context.Context, request Co
 	// rows. Those projections currently preserve values but not source property
 	// presence, so returning MISSING as a selectable category would produce a
 	// candidate that the compiler cannot execute without conflating it with NULL.
+	missing := scan.ConclusiveMissing
 	for _, item := range scan.Values {
-		if !item.Present {
-			return ConstructionCategoryDiscoveryResponse{
-				SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
-				OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
-				ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryMissingUnsupported,
-				Categories: []ConstructionDiscoveredCategory{},
-				Message:    "Some records have no category field. Loom cannot currently distinguish an absent field from a field present with no value in this Pivot. Filter rows where the category field is missing, or choose a field populated in every row.",
-			}, nil
-		}
+		missing = missing || !item.Present
+	}
+	if missing {
+		return ConstructionCategoryDiscoveryResponse{
+			SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
+			OutputID: request.OutputID, StageID: request.StageID, CategoryColumnID: request.CategoryColumnID,
+			ValueColumnID: request.ValueColumnID, Outcome: constructionCategoryDiscoveryMissingUnsupported,
+			Categories: []ConstructionDiscoveredCategory{},
+			Message:    "Some records have no category field. Loom cannot currently distinguish an absent field from a field present with no value in this Pivot. Filter rows where the category field is missing, or choose a field populated in every row.",
+		}, nil
 	}
 	categories := make([]ConstructionDiscoveredCategory, 0, len(scan.Values))
 	for _, item := range scan.Values {

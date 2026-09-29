@@ -26,7 +26,13 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	sourcePlan.StageSequence = nil
 	sourcePlan.PreviewSourceWindowByRootID = sequence.PreviewSourceWindowByRootID && sequence.PreviewLimitBindKey != ""
 	inlineCodedGroupRoot := codedGroupSourceRootVariable(sourcePlan, sequence, stages, options)
-	inlineSourceIntoFirstStage := inlineSourceForKeylessCount || inlineCodedGroupRoot != ""
+	inlineCodedPivotRoot := codedPivotSourceRootVariable(sourcePlan, sequence, stages, options)
+	for _, stage := range stages {
+		if stage.GroupedPivot != nil && stage.GroupedPivot.CodedCorrelation != nil && inlineCodedPivotRoot == "" {
+			return RenderedPhysicalPlan{}, fmt.Errorf("coded Pivot requires the source root to be streamed into its first stage")
+		}
+	}
+	inlineSourceIntoFirstStage := inlineSourceForKeylessCount || inlineCodedGroupRoot != "" || inlineCodedPivotRoot != ""
 	if !inlineSourceIntoFirstStage {
 		pruneUnusedSourceGroupProjections(&sourcePlan, sequence)
 	}
@@ -147,6 +153,7 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 	for index, stage := range stages {
 		stageRows := fmt.Sprintf("__loom_construction_stage_%d", index+1)
 		lines = append(lines, fmt.Sprintf("LET %s = (", stageRows))
+		inlineCodedPivotStage := index == 0 && inlineCodedPivotRoot != "" && stage.Kind == ir.PhysicalStagePivotOp
 		if inlineSourceIntoFirstStage && index == 0 {
 			for _, line := range strings.Split(strings.TrimSuffix(source.Query, "\n"), "\n") {
 				lines = append(lines, "  "+line)
@@ -176,7 +183,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			priorRows = stageRows
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
+		if !inlineCodedPivotStage {
+			lines = append(lines, fmt.Sprintf("  FOR %s IN %s", stage.InputRowVariable, priorRows))
+		}
 		switch stage.Kind {
 		case ir.PhysicalStagePivotOp:
 			if stage.GroupedPivot == nil {
@@ -187,6 +196,9 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			previewLimitBindKey := ""
 			if sequence.PreviewTerminalPivotWindow && index == len(stages)-1 && !options.twoScanPivotPreview {
 				previewLimitBindKey = sequence.PreviewLimitBindKey
+			}
+			if inlineCodedPivotStage && stage.GroupedPivot.CodedSourceVariable != inlineCodedPivotRoot {
+				return RenderedPhysicalPlan{}, fmt.Errorf("coded Pivot source variable differs from the inlined root scan")
 			}
 			rendered, renderErr := renderer.renderGroupedTablePivot(*stage.GroupedPivot, !stage.GroupedPivot.OneInputRowPerGroup, previewLimitBindKey)
 			if renderErr != nil {
@@ -361,6 +373,52 @@ func codedGroupSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.Physi
 	return root.Variable
 }
 
+// codedPivotSourceRootVariable returns the exact direct root scan variable only
+// when CODED_PIVOT is the first source stage. The renderer embeds that source
+// query into the Pivot subquery and evaluates each root's coded cells before
+// returning it, so a full payload array is never materialized between stages.
+func codedPivotSourceRootVariable(sourcePlan ir.PhysicalPlan, sequence *ir.PhysicalStageSequence, stages []ir.PhysicalConstructionStage, options physicalRenderOptions) string {
+	if sequence == nil || len(stages) == 0 || sequence.RowLineageReturn != nil || sequence.CellTraceReturn != nil ||
+		options.terminalProjectionColumn != "" || options.projectionPresenceMarkerColumn != "" ||
+		len(options.preserveProjectionPresenceNames) != 0 || options.twoScanPivotPreview ||
+		stages[0].Kind != ir.PhysicalStagePivotOp || stages[0].GroupedPivot == nil ||
+		stages[0].GroupedPivot.CodedCorrelation == nil || stages[0].InputStageID != sequence.SourceStageID ||
+		stages[0].GroupedPivot.CodedSourceVariable == "" || !stages[0].GroupedPivot.OneInputRowPerGroup ||
+		sequence.SourceRowIdentity != "_key" || len(sourcePlan.Operations) < 2 ||
+		sourcePlan.Operations[0].Kind != ir.PhysicalRootScanOp || sourcePlan.Operations[0].RootScan == nil {
+		return ""
+	}
+	root := sourcePlan.Operations[0].RootScan
+	if root.Variable == "" || root.Variable != stages[0].GroupedPivot.CodedSourceVariable ||
+		root.CollectionBindKey == "" || sourcePlan.BindVars[root.CollectionBindKey] != stages[0].GroupedPivot.CodedCorrelation.ResourceType {
+		return ""
+	}
+	returns := 0
+	for index, operation := range sourcePlan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if index != 0 || operation.RootScan == nil {
+				return ""
+			}
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp,
+			ir.PhysicalSetOp, ir.PhysicalSortOp, ir.PhysicalLimitOp:
+			// Source filters, authorization, and row-preserving LETs remain in
+			// scope while each direct root is pivoted.
+		case ir.PhysicalReturnOp:
+			returns++
+			if operation.Return == nil || index != len(sourcePlan.Operations)-1 {
+				return ""
+			}
+		default:
+			return ""
+		}
+	}
+	if returns != 1 {
+		return ""
+	}
+	return root.Variable
+}
+
 func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.PhysicalStageSequence) {
 	if sequence.CellTraceReturn != nil || len(sequence.Stages) == 0 {
 		return
@@ -391,6 +449,31 @@ func pruneUnusedSourceGroupProjections(plan *ir.PhysicalPlan, sequence *ir.Physi
 		}
 		operation.Return.Projections = projections
 	}
+}
+
+func directRootCategoryProjection(projection ir.PhysicalProjection, root string) bool {
+	if projection.Presence != nil && (projection.Presence.Source.Variable != root || projection.Presence.Source.BindKey != "") {
+		return false
+	}
+	if projection.Expression == nil {
+		return projection.Value.Variable == root && projection.Value.BindKey == "" && len(projection.Value.Path) > 0
+	}
+	expression := projection.Expression
+	if expression.Kind != ir.PhysicalExtractExpression || expression.Cardinality != ir.PhysicalScalarCardinality || expression.Extract == nil {
+		return false
+	}
+	extract := expression.Extract
+	if extract.ExecutionMode != ir.PhysicalSelectorDirectScalar || extract.Source.Variable != root || extract.Source.BindKey != "" ||
+		len(extract.Source.Path) == 0 || len(extract.Fallbacks) != 0 || extract.Prepared != nil || extract.Distinct ||
+		extract.UnitNormalization != nil || extract.Selector.Filter != nil || len(extract.Selector.Steps) == 0 {
+		return false
+	}
+	for _, step := range extract.Selector.Steps {
+		if step.Field == "" || step.Iterate || step.Index != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func terminalKeylessCountRowsOnly(sequence *ir.PhysicalStageSequence) bool {

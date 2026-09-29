@@ -100,6 +100,7 @@ func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResource
 	}
 	descriptor.Capabilities = stageCapabilities(columns)
 	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities, codedGroupSourceCapability(columns, rootResourceType))
+	descriptor.Capabilities = withConstructionCapability(descriptor.Capabilities, codedPivotSourceCapability(columns, rootResourceType))
 	descriptor.RelatedExpandAnchors = relatedExpandAnchors(columns, rootResourceType)
 	return descriptor, nil
 }
@@ -118,7 +119,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	if step, ok := construction.TerminalCombineStep(); ok {
 		return appendRecipeTerminalCombine(plan, step)
 	}
-	if len(construction.SourceColumns) == 0 {
+	if len(construction.SourceColumns) == 0 && (len(construction.Steps) == 0 || construction.Steps[0].Operation.Kind != recipe.ConstructionCodedPivotOp) {
 		return nil, nil, "", fmt.Errorf("construction source schema must be supplied by the resolved source compiler")
 	}
 	resolvedSource, err := resolveConstructionSourceSchema(plan, construction.SourceColumns, sourceSchema, outputName)
@@ -141,6 +142,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	}}
 	descriptors[0].Capabilities = stageCapabilities(resolvedSource)
 	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedGroupSourceCapability(resolvedSource, rootResourceType))
+	descriptors[0].Capabilities = withConstructionCapability(descriptors[0].Capabilities, codedPivotSourceCapability(resolvedSource, rootResourceType))
 	descriptors[0].RelatedExpandAnchors = relatedExpandAnchors(resolvedSource, rootResourceType)
 	if len(construction.Steps) == 0 {
 		return resolvedSource, descriptors, sourceIdentity, nil
@@ -182,7 +184,32 @@ func constructionRootIDPivotFastPathEligible(plan *ir.PhysicalPlan, sequence *ir
 	if !constructionRootIDPivotSourceEligible(plan, rootResourceType) {
 		return false
 	}
+	if stage.GroupedPivot.CodedCorrelation != nil {
+		return constructionCodedPivotHasDirectRootKey(plan, stage.GroupedPivot, descriptors[0].Columns, rootResourceType)
+	}
 	return groupedPivotHasDirectRootIDKey(plan, stage.GroupedPivot.GroupKeys, descriptors[0].Columns, rootResourceType)
+}
+
+func constructionCodedPivotHasDirectRootKey(plan *ir.PhysicalPlan, pivot *ir.PhysicalGroupedPivot, schema []CompiledOutputColumn, rootResourceType string) bool {
+	if plan == nil || pivot == nil || len(pivot.GroupKeys) != 1 || pivot.GroupKeys[0].Column != "_key" ||
+		!pivot.GroupKeys[0].Hidden || pivot.GroupKeys[0].Kind != "STRING" ||
+		pivot.CodedSourceVariable == "" || len(plan.Operations) == 0 || plan.Operations[0].RootScan == nil {
+		return false
+	}
+	root := plan.Operations[0].RootScan
+	identity, found := schemaColumn(schema, "_key")
+	if !found || !identity.Internal || !identity.Identity || identity.Kind != string(expression.KindString) ||
+		identity.Cardinality != string(expression.RequiredOne) || plan.Source.ResourceType != rootResourceType ||
+		root.Variable != pivot.CodedSourceVariable {
+		return false
+	}
+	for _, projection := range pivot.InputProjections {
+		if projection.Name == "_key" {
+			return projection.Hidden && projection.Value.Variable == root.Variable &&
+				len(projection.Value.Path) == 1 && projection.Value.Path[0] == "_key"
+		}
+	}
+	return false
 }
 
 func constructionRootIDPivotSourceEligible(plan *ir.PhysicalPlan, rootResourceType string) bool {
@@ -474,6 +501,28 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 		if err != nil {
 			return constructionStageResult{}, err
 		}
+		outputIdentity = constructionRowID
+	case recipe.ConstructionCodedPivotOp:
+		codedPivot := step.Operation.CodedPivot
+		if codedPivot == nil {
+			return constructionStageResult{}, fmt.Errorf("coded Pivot payload is required")
+		}
+		physicalPivot, projections, compiled, err := lowerConstructionCodedPivot(
+			plan, *codedPivot, step.Outputs, inputIdentity, rootResourceType, inputRow, usedVariables, index,
+		)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		base.Kind, base.GroupedPivot = ir.PhysicalStagePivotOp, &physicalPivot
+		base.OutputRowVariable, base.OutputProjections = physicalPivot.OutputRowVariable, projections
+		outputSchema, err = reconcileConstructionCodedPivotSchema(step.Outputs, compiled, inputByID)
+		if err != nil {
+			return constructionStageResult{}, err
+		}
+		rootIdentity := inputByID[inputIdentity]
+		rootIdentity.Identity = false
+		rootIdentity.Internal = true
+		outputSchema = append([]CompiledOutputColumn{rootIdentity}, outputSchema...)
 		outputIdentity = constructionRowID
 	case recipe.ConstructionUnpivotOp:
 		unpivot := step.Operation.Unpivot
@@ -1112,6 +1161,7 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionUnpivotOp, unpivotPairs, "NO_COMPATIBLE_UNPIVOT_COLUMNS", "unpivot requires at least two public scalar columns with compatible types"),
 		capability(recipe.ConstructionGroupOp, len(public) > 0, "NO_PUBLIC_COLUMNS", "group requires at least one public column or row-count input"),
 		capability(recipe.ConstructionCodedGroupOp, false, "DIRECT_SOURCE_STAGE_REQUIRED", "coded grouping is available only on the direct source projection stage because transformed rows may omit Coding occurrences"),
+		capability(recipe.ConstructionCodedPivotOp, false, "DIRECT_SOURCE_STAGE_REQUIRED", "coded Pivot is available only on the direct source projection stage"),
 		capability(recipe.ConstructionExpandOp, arrays > 0, "NO_ARRAY_COLUMNS", "expand requires a public array-valued column"),
 		capability(recipe.ConstructionRelatedSourceOp, rootRowIdentity, "NO_SOURCE_ROW_ANCHOR", "related source requires the root document identity to survive this stage"),
 		capability(recipe.ConstructionRelatedExpandOp, rootKey || activeRelatedRecord, "NO_SOURCE_ROW_ANCHOR", "related expansion requires a retained root key or exact related-record identity"),
@@ -1119,6 +1169,21 @@ func stageCapabilities(columns []CompiledOutputColumn) []StageOperationCapabilit
 		capability(recipe.ConstructionRelatedFieldOp, activeRelatedRecord, "NO_ACTIVE_RELATED_RECORD", "related field requires the exact terminal resource identity to survive this stage"),
 	}
 }
+
+func codedPivotSourceCapability(columns []CompiledOutputColumn, rootResourceType string) StageOperationCapability {
+	capability := StageOperationCapability{
+		Operation: recipe.ConstructionCodedPivotOp, ReasonCode: "SOURCE_ROW_NOT_ROOT",
+		Reason: "coded Pivot requires direct root rows with a retained root document identity",
+	}
+	identity, found := schemaColumn(columns, "_key")
+	if found && identity.Internal && identity.Identity && identity.Kind == string(expression.KindString) &&
+		identity.Cardinality == string(expression.RequiredOne) && fhirschema.HasResource(rootResourceType) {
+		capability.Supported, capability.ReasonCode, capability.Reason = true, "", ""
+	}
+	return capability
+}
+
+const codedPivotSourcePayloadColumn = ir.PhysicalCodedPivotSourcePayloadColumn
 
 func codedGroupSourceCapability(columns []CompiledOutputColumn, rootResourceType string) StageOperationCapability {
 	capability := StageOperationCapability{

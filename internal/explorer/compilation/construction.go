@@ -442,6 +442,44 @@ func recipeConstructionOperation(authored authoringv2.ConstructionOperation) (re
 			})
 		}
 		operation.CodedGroup = mapped
+	case authoringv2.ConstructionOperationCodedPivot:
+		if authored.CodedPivot == nil || authored.CodedPivot.Source == nil || authored.CodedPivot.SourceChoiceID != "" {
+			return recipe.ConstructionOperation{}, fmt.Errorf("codedPivot must contain durable source facts after proposal")
+		}
+		coded := authored.CodedPivot
+		source := coded.Source
+		family := source.Family
+		mapped := &recipe.ConstructionCodedPivot{
+			ConstructionID: coded.ConstructionID,
+			Source: recipe.ConstructionCodedPivotSource{
+				BindingID: family.BindingID, ResourceType: family.ResourceType, SourcePath: family.SourcePath,
+				SourceCanonical: family.SourceCanonical, SourceProfile: family.SourceProfile,
+				OwningScope: family.OwningScope, KeyPath: family.KeyPath, ValuePath: family.ValuePath,
+				ChoiceArms: append([]string(nil), family.ChoiceArms...), LogicalType: family.LogicalType,
+				RuleVersion: family.RuleVersion, SchemaVersion: family.SchemaVersion,
+				CandidateID: source.CandidateID, NodeID: source.NodeID, FieldPath: source.FieldPath,
+				Route: make([]recipe.ConstructionRelatedRouteStep, 0, len(source.Route)),
+			},
+			DuplicatePolicy:   recipe.PivotDuplicatePolicy(coded.DuplicatePolicy),
+			MissingCellPolicy: recipe.PivotMissingCellPolicy(coded.MissingCellPolicy),
+			Categories:        make([]recipe.ConstructionCodedPivotCategory, 0, len(coded.Categories)),
+		}
+		for _, hop := range source.Route {
+			mapped.Source.Route = append(mapped.Source.Route, recipe.ConstructionRelatedRouteStep{
+				EdgeID: hop.EdgeID, FromNodeID: hop.FromNodeID, ToNodeID: hop.ToNodeID,
+				FromResourceType: hop.FromResourceType, ToResourceType: hop.ToResourceType,
+				Relationship: hop.Relationship, StorageDirection: hop.StorageDirection, MatchMode: hop.MatchMode,
+			})
+		}
+		for _, category := range coded.Categories {
+			if category.ChoiceID != "" {
+				return recipe.ConstructionOperation{}, fmt.Errorf("codedPivot category choice IDs must be cleared after proposal")
+			}
+			mapped.Categories = append(mapped.Categories, recipe.ConstructionCodedPivotCategory{
+				System: category.System, Code: category.Code, OutputColumnID: category.OutputColumnID,
+			})
+		}
+		operation.CodedPivot = mapped
 	case authoringv2.ConstructionOperationExpand:
 		if authored.Expand == nil {
 			return recipe.ConstructionOperation{}, fmt.Errorf("expand payload is required")

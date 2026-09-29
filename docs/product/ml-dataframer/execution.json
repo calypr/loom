@@ -76,6 +76,34 @@
       "sourceArtifact": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-source-oracle.json",
       "screenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-browser.png",
       "remaining": "Verify edit or remove in the full CDA browser rerun"
+    },
+    "codedPivotImplementation": {
+      "feature": "Choose coded source categories in Rows before adding visible columns",
+      "status": "implementation_in_progress",
+      "domUsability": "Rows entry and compact category editor implemented; production CDA browser path pending",
+      "resultCorrectness": "Unproven until backend lowering and independent CDA source comparison pass",
+      "persistence": "Saved category editor reopens in a focused UI test; live Apply and reload pending",
+      "verification": "Focused Rows, reshape, coded Pivot editor, table navigation, and API client tests pass; TypeScript production build and OpenAPI ownership check pass",
+      "remaining": "Finish backend lowering, deploy the single stack, run bounded CDA browser path, and measure preview latency"
+    },
+    "pivotCategoryDiscovery": {
+      "feature": "Find category values in the Rows pivot editor",
+      "status": "browser_refusal_paths_passed",
+      "domUsability": "Fresh CDA Builder pages allowed the researcher to choose group, category, and value fields; both refusal messages appeared in the editor",
+      "resultCorrectness": "An independent bounded Arango query found 257 distinct qualifying Specimen IDs; the API returned LIMIT_EXCEEDED. A sparse body-site field returned MISSING_UNSUPPORTED. Complete limited-category discovery remains unverified on live CDA.",
+      "persistence": "No operation applied because both selected category fields were unsupported; Apply, reload, edit, and removal remain unverified for this pivot flow",
+      "performance": "Original category request fell back to a full scan at about 7 seconds and sometimes timed out after 9 seconds. The bounded witness returned three CDA results in 2.19 to 2.29 seconds. Browser discovery messages appeared in 2.24 seconds.",
+      "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/browser-report.json",
+      "remaining": "Verify a complete category scan and Apply, reload, edit, and remove on a bounded CDA pivot; then run the full Builder feature audit"
+    },
+    "codedPivotAvailability": {
+      "feature": "Check direct coded-source availability before offering a Rows pivot",
+      "status": "browser_availability_passed",
+      "domUsability": "The BodyStructure Rows menu now disables Categories to columns and explains that no direct code and paired value source is available",
+      "resultCorrectness": "The editor's source inventory returned no direct paired source for the 135 authorized BodyStructure records",
+      "persistence": "No edit was made; this is an availability decision",
+      "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
+      "remaining": "Verify the enabled coded Pivot path on a resource with a direct paired source"
     }
   },
   "executionOrder": [

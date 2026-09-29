@@ -464,6 +464,7 @@ describe('Loom project paths', () => {
       explorerId: 'default',
       snapshotToken: 'snapshot-1',
       rowRoot: 'Specimen',
+      sourceChoiceId: 'signed-source-choice',
       resourceType: 'Observation',
       query: '4548-4',
       cursor: 'cursor-1',
@@ -476,6 +477,7 @@ describe('Loom project paths', () => {
         body: JSON.stringify({
           snapshotToken: 'snapshot-1',
           rowRoot: 'Specimen',
+          sourceChoiceId: 'signed-source-choice',
           resourceType: 'Observation',
           query: '4548-4',
           cursor: 'cursor-1',

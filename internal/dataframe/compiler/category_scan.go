@@ -60,19 +60,25 @@ func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
 // executable query. It is immutable compiler output, suitable for inclusion
 // in a later signed receipt without reconstructing either plan or schema.
 type CategoryScanProof struct {
-	Version            int
-	Output             string
-	StageID            string `json:",omitempty"`
-	ColumnID           string `json:",omitempty"`
-	ValueColumnID      string `json:",omitempty"`
-	Column             string
-	Kind               string
-	Cardinality        string
-	MaxValues          int
-	OutputSchemaDigest string
-	PlanFingerprint    string
-	QueryFingerprint   string
-	Fingerprint        string
+	Version                    int
+	Output                     string
+	StageID                    string `json:",omitempty"`
+	ColumnID                   string `json:",omitempty"`
+	ValueColumnID              string `json:",omitempty"`
+	Column                     string
+	Kind                       string
+	Cardinality                string
+	MaxValues                  int
+	OutputSchemaDigest         string
+	PlanFingerprint            string
+	QueryFingerprint           string
+	OverflowWitnessFingerprint string `json:",omitempty"`
+	Fingerprint                string
+}
+
+type CategoryOverflowWitness struct {
+	Query    string
+	BindVars map[string]any
 }
 
 type CompiledCategoryScanQuery struct {
@@ -83,6 +89,7 @@ type CompiledCategoryScanQuery struct {
 	Proof                CategoryScanProof
 	Diagnostics          ir.CompilerPlanDiagnostics
 	PreviewCoveringIndex *PreviewCoveringIndexSpec
+	OverflowWitness      *CategoryOverflowWitness
 }
 
 func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
@@ -223,6 +230,26 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		"  SORT __loom_category_group_present ASC, TYPENAME(__loom_category_group_value) ASC, __loom_category_group_value ASC\n" +
 		"  LIMIT @" + categoryLimitBind + "\n" +
 		"  RETURN { present: __loom_category_group_present, value: __loom_category_group_value }"
+	var overflowWitness *CategoryOverflowWitness
+	if physical.StageSequence != nil {
+		witness, eligible, witnessErr := aql.RenderRelatedEligibilityCategoryOverflowWitness(physical, column.Name, presenceMarkerColumn, maxValues*4+1)
+		if witnessErr != nil {
+			return CompiledCategoryScanQuery{}, fmt.Errorf("render category overflow witness: %w", witnessErr)
+		}
+		if eligible {
+			witnessQuery := "LET __loom_witness_rows = (\n" + witness.Query + "\n)\n" +
+				"FOR __loom_witness_row IN __loom_witness_rows\n" +
+				fmt.Sprintf("  LET __loom_witness_present = __loom_witness_row[%q]\n", presenceMarkerColumn) +
+				"  LET __loom_witness_value = __loom_witness_present ? __loom_witness_row[@" + categoryColumnBind + "] : null\n" +
+				"  COLLECT present = __loom_witness_present, value = __loom_witness_value\n" +
+				"  LIMIT @" + categoryLimitBind + "\n" +
+				"  RETURN { present, value }"
+			witnessBinds := cloneCategoryScanBinds(witness.BindVars)
+			witnessBinds[categoryColumnBind] = column.Name
+			witnessBinds[categoryLimitBind] = maxValues + 1
+			overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+		}
+	}
 
 	diagnostics := physicalPlanDiagnostics(physical)
 	schemaDigest, err := categoryHash(schema)
@@ -239,6 +266,12 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
 		QueryFingerprint: queryDigest,
 	}
+	if overflowWitness != nil {
+		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(overflowWitness.Query, overflowWitness.BindVars)
+		if err != nil {
+			return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category overflow witness: %w", err)
+		}
+	}
 	if stageID != "" {
 		proof.Version = 2
 		proof.StageID = stageID
@@ -251,7 +284,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	}
 	return CompiledCategoryScanQuery{
 		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
-		Proof: proof, Diagnostics: diagnostics, PreviewCoveringIndex: previewCoveringIndex,
+		Proof: proof, Diagnostics: diagnostics, PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
 	}, nil
 }
 

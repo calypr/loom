@@ -90,6 +90,53 @@ func validateConstructionCodedGroup(group ConstructionCodedGroup, input, output 
 	return requireExactStageOutputIDs(expected, output, path)
 }
 
+func validateConstructionCodedPivot(pivot ConstructionCodedPivot, input, output map[string]StageColumn, path string, constructionIDs map[string]bool) error {
+	if err := validateConstructionID(pivot.ConstructionID, path+".codedPivot.constructionId", constructionIDs); err != nil {
+		return err
+	}
+	source := pivot.Source
+	for name, value := range map[string]string{
+		"bindingId": source.BindingID, "resourceType": source.ResourceType, "sourcePath": source.SourcePath,
+		"keyPath": source.KeyPath, "valuePath": source.ValuePath, "logicalType": source.LogicalType,
+		"ruleVersion": source.RuleVersion, "candidateId": source.CandidateID, "nodeId": source.NodeID, "fieldPath": source.FieldPath,
+	} {
+		if strings.TrimSpace(value) == "" || value != strings.TrimSpace(value) {
+			return fmt.Errorf("%s codedPivot source %s is empty or untrimmed", path, name)
+		}
+	}
+	if source.SchemaVersion <= 0 || len(source.Route) != 0 {
+		return fmt.Errorf("%s codedPivot requires a positive schemaVersion and an empty direct-root route", path)
+	}
+	if len(pivot.Categories) == 0 || len(pivot.Categories) > 50 {
+		return fmt.Errorf("%s codedPivot requires 1..50 categories", path)
+	}
+	if pivot.DuplicatePolicy != PivotDuplicateError && pivot.DuplicatePolicy != PivotDuplicateSum &&
+		pivot.DuplicatePolicy != PivotDuplicateMin && pivot.DuplicatePolicy != PivotDuplicateMax {
+		return fmt.Errorf("%s codedPivot duplicatePolicy is unsupported", path)
+	}
+	if pivot.MissingCellPolicy != PivotMissingCellNull && pivot.MissingCellPolicy != PivotMissingCellError {
+		return fmt.Errorf("%s codedPivot missingCellPolicy is unsupported", path)
+	}
+	identities, expected := map[string]bool{}, map[string]bool{}
+	for index, category := range pivot.Categories {
+		if strings.TrimSpace(category.System) == "" || category.System != strings.TrimSpace(category.System) ||
+			strings.TrimSpace(category.Code) == "" || category.Code != strings.TrimSpace(category.Code) {
+			return fmt.Errorf("%s codedPivot categories[%d] requires exact system and code values", path, index)
+		}
+		identity := category.System + "\x00" + category.Code
+		if identities[identity] {
+			return fmt.Errorf("%s codedPivot categories[%d] duplicates a system/code key", path, index)
+		}
+		identities[identity] = true
+		id := category.OutputColumnID
+		if strings.TrimSpace(id) == "" || id != strings.TrimSpace(id) || input[id].ID != "" || expected[id] {
+			return fmt.Errorf("%s codedPivot categories[%d].outputColumnId is empty, untrimmed, or collides", path, index)
+		}
+		expected[id] = true
+	}
+	return requireExactStageOutputIDs(expected, output, path)
+}
+
 func validateConstructionExpand(expand ConstructionExpand, input, output map[string]StageColumn, path string, constructionIDs map[string]bool) error {
 	if err := validateConstructionID(expand.ConstructionID, path+".expand.constructionId", constructionIDs); err != nil {
 		return err
