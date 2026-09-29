@@ -8,6 +8,7 @@ import type {
   SemanticInventoryBrowseResponse,
   SemanticInventoryItem,
 } from '../../../types';
+import { catalogItemLabel } from '../catalogItems';
 import {
   MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS,
   PairedColumnSuggestions,
@@ -122,7 +123,7 @@ describe('PairedColumnSuggestions', () => {
   });
 
   it('shows only coded, ready concepts with a current-output route and supported form', async () => {
-    const pairing = item('days_to_collection', 'Days to collection');
+    const pairing = item('days_to_collection', 'days_to_collection');
     const entries = [
       pairing,
       item('no-code', 'No code', { code: '' }),
@@ -156,6 +157,7 @@ describe('PairedColumnSuggestions', () => {
     expect(screen.getByTestId('paired-column-suggestions-browse-all')).toBeInTheDocument();
     expect(screen.getByText('Suggested coded columns')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add Days to collection as a column' })).toBeInTheDocument();
+    expect(catalogItemLabel({ kind: 'SEMANTIC', item: pairing })).toBe('Days to collection');
     expect(screen.getAllByRole('button', { name: /as a column$/ })).toHaveLength(
       MAX_VISIBLE_PAIRED_COLUMN_SUGGESTIONS,
     );
@@ -223,7 +225,7 @@ describe('PairedColumnSuggestions', () => {
   });
 
   it('does not repeat an authored paired concept by its displayed label', async () => {
-    const authored = item('authored-pair', 'Days to collection');
+    const authored = item('authored-pair', 'days_to_collection');
     mockClient.browseSemanticInventory.mockResolvedValue(inventory([authored]));
     mockClient.searchConstructionChoices.mockResolvedValue(choicesFor(authored, 'specimens'));
     render(

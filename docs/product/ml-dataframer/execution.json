@@ -63,6 +63,18 @@
       "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/add-columns-editor-phone.png",
       "result": "Opening Add columns hides table navigation and actions, retains preview and row counts, and Back to table restores navigation",
       "remaining": "The Add columns choices and their applied values still need the feature-by-feature CDA audit"
+    },
+    "addColumnsEvidence": {
+      "feature": "Add a paired coded column from CDA Specimen",
+      "status": "browser_ui_and_persistence_passed",
+      "domUsability": "Three ready-to-add coded suggestions have readable labels; Browse sources reveals the longer picker; two equally populated direct routes require an explicit choice",
+      "resultCorrectness": "Five saved preview values observed; independent Observation source comparison pending",
+      "persistence": "Applied Specimen type column and confirmed its readable title and values after reload; disposable table deleted",
+      "suggestionWaitMs": 3680,
+      "routeChoiceWaitMs": 2300,
+      "artifact": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-browser.json",
+      "screenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/specimen-coded-column-browser.png",
+      "remaining": "Check literal joined Observation values against source and verify edit or remove in the full CDA rerun"
     }
   },
   "executionOrder": [

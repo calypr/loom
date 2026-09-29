@@ -185,12 +185,19 @@ export const catalogItemLabel = (item: CatalogItem): string => {
         : fieldPathLabel(path);
     }
     case 'SEMANTIC':
-      return item.item.display.trim() || item.item.code.trim() || item.item.sourcePath;
+      return semanticConceptLabel(item.item);
     default: {
       const exhaustive: never = item;
       return exhaustive;
     }
   }
+};
+
+export const semanticConceptLabel = (item: SemanticInventoryItem): string => {
+  const label = item.display.trim() || item.code.trim() || item.sourcePath;
+  return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(label)
+    ? label.replaceAll('_', ' ').replace(/^./, (first) => first.toUpperCase())
+    : label;
 };
 
 export const isRelatedFieldCatalogItem = (

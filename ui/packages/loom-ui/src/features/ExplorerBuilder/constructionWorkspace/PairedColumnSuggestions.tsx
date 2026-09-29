@@ -5,6 +5,7 @@ import type {
   ConstructionChoiceSearchResponse,
   SemanticInventoryItem,
 } from '../../../types';
+import { semanticConceptLabel } from '../catalogItems';
 
 const INVENTORY_LIMIT = 50;
 const MAX_ROUTE_SEARCHES = 8;
@@ -26,17 +27,14 @@ export type PairedColumnSuggestionsState =
   | { readonly status: 'ready'; readonly suggestions: ReadonlyArray<PairedColumnSuggestion> }
   | { readonly status: 'error'; readonly message: string };
 
-const meaningfulConceptLabel = (item: SemanticInventoryItem): string =>
-  item.display.trim() || item.code.trim();
-
 const isSuggestionCandidate = (item: SemanticInventoryItem): boolean =>
   Boolean(item.code.trim()) &&
-  Boolean(meaningfulConceptLabel(item)) &&
+  Boolean(semanticConceptLabel(item)) &&
   (item.readiness.status === 'READY' || item.readiness.status === 'READY_WITH_WARNING');
 
 const sameLabel = (left: string, right: string): boolean =>
-  left.trim().normalize('NFKC').toLocaleLowerCase() ===
-  right.trim().normalize('NFKC').toLocaleLowerCase();
+  left.trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase() ===
+  right.trim().normalize('NFKC').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').toLocaleLowerCase();
 
 const choiceMatchesItem = (choice: ConstructionChoice, item: SemanticInventoryItem): boolean =>
   choice.source.kind === 'SEMANTIC' &&
@@ -107,7 +105,7 @@ export const PairedColumnSuggestions = ({
               candidate.conceptId === item.conceptId && candidate.bindingId === item.bindingId,
             ) === index,
           )
-          .filter((item) => !authoredLabels.some((label) => sameLabel(label, meaningfulConceptLabel(item))))
+          .filter((item) => !authoredLabels.some((label) => sameLabel(label, semanticConceptLabel(item))))
           .slice(0, MAX_ROUTE_SEARCHES);
 
         const resolved = await Promise.all(candidates.map(async (item) => {
@@ -205,7 +203,7 @@ export const PairedColumnSuggestions = ({
       {state.status === 'ready' && state.suggestions.length > 0 ? (
         <ul className="mt-2 grid gap-1.5">
           {state.suggestions.map((suggestion) => {
-            const label = meaningfulConceptLabel(suggestion.item);
+            const label = semanticConceptLabel(suggestion.item);
             return (
               <li key={`${suggestion.item.conceptId}:${suggestion.item.bindingId}`} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-indigo-200 bg-white px-2.5 py-1.5">
                 <div className="min-w-0">
