@@ -16,7 +16,7 @@ import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'pivotSources'
 >;
 
 type ReshapeOperationKind = 'PIVOT' | 'CODED_PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
@@ -31,6 +31,10 @@ export interface ConstructionReshapePivotCategory {
 }
 
 export interface ConstructionReshapePivotDiscoveryRequest {
+  readonly groupKeyIds?: string[];
+  readonly pivotStepId?: string;
+  readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
+  readonly candidateConstruction?: Construction;
   readonly stageId: string;
   readonly categoryColumnId: string;
   readonly valueColumnId: string;
@@ -83,6 +87,7 @@ type PivotCategoryForm = {
 };
 
 type PivotForm = {
+  readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
   readonly kind: 'pivot';
   readonly stepId: string;
   readonly groupKeyIds: ReadonlyArray<string>;
@@ -238,7 +243,7 @@ const capabilityFor = (
     };
   }
   const reason = kind === 'PIVOT' && capability.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
-    ? 'Categories to columns needs a field to keep each row grouped, a category field, and a value field. Add those columns before pivoting.'
+    ? 'No executable combination of row, category, and value fields is available at this stage.'
     : capability.reason ?? 'Loom does not support this operation at the selected stage.';
   return capability.supported
     ? { supported: true, reason: '', reasonCode: capability.reasonCode }
@@ -408,6 +413,7 @@ const pivotSelectionIdentity = (form: PivotForm, stageId: string): string => JSO
   stageId,
   form.categoryColumnId,
   form.valueColumnId,
+  form.pivotSources,
 ]);
 
 const scalarLabel = (scalar: ConstructionTableScalar): string => {
@@ -563,8 +569,9 @@ const candidateIntentFor = (args: {
   readonly editingStep?: ConstructionReshapeStep;
   readonly step: ConstructionReshapeStep;
   readonly groupSource?: CandidateIntent['groupSource'];
+  readonly pivotSources?: CandidateIntent['pivotSources'];
 }): CandidateEvaluation => {
-  const { construction, editingStep, step, groupSource } = args;
+  const { construction, editingStep, step, groupSource, pivotSources } = args;
   if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return { kind: 'incomplete' };
   const draft: unknown = {
     version: construction.version,
@@ -581,6 +588,7 @@ const candidateIntentFor = (args: {
       candidateConstruction: parsed.data,
       changedStepId: step.id,
       ...(groupSource ? { groupSource } : {}),
+      ...(pivotSources !== undefined ? { pivotSources } : {}),
     },
   };
 };
@@ -989,8 +997,7 @@ const initialPivotForm = (
 
   const scalar = scalarColumnsFor(stage);
   const groups = selectedColumns.filter((columnId) => scalar.some((column) => column.id === columnId));
-  const value = numericColumnsFor(stage).find((column) => !groups.includes(column.id))
-    ?? scalar.find((column) => !groups.includes(column.id));
+  const value = numericColumnsFor(stage).find((column) => !groups.includes(column.id));
   return {
     kind: 'pivot',
     stepId: createOpaqueId('pivot'),
@@ -1172,7 +1179,14 @@ const formForStep = (
   if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
   if (editingStep.operation.kind === 'RELATED_EXPAND') return { kind: 'related-expand' };
-  if (editingStep.operation.kind === 'PIVOT') return initialPivotForm(stage, [], editingStep);
+  if (editingStep.operation.kind === 'PIVOT') {
+    const form = initialPivotForm(stage, [], editingStep);
+    const used = new Set([...form.groupKeyIds, form.categoryColumnId, form.valueColumnId]);
+    const pivotSources = (capabilities.pivotSourceInput?.choices ?? []).flatMap((choice) =>
+      choice.columnId && used.has(choice.columnId) ? [{ choiceId: choice.choiceId, columnId: choice.columnId }] : [],
+    );
+    return { ...form, ...(pivotSources.length ? { pivotSources } : {}) };
+  }
   if (editingStep.operation.kind === 'CODED_PIVOT') return { kind: 'coded-pivot' };
   if (editingStep.operation.kind === 'UNPIVOT') return initialUnpivotForm(stage, [], editingStep);
   return { kind: 'unsupported', message: 'This saved reshape is not supported by this editor.' };
@@ -1186,7 +1200,8 @@ const pivotDiscoveryMatches = (
   discovery
   && discovery.stageId === stageId
   && discovery.categoryColumnId === form.categoryColumnId
-  && discovery.valueColumnId === form.valueColumnId,
+  && discovery.valueColumnId === form.valueColumnId
+  && JSON.stringify(discovery.pivotSources ?? []) === JSON.stringify(form.pivotSources ?? []),
 );
 
 const pivotCategoriesAreKnown = (
@@ -1284,8 +1299,8 @@ const candidateFor = (args: {
   }
   if (form.kind === 'pivot') {
     if (!pivotCategoriesKnown) return { kind: 'incomplete' };
-    const step = pivotStepFromForm({ stage, editingStep, form });
-    return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
+    const step = pivotStepFromForm({ stage: pivotInputStage(stage, form, capabilities.pivotSourceInput?.choices ?? []), editingStep, form });
+    return step ? candidateIntentFor({ construction, editingStep, step, pivotSources: form.pivotSources }) : { kind: 'incomplete' };
   }
   if (form.kind === 'unpivot') {
     const step = unpivotStepFromForm({ stage, editingStep, form });
@@ -1308,7 +1323,8 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const codedGroupSupport = capabilityFor(stage, 'CODED_GROUP');
   const expandSupport = capabilityFor(stage, 'EXPAND');
   const relatedExpandSupport = capabilityFor(stage, 'RELATED_EXPAND');
-  const pivotSupport = capabilityFor(stage, 'PIVOT');
+  const savedPivotSupport = capabilityFor(stage, 'PIVOT');
+  const pivotSupport = capabilities.pivotSourceInput?.supported ? { supported: true, reason: '' } : savedPivotSupport;
   const codedPivotSupport = capabilityFor(stage, 'CODED_PIVOT');
   const unpivotSupport = capabilityFor(stage, 'UNPIVOT');
   const expandColumns = listColumnsFor(stage);
@@ -1435,6 +1451,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     if (!props.onDiscoverCategories || pivot.categoryColumnId === '' || pivot.valueColumnId === '') return;
     props.onDiscoverCategories({
       stageId: stage.id,
+      ...(pivot.pivotSources?.length ? { pivotStepId: pivot.stepId, groupKeyIds: [...pivot.groupKeyIds], pivotSources: pivot.pivotSources, candidateConstruction: construction } : {}),
       categoryColumnId: pivot.categoryColumnId,
       valueColumnId: pivot.valueColumnId,
     });
@@ -1663,12 +1680,12 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         <PivotEditor
           key={`${id}:pivot:${contextKey}`}
           form={form}
-          stage={stage}
+          stage={pivotInputStage(stage, form, capabilities.pivotSourceInput?.choices ?? [])}
+          sourceChoices={capabilities.pivotSourceInput?.choices ?? []}
           supported={pivotSupport.supported}
           reason={pivotSupport.reason}
           disabled={disabled}
           discovery={pivotDiscovery}
-          onAddCodedValues={props.onAddCodedValues}
           requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           onDiscover={() => requestPivotCategories(form)}
@@ -2218,14 +2235,30 @@ const pivotUnlistedPolicyFromInput = (value: string): PivotForm['unlistedCategor
   }
 };
 
+const pivotSourceLabel = (choice: SourceInputChoice): string => choice.label.endsWith(choice.fieldPath)
+  ? choice.label : `${choice.label} (${choice.fieldPath})`;
+
+const pivotInputStage = (stage: ReshapeStage, form: PivotForm, choices: ReadonlyArray<SourceInputChoice>): ReshapeStage => {
+  const usedNames = new Set(stage.columns.map((column) => column.name.toLowerCase()));
+  const inputs = (form.pivotSources ?? []).flatMap((selection) => {
+    if (stage.columns.some((column) => column.id === selection.columnId)) return [];
+    const choice = choices.find((candidate) => candidate.choiceId === selection.choiceId);
+    if (!choice) return [];
+    const name = uniqueName(normalizedName(choice.fieldPath), usedNames);
+    usedNames.add(name.toLowerCase());
+    return [{ id: selection.columnId, name, label: choice.label, type: choice.logicalType, cardinality: 'optional_one' as const }];
+  });
+  return { ...stage, columns: [...stage.columns, ...inputs] };
+};
+
 const PivotEditor = (props: {
+  readonly sourceChoices: ReadonlyArray<SourceInputChoice>;
   readonly form: PivotForm;
   readonly stage: ReshapeStage;
   readonly supported: boolean;
   readonly reason: string;
   readonly disabled: boolean;
   readonly discovery?: ConstructionReshapePivotDiscovery;
-  readonly onAddCodedValues?: () => void;
   readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly onDiscover: () => void;
@@ -2275,11 +2308,30 @@ const PivotEditor = (props: {
   const outputNamesValid = outputNamesAreValid(pivotOutputsFor(props.form, props.stage));
   const numericValue = isNumericColumn(columns.find((column) => column.id === props.form.valueColumnId) ?? { id: '', name: '', label: '', cardinality: 'optional_one' });
 
+  const chooseInput = (role: 'group' | 'category' | 'value', selected: string) => {
+    if (role === 'group' && selected === '') return;
+    const choice = props.sourceChoices.find((candidate) => `source:${candidate.choiceId}` === selected);
+    const existing = choice && props.form.pivotSources?.find((binding) => binding.choiceId === choice.choiceId);
+    const columnId = choice ? existing?.columnId ?? createOpaqueId('pivot-input') : selected;
+    const bindings = choice && !existing ? [...(props.form.pivotSources ?? []), { choiceId: choice.choiceId, columnId }] : props.form.pivotSources ?? [];
+    const next = {
+      ...props.form,
+      groupKeyIds: role === 'group' ? [...new Set([...props.form.groupKeyIds, columnId])] : props.form.groupKeyIds,
+      categoryColumnId: role === 'category' ? columnId : props.form.categoryColumnId,
+      valueColumnId: role === 'value' ? columnId : role === 'category' && columnId === props.form.valueColumnId ? '' : props.form.valueColumnId,
+      categories: [], categoriesPair: undefined,
+    };
+    const used = new Set([...next.groupKeyIds, next.categoryColumnId, next.valueColumnId]);
+    props.onChange({ ...next, pivotSources: bindings.filter((binding) => used.has(binding.columnId)) });
+  };
+  const sourceOptions = props.sourceChoices.filter((choice) => !props.form.pivotSources?.some((binding) => binding.choiceId === choice.choiceId));
+
   const toggleGroup = (columnId: string, checked: boolean) => {
     const groupKeyIds = checked
       ? [...props.form.groupKeyIds, columnId]
       : props.form.groupKeyIds.filter((id) => id !== columnId);
-    props.onChange({ ...props.form, groupKeyIds });
+    const used = new Set([...groupKeyIds, props.form.categoryColumnId, props.form.valueColumnId]);
+    props.onChange({ ...props.form, groupKeyIds, pivotSources: props.form.pivotSources?.filter((binding) => used.has(binding.columnId)) });
   };
 
   const updateCategory = (identity: string, update: Partial<PivotCategoryForm>) => {
@@ -2350,18 +2402,10 @@ const PivotEditor = (props: {
     <section aria-label="Pivot categories into columns" data-testid="construction-reshape-pivot" className="grid gap-4 rounded-lg border border-slate-200 p-3">
       <header>
         <h4 className="text-sm font-semibold text-slate-900">Turn categories into columns</h4>
-        <p className="mt-1 text-sm text-slate-600">Each group becomes a row. Each chosen category becomes a value column from fields already in this table.</p>
+        <p className="mt-1 text-sm text-slate-600">Choose what identifies a row, what names the columns, and which values fill them. Source fields are included automatically.</p>
       </header>
-      {props.onAddCodedValues ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700">
-          <span>The category and values selectors use columns already in this table. A paired coded concept adds a separate column from its FHIR code and matching value.</span>
-          <button type="button" onClick={props.onAddCodedValues} disabled={props.disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
-            Add a paired coded concept
-          </button>
-        </div>
-      ) : null}
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
-      {columns.length === 0 ? (
+      {columns.length === 0 && props.sourceChoices.length === 0 ? (
         <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Loom has not returned scalar fields for this stage.</p>
       ) : (
         <>
@@ -2379,31 +2423,38 @@ const PivotEditor = (props: {
                 {column.label}
               </label>
             ))}
+            {sourceOptions.length > 0 ? <select aria-label="Add pivot group field" value="" disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('group', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <option value="">Add a field to identify each row</option>
+              {sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)}</option>)}
+            </select> : null}
           </fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Category field
-              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, categoryColumnId: event.currentTarget.value, valueColumnId: props.form.valueColumnId === event.currentTarget.value ? '' : props.form.valueColumnId, categories: [], categoriesPair: undefined })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <select aria-label="Pivot category field" value={props.form.categoryColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('category', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                 <option value="">Choose a category field</option>
                 {columns.filter((column) => !props.form.groupKeyIds.includes(column.id)).map((column) => <option key={column.id} value={column.id}>{column.label}</option>)}
+                <optgroup label="Available source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)}</option>)}</optgroup>
               </select>
             </label>
             <label className="grid gap-1 text-sm font-medium text-slate-700">
               Values field
-              <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => props.onChange({ ...props.form, valueColumnId: event.currentTarget.value, categories: [], categoriesPair: undefined })} className="rounded border border-slate-300 bg-white px-2 py-1.5">
+              <select aria-label="Pivot values field" value={props.form.valueColumnId} disabled={props.disabled || !props.supported} onChange={(event) => chooseInput('value', event.currentTarget.value)} className="rounded border border-slate-300 bg-white px-2 py-1.5">
                 <option value="">Choose a values field</option>
                 {columns.filter((column) => !props.form.groupKeyIds.includes(column.id) && column.id !== props.form.categoryColumnId).map((column) => <option key={column.id} value={column.id}>{column.label} ({column.type ?? 'unknown type'})</option>)}
+                <optgroup label="Available source fields">{sourceOptions.map((choice) => <option key={choice.choiceId} value={`source:${choice.choiceId}`}>{pivotSourceLabel(choice)} ({choice.logicalType})</option>)}</optgroup>
               </select>
             </label>
           </div>
           <button
             type="button"
-            disabled={props.disabled || !props.supported || !props.canDiscover || props.form.categoryColumnId === '' || props.form.valueColumnId === ''}
+            disabled={props.disabled || !props.supported || !props.canDiscover || props.form.categoryColumnId === '' || props.form.valueColumnId === '' || Boolean(props.form.pivotSources?.length && props.form.groupKeyIds.length === 0)}
             onClick={props.onDiscover}
             className="justify-self-start rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
           >
             Find category values
           </button>
+          {props.form.pivotSources?.length && props.form.groupKeyIds.length === 0 ? <p className="text-sm text-slate-600">Select a row field above to find category values.</p> : null}
           {!props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery for this stage is not connected yet. Existing pivots can still be edited using their saved categories.</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'loading' ? <p role="status" className="text-sm text-slate-600">Finding category values…</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}

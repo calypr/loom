@@ -28,7 +28,7 @@ export type ConstructionLifecycleClient = Pick<
 
 export type ConstructionCandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource' | 'pivotSources'
 >;
 
 export type ConstructionCapabilitiesViewState =
@@ -311,7 +311,7 @@ export const useConstructionLifecycle = ({
   const onDiscoverCategories = useCallback((request: ConstructionReshapePivotDiscoveryRequest) => {
     invalidatePivotDiscovery();
     const args = capabilitiesRequestRef.current;
-    const discoveryKey = JSON.stringify([requestKey, request.stageId, request.categoryColumnId, request.valueColumnId]);
+    const discoveryKey = JSON.stringify([requestKey, request.stageId, request.categoryColumnId, request.valueColumnId, request.pivotSources]);
     if (!args || request.stageId !== args.stageId) {
       setPivotDiscoveryLoad({
         key: discoveryKey,
@@ -341,8 +341,11 @@ export const useConstructionLifecycle = ({
       expectedDraftDigest: args.expectedDraftDigest,
       outputId: args.outputId,
       stageId: request.stageId,
+      pivotStepId: request.pivotStepId,
+      groupKeyIds: request.groupKeyIds,
       categoryColumnId: request.categoryColumnId,
       valueColumnId: request.valueColumnId,
+      ...(request.pivotSources?.length ? { pivotSources: request.pivotSources, candidateConstruction: request.candidateConstruction } : {}),
       requestId: `construction-categories-${window.crypto.randomUUID()}`,
     };
     void client.discoverConstructionCategories(discoveryArgs, controller.signal).then(
@@ -428,6 +431,7 @@ export const useConstructionLifecycle = ({
         pivotDiscoveryLoad.state.stageId,
         pivotDiscoveryLoad.state.categoryColumnId,
         pivotDiscoveryLoad.state.valueColumnId,
+        pivotDiscoveryLoad.state.pivotSources,
       ])
     : '';
   const activePivotDiscovery = pivotDiscoveryLoad.key === activePivotDiscoveryKey

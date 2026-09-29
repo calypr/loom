@@ -430,13 +430,13 @@ export const RowDefinitionSettingsPanel = ({
                     onClick={() => chooseReshape('categories')}
                     className="w-full p-3 text-left hover:bg-blue-50 disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
-                    <span className="mt-1 block text-xs text-slate-600">Choose coded values from the starting records or use category and value fields already in this table.</span>
+                    <span className="mt-1 block text-xs text-slate-600">Choose coded values, or choose fields for the rows, categories, and values.</span>
                   </button>
                   {reshapeRows.pivotAlternative ? <div className="border-t border-slate-100 px-2 pb-2">
                     <button type="button" data-testid="construction-action-table-pivot-rows"
                       disabled={disabled} onClick={() => chooseReshape('pivot')}
                       className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50">
-                      Use existing table columns
+                      Choose category and value fields
                     </button>
                   </div> : null}
                 </div>

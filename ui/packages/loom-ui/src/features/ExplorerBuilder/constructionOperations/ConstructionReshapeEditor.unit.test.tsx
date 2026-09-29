@@ -57,7 +57,7 @@ const renderEditor = (args: {
 }) => {
   const onCandidateChange = args.onCandidateChange ?? vi.fn();
   const onEditStep = args.onEditStep ?? vi.fn();
-  render(
+  const view = render(
     <ConstructionReshapeEditor
       construction={args.construction ?? { version: 1, steps: [] }}
       capabilities={args.capabilities ?? capabilitiesFor()}
@@ -71,7 +71,7 @@ const renderEditor = (args: {
       onEditStep={onEditStep}
     />,
   );
-  return { onCandidateChange, onEditStep };
+  return { onCandidateChange, onEditStep, view };
 };
 
 const controlValue = (label: string): string => {
@@ -125,7 +125,7 @@ describe('ConstructionReshapeEditor', () => {
     renderEditor({ initialKind: 'pivot', capabilities: capabilitiesFor([unsupportedPivotStage], unsupportedPivotStage) });
 
     expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
-    expect(screen.getByText(/needs a field to keep each row grouped, a category field, and a value field/)).toBeInTheDocument();
+    expect(screen.getByText(/No executable combination of row, category, and value fields/)).toBeInTheDocument();
     expect(screen.queryByText(/public scalar/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('Pivot category field')).toBeDisabled();
   });
@@ -252,12 +252,44 @@ describe('ConstructionReshapeEditor', () => {
 
     expect(screen.getByLabelText('Pivot category field')).toBeInTheDocument();
     expect(screen.getByLabelText('Pivot values field')).toBeInTheDocument();
-    expect(screen.getByText(/category and values selectors use columns already in this table/i)).toBeInTheDocument();
-    expect(screen.getByText(/paired coded concept adds a separate column/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Add coded-value column' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add a paired coded concept' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Add a paired coded concept' }));
-    expect(onAddCodedValues).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Source fields are included automatically/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add a paired coded concept' })).not.toBeInTheDocument();
+    expect(onAddCodedValues).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes implicit source fields inside Pivot without adding public columns', () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    const base = { version: 1, steps: [] };
+    const choices = ['Category', 'Value', 'Group'].map((label, index) => ({
+      choiceId: `choice-${index}`, occurrenceId: 'base', fieldPath: label.toLowerCase(), label,
+      fhirType: 'string', logicalType: 'string', valueType: 'VALUE',
+      isIdentifier: false, isReference: false, isPopulated: true,
+    }));
+    const capabilities = { ...capabilitiesFor(), pivotSourceInput: { supported: true, stageId: sourceStage.id, choices } };
+    const { view } = renderEditor({ initialKind: 'pivot', construction: base, capabilities, onDiscoverCategories, onCandidateChange });
+    fireEvent.change(screen.getByLabelText('Add pivot group field'), { target: { value: 'source:choice-2' } });
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'source:choice-0' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'source:choice-1' } });
+    expect(controlChecked('Pivot group Group')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Add a paired coded concept' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Find category values' }));
+    const request = onDiscoverCategories.mock.lastCall?.[0];
+    if (!request?.pivotSources) throw new Error('Expected implicit-input category discovery');
+    expect(request.candidateConstruction).toEqual(base);
+    expect(request.pivotSources).toHaveLength(3);
+    expect(request.pivotSources.map((binding: { choiceId: string }) => binding.choiceId)).toEqual(['choice-2', 'choice-0', 'choice-1']);
+    expect(request.categoryColumnId).toBe(request.pivotSources[1].columnId);
+    expect(request.valueColumnId).toBe(request.pivotSources[2].columnId);
+    expect(request.pivotStepId).toEqual(expect.any(String));
+    view.rerender(<ConstructionReshapeEditor construction={base} capabilities={capabilities} initialKind="pivot" disabled={false}
+      onCandidateChange={onCandidateChange} onEditStep={vi.fn()} onDiscoverCategories={onDiscoverCategories}
+      pivotDiscovery={{ ...request, status: 'complete', categories: [{ key: { kind: 'STRING', string: 'final' }, label: 'Final' }] }} />);
+    const candidate = onCandidateChange.mock.lastCall?.[0];
+    expect(candidate?.pivotSources).toEqual(request.pivotSources);
+    expect(candidate?.candidateConstruction.steps).toHaveLength(1);
+    expect(candidate?.candidateConstruction.steps[0]?.outputs).toContainEqual(expect.objectContaining({ name: 'group', label: 'Group' }));
+    expect(base.steps).toEqual([]);
   });
 
   it('builds a whole-table group summary with editable stable outputs', () => {

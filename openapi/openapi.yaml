@@ -3345,6 +3345,7 @@ components:
       additionalProperties: false
       required: [columnId, occurrenceId, fieldPath, fhirType, logicalType, label]
       properties:
+        ownerStepId: {type: string, minLength: 1}
         columnId: {type: string, minLength: 1}
         occurrenceId: {type: string, minLength: 1}
         fieldPath: {type: string, minLength: 1}
@@ -3357,6 +3358,7 @@ components:
       required: [id, inputs, operation, outputs]
       properties:
         id: {type: string, minLength: 1}
+        ownerStepId: {type: string, minLength: 1}
         inputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionInputRef'}
@@ -3820,6 +3822,14 @@ components:
         expectedDraftDigest: {type: string, minLength: 1}
         outputId: {type: string, minLength: 1}
         stageId: {type: string, minLength: 1}
+        groupKeyIds:
+          type: array
+          items: {type: string, minLength: 1}
+        pivotStepId: {type: string, minLength: 1}
+        pivotSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionPivotSourceSelection'}
+        candidateConstruction: {$ref: '#/components/schemas/Construction'}
         categoryColumnId: {type: string, minLength: 1}
         valueColumnId: {type: string, minLength: 1}
     ConstructionDiscoveredCategory:
@@ -3968,6 +3978,7 @@ components:
           items: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         selectedStage: {$ref: '#/components/schemas/ConstructionStageDescriptor'}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
+        pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
     ConstructionSourceInput:
       type: object
       additionalProperties: false
@@ -3985,6 +3996,7 @@ components:
       additionalProperties: false
       required: [choiceId, occurrenceId, fieldPath, label, fhirType, logicalType, valueType, isIdentifier, isReference, isPopulated]
       properties:
+        columnId: {type: string, minLength: 1}
         choiceId: {type: string, minLength: 1}
         occurrenceId: {type: string, minLength: 1}
         fieldPath: {type: string, minLength: 1}
@@ -4010,7 +4022,17 @@ components:
           items: {type: string, minLength: 1}
         candidateConstruction: {$ref: '#/components/schemas/Construction'}
         groupSource: {$ref: '#/components/schemas/ConstructionGroupSource'}
+        pivotSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionPivotSourceSelection'}
         limit: {type: integer, minimum: 1, maximum: 1000}
+    ConstructionPivotSourceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
     ConstructionGroupSource:
       type: object
       additionalProperties: false

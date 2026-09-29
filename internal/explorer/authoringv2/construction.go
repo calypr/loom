@@ -51,6 +51,7 @@ type Construction struct {
 // by a construction operation but excluded from the document's public columns.
 type ConstructionSourceProjection struct {
 	ColumnID     string `json:"columnId"`
+	OwnerStepID  string `json:"ownerStepId,omitempty"`
 	OccurrenceID string `json:"occurrenceId"`
 	FieldPath    string `json:"fieldPath"`
 	FHIRType     string `json:"fhirType"`
@@ -74,10 +75,11 @@ func (c Construction) MarshalJSON() ([]byte, error) {
 // the complete resulting stage schema; IDs remain stable when names or labels
 // change.
 type ConstructionStep struct {
-	ID        string                 `json:"id"`
-	Inputs    []ConstructionInputRef `json:"inputs"`
-	Operation ConstructionOperation  `json:"operation"`
-	Outputs   []StageColumn          `json:"outputs"`
+	ID          string                 `json:"id"`
+	OwnerStepID string                 `json:"ownerStepId,omitempty"`
+	Inputs      []ConstructionInputRef `json:"inputs"`
+	Operation   ConstructionOperation  `json:"operation"`
+	Outputs     []StageColumn          `json:"outputs"`
 }
 
 // ConstructionInputRef is a closed source-stage, prior-stage, or immutable

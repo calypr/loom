@@ -2362,7 +2362,8 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
   const stageGroupingAvailability = reshapeAvailabilityFor('GROUP');
   const codedPivotAvailability = reshapeAvailabilityFor('CODED_PIVOT');
-  const tablePivotAvailability = reshapeAvailabilityFor('PIVOT');
+  const tablePivotAvailability = constructionLifecycle.capabilities.status === 'ready' && constructionLifecycle.capabilities.response.pivotSourceInput?.supported
+    ? { supported: true } : reshapeAvailabilityFor('PIVOT');
   const groupEntries = [
     ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'By recorded code' }] : []),
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source field' }] : []),

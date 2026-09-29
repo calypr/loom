@@ -60,6 +60,27 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 			return fmt.Errorf("steps[%d]: %w", i, err)
 		}
 	}
+	return validateConstructionStepOwnership(c)
+}
+
+func validateConstructionStepOwnership(construction *Construction) error {
+	for index, step := range construction.Steps {
+		if step.OwnerStepID == "" {
+			continue
+		}
+		if !requiredID(step.OwnerStepID) || step.Operation.Kind != ConstructionOperationRelatedField || step.Operation.RelatedField == nil {
+			return fmt.Errorf("step %q ownerStepId is only valid for a generated RELATED_FIELD input", step.ID)
+		}
+		ownerIndex := findConstructionStep(construction.Steps, step.OwnerStepID)
+		if ownerIndex <= index || ownerIndex < 0 {
+			return fmt.Errorf("step %q ownerStepId must name a later PIVOT step", step.ID)
+		}
+		owner := construction.Steps[ownerIndex]
+		if owner.Operation.Kind != ConstructionOperationPivot || owner.Operation.Pivot == nil ||
+			!containsConstructionColumnID(owner.Operation.inputColumnIDs(), step.Operation.RelatedField.OutputColumnID) {
+			return fmt.Errorf("step %q is not consumed by its owner PIVOT", step.ID)
+		}
+	}
 	return nil
 }
 
@@ -70,40 +91,104 @@ func validateConstructionSourceProjections(construction *Construction, sourceCol
 	if len(construction.Steps) == 0 {
 		return fmt.Errorf("source projections require a consuming construction step")
 	}
-	first := construction.Steps[0]
-	if first.Operation.Kind != ConstructionOperationGroup || first.Operation.Group == nil ||
-		len(first.Inputs) != 1 || first.Inputs[0].Kind != ConstructionInputSourceProjection {
-		return fmt.Errorf("source projections are supported only by a direct-source GROUP step")
-	}
-	group := first.Operation.Group
-	if len(construction.SourceProjections) != 1 || len(group.Keys) != 1 || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != ConstructionGroupCountRows {
-		return fmt.Errorf("source projections require one GROUP key and one COUNT_ROWS aggregate")
-	}
 	seenProjectionIDs := make(map[string]bool, len(construction.SourceProjections))
 	for _, sourceProjection := range construction.SourceProjections {
+		if !requiredID(sourceProjection.ColumnID) || !requiredID(sourceProjection.OccurrenceID) ||
+			!requiredID(sourceProjection.FieldPath) || !requiredID(sourceProjection.FHIRType) ||
+			!requiredID(sourceProjection.LogicalType) || strings.TrimSpace(sourceProjection.Label) == "" {
+			return fmt.Errorf("source projection requires exact column, occurrence, field, type, and label facts")
+		}
 		if seenProjectionIDs[sourceProjection.ColumnID] {
 			return fmt.Errorf("source projections contain duplicate columnId %q", sourceProjection.ColumnID)
 		}
 		seenProjectionIDs[sourceProjection.ColumnID] = true
-	}
-	projection := construction.SourceProjections[0]
-	if !requiredID(projection.ColumnID) || !requiredID(projection.OccurrenceID) ||
-		!requiredID(projection.FieldPath) || !requiredID(projection.FHIRType) ||
-		!requiredID(projection.LogicalType) || strings.TrimSpace(projection.Label) == "" {
-		return fmt.Errorf("source projection requires exact column, occurrence, field, type, and label facts")
-	}
-	if projection.OccurrenceID != RootOccurrenceID {
-		return fmt.Errorf("source projections currently require the root occurrence")
-	}
-	for _, column := range sourceColumns {
-		if column.ColumnID == projection.ColumnID {
-			return fmt.Errorf("source projection columnId %q collides with a public source column", projection.ColumnID)
+		if sourceProjection.OwnerStepID == "" {
+			if err := validateLegacyGroupSourceProjection(construction, sourceProjection); err != nil {
+				return err
+			}
+		} else {
+			if err := validatePivotSourceProjection(construction, sourceProjection); err != nil {
+				return err
+			}
+		}
+		if sourceProjection.OccurrenceID != RootOccurrenceID {
+			return fmt.Errorf("source projections currently require the root occurrence")
+		}
+		for _, column := range sourceColumns {
+			if column.ColumnID == sourceProjection.ColumnID {
+				return fmt.Errorf("source projection columnId %q collides with a public source column", sourceProjection.ColumnID)
+			}
 		}
 	}
+	return nil
+}
+
+func validateLegacyGroupSourceProjection(construction *Construction, projection ConstructionSourceProjection) error {
+	first := construction.Steps[0]
+	if first.Operation.Kind != ConstructionOperationGroup || first.Operation.Group == nil ||
+		len(first.Inputs) != 1 || first.Inputs[0].Kind != ConstructionInputSourceProjection {
+		return fmt.Errorf("unowned source projections are supported only by a direct-source GROUP step")
+	}
+	group := first.Operation.Group
+	if len(construction.SourceProjections) != 1 || len(group.Keys) != 1 || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != ConstructionGroupCountRows {
+		return fmt.Errorf("unowned source projections require one GROUP key and one COUNT_ROWS aggregate")
+	}
 	if group.Keys[0].InputColumnID != projection.ColumnID {
-		return fmt.Errorf("source projection must be the direct-source GROUP key")
+		return fmt.Errorf("unowned source projection must be the direct-source GROUP key")
 	}
 	return nil
+}
+
+func validatePivotSourceProjection(construction *Construction, projection ConstructionSourceProjection) error {
+	if !requiredID(projection.OwnerStepID) {
+		return fmt.Errorf("source projection ownerStepId must be an exact step id")
+	}
+	ownerIndex := findConstructionStep(construction.Steps, projection.OwnerStepID)
+	if ownerIndex < 0 {
+		return fmt.Errorf("source projection owner step %q does not exist", projection.OwnerStepID)
+	}
+	owner := construction.Steps[ownerIndex]
+	if owner.Operation.Kind != ConstructionOperationPivot || owner.Operation.Pivot == nil ||
+		!containsConstructionColumnID(owner.Operation.inputColumnIDs(), projection.ColumnID) {
+		return fmt.Errorf("source projection must be consumed by its owner PIVOT step")
+	}
+	for index := 0; index < ownerIndex; index++ {
+		step := construction.Steps[index]
+		if !constructionCanCarrySourceProjection(step.Operation.Kind) {
+			return fmt.Errorf("source projection cannot cross %s before its owner PIVOT", step.Operation.Kind)
+		}
+		found := false
+		for _, output := range step.Outputs {
+			if output.ID == projection.ColumnID && output.Type == projection.LogicalType {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("step %q does not carry source projection %q to its owner PIVOT", step.ID, projection.ColumnID)
+		}
+	}
+	return nil
+}
+
+func constructionCanCarrySourceProjection(kind ConstructionOperationKind) bool {
+	switch kind {
+	case ConstructionOperationDerive, ConstructionOperationFilter, ConstructionOperationExpand,
+		ConstructionOperationRelatedSource, ConstructionOperationRelatedExpand,
+		ConstructionOperationRelatedEligibility, ConstructionOperationRelatedField:
+		return true
+	default:
+		return false
+	}
+}
+
+func containsConstructionColumnID(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }
 
 func constructionStepInputSchema(steps []ConstructionStep, source []StageColumn, index int) ([]StageColumn, error) {

@@ -783,6 +783,49 @@ func TestCodedPivotOutputKeepsSourceProvenanceAndSelectedCategoryLoss(t *testing
 	}
 }
 
+func TestPivotPromotesPrivateRowKeyIntoAuthoredOutput(t *testing.T) {
+	document := authoringv2.Document{Construction: &authoringv2.Construction{
+		SourceProjections: []authoringv2.ConstructionSourceProjection{{ColumnID: "specimen_ref", OwnerStepID: "pivot"}},
+		Steps: []authoringv2.ConstructionStep{{
+			ID: "pivot",
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationPivot, Pivot: &authoringv2.ConstructionPivot{
+				ConstructionID: "pivot", GroupKeyIDs: []string{"specimen_ref"},
+				DuplicatePolicy:        authoringv2.ConstructionPivotDuplicateError,
+				MissingCellPolicy:      authoringv2.ConstructionPivotMissingNull,
+				UnlistedCategoryPolicy: authoringv2.ConstructionPivotUnlistedError,
+			}},
+			Outputs: []authoringv2.StageColumn{{ID: "specimen_ref", Name: "specimen_reference", Label: "Specimen reference", Type: "string"}},
+		}},
+	}}
+	authored := make(map[string]authoredOutputColumn)
+	if err := authoredConstructionOutputs(document, authored); err != nil {
+		t.Fatal(err)
+	}
+	key, found := authored["specimen_reference"]
+	if !found || key.ConstructionID != "pivot" || key.Label != "Specimen reference" || !key.TypedStageOutput {
+		t.Fatalf("private row key has no public Pivot identity: %#v", authored)
+	}
+	if len(key.InputColumns) != 0 {
+		t.Fatalf("private source leaked into public lineage: %#v", key.InputColumns)
+	}
+	document.Construction.SourceProjections = nil
+	document.Construction.Steps = append([]authoringv2.ConstructionStep{{
+		ID: "input", OwnerStepID: "pivot",
+		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationRelatedField, RelatedField: &authoringv2.ConstructionRelatedField{
+			OutputColumnID: "specimen_ref", Source: authoringv2.ConstructionRelatedFieldSource{NodeID: "observation", CandidateID: "specimen-reference"},
+		}},
+		Outputs: []authoringv2.StageColumn{{ID: "specimen_ref", Name: "__pivot_source_reference", Label: "Observation.specimen.reference", Type: "string"}},
+	}}, document.Construction.Steps...)
+	authored = make(map[string]authoredOutputColumn)
+	if err := authoredConstructionOutputs(document, authored); err != nil {
+		t.Fatal(err)
+	}
+	key, found = authored["specimen_reference"]
+	if !found || key.NodeID != "observation" || key.CandidateID != "specimen-reference" || key.Label != "Specimen reference" {
+		t.Fatalf("promoted related row key lost its source identity: %#v", authored)
+	}
+}
+
 func TestAuthoredOutputColumnsResolvesFinalTypedConstructionLineage(t *testing.T) {
 	group := authoringv2.StageColumn{ID: "group-id", Name: "group", Label: "Group", Type: "string"}
 	category := authoringv2.StageColumn{ID: "category-id", Name: "category", Label: "Category", Type: "string"}

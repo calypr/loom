@@ -445,6 +445,10 @@ export interface GetConstructionCapabilitiesArgs extends ConstructionAuthoringSt
 }
 
 export interface DiscoverConstructionCategoriesArgs extends ConstructionAuthoringStateArgs {
+  readonly groupKeyIds?: string[];
+  readonly pivotStepId?: string;
+  readonly pivotSources?: ConstructionProposalRequest['pivotSources'];
+  readonly candidateConstruction?: ConstructionProposalRequest['candidateConstruction'];
   readonly stageId: string;
   readonly categoryColumnId: string;
   readonly valueColumnId: string;
@@ -1370,6 +1374,10 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
         outputId: args.outputId,
         snapshotToken: args.snapshotToken,
         stageId: args.stageId,
+        pivotStepId: args.pivotStepId,
+        groupKeyIds: args.groupKeyIds,
+        pivotSources: args.pivotSources,
+        candidateConstruction: args.candidateConstruction,
         categoryColumnId: args.categoryColumnId,
         valueColumnId: args.valueColumnId,
       }), signal, args.requestId,

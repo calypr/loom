@@ -279,7 +279,10 @@ export const constructionHistorySteps = (
   sourceColumns: ReadonlyArray<ConstructionStageColumn>,
 ): ReadonlyArray<ConstructionHistoryStep> => {
   if (!construction) return [];
-  const source = new Map(sourceColumns.map((column) => [column.id, column] as const));
+  const source = new Map<string, ConstructionStageColumn>(sourceColumns.map((column) => [column.id, column] as const));
+  for (const projection of construction.sourceProjections ?? []) {
+    source.set(projection.columnId, { id: projection.columnId, name: projection.fieldPath, label: projection.label, type: projection.logicalType });
+  }
   const stages = new Map<string, ReadonlyMap<string, ConstructionStageColumn>>();
   const result: ConstructionHistoryStep[] = [];
 
@@ -288,7 +291,7 @@ export const constructionHistorySteps = (
     const input = inputRef?.kind === 'STEP_OUTPUT'
       ? stages.get(inputRef.stepId) ?? source
       : source;
-    result.push(formatStep(step, input));
+    if (!step.ownerStepId) result.push(formatStep(step, input));
     stages.set(step.id, new Map(step.outputs.map((column) => [column.id, column] as const)));
   }
 
@@ -301,7 +304,10 @@ export const constructionRowMeaning = (
   sourceColumns: ReadonlyArray<ConstructionStageColumn>,
 ): string => {
   if (!construction) return sourceMeaning;
-  const source = new Map(sourceColumns.map((column) => [column.id, column] as const));
+  const source = new Map<string, ConstructionStageColumn>(sourceColumns.map((column) => [column.id, column] as const));
+  for (const projection of construction.sourceProjections ?? []) {
+    source.set(projection.columnId, { id: projection.columnId, name: projection.fieldPath, label: projection.label, type: projection.logicalType });
+  }
   const stages = new Map<string, ReadonlyMap<string, ConstructionStageColumn>>();
   let meaning = sourceMeaning;
 

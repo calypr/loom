@@ -38,6 +38,7 @@ type ConstructionCapabilitiesResponse struct {
 	Stages           []explorer.ReceiptConstructionStage `json:"stages"`
 	SelectedStage    explorer.ReceiptConstructionStage   `json:"selectedStage"`
 	SourceInput      ConstructionGroupSourceCapability   `json:"sourceInput"`
+	PivotSourceInput ConstructionPivotSourceCapability   `json:"pivotSourceInput"`
 }
 
 type ConstructionGroupSourceCapability struct {
@@ -50,6 +51,28 @@ type ConstructionGroupSourceCapability struct {
 
 type ConstructionGroupSourceChoice struct {
 	ChoiceID     string `json:"choiceId"`
+	OccurrenceID string `json:"occurrenceId"`
+	FieldPath    string `json:"fieldPath"`
+	Label        string `json:"label"`
+	FHIRType     string `json:"fhirType"`
+	LogicalType  string `json:"logicalType"`
+	ValueType    string `json:"valueType"`
+	IsIdentifier bool   `json:"isIdentifier"`
+	IsReference  bool   `json:"isReference"`
+	IsPopulated  bool   `json:"isPopulated"`
+}
+
+type ConstructionPivotSourceCapability struct {
+	Supported  bool                            `json:"supported"`
+	StageID    string                          `json:"stageId"`
+	ReasonCode string                          `json:"reasonCode,omitempty"`
+	Reason     string                          `json:"reason,omitempty"`
+	Choices    []ConstructionPivotSourceChoice `json:"choices"`
+}
+
+type ConstructionPivotSourceChoice struct {
+	ChoiceID     string `json:"choiceId"`
+	ColumnID     string `json:"columnId,omitempty"`
 	OccurrenceID string `json:"occurrenceId"`
 	FieldPath    string `json:"fieldPath"`
 	Label        string `json:"label"`
@@ -86,13 +109,19 @@ type ConstructionProposalRequest struct {
 	ChangedStepID         string
 	RemoveStepIDs         []string
 	CandidateConstruction authoringv2.Construction
-	GroupSource           *ConstructionGroupSourceSelection `json:"groupSource,omitempty"`
+	GroupSource           *ConstructionGroupSourceSelection  `json:"groupSource,omitempty"`
+	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
 	Limit                 int
 }
 
 type ConstructionGroupSourceSelection struct {
 	RowChoiceID string `json:"rowChoiceId"`
 	ColumnID    string `json:"columnId"`
+}
+
+type ConstructionPivotSourceSelection struct {
+	ChoiceID string `json:"choiceId"`
+	ColumnID string `json:"columnId"`
 }
 
 func (r ConstructionProposalRequest) Validate() error {
@@ -131,6 +160,9 @@ func (r ConstructionProposalRequest) Validate() error {
 		if err := requireExactIdentity(r.GroupSource.ColumnID, "groupSource.columnId"); err != nil {
 			return err
 		}
+	}
+	if err := validateConstructionPivotSourceSelections(r.PivotSources); err != nil {
+		return err
 	}
 	if r.Limit < 0 || r.Limit > dataframeexecution.MaxPreviewLimit {
 		return fmt.Errorf("limit must be between 1 and %d", dataframeexecution.MaxPreviewLimit)
@@ -207,10 +239,14 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
 	}
+	pivotSourceInput, err := s.constructionPivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
+	}
 	return ConstructionCapabilitiesResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
-		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput,
+		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
 	}, nil
 }
 
@@ -226,6 +262,11 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 		return ConstructionProposalResponse{}, err
 	}
 	candidateConstruction, err := s.constructionCandidateWithGroupSource(ctx, base, request)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	var authorizedPivotSourceHelpers map[string]bool
+	candidateConstruction, authorizedPivotSourceHelpers, err = s.constructionCandidateWithPivotSources(ctx, base, request, candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -301,6 +342,9 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 				continue
 			}
 			if prior, exists := baseRelatedFields[step.ID]; exists && reflect.DeepEqual(prior, *step.Operation.RelatedField) {
+				continue
+			}
+			if authorizedPivotSourceHelpers[step.ID] {
 				continue
 			}
 			if err := reauthorizeConstructionRelatedField(ctx, base, step, *step.Operation.RelatedField); err != nil {

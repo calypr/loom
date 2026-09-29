@@ -75,11 +75,17 @@ func TestResolveGeneratedRowPathClassifiesFHIRShape(t *testing.T) {
 		{path: "name[]", fhirType: "HumanName", cardinality: RowCardinalityMany, shape: RowPathArray},
 		{path: "name[].family", fhirType: "string", cardinality: RowCardinalityMany, shape: RowPathScalar},
 		{path: "managingOrganization", fhirType: "Reference", cardinality: RowCardinalityOne, shape: RowPathObject, reference: true},
+		{path: "managingOrganization.reference", fhirType: "string", cardinality: RowCardinalityOne, shape: RowPathScalar},
 	}
 	for _, test := range tests {
 		got, resolveErr := index.ResolveRowPath("Patient", test.path)
 		if resolveErr != nil || got.FHIRType != test.fhirType || got.Cardinality != test.cardinality || got.Shape != test.shape || got.Reference != test.reference {
 			t.Errorf("generated Patient path %q = %#v, %v", test.path, got, resolveErr)
 		}
+	}
+	observationReference, err := index.ResolveRowPath("Observation", "subject.reference")
+	if err != nil || observationReference.FHIRType != "string" || observationReference.Cardinality != RowCardinalityOne ||
+		observationReference.Shape != RowPathScalar || observationReference.Reference {
+		t.Fatalf("generated Observation path subject.reference = %#v, %v", observationReference, err)
 	}
 }

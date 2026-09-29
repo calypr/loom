@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/calypr/loom/internal/explorer/capability"
 )
 
 func stagedConstructionDocument() Document {
@@ -169,6 +171,145 @@ func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
 	}
 	if len(removed.Construction.SourceProjections) != 0 || len(removed.Construction.Steps) != 0 {
 		t.Fatalf("removed construction retained source projections or steps: %#v", removed.Construction)
+	}
+}
+
+func TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Columns = []Column{
+		constructionSourceColumn("patient_id", "patient_id", "Patient ID", "string"),
+		constructionSourceColumn("amount", "amount", "Amount", "integer"),
+	}
+	projection := ConstructionSourceProjection{
+		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: RootOccurrenceID,
+		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
+	}
+	sourceColumns := []StageColumn{
+		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+		{ID: "amount", Name: "amount", Label: "Amount", Type: "integer"},
+		{ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
+	}
+	relatedSource := ConstructionRelatedFieldSource{
+		Kind: capability.ConstructionChoiceSourceField, CandidateID: "observation-status", NodeID: "observation-node",
+		ResourceType: "Observation", Path: "status", Cardinality: "optional_one", LogicalType: "string",
+	}
+	relatedOutputs := append(append([]StageColumn(nil), sourceColumns...), StageColumn{
+		ID: "pivot_observation_status", Name: "__pivot_source_status", Label: "Observation.status", Type: "string", Nullable: true,
+	})
+	active := true
+	candidate := Construction{
+		Version:           ConstructionVersion,
+		SourceProjections: []ConstructionSourceProjection{projection},
+		Steps: []ConstructionStep{
+			{
+				ID: "pivot_status_input", OwnerStepID: "pivot_step",
+				Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+				Operation: ConstructionOperation{Kind: ConstructionOperationRelatedField, RelatedField: &ConstructionRelatedField{
+					ChoiceID: "stage-bound-choice", Source: relatedSource, OutputColumnID: "pivot_observation_status",
+				}},
+				Outputs: relatedOutputs,
+			},
+			{
+				ID: "pivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "pivot_status_input"}},
+				Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+					ConstructionID: "pivot_step", GroupKeyIDs: []string{"patient_id"},
+					CategoryColumnID: projection.ColumnID, ValueColumnID: "pivot_observation_status",
+					Categories:      []ConstructionPivotCategory{{Key: TableScalar{Kind: TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
+					DuplicatePolicy: ConstructionPivotDuplicateError, MissingCellPolicy: ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+				}},
+				Outputs: []StageColumn{
+					{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+					{ID: "active_amount", Name: "active_amount", Label: "Active amount", Type: "string"},
+				},
+			},
+		},
+	}
+	accepted, _, err := document.AnalyzeConstructionCandidate(candidate, "pivot_step", nil)
+	if err != nil {
+		t.Fatalf("accept Pivot-owned source and related inputs: %v", err)
+	}
+	if len(accepted.Columns) != 2 || len(accepted.Construction.SourceProjections) != 1 ||
+		accepted.Construction.SourceProjections[0].OwnerStepID != "pivot_step" || len(accepted.Construction.Steps) != 2 {
+		t.Fatalf("Pivot inputs leaked into source columns or were not persisted privately: %#v", accepted.Construction)
+	}
+	removed, impact, err := accepted.ProposeStepRemoval("pivot_step", nil)
+	if err != nil {
+		t.Fatalf("remove Pivot and owned inputs: %v", err)
+	}
+	if len(removed.Construction.Steps) != 0 || len(removed.Construction.SourceProjections) != 0 || len(impact.RemovedStepIDs) != 2 {
+		t.Fatalf("removing Pivot did not restore the base construction: construction=%#v impact=%#v", removed.Construction, impact)
+	}
+}
+
+func TestPivotEditCanDropOwnedRootProjectionAcrossPrefix(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Columns = []Column{
+		constructionSourceColumn("patient_id", "patient_id", "Patient ID", "string"),
+		constructionSourceColumn("amount", "amount", "Amount", "integer"),
+		constructionSourceColumn("category", "category", "Category", "string"),
+	}
+	projection := ConstructionSourceProjection{
+		ColumnID: "pivot_status", OwnerStepID: "pivot_step", OccurrenceID: RootOccurrenceID,
+		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Patient.active",
+	}
+	active := true
+	filterOutputs := []StageColumn{
+		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+		{ID: "amount", Name: "amount", Label: "Amount", Type: "integer"},
+		{ID: "category", Name: "category", Label: "Category", Type: "string"},
+		{ID: projection.ColumnID, Name: ConstructionSourceProjectionName(projection.ColumnID), Label: projection.Label, Type: projection.LogicalType},
+	}
+	candidate := Construction{
+		Version: ConstructionVersion, SourceProjections: []ConstructionSourceProjection{projection},
+		Steps: []ConstructionStep{
+			{
+				ID: "filter_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+				Operation: ConstructionOperation{Kind: ConstructionOperationFilter, Filter: &ConstructionFilter{
+					ColumnID: "patient_id", Operator: ConstructionFilterExists,
+				}}, Outputs: filterOutputs,
+			},
+			{
+				ID: "pivot_step", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "filter_step"}},
+				Operation: ConstructionOperation{Kind: ConstructionOperationPivot, Pivot: &ConstructionPivot{
+					ConstructionID: "pivot_step", GroupKeyIDs: []string{"patient_id"},
+					CategoryColumnID: projection.ColumnID, ValueColumnID: "amount",
+					Categories:      []ConstructionPivotCategory{{Key: TableScalar{Kind: TableScalarBoolean, Boolean: &active}, OutputColumnID: "active_amount"}},
+					DuplicatePolicy: ConstructionPivotDuplicateError, MissingCellPolicy: ConstructionPivotMissingNull,
+					UnlistedCategoryPolicy: ConstructionPivotUnlistedError,
+				}},
+				Outputs: []StageColumn{
+					{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+					{ID: "active_amount", Name: "active_amount", Label: "Active amount", Type: "integer"},
+				},
+			},
+		},
+	}
+	acceptedFilter := candidate.Steps[0]
+	acceptedFilter.Outputs = acceptedFilter.Outputs[:3]
+	document.Construction = &Construction{Version: ConstructionVersion, Steps: []ConstructionStep{acceptedFilter}}
+	accepted, _, err := document.AnalyzeConstructionCandidate(candidate, "pivot_step", nil)
+	if err != nil {
+		t.Fatalf("accept Pivot-owned root projection through filter: %v", err)
+	}
+	updated, err := cloneConstruction(accepted.Construction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated.SourceProjections = nil
+	updated.Steps[0].Outputs = updated.Steps[0].Outputs[:3]
+	updated.Steps[1].Operation.Pivot.CategoryColumnID = "category"
+	updated.Steps[1].Operation.Pivot.Categories = []ConstructionPivotCategory{{Key: stringScalar("final"), OutputColumnID: "final_amount"}}
+	updated.Steps[1].Outputs = []StageColumn{
+		{ID: "patient_id", Name: "patient_id", Label: "Patient ID", Type: "string"},
+		{ID: "final_amount", Name: "final_amount", Label: "Final amount", Type: "integer"},
+	}
+	replaced, _, err := accepted.AnalyzeConstructionCandidate(*updated, "pivot_step", nil)
+	if err != nil {
+		t.Fatalf("replace Pivot bindings and drop owned root projection: %v", err)
+	}
+	if len(replaced.Construction.SourceProjections) != 0 || len(replaced.Construction.Steps[0].Outputs) != 3 {
+		t.Fatalf("replaced Pivot retained its private source field: %#v", replaced.Construction)
 	}
 }
 

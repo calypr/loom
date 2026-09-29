@@ -38,12 +38,12 @@ func (h *explorerHTTPHandlers) discoverConstructionCategoriesDirect(ctx context.
 	if body == nil {
 		return result, malformedRouteError("construction-category-discovery", nil)
 	}
-	value, err := h.application.DiscoverConstructionCategories(ctx, lifecycle.ConstructionCategoryDiscoveryRequest{
-		Project: project, ExplorerID: explorerID, SnapshotToken: body.SnapshotToken,
-		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
-		OutputID: body.OutputId, StageID: body.StageId,
-		CategoryColumnID: body.CategoryColumnId, ValueColumnID: body.ValueColumnId,
-	})
+	request, err := directAuthoringJSON[lifecycle.ConstructionCategoryDiscoveryRequest](body)
+	if err != nil {
+		return result, malformedRouteError("construction-category-discovery", err)
+	}
+	request.Project, request.ExplorerID = project, explorerID
+	value, err := h.application.DiscoverConstructionCategories(ctx, request)
 	if err != nil {
 		return result, err
 	}
@@ -71,6 +71,14 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 		ExpectedDraftVersion: int64(body.ExpectedDraftVersion), ExpectedDraftDigest: body.ExpectedDraftDigest,
 		OutputID: body.OutputId, ChangedStepID: changedStepID,
 		CandidateConstruction: candidate,
+	}
+	if body.PivotSources != nil {
+		request.PivotSources = make([]lifecycle.ConstructionPivotSourceSelection, 0, len(*body.PivotSources))
+		for _, selection := range *body.PivotSources {
+			request.PivotSources = append(request.PivotSources, lifecycle.ConstructionPivotSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
 	}
 	if body.GroupSource != nil {
 		request.GroupSource = &lifecycle.ConstructionGroupSourceSelection{

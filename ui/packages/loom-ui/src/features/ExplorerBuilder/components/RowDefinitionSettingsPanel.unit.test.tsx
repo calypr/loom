@@ -241,7 +241,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true, tablePivotAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    expect(pivot).toHaveTextContent('Choose coded values from the starting records');
+    expect(pivot).toHaveTextContent('Choose coded values, or choose fields');
     expect(pivot).toBeEnabled();
     fireEvent.click(await screen.findByTestId('construction-action-table-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');

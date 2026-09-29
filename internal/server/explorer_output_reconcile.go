@@ -614,6 +614,25 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if err != nil {
 				return fmt.Errorf("pivot step %q: %w", step.ID, err)
 			}
+			for _, keyID := range pivot.GroupKeyIDs {
+				_, privateSource := sourceOnlyIDs[keyID]
+				priorMetadata, constructedInput := authored[prior[keyID]]
+				if !privateSource && !constructedInput {
+					continue
+				}
+				for _, output := range step.Outputs {
+					if output.ID == keyID {
+						if privateSource {
+							priorMetadata = authoredOutputColumn{
+								ConstructionID: pivot.ConstructionID, TypedStageOutput: true, Quality: quality,
+							}
+						}
+						priorMetadata.Label = output.Label
+						nextAuthored[output.Name] = priorMetadata
+						break
+					}
+				}
+			}
 			for _, category := range pivot.Categories {
 				if err := addOutput(category.OutputColumnID, pivot.ConstructionID, dependencies, quality); err != nil {
 					return err

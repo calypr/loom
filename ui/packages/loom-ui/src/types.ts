@@ -1470,6 +1470,7 @@ export type ConstructionOperation = z.infer<typeof constructionOperationSchema>;
 
 const constructionStepSchema = z.object({
   id: opaqueIdSchema,
+  ownerStepId: opaqueIdSchema.optional(),
   inputs: z.array(constructionInputRefSchema),
   operation: constructionOperationSchema,
   outputs: z.array(constructionStageColumnSchema),
@@ -1480,6 +1481,7 @@ export const constructionSchema = z.object({
   version: z.number().int().positive(),
   steps: z.array(constructionStepSchema),
   sourceProjections: z.array(z.object({
+    ownerStepId: opaqueIdSchema.optional(),
     columnId: opaqueIdSchema,
     occurrenceId: opaqueIdSchema,
     fieldPath: z.string().min(1),
@@ -1563,6 +1565,32 @@ export const constructionCapabilitiesRequestSchema = z.object({
 }).strict();
 export type ConstructionCapabilitiesRequest = z.infer<typeof constructionCapabilitiesRequestSchema>;
 
+const constructionScalarSourceInputSchema = z.object({
+  supported: z.boolean(),
+  stageId: opaqueIdSchema,
+  reasonCode: z.string().optional(),
+  reason: z.string().optional(),
+  choices: z.array(z.object({
+    choiceId: z.string().min(1),
+    columnId: opaqueIdSchema.optional(),
+    occurrenceId: opaqueIdSchema,
+    fieldPath: z.string().min(1),
+    label: z.string().min(1),
+    fhirType: z.string().min(1),
+    logicalType: z.string().min(1),
+    valueType: z.string().min(1),
+    isIdentifier: z.boolean(),
+    isReference: z.boolean(),
+    isPopulated: z.boolean(),
+  }).strict()),
+}).strict();
+
+export const constructionPivotSourceSelectionSchema = z.object({
+  choiceId: opaqueIdSchema,
+  columnId: opaqueIdSchema,
+}).strict();
+export type ConstructionPivotSourceSelection = z.infer<typeof constructionPivotSourceSelectionSchema>;
+
 export const constructionCapabilitiesResponseSchema = z.object({
   snapshotToken: opaqueIdSchema,
   draftVersion: z.number().int().positive(),
@@ -1572,28 +1600,14 @@ export const constructionCapabilitiesResponseSchema = z.object({
   baseConstruction: constructionSchema,
   stages: z.array(constructionStageDescriptorSchema),
   selectedStage: constructionStageDescriptorSchema,
-  sourceInput: z.object({
-    supported: z.boolean(),
-    stageId: opaqueIdSchema,
-    reasonCode: z.string().optional(),
-    reason: z.string().optional(),
-    choices: z.array(z.object({
-      choiceId: z.string().min(1),
-      occurrenceId: opaqueIdSchema,
-      fieldPath: z.string().min(1),
-      label: z.string().min(1),
-      fhirType: z.string().min(1),
-      logicalType: z.string().min(1),
-      valueType: z.string().min(1),
-      isIdentifier: z.boolean(),
-      isReference: z.boolean(),
-      isPopulated: z.boolean(),
-    }).strict()),
-  }).strict().optional(),
+  sourceInput: constructionScalarSourceInputSchema.optional(),
+  pivotSourceInput: constructionScalarSourceInputSchema.optional(),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
 
 export const constructionCategoryDiscoveryRequestSchema = z.object({
+  groupKeyIds: z.array(opaqueIdSchema).optional(),
+  pivotStepId: opaqueIdSchema.optional(),
   snapshotToken: opaqueIdSchema,
   expectedDraftVersion: z.number().int().positive(),
   expectedDraftDigest: z.string().min(1),
@@ -1601,6 +1615,8 @@ export const constructionCategoryDiscoveryRequestSchema = z.object({
   stageId: opaqueIdSchema,
   categoryColumnId: opaqueIdSchema,
   valueColumnId: opaqueIdSchema,
+  pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
+  candidateConstruction: constructionSchema.optional(),
 }).strict();
 export type ConstructionCategoryDiscoveryRequest = z.infer<typeof constructionCategoryDiscoveryRequestSchema>;
 
@@ -1655,6 +1671,7 @@ export const constructionProposalRequestSchema = z.object({
     columnId: opaqueIdSchema,
   }).strict().optional(),
   limit: z.number().int().min(1).max(1000).optional(),
+  pivotSources: z.array(constructionPivotSourceSelectionSchema).optional(),
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;
 

@@ -67,9 +67,9 @@ func (i *Index) ResolveRowPath(resourceType DefinitionName, path string) (RowPat
 		if index == len(segments)-1 {
 			break
 		}
-		if len(element.ReferenceTargetTypes) != 0 {
-			return RowPathFacts{}, fmt.Errorf("schema path %q traverses an unsupported reference", path)
-		}
+		// Reference payload members such as reference and display are fields on
+		// the same JSON object. Only an explicit construction route follows the
+		// referenced resource itself.
 		switch element.JSONType {
 		case JSONTypeArray:
 			current, err = i.elementChildren(element, true)
