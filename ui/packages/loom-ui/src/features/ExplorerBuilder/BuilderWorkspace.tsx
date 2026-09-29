@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useAutomaticPreview } from './useAutomaticPreview';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -415,6 +416,7 @@ const BuilderWorkspaceContent = ({
         ? stateFromBuilder(builder.data, {
             project: projectId,
             explorerId: selectedExplorerId,
+            selectedOutputId: localState?.key.startsWith(`${ownerKey}:`) ? localState.value.selectedOutputId : undefined,
           })
         : emptyBuilderState(projectId);
   const dispatch = useCallback(
@@ -427,6 +429,7 @@ const BuilderWorkspaceContent = ({
               ? stateFromBuilder(builderDataRef.current, {
                   project: projectId,
                   explorerId: selectedExplorerId,
+                  selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : undefined,
                 })
               : emptyBuilderState(projectId);
         return {
@@ -435,7 +438,7 @@ const BuilderWorkspaceContent = ({
         };
       });
     },
-    [authResourcePath, builderDataKey, projectId, selectedExplorerId],
+    [authResourcePath, builderDataKey, ownerKey, projectId, selectedExplorerId],
   );
   const [message, setMessage] = useState<string>();
   const [pendingRowChange, setPendingRowChange] =
@@ -498,17 +501,11 @@ const BuilderWorkspaceContent = ({
   const activeCompile = useRef<{ abort: () => void } | undefined>(undefined);
   const activePreview = useRef<{ abort: () => void } | undefined>(undefined);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
-  const presentationPreviewTimer = useRef<number | undefined>(undefined);
-  const presentationPreviewSerial = useRef(0);
   const firstTableActionPending = useRef(false);
   const serverDraft = useRef({ version: 0, digest: '' });
   const suggestionRequestKey = useRef('');
   const latestState = useRef(state);
   latestState.current = state;
-  useEffect(() => () => {
-    presentationPreviewSerial.current += 1;
-    window.clearTimeout(presentationPreviewTimer.current);
-  }, []);
   const [interpretationContextRefreshVersion, setInterpretationContextRefreshVersion] = useState(0);
   const [interpretationContextLoad, setInterpretationContextLoad] = useState<InterpretationContextLoad>();
 
@@ -605,6 +602,7 @@ const BuilderWorkspaceContent = ({
             ? stateFromBuilder(value, {
                 project: projectId,
                 explorerId: selectedExplorerId,
+                selectedOutputId: current?.key.startsWith(`${ownerKey}:`) ? current.value.selectedOutputId : undefined,
               })
             : builderAuthoringReducer(
                 current?.key === builderDataKey
@@ -615,7 +613,7 @@ const BuilderWorkspaceContent = ({
         return { key: nextKey, value: nextValue };
       });
     },
-    [builderDataKey, projectId, selectedExplorerId],
+    [builderDataKey, ownerKey, projectId, selectedExplorerId],
   );
 
   const incomplete = state.tables.some(
@@ -2035,21 +2033,6 @@ const BuilderWorkspaceContent = ({
         return;
       }
 
-      setFirstTableProgress({
-        kind: 'running',
-        resourceType: root.resourceType,
-        phase: 'previewing',
-      });
-      const receipt = await reconcileCurrent();
-      if (!receipt) {
-        setMessage(`${plan.title} was created, but Loom could not compile its first preview.`);
-        return;
-      }
-      await executePreview({
-        outputId: createdTable.outputId,
-        limit: previewLimit,
-        receiptRefreshes: 0,
-      }, receipt.receiptId);
     } finally {
       if (tableCreated) setTableCreatorOpen(false);
       firstTableActionPending.current = false;
@@ -2057,41 +2040,29 @@ const BuilderWorkspaceContent = ({
     }
   };
 
-  const preview = async (limit: PreviewLimit = previewLimit) => {
-    if (!table || previewDisabled) return;
-    const request = {
-      outputId: table.outputId,
-      limit,
-      receiptRefreshes: 0,
-    };
-    const receipt =
-      state.receipt && state.reconciliation === 'resolved'
-        ? state.receipt
-        : await reconcileCurrent();
-    if (receipt) await executePreview(request, receipt.receiptId);
-  };
+  useAutomaticPreview({
+    requestKey: table ? JSON.stringify([ownerKey, state.draftDigest, table.outputId, previewLimit]) : undefined,
+    enabled: !previewDisabled && pendingCommands === 0 && firstTableProgress.kind === 'idle',
+    cancel: () => {
+      previewGeneration.current += 1;
+      activePreview.current?.abort();
+    },
+    refresh: async () => {
+      const generation = previewGeneration.current;
+      const current = latestState.current;
+      const outputId = table?.outputId;
+      if (!outputId) return;
+      const receipt = current.receipt && current.reconciliation === 'resolved'
+        ? current.receipt : await reconcileCurrent();
+      if (receipt && generation === previewGeneration.current)
+        await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
+    },
+  });
   const applyPresentationChanges = (changes: ReadonlyArray<PreviewTablePresentationChange>) => {
-    const outputId = table?.outputId;
-    if (!outputId || changes.length === 0) return;
-    const serial = ++presentationPreviewSerial.current;
-    window.clearTimeout(presentationPreviewTimer.current);
+    if (!table || changes.length === 0) return;
     void applyCommandsWithResult(changes.map((change) =>
-      previewPresentationCommand(outputId, change),
-    )).then((result) => {
-      if (!result || serial !== presentationPreviewSerial.current) return;
-      presentationPreviewTimer.current = window.setTimeout(() => {
-        if (
-          serial !== presentationPreviewSerial.current ||
-          latestState.current.selectedOutputId !== outputId ||
-          latestState.current.draftVersion !== result.draftVersion
-        ) return;
-        void (async () => {
-          const receipt = await reconcileCurrent();
-          if (receipt && serial === presentationPreviewSerial.current)
-            await executePreview({ outputId, limit: previewLimit, receiptRefreshes: 0 }, receipt.receiptId);
-        })();
-      }, 250);
-    });
+      previewPresentationCommand(table.outputId, change),
+    ));
   };
   const executePublish = useCallback(
     async (receiptId: string) => {
@@ -2222,15 +2193,12 @@ const BuilderWorkspaceContent = ({
       onDuplicateTable={duplicateTable}
       onDeleteTable={deleteSelectedTable}
       onReorderTable={reorderTable}
-      onPreview={() => void preview()}
       onReview={() => {
         const open = !reviewOpen;
         setReviewOpen(open);
-        if (open && !previewIsCurrent) void preview();
       }}
       reviewExpanded={reviewOpen}
       onPublish={() => void publish()}
-      previewDisabled={previewDisabled}
       publishDisabled={publishDisabled}
       publishing={publishing}
       busy={busy}
@@ -3237,8 +3205,8 @@ const BuilderWorkspaceContent = ({
                         data-testid="construction-preview-stale-notice"
                         className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950"
                       >
-                        Showing the last successful preview for this table. Run
-                        Preview to refresh it for the current draft.
+                        Showing the last successful preview for this table.
+                        The table refreshes automatically when your changes are saved.
                       </p>
                     ) : null}
                     <ConstructionColumnSelection
@@ -3276,7 +3244,6 @@ const BuilderWorkspaceContent = ({
                         limit={previewLimit}
                         onLimitChange={(limit) => {
                           setPreviewLimit(limit);
-                          preview(limit);
                         }}
                         onColumnChange={(change) => applyPresentationChanges([change])}
                         onColumnsChange={applyPresentationChanges}

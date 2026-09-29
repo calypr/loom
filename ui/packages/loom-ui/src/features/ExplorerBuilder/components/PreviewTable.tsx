@@ -517,8 +517,8 @@ export const PreviewTable = ({
             {!table?.document.rootResourceType
               ? 'Choose starting records to preview this table.'
               : table.document.columns.length === 0
-                ? 'Add a column, then preview this table.'
-                : 'Preview this table to inspect its rows and columns.'}
+                ? 'Add a column to see your table.'
+                : 'Loading your table…'}
           </p>
         ) : (
           <div

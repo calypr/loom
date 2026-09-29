@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -55,34 +55,21 @@ vi.mock('../../react', () => ({
 
 vi.mock('./components/BuilderToolbar', () => ({
   BuilderToolbar: ({
-    onPreview,
     onReview,
     onPublish,
     onSelectTable,
     tables,
-    previewDisabled,
     publishDisabled,
     publishing,
-    busy,
   }: {
-    readonly onPreview: () => void;
     readonly onReview: () => void;
     readonly onPublish: () => void;
     readonly onSelectTable: (outputId: string) => void;
     readonly tables: ReadonlyArray<{ readonly outputId: string }>;
-    readonly previewDisabled: boolean;
     readonly publishDisabled: boolean;
     readonly publishing: boolean;
-    readonly busy: boolean;
   }) => (
     <div>
-      <button
-        type="button"
-        disabled={previewDisabled || busy}
-        onClick={onPreview}
-      >
-        Preview
-      </button>
       <button type="button" onClick={onReview}>
         Review dataset
       </button>
@@ -388,7 +375,9 @@ const abortableRequest = <T,>() => {
   const promise = new Promise<T>((_resolve, rejectPromise) => {
     reject = rejectPromise;
   });
-  const abort = vi.fn(() => reject(new Error('CLIENT_CANCELLED')));
+  const abort = vi.fn(() => reject(Object.assign(new Error('CLIENT_CANCELLED'), {
+    code: 'CLIENT_CANCELLED',
+  })));
   return { unwrap: vi.fn(() => promise), abort };
 };
 
@@ -895,7 +884,20 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  it('opens Review on a hydrated draft with a compile receipt and sample without clicking Preview', async () => {
+  it('automatically previews a hydrated draft and opens Review with its compile receipt and sample', async () => {
+    preview.mockReturnValueOnce(
+      resolvedRequest({
+        apiVersion,
+        kind: 'ExplorerBuilderPreview',
+        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+        receiptId: 'receipt-1',
+        outputId: 'specimens',
+        columns: receipt.outputs[0].columns,
+        rows: [{ specimen_identifier: 'SP-1' }],
+        rowCount: 1,
+        diagnostics: [],
+      }),
+    );
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -903,6 +905,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
         explorerId="test"
       />,
     );
+    expect(screen.queryByRole('button', { name: 'Preview' })).not.toBeInTheDocument();
 
     const reviewButton = await screen.findByRole('button', {
       name: 'Review dataset',
@@ -917,25 +920,9 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expectedDraftVersion: 1,
       expectedDraftDigest: 'sha256:draft-1',
     }, expect.any(AbortSignal));
-    expect(reconcile).not.toHaveBeenCalled();
-
-    preview.mockReturnValueOnce(
-      resolvedRequest({
-        apiVersion,
-        kind: 'ExplorerBuilderPreview',
-        rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
-        receiptId: 'receipt-1',
-        outputId: 'specimens',
-        columns: receipt.outputs[0].columns,
-        rows: [{ specimen_identifier: 'SP-1' }],
-        rowCount: 1,
-        diagnostics: [],
-      }),
-    );
-    fireEvent.click(reviewButton);
-
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    fireEvent.click(reviewButton);
     expect(await screen.findByText('Compiler result matches the saved draft.')).toBeTruthy();
     expect(await screen.findByText(/Preview returned 1 sample rows/)).toBeTruthy();
 
@@ -943,6 +930,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     await waitFor(() => expect(screen.queryByText('Compiler result matches the saved draft.')).toBeNull());
     fireEvent.click(reviewButton);
     expect(await screen.findByText('Compiler result matches the saved draft.')).toBeTruthy();
+    expect(reconcile).toHaveBeenCalledTimes(1);
     expect(preview).toHaveBeenCalledTimes(1);
   });
 
@@ -1129,11 +1117,13 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     ));
   });
 
-  it('cancels a stale preview when a patient column changes', async () => {
+  it('cancels an automatic preview when a patient column changes', async () => {
     const pendingPreview = abortableRequest<never>();
+    const automaticPreview = vi.fn();
     (usePreviewExplorerAuthoringV2Mutation as Mock).mockImplementation(() => {
       const [isLoading, setLoading] = React.useState(false);
       const trigger = React.useCallback(() => {
+        automaticPreview();
         setLoading(true);
         void pendingPreview
           .unwrap()
@@ -1154,17 +1144,12 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    const previewButton = await screen.findByRole('button', {
-      name: 'Preview',
-    });
-    fireEvent.click(previewButton);
-    await waitFor(() => expect(previewButton).toBeDisabled());
+    await waitFor(() => expect(automaticPreview).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
 
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(pendingPreview.abort).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(previewButton).toBeEnabled());
+    await waitFor(() => expect(pendingPreview.abort).toHaveBeenCalled());
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -1199,28 +1184,18 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    const previewButton = await screen.findByRole('button', {
-      name: 'Preview',
-    });
-    fireEvent.click(previewButton);
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
 
     fireEvent.click(screen.getByRole('button', { name: 'Save column change' }));
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
     resolveRefresh({ data: builderState });
 
-    await waitFor(() => expect(previewButton).toBeEnabled());
-    expect(reconcile).toHaveBeenCalledTimes(1);
-    expect(preview).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-
-    fireEvent.click(previewButton);
-
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('keeps Preview disabled without a visible patient column', async () => {
+  it('does not automatically preview without a visible patient column', async () => {
     const hiddenWorkspace = {
       ...workspace,
       documents: [
@@ -1249,9 +1224,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    expect(
-      await screen.findByRole('button', { name: 'Preview' }),
-    ).toBeDisabled();
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(preview).not.toHaveBeenCalled();
   });
 
   it('keeps receipt recovery within the current preview generation', async () => {
@@ -1285,10 +1262,150 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Preview' }));
-
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('preserves the selected table when automatic preview refreshes builder state', async () => {
+    const patientColumn = {
+      ...column,
+      column: 'patient_identifier',
+      label: 'Patient identifier',
+    };
+    const patientDocument = {
+      ...workspace.documents[0],
+      output: { id: 'patients', title: 'Patients' },
+      rootResourceType: 'Patient',
+      route: { occurrenceId: 'base', resourceType: 'Patient' },
+      columns: [patientColumn],
+    };
+    const multiTableWorkspace = {
+      ...workspace,
+      documents: [workspace.documents[0], patientDocument],
+      tabs: [
+        ...workspace.tabs,
+        {
+          id: 'patients-tab',
+          title: 'Patients',
+          outputId: 'patients',
+          order: 1,
+          visible: true,
+        },
+      ],
+    };
+    const refreshedState = { ...builderState, workspace: multiTableWorkspace };
+    const refetch = vi.fn().mockResolvedValue({ data: refreshedState });
+    const patientPreviewColumns = [{
+      column: 'patient_identifier',
+      label: 'Patient identifier',
+      logicalType: 'string',
+      filterable: true,
+      chartable: false,
+    }];
+    const patientPreview = {
+      apiVersion,
+      kind: 'ExplorerBuilderPreview' as const,
+      rowLineageCapability: { status: 'UNAVAILABLE' as const, reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'receipt-1',
+      outputId: 'patients',
+      columns: patientPreviewColumns,
+      rows: [],
+      rowCount: 0,
+      diagnostics: [],
+    };
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
+      data: refreshedState,
+      isLoading: false,
+      refetch,
+    });
+    resolveContext.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [],
+      pinnedRevisions: [],
+      columns: [
+        {
+          outputId: 'specimens',
+          column: 'specimen_identifier',
+          occurrenceId: 'base',
+          resolution: { state: 'READY' as const, capabilityCandidateIds: ['specimen-id'], applicableRevisionIds: [] },
+        },
+        {
+          outputId: 'patients',
+          column: 'patient_identifier',
+          occurrenceId: 'base',
+          resolution: { state: 'READY' as const, capabilityCandidateIds: ['patient-id'], applicableRevisionIds: [] },
+        },
+      ],
+    }));
+    reconcile.mockReturnValue(resolvedRequest({
+      ...receipt,
+      builder: multiTableWorkspace,
+      outputs: [
+        ...receipt.outputs,
+        { outputId: 'patients', columns: patientPreviewColumns },
+      ],
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByTestId('construction-preview')).toHaveAttribute(
+        'data-preview-status',
+        'ready',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Select second table' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('construction-table-patients')).toHaveAttribute(
+        'aria-current',
+        'page',
+      ),
+    );
+    preview
+      .mockReturnValueOnce(
+        rejectedRequest({
+          code: 'STALE_CATALOG_SNAPSHOT',
+          message: 'The catalog is stale.',
+          retryable: false,
+        }),
+      )
+      .mockReturnValueOnce(resolvedRequest(patientPreview));
+
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    expect(preview).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      outputId: 'patients',
+    }));
+    expect(preview).toHaveBeenNthCalledWith(3, expect.objectContaining({
+      outputId: 'patients',
+    }));
+    await waitFor(() =>
+      {
+        const previewPanel = screen.getByTestId('construction-preview');
+        expect(previewPanel).toHaveAttribute('data-preview-output-id', 'patients');
+        expect(previewPanel).toHaveAttribute('data-preview-status', 'ready');
+      },
+    );
+    expect(screen.getByTestId('construction-table-patients')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -1355,7 +1472,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
   });
 
-  it('saves commands without reconciling, then reconciles once before Publish', async () => {
+  it('automatically previews saved commands and publishes the resulting receipt', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"
@@ -1368,15 +1485,16 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       await screen.findByRole('button', { name: 'Save column change' }),
     );
     await waitFor(() => expect(applyCommands).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled(),
     );
-    expect(reconcile).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
 
-    await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
+    expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
   it('saves an edited traversal relationship in place', async () => {
@@ -1412,7 +1530,7 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
   });
 
-  it('previews after one click when reconciliation returns a normalized builder', async () => {
+  it('automatically previews when reconciliation returns a normalized builder', async () => {
     reconcile.mockReturnValue(
       resolvedRequest({
         ...receipt,
@@ -1435,17 +1553,11 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       />,
     );
 
-    const previewButton = await screen.findByRole('button', {
-      name: 'Preview',
-    });
-    await waitFor(() => expect(previewButton).toBeEnabled());
-    fireEvent.click(previewButton);
-
     await waitFor(() => expect(reconcile).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(1));
   });
 
-  it('keeps Preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {
+  it('keeps the preview visible, collapses source setup, supports focusable column selection, and applies only the reviewed receipt command', async () => {
     render(
       <BuilderWorkspace
         organization="HTAN_INT"

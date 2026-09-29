@@ -22,11 +22,9 @@ interface BuilderToolbarProps {
   onDuplicateTable: () => void;
   onDeleteTable: () => void;
   onReorderTable: (outputId: string, before?: string) => void;
-  onPreview: () => void;
   onReview: () => void;
   reviewExpanded: boolean;
   onPublish: () => void;
-  previewDisabled: boolean;
   publishDisabled: boolean;
   publishing: boolean;
   busy?: boolean;
@@ -197,11 +195,9 @@ export function BuilderToolbar({
   onDuplicateTable,
   onDeleteTable,
   onReorderTable,
-  onPreview,
   onReview,
   reviewExpanded,
   onPublish,
-  previewDisabled,
   publishDisabled,
   publishing,
   busy = false,
@@ -360,14 +356,6 @@ export function BuilderToolbar({
           <IconTrash size={16} stroke={1.8} />
         </button>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={onPreview}
-            disabled={!selectedTable || busy || previewDisabled}
-            className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
-          >
-            Preview
-          </button>
           <button
             type="button"
             onClick={onReview}

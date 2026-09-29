@@ -569,5 +569,44 @@
     "B01-B08",
     "C01-C12",
     "F00"
-  ]
+  ],
+  "automaticTableRefresh": {
+    "status": "passed",
+    "behavior": "Saved additions, edits, removals, selected-table changes and row-limit changes refresh automatically; no Preview button. Superseded reads are cancelled.",
+    "domEvidence": [
+      {
+        "artifact": ".artifacts/cda-builder/2026-09-29T18-15-07.568Z/bounded-observation-concept-inspection.json",
+        "paths": [
+          "add",
+          "reload",
+          "rename",
+          "reload",
+          "remove",
+          "reload"
+        ],
+        "renderMs": [
+          1862,
+          1850,
+          2080,
+          1676
+        ]
+      },
+      {
+        "artifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "paths": [
+          "apply pivot",
+          "reload",
+          "edit pivot",
+          "reload",
+          "remove pivot",
+          "reload"
+        ],
+        "proposalMs": 4463,
+        "renderMs": 3474,
+        "editProposalMs": 4269
+      }
+    ],
+    "correctness": "Real CDA values matched independent source records; restored source columns after removal.",
+    "regressionNote": "Nine failures in the existing reconciliation test file also reproduce unchanged at HEAD."
+  }
 }

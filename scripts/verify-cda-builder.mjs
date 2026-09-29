@@ -1376,7 +1376,6 @@ try {
         await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Add columns editor"]')`, 30000);
         state.added=await browserEval(browser.cdp, `return {columns:[...document.querySelectorAll('input[aria-label^="Display name for configured"]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value})),remove:[...document.querySelectorAll('button[aria-label^="Remove "]')].map(button=>button.getAttribute('aria-label')).filter(label=>label.includes('primary_disease')),body:document.body.innerText.slice(0,1000)};`);
         let previewStarted=Date.now();
-        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount')==='2'`, 30000);
         state.timingsMs.initialPreview=Date.now()-previewStarted;
         state.preview=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
@@ -1386,7 +1385,6 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         previewStarted=Date.now();
-        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected)})`, 30000);
         state.timingsMs.savedPreview=Date.now()-previewStarted;
         state.saved=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
@@ -1408,7 +1406,6 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         previewStarted=Date.now();
-        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].some(cell=>cell.innerText==='CDA PRIMARY DISEASE')`, 30000);
         state.timingsMs.editedPreview=Date.now()-previewStarted;
         state.edited=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
@@ -1422,7 +1419,6 @@ try {
         await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
         await waitForBrowser(browser.cdp, `document.body.innerText.includes(${JSON.stringify(`DATASET WORKSPACE\n\n${tableName}`)})`, 30000);
         previewStarted=Date.now();
-        await browserEval(browser.cdp, `[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
         await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-colcount')==='1'`, 30000);
         state.timingsMs.restoredPreview=Date.now()-previewStarted;
         state.restored=await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);

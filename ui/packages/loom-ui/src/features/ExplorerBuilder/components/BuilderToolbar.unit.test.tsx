@@ -46,11 +46,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
-        onPreview={vi.fn()}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing={false}
       />,
@@ -108,11 +106,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={onReorderTable}
-        onPreview={vi.fn()}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing={false}
         columnCreationSupported={false}
@@ -157,11 +153,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
-        onPreview={vi.fn()}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
-        previewDisabled={false}
         publishDisabled={false}
         publishing
       />,
@@ -192,11 +186,9 @@ describe('BuilderToolbar', () => {
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
         onReorderTable={vi.fn()}
-        onPreview={vi.fn()}
         onReview={onReview}
         reviewExpanded
         onPublish={onPublish}
-        previewDisabled={false}
         publishDisabled={false}
         publishing={false}
       />,

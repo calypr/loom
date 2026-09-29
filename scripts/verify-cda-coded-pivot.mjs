@@ -33,6 +33,7 @@ const click = async (source) => { state.clicks++; return browserEval(browser.cdp
 try {
   await navigate(browser.cdp, baseURL);
   await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`);
+  assert.equal(await browserEval(browser.cdp, `return [...document.querySelectorAll('button')].some(button=>button.innerText.trim()==='Preview');`), false, 'Manual Preview button should not exist');
   const selection = await browserEval(browser.cdp, `
     const base='/api/v1/projects/loom_dev_cda_fhir/explorers/${explorerId}';
     const builder=await (await fetch(base+'/authoring/v2/builder')).json();
@@ -89,7 +90,6 @@ try {
   await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)}))`);
   await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
   const previewStarted = Date.now();
-  await click(`[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected.at(-1).value)})`);
   state.timingsMs.preview = Date.now() - previewStarted;
   state.saved = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
@@ -124,7 +124,6 @@ try {
   await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length===1`);
   state.editedReload.historyCount = 1;
   const editedPreviewStarted = Date.now();
-  await click(`[...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='Preview').click();return true;`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(expected.at(-1).value)})`);
   state.timingsMs.editedPreview = Date.now() - editedPreviewStarted;
   state.editedSaved = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText))};`);
@@ -140,6 +139,9 @@ try {
   await click(`[...document.querySelectorAll('button')].find(button=>button.innerText.trim().endsWith(${JSON.stringify(tableName)})).click();return true;`);
   state.restored = await browserEval(browser.cdp, `return {historyCount:document.querySelectorAll('[data-testid^="construction-history-step-"]').length,body:document.body.innerText.slice(0,900)};`);
   assert.equal(state.restored.historyCount, 0);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=\"preview-table-scroll\"]')?.innerText.includes(${JSON.stringify(observationId)})`);
+  state.restored.headers = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid=\"preview-table-scroll\"] [role=\"columnheader\"]')].map(cell=>cell.innerText);`);
+  assert.deepEqual(state.restored.headers, ['OBSERVATION ID']);
   assert.equal(state.requests.filter(request => request.status >= 400).length, 0, JSON.stringify(state.requests));
   assert(Object.values(state.timingsMs).every(ms => ms < 5000), JSON.stringify(state.timingsMs));
   console.log(JSON.stringify({ outcome: 'passed', clicks: state.clicks, timingsMs: state.timingsMs, saved: state.saved, artifact }));

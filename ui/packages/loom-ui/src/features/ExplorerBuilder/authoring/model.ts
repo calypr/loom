@@ -220,7 +220,7 @@ const tablesFromWorkspace = (
 
 export const stateFromBuilder = (
   value: ExplorerBuilderState,
-  identity: { readonly project: string; readonly explorerId: string },
+  identity: { readonly project: string; readonly explorerId: string; readonly selectedOutputId?: string },
 ): BuilderAuthoringState => {
   if (value.lifecycleState === 'READY' && !value.workspace) {
     throw new Error('Loom violated the READY authoring-state invariant.');
@@ -233,7 +233,8 @@ export const stateFromBuilder = (
     draftVersion: value.draftVersion,
     draftDigest: value.draftDigest,
     tables,
-    selectedOutputId: tables[0]?.outputId,
+    selectedOutputId: tables.some(table => table.outputId === identity.selectedOutputId)
+      ? identity.selectedOutputId : tables[0]?.outputId,
     selectedOccurrenceId: 'base',
     diagnostics: [],
     dirty: false,
