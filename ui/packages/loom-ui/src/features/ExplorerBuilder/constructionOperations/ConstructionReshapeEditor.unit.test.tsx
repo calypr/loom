@@ -139,6 +139,24 @@ describe('ConstructionReshapeEditor', () => {
     expect(controlValue('Coding field')).toBe('collection.method.coding[]');
     expect(screen.getByText(/current columns leave this table/i)).toBeInTheDocument();
   });
+
+  it('proposes a coded group when opened directly from Rows', () => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_GROUP' as const, supported: true }],
+      codedGroupChoices: [
+        { choiceId: 'signed-type', occurrenceId: 'root-1', resourceType: 'Specimen', codingPath: 'type.coding[]', label: 'Specimen type' },
+      ],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn();
+    renderEditor({ capabilities: capabilitiesFor([codedStage], codedStage), initialKind: 'coded-group', onCandidateChange, onAddCodedValues: vi.fn() });
+    expect(screen.getByTestId('construction-reshape-coded-group')).toBeInTheDocument();
+    expect(screen.queryByText('Need a coded-value column first?')).not.toBeInTheDocument();
+    const step = onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0];
+    expect(step?.operation.kind).toBe('CODED_GROUP');
+    expect(step?.operation.codedGroup.source.codingPath).toBe('type.coding[]');
+    expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
+  });
   it('shows why backend capability choices are unavailable and emits no candidate', () => {
     const unsupportedStage = {
       ...sourceStage,

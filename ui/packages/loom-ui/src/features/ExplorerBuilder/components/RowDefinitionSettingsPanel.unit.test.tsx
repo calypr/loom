@@ -93,7 +93,7 @@ const relatedRowProps = {
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
   relatedRows: { supported: false, reason: 'No executable route' },
-  reshapeRows: { group: { supported: true }, pivot: { supported: true } },
+  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, pivot: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
   onChangeRootOccurrence: vi.fn(),
@@ -115,6 +115,7 @@ const renderSettings = (overrides: {
   choicesValue?: RowDefinitionChoicesResponse;
   relatedRowsSupported?: boolean;
   pivotSupported?: boolean;
+  codedGroupDefault?: boolean;
   onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
@@ -130,7 +131,7 @@ const renderSettings = (overrides: {
       {...relatedRowProps}
       onChangeRootOccurrence={onChangeRootOccurrence}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
-      reshapeRows={{ group: { supported: true }, pivot: {
+      reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group', pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
       } }}
@@ -184,6 +185,15 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(await screen.findByTestId('construction-action-group-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('group');
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens grouping by a recorded code when the backend offers it', async () => {
+    const { onChooseReshape } = renderSettings({ codedGroupDefault: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    const group = await screen.findByTestId('construction-action-group-rows');
+    expect(group).toHaveTextContent('without adding a column first');
+    fireEvent.click(group);
+    expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
   });
 
   it('opens the category-to-column editor directly from Rows', async () => {
@@ -417,9 +427,9 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'What should each row represent?' });
-    const manualGroups = screen.getByText('Advanced: create named groups from a saved selection').closest('details');
+    const manualGroups = screen.getByText('Named cohorts from selected records').closest('details');
     expect(manualGroups).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Advanced: create named groups from a saved selection'));
+    fireEvent.click(screen.getByText('Named cohorts from selected records'));
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     expect(getSelection).toHaveBeenCalledWith(

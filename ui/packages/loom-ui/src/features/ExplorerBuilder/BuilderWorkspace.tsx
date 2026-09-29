@@ -2245,7 +2245,7 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'pivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'coded-group' | 'pivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
@@ -2376,8 +2376,12 @@ const BuilderWorkspaceContent = ({
               : capability?.reason ?? 'This row operation is unavailable for the current table.',
         };
   };
+  const codedGroupingAvailable = capabilityIsForAppendStage &&
+    capabilityStage?.capabilities.some((candidate) => candidate.kind === 'CODED_GROUP' && candidate.supported) &&
+    Boolean(capabilityStage.codedGroupChoices?.length);
   const reshapeRowsAvailability = {
-    group: reshapeAvailabilityFor('GROUP'),
+    group: codedGroupingAvailable ? { supported: true } : reshapeAvailabilityFor('GROUP'),
+    groupEntry: codedGroupingAvailable ? 'coded-group' as const : 'group' as const,
     pivot: reshapeAvailabilityFor('PIVOT'),
   };
   const relatedExpandCapability = capabilityStage?.capabilities.find(

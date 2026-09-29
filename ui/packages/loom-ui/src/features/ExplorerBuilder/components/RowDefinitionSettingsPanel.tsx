@@ -197,9 +197,11 @@ export const RowDefinitionSettingsPanel = ({
   readonly disabled: boolean;
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
-  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }>;
+  readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
+    readonly groupEntry: 'group' | 'coded-group';
+  };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'pivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'coded-group' | 'pivot') => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
@@ -331,7 +333,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'pivot') => {
+  const chooseReshape = (kind: 'group' | 'coded-group' | 'pivot') => {
     cancel();
     onChooseReshape(kind);
   };
@@ -390,10 +392,14 @@ export const RowDefinitionSettingsPanel = ({
             <div className="mt-3 space-y-3">
               <section aria-label="Choose a row change" className="grid gap-2 sm:grid-cols-3">
                 <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
-                  onClick={() => chooseReshape('group')}
+                  onClick={() => chooseReshape(reshapeRows.groupEntry)}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group records</span>
-                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported ? 'Group by a column already in this table.' : reshapeRows.group.reason}</span>
+                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported
+                    ? reshapeRows.groupEntry === 'coded-group'
+                      ? 'Group by a recorded code without adding a column first.'
+                      : 'Group by a column already in this table.'
+                    : reshapeRows.group.reason}</span>
                 </button>
                 <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !reshapeRows.pivot.supported}
                   onClick={() => chooseReshape('pivot')}
@@ -469,10 +475,10 @@ export const RowDefinitionSettingsPanel = ({
                 ) : null}
                 {!groupAuthoringOpen ? (
                   <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <summary className="cursor-pointer font-semibold text-slate-900">Advanced: create named groups from a saved selection</summary>
+                    <summary className="cursor-pointer font-semibold text-slate-900">Named cohorts from selected records</summary>
                     {selection && explicitGroupRootMatches ? (
                       <>
-                        <p className="mt-1 text-xs text-slate-600">Use the current Explorer selection of {selection.memberCount} {selection.resourceType} records as the starting set.</p>
+                        <p className="mt-1 text-xs text-slate-600">Start with the {selection.memberCount} selected {selection.resourceType} records, then name each cohort.</p>
                         <button type="button" className="mt-3 rounded-md border border-blue-700 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50" disabled={disabled} onClick={() => setGroupAuthoringOpen(true)}>
                           Create groups from this selection
                         </button>
@@ -480,7 +486,7 @@ export const RowDefinitionSettingsPanel = ({
                     ) : selection ? (
                       <p className="mt-1 text-xs text-amber-900">The current selection uses {selection.resourceType}, while this table uses {table.document.rootResourceType}. Choose a matching existing selection before creating groups.</p>
                     ) : (
-                      <p className="mt-1 text-xs text-slate-600">Choose an existing Explorer selection in the starting-collection controls before creating groups.</p>
+                      <p className="mt-1 text-xs text-slate-600">Choose a saved set of records under Starting collection, then return here to name the cohorts.</p>
                     )}
                   </details>
                 ) : null}

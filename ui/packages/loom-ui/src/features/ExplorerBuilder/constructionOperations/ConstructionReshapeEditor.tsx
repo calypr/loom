@@ -159,7 +159,7 @@ type ReshapeForm =
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
-export type ReshapeEntryKind = 'choose' | 'group' | 'pivot' | 'related-expand';
+export type ReshapeEntryKind = 'choose' | 'group' | 'coded-group' | 'pivot' | 'related-expand';
 
 const reshapeFormLabels = {
   group: 'Group records',
@@ -1049,6 +1049,7 @@ const formForStep = (
 ): ReshapeForm => {
   if (!editingStep) {
     if (initialKind === 'group') return initialGroupForm(stage, []);
+    if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
     if (initialKind === 'pivot') return initialPivotForm(stage, []);
     return { kind: initialKind ?? 'choose' };
   }
@@ -1193,10 +1194,20 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscovery = props.pivotDiscovery;
 
   useEffect(() => {
-    setForm(formForStep(editingStep, capabilities.selectedStage, props.initialKind));
+    const initialForm = formForStep(editingStep, capabilities.selectedStage, props.initialKind);
+    setForm(initialForm);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
-    onCandidateChange(undefined);
+    const initialCandidate = initialForm.kind === 'coded-group' && !editingStep && codedGroupSupport.supported
+      ? candidateFor({
+          form: initialForm,
+          construction,
+          stage,
+          editingStep,
+          pivotCategoriesKnown: false,
+        })
+      : undefined;
+    onCandidateChange(initialCandidate?.kind === 'ready' ? initialCandidate.intent : undefined);
   }, [contextKey]);
 
   const capabilityForForm = (next: ReshapeForm) => {
@@ -1298,7 +1309,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   return (
     <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-3">
 
-      {props.onAddCodedValues && form.kind !== 'pivot' ? (
+      {props.onAddCodedValues && form.kind !== 'pivot' && form.kind !== 'coded-group' ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <span>Need a coded-value column first?</span>
           <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
