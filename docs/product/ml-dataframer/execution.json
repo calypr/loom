@@ -55,6 +55,14 @@
       "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/rows-editor-phone.png",
       "result": "The editor occupies the viewport, related-row unavailability appears in its choice, the current record-row shape is selected, and Back to table restores the Builder",
       "remaining": "Simplify the row choices and bring Pivot keys into the same flow"
+    },
+    "operationEditorEvidence": {
+      "feature": "Focused Add columns editor layout",
+      "status": "desktop_and_phone_browser_path_passed",
+      "desktopScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/add-columns-editor-desktop.png",
+      "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/add-columns-editor-phone.png",
+      "result": "Opening Add columns hides table navigation and actions, retains preview and row counts, and Back to table restores navigation",
+      "remaining": "The Add columns choices and their applied values still need the feature-by-feature CDA audit"
     }
   },
   "executionOrder": [

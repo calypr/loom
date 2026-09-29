@@ -178,9 +178,9 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Full count not measured')).toBeInTheDocument();
     expect(screen.getByText('Calculate editor').closest('[aria-label="Change editor"]')).toBeInTheDocument();
     expect(screen.queryByText('One row per patient.')).toBeNull();
-    expect(screen.getByTestId('construction-row-setup').compareDocumentPosition(
-      screen.getByTestId('construction-action-add-columns'),
-    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('construction-row-setup')).toBeNull();
+    expect(screen.queryByTestId('construction-action-add-columns')).toBeNull();
+    expect(screen.getByText('Current rows')).toBeInTheDocument();
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {

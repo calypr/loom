@@ -348,9 +348,11 @@ export const ConstructionWorkspace = ({
     data-testid="construction-workspace"
     data-draft-version={draftVersion}
     data-draft-digest={draftDigest}
-    className="mx-auto grid max-w-[1920px] grid-cols-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)]"
+    className={editor
+      ? 'mx-auto grid max-w-6xl grid-cols-1 gap-3'
+      : 'mx-auto grid max-w-[1920px] grid-cols-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)]'}
   >
-    <aside className="min-w-0 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-[#edf2ed] p-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start">
+    {!editor ? <aside className="min-w-0 max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-[#edf2ed] p-3 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:self-start">
       <ConstructionTableNavigation
         tables={tables}
         selectedOutputId={selectedOutputId}
@@ -363,15 +365,21 @@ export const ConstructionWorkspace = ({
         onMoveTable={onMoveTable}
       />
       {history ? <ConstructionHistory {...history} /> : null}
-    </aside>
+    </aside> : null}
 
     <section className="min-w-0 space-y-3">
-      <header className="flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+      <header className={editor
+        ? 'flex flex-wrap items-center gap-3 border-b border-slate-200 px-1 py-2'
+        : 'flex flex-wrap items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5'}>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
-          <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
-          {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
-          {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup" className="mt-2 max-w-xl">{rowSetup}</div> : null}
+          {editor ? <h1 className="truncate text-sm font-semibold text-slate-900">Editing {title}</h1> : (
+            <>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Dataset workspace</p>
+              <h1 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-slate-950">{title}</h1>
+              {!rowSetup ? <p className="mt-1 text-sm text-slate-600">{rowMeaning}</p> : null}
+              {rowSetup ? <div aria-label="Define table rows" data-testid="construction-row-setup" className="mt-2 max-w-xl">{rowSetup}</div> : null}
+            </>
+          )}
         </div>
         <div className="flex items-center gap-4">
           <dl className="flex gap-5 text-right text-xs text-slate-500">
@@ -400,11 +408,11 @@ export const ConstructionWorkspace = ({
         </div>
       </header>
 
-      <ConstructionActionBar
+      {!editor ? <ConstructionActionBar
         activeFamily={activeFamily}
         disabled={actionsDisabled}
         onSelect={onSelectFamily}
-      />
+      /> : null}
 
       <div className="grid min-w-0 items-start gap-3">
         {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}
