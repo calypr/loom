@@ -198,10 +198,10 @@ export const RowDefinitionSettingsPanel = ({
   readonly onApply: (proposalId: string) => Promise<boolean>;
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
-    readonly groupEntry: 'group' | 'coded-group';
+    readonly groupEntry: 'group' | 'source-group' | 'coded-group';
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'coded-group' | 'pivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
@@ -333,7 +333,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'coded-group' | 'pivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => {
     cancel();
     onChooseReshape(kind);
   };
@@ -398,6 +398,8 @@ export const RowDefinitionSettingsPanel = ({
                   <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported
                     ? reshapeRows.groupEntry === 'coded-group'
                       ? 'Group by a recorded code without adding a column first.'
+                      : reshapeRows.groupEntry === 'source-group'
+                        ? 'Group by a source field without adding a column first.'
                       : 'Group by a column already in this table.'
                     : reshapeRows.group.reason}</span>
                 </button>

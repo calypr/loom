@@ -28,7 +28,7 @@ export type ConstructionLifecycleClient = Pick<
 
 export type ConstructionCandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource'
 >;
 
 export type ConstructionCapabilitiesViewState =

@@ -116,6 +116,62 @@ func TestConstructionValidatesAndRoundTripsTypedOperationChain(t *testing.T) {
 	}
 }
 
+func TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval(t *testing.T) {
+	document := workspaceDocument("patients")
+	document.Columns = nil
+	projection := ConstructionSourceProjection{
+		ColumnID: "source_active", OccurrenceID: RootOccurrenceID, FieldPath: "active",
+		FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
+	}
+	candidate := Construction{
+		Version: ConstructionVersion, SourceProjections: []ConstructionSourceProjection{projection},
+		Steps: []ConstructionStep{{
+			ID: "group_by_active", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
+				ConstructionID: "group_by_active", Keys: []ConstructionGroupKey{{InputColumnID: projection.ColumnID, OutputColumnID: "active_key"}},
+				Aggregates: []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+			}},
+			Outputs: []StageColumn{
+				{ID: "active_key", Name: "active", Label: projection.Label, Type: "boolean"},
+				{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
+			},
+		}},
+	}
+	grouped, _, err := document.AnalyzeConstructionCandidate(candidate, "group_by_active", nil)
+	if err != nil {
+		t.Fatalf("analyze scalar source GROUP: %v", err)
+	}
+	if len(grouped.Columns) != 0 || len(grouped.Construction.SourceProjections) != 1 {
+		t.Fatalf("grouped document public columns/source projections = %d/%#v", len(grouped.Columns), grouped.Construction.SourceProjections)
+	}
+	source, err := constructionSourceColumnsWithChildrenAndProjections(grouped.Columns, grouped.Construction.SourceProjections,
+		grouped.Construction.Steps[0].Operation.inputColumnIDs(), grouped.Construction.Steps[0].Outputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(source) != 1 || source[0].ID != projection.ColumnID || len(grouped.Construction.Steps[0].Outputs) != 2 {
+		t.Fatalf("source stage/final group schema = %#v/%#v", source, grouped.Construction.Steps[0].Outputs)
+	}
+	encoded, err := json.Marshal(grouped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded Document
+	if err := json.Unmarshal(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := reloaded.Validate(); err != nil {
+		t.Fatalf("reloaded scalar source GROUP: %v", err)
+	}
+	removed, _, err := reloaded.ProposeStepRemoval("group_by_active", nil)
+	if err != nil {
+		t.Fatalf("remove scalar source GROUP: %v", err)
+	}
+	if len(removed.Construction.SourceProjections) != 0 || len(removed.Construction.Steps) != 0 {
+		t.Fatalf("removed construction retained source projections or steps: %#v", removed.Construction)
+	}
+}
+
 func TestEmptyConstructionSerializesStepsAsArray(t *testing.T) {
 	document := workspaceDocument("patients")
 	document.Rows = RecordsRowDefinition()

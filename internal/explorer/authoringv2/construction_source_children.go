@@ -151,6 +151,40 @@ func constructionSourceColumnsWithChildren(columns []Column, referencedIDs []str
 	return ordered, nil
 }
 
+func constructionSourceColumnsWithChildrenAndProjections(columns []Column, projections []ConstructionSourceProjection, referencedIDs []string, declared []StageColumn) ([]StageColumn, error) {
+	source, err := constructionSourceColumnsWithChildren(columns, referencedIDs, declared)
+	if err != nil {
+		return nil, err
+	}
+	byID, err := stageColumnIndex(source)
+	if err != nil {
+		return nil, err
+	}
+	seenNames := make(map[string]bool, len(source)+len(projections))
+	for _, column := range source {
+		seenNames[column.Name] = true
+	}
+	for _, projection := range projections {
+		if _, exists := byID[projection.ColumnID]; exists {
+			return nil, fmt.Errorf("source projection columnId %q collides with an existing stage column", projection.ColumnID)
+		}
+		name := ConstructionSourceProjectionName(projection.ColumnID)
+		if seenNames[name] {
+			return nil, fmt.Errorf("source projection name for columnId %q collides with an existing stage column", projection.ColumnID)
+		}
+		seenNames[name] = true
+		source = append(source, StageColumn{
+			ID: projection.ColumnID, Name: name, Label: projection.Label, Type: projection.LogicalType,
+		})
+	}
+	return source, nil
+}
+
+func ConstructionSourceProjectionName(columnID string) string {
+	digest := sha256.Sum256([]byte(columnID))
+	return "__construction_source_" + hex.EncodeToString(digest[:8])
+}
+
 func authoringIndexedSource(column Column) bool {
 	return column.Source.Kind == SourceField && column.Source.Field != nil && strings.EqualFold(strings.TrimSpace(column.Source.ProjectionMode()), "INDEXED")
 }

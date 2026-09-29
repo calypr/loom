@@ -14,7 +14,7 @@ import { relationshipLabel } from '../constructionWorkspace/routeDisplay';
 
 type CandidateIntent = Pick<
   ConstructionProposalRequest,
-  'candidateConstruction' | 'changedStepId' | 'removeStepIds'
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'groupSource'
 >;
 
 type ReshapeOperationKind = 'PIVOT' | 'UNPIVOT' | 'GROUP' | 'CODED_GROUP' | 'EXPAND' | 'RELATED_EXPAND';
@@ -48,6 +48,7 @@ type UnpivotOperation = Extract<ConstructionStep['operation'], { readonly kind: 
 type ReshapeColumn = ConstructionStageDescriptor['columns'][number];
 type ReshapeStage = ConstructionStageDescriptor;
 type ReshapeCapabilities = ConstructionCapabilitiesResponse;
+type SourceInputChoice = NonNullable<ReshapeCapabilities['sourceInput']>['choices'][number];
 
 type GroupKey = {
   readonly inputColumnId: string;
@@ -130,6 +131,16 @@ type CodedGroupForm = {
   readonly outputs: ConstructionStep['outputs'];
 };
 
+type SourceGroupForm = {
+  readonly kind: 'source-group';
+  readonly stepId: string;
+  readonly choiceId: string;
+  readonly inputColumnId: string;
+  readonly missingKeyPolicy: 'GROUP' | 'EXCLUDE' | 'ERROR';
+  readonly keyOutput: ConstructionStep['outputs'][number];
+  readonly countOutput: ConstructionStep['outputs'][number];
+};
+
 type ExpandForm = {
   readonly kind: 'expand';
   readonly stepId: string;
@@ -153,16 +164,18 @@ type ReshapeForm =
   | { readonly kind: 'choose' }
   | { readonly kind: 'related-expand' }
   | GroupForm
+  | SourceGroupForm
   | CodedGroupForm
   | ExpandForm
   | PivotForm
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
-export type ReshapeEntryKind = 'choose' | 'group' | 'coded-group' | 'pivot' | 'related-expand';
+export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'related-expand';
 
 const reshapeFormLabels = {
   group: 'Group records',
+  'source-group': 'Group by source field',
   'coded-group': 'Group by coded value',
   expand: 'Expand repeated values',
   'related-expand': 'Related records',
@@ -525,14 +538,16 @@ const candidateIntentFor = (args: {
   readonly construction: Construction;
   readonly editingStep?: ConstructionReshapeStep;
   readonly step: ConstructionReshapeStep;
+  readonly groupSource?: CandidateIntent['groupSource'];
 }): CandidateEvaluation => {
-  const { construction, editingStep, step } = args;
+  const { construction, editingStep, step, groupSource } = args;
   if (editingStep && !construction.steps.some((candidate) => candidate.id === editingStep.id)) return { kind: 'incomplete' };
   const draft: unknown = {
     version: construction.version,
     steps: editingStep
       ? construction.steps.map((candidate) => candidate.id === editingStep.id ? step : candidate)
       : [...construction.steps, step],
+    ...(construction.sourceProjections ? { sourceProjections: construction.sourceProjections } : {}),
   };
   const parsed = constructionSchema.safeParse(draft);
   if (!parsed.success) return { kind: 'schema-pending' };
@@ -541,6 +556,7 @@ const candidateIntentFor = (args: {
     intent: {
       candidateConstruction: parsed.data,
       changedStepId: step.id,
+      ...(groupSource ? { groupSource } : {}),
     },
   };
 };
@@ -630,6 +646,70 @@ const groupStepFromForm = (args: {
     outputs,
   };
   return step;
+};
+
+const sourceGroupProjection = (construction: Construction, step: ConstructionReshapeStep) => {
+  if (step.operation.kind !== 'GROUP') return undefined;
+  const key = step.operation.group.keys?.[0];
+  return construction.sourceProjections?.find((projection) => projection.columnId === key?.inputColumnId);
+};
+
+const initialSourceGroupForm = (
+  construction: Construction,
+  choices: ReadonlyArray<SourceInputChoice>,
+  editingStep?: ConstructionReshapeStep,
+): SourceGroupForm | undefined => {
+  const projection = editingStep ? sourceGroupProjection(construction, editingStep) : undefined;
+  const choice = projection
+    ? choices.find((candidate) => candidate.occurrenceId === projection.occurrenceId && candidate.fieldPath === projection.fieldPath)
+    : choices.find((candidate) => candidate.isPopulated);
+  if (!choice) return undefined;
+  const keyOutput = editingStep?.outputs[0] ?? {
+    id: createOpaqueId('group-key'),
+    name: normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label),
+    label: choice.label,
+    type: choice.logicalType,
+  };
+  const countOutput = editingStep?.outputs[1] ?? {
+    id: createOpaqueId('group-count'), name: 'source_records', label: 'Source records', type: 'integer',
+  };
+  return {
+    kind: 'source-group',
+    stepId: editingStep?.id ?? createOpaqueId('group'),
+    choiceId: choice.choiceId,
+    inputColumnId: projection?.columnId ?? createOpaqueId('group-source'),
+    missingKeyPolicy: editingStep?.operation.kind === 'GROUP'
+      ? editingStep.operation.group.missingKeyPolicy ?? 'GROUP'
+      : 'GROUP',
+    keyOutput,
+    countOutput,
+  };
+};
+
+const sourceGroupStepFromForm = (
+  form: SourceGroupForm,
+  stage: ReshapeStage,
+  choice: SourceInputChoice,
+): ConstructionReshapeStep | undefined => {
+  const outputs = [form.keyOutput, form.countOutput];
+  if (stage.operation || !outputNamesAreValid(outputs)) return undefined;
+  return {
+    id: form.stepId,
+    inputs: [stepInputFor(stage)],
+    operation: {
+      kind: 'GROUP',
+      group: {
+        constructionId: form.stepId,
+        missingKeyPolicy: form.missingKeyPolicy,
+        keys: [{ inputColumnId: form.inputColumnId, outputColumnId: form.keyOutput.id }],
+        aggregates: [{ operation: 'COUNT_ROWS', outputColumnId: form.countOutput.id }],
+      },
+    },
+    outputs: [
+      { ...form.keyOutput, type: choice.logicalType },
+      form.countOutput,
+    ],
+  };
 };
 
 const initialCodedGroupForm = (stage: ReshapeStage, editingStep?: ConstructionReshapeStep): CodedGroupForm => {
@@ -1043,16 +1123,23 @@ const editorContextKey = (
 ].join(':');
 
 const formForStep = (
+  construction: Construction,
+  capabilities: ReshapeCapabilities,
   editingStep: ConstructionReshapeStep | undefined,
   stage: ReshapeStage,
   initialKind?: ReshapeEntryKind,
 ): ReshapeForm => {
   if (!editingStep) {
     if (initialKind === 'group') return initialGroupForm(stage, []);
+    if (initialKind === 'source-group') return initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? [])
+      ?? { kind: 'unsupported', message: 'No source field can group these rows.' };
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
     if (initialKind === 'pivot') return initialPivotForm(stage, []);
     return { kind: initialKind ?? 'choose' };
   }
+  if (sourceGroupProjection(construction, editingStep)) return initialSourceGroupForm(
+    construction, capabilities.sourceInput?.choices ?? [], editingStep,
+  ) ?? { kind: 'unsupported', message: 'The saved source field is no longer available for grouping.' };
   if (editingStep.operation.kind === 'GROUP') return initialGroupForm(stage, [], editingStep);
   if (editingStep.operation.kind === 'CODED_GROUP') return initialCodedGroupForm(stage, editingStep);
   if (editingStep.operation.kind === 'EXPAND') return initialExpandForm(stage, editingStep);
@@ -1139,11 +1226,21 @@ const replaceGroupAggregate = (
 const candidateFor = (args: {
   readonly form: ReshapeForm;
   readonly construction: Construction;
+  readonly capabilities: ReshapeCapabilities;
   readonly stage: ReshapeStage;
   readonly editingStep?: ConstructionReshapeStep;
   readonly pivotCategoriesKnown: boolean;
 }): CandidateEvaluation => {
-  const { form, construction, stage, editingStep, pivotCategoriesKnown } = args;
+  const { form, construction, capabilities, stage, editingStep, pivotCategoriesKnown } = args;
+  if (form.kind === 'source-group') {
+    const choice = capabilities.sourceInput?.choices.find((candidate) => candidate.choiceId === form.choiceId);
+    if (!capabilities.sourceInput?.supported || !choice?.isPopulated) return { kind: 'incomplete' };
+    const step = sourceGroupStepFromForm(form, stage, choice);
+    return step ? candidateIntentFor({
+      construction, editingStep, step,
+      groupSource: { rowChoiceId: choice.choiceId, columnId: form.inputColumnId },
+    }) : { kind: 'incomplete' };
+  }
   if (form.kind === 'group') {
     const step = groupStepFromForm({ stage, editingStep, form });
     return step ? candidateIntentFor({ construction, editingStep, step }) : { kind: 'incomplete' };
@@ -1173,7 +1270,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const { construction, capabilities, editingStep, disabled, onCandidateChange, onEditStep } = props;
   const stage = capabilities.selectedStage;
   const contextKey = editorContextKey(capabilities, editingStep);
-  const [form, setForm] = useState<ReshapeForm>(() => formForStep(editingStep, stage, props.initialKind));
+  const [form, setForm] = useState<ReshapeForm>(() => formForStep(construction, capabilities, editingStep, stage, props.initialKind));
   const [formContextKey, setFormContextKey] = useState(contextKey);
   const [contractUnavailable, setContractUnavailable] = useState(false);
   const automaticallySelectedPivotPairs = useRef(new Set<string>());
@@ -1194,14 +1291,18 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscovery = props.pivotDiscovery;
 
   useEffect(() => {
-    const initialForm = formForStep(editingStep, capabilities.selectedStage, props.initialKind);
+    const initialForm = formForStep(construction, capabilities, editingStep, capabilities.selectedStage, props.initialKind);
     setForm(initialForm);
     setFormContextKey(contextKey);
     setContractUnavailable(false);
-    const initialCandidate = initialForm.kind === 'coded-group' && !editingStep && codedGroupSupport.supported
+    const initialCandidate = !editingStep && (
+      initialForm.kind === 'coded-group' && codedGroupSupport.supported
+      || initialForm.kind === 'source-group' && capabilities.sourceInput?.supported
+    )
       ? candidateFor({
           form: initialForm,
           construction,
+          capabilities,
           stage,
           editingStep,
           pivotCategoriesKnown: false,
@@ -1213,6 +1314,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const capabilityForForm = (next: ReshapeForm) => {
     switch (next.kind) {
       case 'group': return groupSupport;
+      case 'source-group': return { supported: capabilities.sourceInput?.supported ?? false, reason: capabilities.sourceInput?.reason ?? 'No source field is available.' };
       case 'coded-group': return codedGroupSupport;
       case 'expand': return expandSupport;
       case 'related-expand': return relatedExpandSupport;
@@ -1235,6 +1337,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     return candidateFor({
       form: next,
       construction,
+      capabilities,
       stage,
       editingStep,
       pivotCategoriesKnown,
@@ -1309,7 +1412,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   return (
     <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid content-start gap-3">
 
-      {props.onAddCodedValues && form.kind !== 'pivot' && form.kind !== 'coded-group' ? (
+      {props.onAddCodedValues && form.kind !== 'pivot' && form.kind !== 'coded-group' && form.kind !== 'source-group' ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <span>Need a coded-value column first?</span>
           <button type="button" onClick={props.onAddCodedValues} disabled={disabled} className="font-semibold text-blue-800 underline underline-offset-2 disabled:text-slate-400">
@@ -1379,6 +1482,21 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
               : codedGroupSupport.reason || (stage.codedGroupChoices?.length ? '' : 'No Coding fields are available here.')}
             disabled={disabled}
             onChoose={() => updateForm(initialCodedGroupForm(stage))}
+          />
+          <ReshapeChoice
+            testId="construction-reshape-choice-source-group"
+            title="Group by a source field"
+            rows="Count records for each value of a field in the starting records."
+            columns="Show the chosen field and its source record count."
+            supported={Boolean(capabilities.sourceInput?.supported && capabilities.sourceInput.choices.some((choice) => choice.isPopulated))}
+            reason={capabilities.sourceInput?.supported && capabilities.sourceInput.choices.some((choice) => choice.isPopulated)
+              ? ''
+              : capabilities.sourceInput?.reason ?? 'No source field with recorded values is available for grouping.'}
+            disabled={disabled}
+            onChoose={() => {
+              const next = initialSourceGroupForm(construction, capabilities.sourceInput?.choices ?? []);
+              if (next) updateForm(next);
+            }}
           />
           <ReshapeChoice
             testId="construction-reshape-choice-expand"
@@ -1463,6 +1581,17 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         />
       ) : null}
 
+      {form.kind === 'source-group' ? (
+        <SourceGroupEditor
+          form={form}
+          choices={capabilities.sourceInput?.choices ?? []}
+          supported={capabilities.sourceInput?.supported ?? false}
+          reason={capabilities.sourceInput?.reason ?? 'No source field is available for grouping.'}
+          disabled={disabled}
+          onChange={updateForm}
+        />
+      ) : null}
+
       {form.kind === 'expand' ? (
         <ExpandEditor
           key={`${id}:expand:${contextKey}`}
@@ -1528,6 +1657,73 @@ const ReshapeChoice = (props: {
     <span className="text-xs text-slate-600">{props.rows}</span>
     {!props.supported || props.reason ? <span className="text-xs text-amber-900">{props.reason}</span> : null}
   </button>
+);
+
+const SourceGroupEditor = (props: {
+  readonly form: SourceGroupForm;
+  readonly choices: ReadonlyArray<SourceInputChoice>;
+  readonly supported: boolean;
+  readonly reason: string;
+  readonly disabled: boolean;
+  readonly onChange: (form: SourceGroupForm) => void;
+}) => (
+  <section aria-label="Group by a source field" data-testid="construction-reshape-source-group" className="grid content-start gap-3 rounded-lg border border-slate-200 p-3">
+    <header>
+      <h4 className="m-0 text-sm font-semibold text-slate-900">One row per source field value</h4>
+      <p className="mb-0 mt-1 text-sm text-slate-600">Choose a field in the starting records. Loom counts how many records have each value.</p>
+    </header>
+    {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
+    <label className="grid gap-1 text-sm font-medium text-slate-800">
+      Field to group by
+      <select
+        data-testid="construction-source-group-field"
+        value={props.form.choiceId}
+        disabled={props.disabled || !props.supported}
+        onChange={(event) => {
+          const choice = props.choices.find((candidate) => candidate.choiceId === event.currentTarget.value);
+          if (!choice) return;
+          props.onChange({
+            ...props.form,
+            choiceId: choice.choiceId,
+            keyOutput: {
+              ...props.form.keyOutput,
+              name: normalizedName(choice.fieldPath.split('.').at(-1) ?? choice.label),
+              label: choice.label,
+              type: choice.logicalType,
+            },
+          });
+        }}
+        className="rounded border border-slate-300 bg-white px-2 py-2"
+      >
+        {props.choices.map((choice) => (
+          <option key={choice.choiceId} value={choice.choiceId} disabled={!choice.isPopulated}>{choice.label}{choice.isPopulated ? '' : ' (no recorded values)'}</option>
+        ))}
+      </select>
+    </label>
+    <p className="m-0 text-xs text-slate-600">Result columns: {props.form.keyOutput.label} and Source records.</p>
+    <details className="rounded border border-slate-200 p-2 text-sm">
+      <summary className="cursor-pointer font-medium text-slate-800">Advanced: missing values</summary>
+      <label className="mt-2 grid gap-1 text-slate-700">
+        When a source record has no value for this field
+        <select
+          data-testid="construction-source-group-missing"
+          value={props.form.missingKeyPolicy}
+          disabled={props.disabled || !props.supported}
+          onChange={(event) => {
+            const value = event.currentTarget.value;
+            if (value === 'GROUP' || value === 'EXCLUDE' || value === 'ERROR') {
+              props.onChange({ ...props.form, missingKeyPolicy: value });
+            }
+          }}
+          className="rounded border border-slate-300 bg-white px-2 py-2"
+        >
+          <option value="GROUP">Count them in a missing-value row</option>
+          <option value="EXCLUDE">Leave them out</option>
+          <option value="ERROR">Stop if a value is missing</option>
+        </select>
+      </label>
+    </details>
+  </section>
 );
 
 const CodedGroupEditor = (props: {

@@ -175,6 +175,44 @@ func TestCompileSourceOnlyConstructionCarriesColumnIDsIntoStageDescriptors(t *te
 	}
 }
 
+func TestRecipeConstructionKeepsScalarGroupSourceOutOfPublicColumns(t *testing.T) {
+	projection := authoringv2.ConstructionSourceProjection{
+		ColumnID: "source_active", OccurrenceID: authoringv2.RootOccurrenceID,
+		FieldPath: "active", FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
+	}
+	authored := &authoringv2.Construction{
+		Version: authoringv2.ConstructionVersion, SourceProjections: []authoringv2.ConstructionSourceProjection{projection},
+		Steps: []authoringv2.ConstructionStep{{
+			ID: "group_by_active", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+			Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+				ConstructionID: "group_by_active", Keys: []authoringv2.ConstructionGroupKey{{InputColumnID: projection.ColumnID, OutputColumnID: "active_key"}},
+				Aggregates: []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+			}},
+			Outputs: []authoringv2.StageColumn{
+				{ID: "active_key", Name: "active", Label: projection.Label, Type: "boolean"},
+				{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
+			},
+		}},
+	}
+	got, err := recipeConstruction(authored, nil, nil)
+	if err != nil {
+		t.Fatalf("map scalar source GROUP: %v", err)
+	}
+	if err := got.Validate(nil); err != nil {
+		t.Fatalf("validate mapped scalar source GROUP: %v", err)
+	}
+	wantInput := recipe.StageColumn{
+		ID: projection.ColumnID, Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID),
+		Label: projection.Label, Type: projection.LogicalType,
+	}
+	if len(got.SourceColumns) != 1 || got.SourceColumns[0] != wantInput {
+		t.Fatalf("hidden source schema = %#v, want %#v", got.SourceColumns, wantInput)
+	}
+	if got.Steps[0].Outputs[0].ID != "active_key" || got.Steps[0].Outputs[1].ID != "record_count" {
+		t.Fatalf("public group outputs contain source input: %#v", got.Steps[0].Outputs)
+	}
+}
+
 func TestRecipeConstructionMapsIndexedSourceFanoutToStableChildren(t *testing.T) {
 	columns := []authoringv2.Column{{
 		ColumnID: "indexed_id", Column: "indexed", Label: "Indexed", LogicalType: "string", OccurrenceID: authoringv2.RootOccurrenceID,

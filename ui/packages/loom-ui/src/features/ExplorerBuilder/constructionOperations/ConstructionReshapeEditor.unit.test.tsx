@@ -157,6 +157,31 @@ describe('ConstructionReshapeEditor', () => {
     expect(step?.operation.codedGroup.source.codingPath).toBe('type.coding[]');
     expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
   });
+  it('groups by a server-selected source field before that field becomes a table column', () => {
+    const capabilities = {
+      ...capabilitiesFor(),
+      sourceInput: {
+        supported: true,
+        stageId: 'source_projection',
+        choices: [
+          { choiceId: 'status-choice', occurrenceId: 'root-1', fieldPath: 'status', label: 'Status', fhirType: 'code', logicalType: 'string', valueType: 'string', isIdentifier: false, isReference: false, isPopulated: true },
+          { choiceId: 'gender-choice', occurrenceId: 'root-1', fieldPath: 'gender', label: 'Gender', fhirType: 'code', logicalType: 'string', valueType: 'string', isIdentifier: false, isReference: false, isPopulated: true },
+        ],
+      },
+    } satisfies ConstructionReshapeEditorProps['capabilities'];
+    const onCandidateChange = vi.fn();
+    renderEditor({ capabilities, initialKind: 'source-group', onCandidateChange });
+    expect(screen.getByTestId('construction-reshape-source-group')).toBeInTheDocument();
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.groupSource).toEqual({ rowChoiceId: 'status-choice', columnId: expect.any(String) });
+    expect(intent?.candidateConstruction.steps[0].operation.group.aggregates).toEqual([
+      { operation: 'COUNT_ROWS', outputColumnId: expect.any(String) },
+    ]);
+    expect(intent?.candidateConstruction.steps[0].outputs.map((column: { label: string }) => column.label)).toEqual(['Status', 'Source records']);
+    fireEvent.change(screen.getByTestId('construction-source-group-field'), { target: { value: 'gender-choice' } });
+    expect(onCandidateChange.mock.lastCall?.[0]?.groupSource.rowChoiceId).toBe('gender-choice');
+    expect(onCandidateChange.mock.lastCall?.[0]?.candidateConstruction.steps[0].outputs[0].label).toBe('Gender');
+  });
   it('shows why backend capability choices are unavailable and emits no candidate', () => {
     const unsupportedStage = {
       ...sourceStage,

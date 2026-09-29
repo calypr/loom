@@ -65,6 +65,7 @@ type RowChoice struct {
 	Path         string
 	FHIRType     string
 	Cardinality  RowChoiceCardinality
+	Reference    bool
 	Presentation ConstructionChoicePresentation
 }
 
@@ -157,7 +158,7 @@ func NewRowChoice(snapshot Snapshot, occurrences []RowChoiceOccurrence, occurren
 		ChoiceID: choiceID, Kind: kind, Label: label, Description: strings.TrimSpace(facts.Description),
 		ValueType: rowChoiceValueType(facts), OccurrenceID: occurrence.OccurrenceID, NodeID: occurrence.NodeID,
 		ResourceType: occurrence.ResourceType, Route: cloneConstructionRoute(occurrence.Route), Path: facts.CanonicalPath,
-		FHIRType: facts.FHIRType, Cardinality: facts.Cardinality,
+		FHIRType: facts.FHIRType, Cardinality: facts.Cardinality, Reference: facts.Reference,
 		Presentation: ConstructionChoicePresentation{Summary: label, Facts: presentationFacts},
 	}, nil
 }

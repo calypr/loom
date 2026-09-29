@@ -893,6 +893,82 @@ func TestReconcileFinalOutputMetadataResolvesGroupedSameNameKeyLineage(t *testin
 	}
 }
 
+func TestReconcileFinalOutputMetadataPublishesOnlyScalarGroupOutputs(t *testing.T) {
+	const (
+		inputID         = "source_active"
+		keyOutputID     = "active_key"
+		countOutputID   = "record_count"
+		keyOutputName   = "active"
+		countOutputName = "record_count"
+	)
+	groupOutputs := []authoringv2.StageColumn{
+		{ID: keyOutputID, Name: keyOutputName, Label: "Whether this record is in active use", Type: "boolean", Nullable: true},
+		{ID: countOutputID, Name: countOutputName, Label: "Record count", Type: "integer"},
+	}
+	bundle := recipe.Bundle{Outputs: []recipe.Output{{Name: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups"}}}
+	document := authoringv2.Document{
+		Output: authoringv2.Output{ID: "body-structures", Title: "Body structures"},
+		Construction: &authoringv2.Construction{
+			Version: authoringv2.ConstructionVersion,
+			SourceProjections: []authoringv2.ConstructionSourceProjection{{
+				ColumnID: inputID, OccurrenceID: authoringv2.RootOccurrenceID, FieldPath: "active",
+				FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
+			}},
+			Steps: []authoringv2.ConstructionStep{{
+				ID: "group_by_active", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
+				Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationGroup, Group: &authoringv2.ConstructionGroup{
+					ConstructionID: "group_by_active",
+					Keys:           []authoringv2.ConstructionGroupKey{{InputColumnID: inputID, OutputColumnID: keyOutputID}},
+					Aggregates:     []authoringv2.ConstructionGroupAggregate{{Operation: authoringv2.ConstructionGroupCountRows, OutputColumnID: countOutputID}},
+				}},
+				Outputs: groupOutputs,
+			}},
+		},
+	}
+	translated := explorercompilation.WorkspaceResult{
+		Bundle:    bundle,
+		Workspace: authoringv2.Workspace{Documents: []authoringv2.Document{document}},
+		OutputContracts: []explorer.PublicOutputContract{{
+			OutputID: "body-structures", RootResourceType: "BodyStructure", RowGrain: "groups",
+			Lossless: true, MLReady: true,
+		}},
+		Presentations: []explorercompilation.PresentationConfig{{OutputID: "body-structures", Title: "Body structures"}},
+	}
+	resolved := dataframeexecution.Resolved{
+		Bundle: bundle,
+		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{{
+			Name: "body-structures",
+			OutputSchema: []lower.CompiledOutputColumn{
+				{Name: keyOutputName, SemanticPath: "construction:group_by_active", Kind: "boolean", Cardinality: "optional_one", Nullable: true},
+				{Name: countOutputName, SemanticPath: "construction:group_by_active", Kind: "integer", Cardinality: "required_one"},
+				{Name: "internal_identity", SemanticPath: "internal:identity", Kind: "string", Cardinality: "required_one", Identity: true},
+				{Name: "__loom_row_id", SemanticPath: "internal:row", Kind: "object", Cardinality: "required_one", Internal: true, Identity: true},
+			},
+		}}},
+	}
+
+	reconciled, err := reconcileFinalOutputMetadata(translated, resolved)
+	if err != nil {
+		t.Fatalf("reconcile scalar source GROUP outputs: %v", err)
+	}
+	wantNames := []string{keyOutputName, countOutputName}
+	if got := emittedPublicColumnNames(reconciled.EmittedColumns); !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("public emissions = %#v, want only group outputs %#v", got, wantNames)
+	}
+	if got := publicContractColumnNames(reconciled.OutputContracts[0].Columns); !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("public contract columns = %#v, want only group outputs %#v", got, wantNames)
+	}
+	if got := []string{reconciled.Presentations[0].Columns[0].PublicColumn, reconciled.Presentations[0].Columns[1].PublicColumn}; !reflect.DeepEqual(got, wantNames) {
+		t.Fatalf("presentation columns = %#v, want only group outputs %#v", got, wantNames)
+	}
+	for _, emitted := range reconciled.EmittedColumns {
+		if emitted.ConstructionID != "group_by_active" || len(emitted.InputColumns) != 0 || len(emitted.AuthoredColumns) != 0 ||
+			emitted.PublicColumn == inputID || emitted.PublicColumn == authoringv2.ConstructionSourceProjectionName(inputID) {
+			t.Fatalf("hidden source input leaked into public emission: %#v", emitted)
+		}
+	}
+}
+
 func TestAuthoredOutputColumnsKeepsExactRelatedFieldScalarAndSource(t *testing.T) {
 	patient := authoringv2.StageColumn{ID: "patient-id", Name: "patient_id", Label: "Patient ID", Type: "string"}
 	status := authoringv2.StageColumn{ID: "observation-status", Name: "observation_status", Label: "Observation status", Type: "string", Nullable: true}

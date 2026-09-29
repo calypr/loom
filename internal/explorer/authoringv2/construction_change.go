@@ -176,6 +176,7 @@ func (d Document) AnalyzeConstructionCandidate(candidateConstruction Constructio
 			step.Inputs = []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: result.Construction.Steps[index-1].ID}}
 		}
 	}
+	result.Construction.SourceProjections = pruneConstructionSourceProjections(result.Construction.SourceProjections, result.Construction.Steps)
 	start := len(result.Construction.Steps)
 	if changedStepID != "" {
 		start = candidateIDs[changedStepID]
@@ -264,6 +265,7 @@ func (d Document) ProposeStepRemoval(stepID string, removeStepIDs []string) (Doc
 		steps = append(steps, step)
 	}
 	candidate.Construction.Steps = steps
+	candidate.Construction.SourceProjections = pruneConstructionSourceProjections(candidate.Construction.SourceProjections, steps)
 	for index := firstRemoved; index < len(candidate.Construction.Steps); index++ {
 		step := &candidate.Construction.Steps[index]
 		impact.AffectedStepIDs = append(impact.AffectedStepIDs, step.ID)
@@ -293,7 +295,7 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 	}
 	if start == 0 && len(candidate.Construction.Steps) > 0 {
 		first := candidate.Construction.Steps[0]
-		source, err = constructionSourceColumnsWithChildren(candidate.Columns, first.Operation.inputColumnIDs(), first.Outputs)
+		source, err = constructionSourceColumnsWithChildrenAndProjections(candidate.Columns, candidate.Construction.SourceProjections, first.Operation.inputColumnIDs(), first.Outputs)
 		if err != nil {
 			return fmt.Errorf("source projection: %w", err)
 		}
@@ -326,6 +328,22 @@ func recalculateCandidateStages(candidate *Document, start int, impact *Construc
 		step.Outputs = outputs
 	}
 	return nil
+}
+
+func pruneConstructionSourceProjections(projections []ConstructionSourceProjection, steps []ConstructionStep) []ConstructionSourceProjection {
+	used := make(map[string]bool)
+	for _, step := range steps {
+		for _, columnID := range step.Operation.inputColumnIDs() {
+			used[columnID] = true
+		}
+	}
+	pruned := make([]ConstructionSourceProjection, 0, len(projections))
+	for _, projection := range projections {
+		if used[projection.ColumnID] {
+			pruned = append(pruned, projection)
+		}
+	}
+	return pruned
 }
 
 func rebuildStageColumns(step ConstructionStep, input []StageColumn) ([]StageColumn, error) {
@@ -645,7 +663,7 @@ func normalizeConstructionOutputOrder(document *Document) {
 	}
 	if len(construction.Steps) > 0 {
 		first := construction.Steps[0]
-		source, err = constructionSourceColumnsWithChildren(document.Columns, first.Operation.inputColumnIDs(), first.Outputs)
+		source, err = constructionSourceColumnsWithChildrenAndProjections(document.Columns, construction.SourceProjections, first.Operation.inputColumnIDs(), first.Outputs)
 		if err != nil {
 			return
 		}

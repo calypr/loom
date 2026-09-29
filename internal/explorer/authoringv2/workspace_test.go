@@ -124,6 +124,46 @@ func TestBuilderAllowsVisibleTableWithNoColumnsUntilPublication(t *testing.T) {
 	}
 }
 
+func TestWorkspacePublicationAcceptsFinalConstructionOutputsWithoutPublicSourceColumns(t *testing.T) {
+	w := fiveTableWorkspace()
+	document := &w.Documents[0]
+	document.RootResourceType = "BodyStructure"
+	document.Route = RouteNode{OccurrenceID: RootOccurrenceID, ResourceType: "BodyStructure"}
+	document.Columns = []Column{}
+	document.Construction = &Construction{
+		Version: ConstructionVersion,
+		SourceProjections: []ConstructionSourceProjection{{
+			ColumnID: "source_active", OccurrenceID: RootOccurrenceID, FieldPath: "active",
+			FHIRType: "boolean", LogicalType: "boolean", Label: "Whether this record is in active use",
+		}},
+		Steps: []ConstructionStep{{
+			ID: "group_by_active", Inputs: []ConstructionInputRef{{Kind: ConstructionInputSourceProjection}},
+			Operation: ConstructionOperation{Kind: ConstructionOperationGroup, Group: &ConstructionGroup{
+				ConstructionID: "group_by_active",
+				Keys:           []ConstructionGroupKey{{InputColumnID: "source_active", OutputColumnID: "active_key"}},
+				Aggregates:     []ConstructionGroupAggregate{{Operation: ConstructionGroupCountRows, OutputColumnID: "record_count"}},
+			}},
+			Outputs: []StageColumn{
+				{ID: "active_key", Name: "active", Label: "Whether this record is in active use", Type: "boolean"},
+				{ID: "record_count", Name: "record_count", Label: "Record count", Type: "integer"},
+			},
+		}},
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatalf("row-first grouped workspace is invalid: %v", err)
+	}
+	if err := w.ValidateForPublication(); err != nil {
+		t.Fatalf("publication rejected final GROUP outputs without public source columns: %v", err)
+	}
+	hidden := false
+	for index := range document.Construction.Steps[0].Outputs {
+		document.Construction.Steps[0].Outputs[index].Table = &TablePresentation{Visible: &hidden}
+	}
+	if err := w.ValidateForPublication(); err == nil || !strings.Contains(err.Error(), "NO_VISIBLE_COLUMNS: documents[0]") {
+		t.Fatalf("publication accepted a GROUP with all final outputs hidden: %v", err)
+	}
+}
+
 func TestDecodeWorkspaceRejectsUnknownFields(t *testing.T) {
 	raw := `{"apiVersion":"` + APIVersion + `","kind":"` + WorkspaceKind + `","documents":[],"tabs":[],"recipe":{}}`
 	if _, err := DecodeWorkspace([]byte(raw)); err == nil || !strings.Contains(err.Error(), "unknown field") {

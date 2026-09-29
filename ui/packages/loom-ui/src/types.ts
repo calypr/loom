@@ -1457,6 +1457,14 @@ export type ConstructionStep = z.infer<typeof constructionStepSchema>;
 export const constructionSchema = z.object({
   version: z.number().int().positive(),
   steps: z.array(constructionStepSchema),
+  sourceProjections: z.array(z.object({
+    columnId: opaqueIdSchema,
+    occurrenceId: opaqueIdSchema,
+    fieldPath: z.string().min(1),
+    fhirType: z.string().min(1),
+    logicalType: z.string().min(1),
+    label: z.string().min(1),
+  }).strict()).optional(),
 }).strict();
 export type Construction = z.infer<typeof constructionSchema>;
 
@@ -1542,6 +1550,24 @@ export const constructionCapabilitiesResponseSchema = z.object({
   baseConstruction: constructionSchema,
   stages: z.array(constructionStageDescriptorSchema),
   selectedStage: constructionStageDescriptorSchema,
+  sourceInput: z.object({
+    supported: z.boolean(),
+    stageId: opaqueIdSchema,
+    reasonCode: z.string().optional(),
+    reason: z.string().optional(),
+    choices: z.array(z.object({
+      choiceId: z.string().min(1),
+      occurrenceId: opaqueIdSchema,
+      fieldPath: z.string().min(1),
+      label: z.string().min(1),
+      fhirType: z.string().min(1),
+      logicalType: z.string().min(1),
+      valueType: z.string().min(1),
+      isIdentifier: z.boolean(),
+      isReference: z.boolean(),
+      isPopulated: z.boolean(),
+    }).strict()),
+  }).strict().optional(),
 }).strict();
 export type ConstructionCapabilitiesResponse = z.infer<typeof constructionCapabilitiesResponseSchema>;
 
@@ -1602,6 +1628,10 @@ export const constructionProposalRequestSchema = z.object({
   changedStepId: z.string().optional(),
   removeStepIds: z.array(opaqueIdSchema).optional(),
   candidateConstruction: constructionSchema,
+  groupSource: z.object({
+    rowChoiceId: z.string().min(1),
+    columnId: opaqueIdSchema,
+  }).strict().optional(),
   limit: z.number().int().min(1).max(1000).optional(),
 }).strict();
 export type ConstructionProposalRequest = z.infer<typeof constructionProposalRequestSchema>;

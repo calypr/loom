@@ -37,6 +37,28 @@ type ConstructionCapabilitiesResponse struct {
 	BaseConstruction authoringv2.Construction            `json:"baseConstruction"`
 	Stages           []explorer.ReceiptConstructionStage `json:"stages"`
 	SelectedStage    explorer.ReceiptConstructionStage   `json:"selectedStage"`
+	SourceInput      ConstructionGroupSourceCapability   `json:"sourceInput"`
+}
+
+type ConstructionGroupSourceCapability struct {
+	Supported  bool                            `json:"supported"`
+	StageID    string                          `json:"stageId"`
+	ReasonCode string                          `json:"reasonCode,omitempty"`
+	Reason     string                          `json:"reason,omitempty"`
+	Choices    []ConstructionGroupSourceChoice `json:"choices"`
+}
+
+type ConstructionGroupSourceChoice struct {
+	ChoiceID     string `json:"choiceId"`
+	OccurrenceID string `json:"occurrenceId"`
+	FieldPath    string `json:"fieldPath"`
+	Label        string `json:"label"`
+	FHIRType     string `json:"fhirType"`
+	LogicalType  string `json:"logicalType"`
+	ValueType    string `json:"valueType"`
+	IsIdentifier bool   `json:"isIdentifier"`
+	IsReference  bool   `json:"isReference"`
+	IsPopulated  bool   `json:"isPopulated"`
 }
 
 func (r ConstructionCapabilitiesRequest) Validate() error {
@@ -64,7 +86,13 @@ type ConstructionProposalRequest struct {
 	ChangedStepID         string
 	RemoveStepIDs         []string
 	CandidateConstruction authoringv2.Construction
+	GroupSource           *ConstructionGroupSourceSelection `json:"groupSource,omitempty"`
 	Limit                 int
+}
+
+type ConstructionGroupSourceSelection struct {
+	RowChoiceID string `json:"rowChoiceId"`
+	ColumnID    string `json:"columnId"`
 }
 
 func (r ConstructionProposalRequest) Validate() error {
@@ -95,6 +123,14 @@ func (r ConstructionProposalRequest) Validate() error {
 	}
 	if r.ExpectedDraftVersion < 1 {
 		return fmt.Errorf("expectedDraftVersion must be positive")
+	}
+	if r.GroupSource != nil {
+		if err := requireExactIdentity(r.GroupSource.RowChoiceID, "groupSource.rowChoiceId"); err != nil {
+			return err
+		}
+		if err := requireExactIdentity(r.GroupSource.ColumnID, "groupSource.columnId"); err != nil {
+			return err
+		}
 	}
 	if r.Limit < 0 || r.Limit > dataframeexecution.MaxPreviewLimit {
 		return fmt.Errorf("limit must be between 1 and %d", dataframeexecution.MaxPreviewLimit)
@@ -166,10 +202,14 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile coded-group choices: %w", err)
 	}
 	selected.CodedGroupChoices = choices
+	sourceInput, err := s.constructionGroupSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile scalar group source choices: %w", err)
+	}
 	return ConstructionCapabilitiesResponse{
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
-		Stages: stages, SelectedStage: *selected,
+		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput,
 	}, nil
 }
 
@@ -184,7 +224,11 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
-	candidateDocument, impact, err := base.document.AnalyzeConstructionCandidate(request.CandidateConstruction, request.ChangedStepID, request.RemoveStepIDs)
+	candidateConstruction, err := s.constructionCandidateWithGroupSource(ctx, base, request)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateDocument, impact, err := base.document.AnalyzeConstructionCandidate(candidateConstruction, request.ChangedStepID, request.RemoveStepIDs)
 	if err != nil {
 		return ConstructionProposalResponse{}, unprocessable("construction-proposal", "INVALID_CONSTRUCTION_CANDIDATE", err.Error(), err)
 	}

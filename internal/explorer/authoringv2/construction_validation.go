@@ -16,6 +16,9 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 		return fmt.Errorf("unsupported construction version %d", c.Version)
 	}
 	if hasCombineOperation(c.Steps) {
+		if len(c.SourceProjections) != 0 {
+			return fmt.Errorf("COMBINE cannot declare source projections")
+		}
 		if len(c.Steps) != 1 {
 			return fmt.Errorf("COMBINE must be the only construction step")
 		}
@@ -24,6 +27,9 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 		}
 		return validateConstructionCombineStep(c.Steps[0])
 	}
+	if err := validateConstructionSourceProjections(c, sourceColumns); err != nil {
+		return err
+	}
 	source, err := sourceStageColumns(sourceColumns)
 	if err != nil {
 		return err
@@ -31,7 +37,7 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 	if len(c.Steps) == 0 {
 		return nil
 	}
-	source, err = constructionSourceColumnsWithChildren(sourceColumns, c.Steps[0].Operation.inputColumnIDs(), c.Steps[0].Outputs)
+	source, err = constructionSourceColumnsWithChildrenAndProjections(sourceColumns, c.SourceProjections, c.Steps[0].Operation.inputColumnIDs(), c.Steps[0].Outputs)
 	if err != nil {
 		return fmt.Errorf("source projection: %w", err)
 	}
@@ -51,6 +57,49 @@ func (c *Construction) Validate(sourceColumns []Column) error {
 		if err := validateConstructionStep(step, inputColumns); err != nil {
 			return fmt.Errorf("steps[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+func validateConstructionSourceProjections(construction *Construction, sourceColumns []Column) error {
+	if construction == nil || len(construction.SourceProjections) == 0 {
+		return nil
+	}
+	if len(construction.Steps) == 0 {
+		return fmt.Errorf("source projections require a consuming construction step")
+	}
+	first := construction.Steps[0]
+	if first.Operation.Kind != ConstructionOperationGroup || first.Operation.Group == nil ||
+		len(first.Inputs) != 1 || first.Inputs[0].Kind != ConstructionInputSourceProjection {
+		return fmt.Errorf("source projections are supported only by a direct-source GROUP step")
+	}
+	group := first.Operation.Group
+	if len(construction.SourceProjections) != 1 || len(group.Keys) != 1 || len(group.Aggregates) != 1 || group.Aggregates[0].Operation != ConstructionGroupCountRows {
+		return fmt.Errorf("source projections require one GROUP key and one COUNT_ROWS aggregate")
+	}
+	seenProjectionIDs := make(map[string]bool, len(construction.SourceProjections))
+	for _, sourceProjection := range construction.SourceProjections {
+		if seenProjectionIDs[sourceProjection.ColumnID] {
+			return fmt.Errorf("source projections contain duplicate columnId %q", sourceProjection.ColumnID)
+		}
+		seenProjectionIDs[sourceProjection.ColumnID] = true
+	}
+	projection := construction.SourceProjections[0]
+	if !requiredID(projection.ColumnID) || !requiredID(projection.OccurrenceID) ||
+		!requiredID(projection.FieldPath) || !requiredID(projection.FHIRType) ||
+		!requiredID(projection.LogicalType) || strings.TrimSpace(projection.Label) == "" {
+		return fmt.Errorf("source projection requires exact column, occurrence, field, type, and label facts")
+	}
+	if projection.OccurrenceID != RootOccurrenceID {
+		return fmt.Errorf("source projections currently require the root occurrence")
+	}
+	for _, column := range sourceColumns {
+		if column.ColumnID == projection.ColumnID {
+			return fmt.Errorf("source projection columnId %q collides with a public source column", projection.ColumnID)
+		}
+	}
+	if group.Keys[0].InputColumnID != projection.ColumnID {
+		return fmt.Errorf("source projection must be the direct-source GROUP key")
 	}
 	return nil
 }

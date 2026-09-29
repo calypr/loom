@@ -407,6 +407,10 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 	if document.Construction == nil {
 		return nil
 	}
+	sourceOnlyIDs := make(map[string]struct{}, len(document.Construction.SourceProjections))
+	for _, projection := range document.Construction.SourceProjections {
+		sourceOnlyIDs[projection.ColumnID] = struct{}{}
+	}
 	prior := make(map[string]string, len(document.Columns))
 	for _, column := range document.Columns {
 		if !requiredConstructionID(column.ColumnID) {
@@ -450,7 +454,14 @@ func authoredConstructionOutputs(document authoringv2.Document, authored map[str
 			if _, duplicate := nextAuthored[output.Name]; duplicate {
 				return fmt.Errorf("construction output %q is duplicated for document %q", output.Name, document.Output.ID)
 			}
-			inputColumns, err := constructionInputNames(prior, inputIDs)
+			publicInputIDs := make([]string, 0, len(inputIDs))
+			for _, inputID := range inputIDs {
+				if _, sourceOnly := sourceOnlyIDs[inputID]; sourceOnly {
+					continue
+				}
+				publicInputIDs = append(publicInputIDs, inputID)
+			}
+			inputColumns, err := constructionInputNames(prior, publicInputIDs)
 			if err != nil {
 				return fmt.Errorf("step %q output %q: %w", step.ID, output.Name, err)
 			}

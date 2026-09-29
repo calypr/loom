@@ -486,6 +486,33 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 		presentationOrder++
 	}
 
+	if document.Construction != nil {
+		for index, projection := range document.Construction.SourceProjections {
+			path := strings.TrimPrefix(strings.TrimSpace(projection.FieldPath), "root.")
+			candidate, found := semanticFieldCandidate(snapshot, root.graph.ID, path)
+			if projection.OccurrenceID != authoringv2.RootOccurrenceID || !found ||
+				strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != path || candidate.LogicalType != projection.LogicalType ||
+				len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
+				!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
+				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized scalar VALUE field on the root resource", map[string]any{"fieldPath": path}, nil)
+			}
+			schemaIndex, err := fhirschema.GeneratedIndex()
+			if err != nil {
+				return Result{}, fail("capability", "FHIR_SCHEMA_UNAVAILABLE", "$.construction.sourceProjections", "generated FHIR field metadata is unavailable", nil, err)
+			}
+			facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(root.graph.ResourceType), path)
+			if err != nil || facts.CanonicalPath != path || facts.FHIRType != projection.FHIRType ||
+				facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
+				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches generated FHIR scalar metadata", map[string]any{"fieldPath": path}, err)
+			}
+			nodes[authoringv2.RootOccurrenceID].fields = append(nodes[authoringv2.RootOccurrenceID].fields, recipe.Field{
+				Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID), ColumnID: projection.ColumnID,
+				Label: projection.Label, FieldRef: projection.FieldPath,
+				Expr: recipe.Expression{Select: semanticAlias(authoringv2.RootOccurrenceID) + "." + path},
+			})
+		}
+	}
+
 	derivedColumns, err := recipeDerivedColumns(document.TableShape)
 	if err != nil {
 		return Result{}, fail("intent", "INVALID_DERIVED_COLUMN", "$.tableShape.derived", err.Error(), nil, err)

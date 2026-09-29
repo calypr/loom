@@ -31,6 +31,9 @@ type RowDefinitionChoice struct {
 	FieldPath         string                      `json:"fieldPath"`
 	Label             string                      `json:"label"`
 	Description       string                      `json:"description"`
+	FHIRType          string                      `json:"fhirType"`
+	IsIdentifier      bool                        `json:"isIdentifier"`
+	IsReference       bool                        `json:"isReference"`
 	OccurrenceSummary string                      `json:"occurrenceSummary"`
 	RouteSummary      string                      `json:"routeSummary"`
 	Kind              RowChoiceKind               `json:"kind"`
@@ -207,11 +210,22 @@ func responseFromRowChoices(snapshotToken, outputID string, choices []capability
 	for _, choice := range choices {
 		response.Choices = append(response.Choices, RowDefinitionChoice{
 			ChoiceID: choice.ChoiceID, FieldPath: choice.Path, Label: choice.Label, Description: choice.Description,
+			FHIRType: choice.FHIRType, IsIdentifier: fhirIdentifierPath(choice.Path), IsReference: choice.Reference,
 			OccurrenceSummary: rowChoiceOccurrenceSummary(choice), RouteSummary: rowChoiceRouteSummary(choice),
 			Kind: lifecycleRowChoiceKind(choice.Kind), ValueType: choice.ValueType, Policies: rowChoicePolicies(choice.Kind),
 		})
 	}
 	return response
+}
+
+func fhirIdentifierPath(path string) bool {
+	for _, segment := range strings.Split(strings.TrimPrefix(strings.TrimSpace(path), "root."), ".") {
+		segment = strings.TrimSuffix(segment, "[]")
+		if strings.EqualFold(segment, "id") {
+			return true
+		}
+	}
+	return false
 }
 
 func applicableRowChoiceKinds(facts capability.RowChoiceFacts) []capability.RowChoiceKind {

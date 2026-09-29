@@ -104,7 +104,7 @@ func (w Workspace) Validate() error {
 // ValidateForPublication applies constraints that are intentionally too strict
 // for mutable Builder state. Changing a table root or route temporarily clears
 // its selections; that intermediate workspace remains compilable, but a visible
-// table must have at least one visible column before publication.
+// table must have a visible source column or final construction output to publish.
 func (w Workspace) ValidateForPublication() error {
 	visibleOutputs := make(map[string]bool, len(w.Tabs))
 	for _, tab := range w.Tabs {
@@ -134,6 +134,14 @@ func (w Workspace) ValidateForPublication() error {
 		for _, column := range document.Columns {
 			if column.Table != nil && (column.Table.Visible == nil || *column.Table.Visible) {
 				visible++
+			}
+		}
+		if visible == 0 && document.Construction != nil && len(document.Construction.Steps) > 0 {
+			outputs := document.Construction.Steps[len(document.Construction.Steps)-1].Outputs
+			for _, output := range outputs {
+				if output.Table == nil || output.Table.Visible == nil || *output.Table.Visible {
+					visible++
+				}
 			}
 		}
 		if visible == 0 {

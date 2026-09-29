@@ -72,6 +72,12 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 		OutputID: body.OutputId, ChangedStepID: changedStepID,
 		CandidateConstruction: candidate,
 	}
+	if body.GroupSource != nil {
+		request.GroupSource = &lifecycle.ConstructionGroupSourceSelection{
+			RowChoiceID: body.GroupSource.RowChoiceId,
+			ColumnID:    body.GroupSource.ColumnId,
+		}
+	}
 	if body.RemoveStepIds != nil {
 		request.RemoveStepIDs = append([]string(nil), (*body.RemoveStepIds)...)
 	}

@@ -2245,7 +2245,7 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'coded-group' | 'pivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
@@ -2379,9 +2379,13 @@ const BuilderWorkspaceContent = ({
   const codedGroupingAvailable = capabilityIsForAppendStage &&
     capabilityStage?.capabilities.some((candidate) => candidate.kind === 'CODED_GROUP' && candidate.supported) &&
     Boolean(capabilityStage.codedGroupChoices?.length);
+  const sourceGroupingAvailable = capabilityIsForAppendStage &&
+    constructionLifecycle.capabilities.status === 'ready' &&
+    constructionLifecycle.capabilities.response.sourceInput?.supported &&
+    constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
   const reshapeRowsAvailability = {
-    group: codedGroupingAvailable ? { supported: true } : reshapeAvailabilityFor('GROUP'),
-    groupEntry: codedGroupingAvailable ? 'coded-group' as const : 'group' as const,
+    group: codedGroupingAvailable || sourceGroupingAvailable ? { supported: true } : reshapeAvailabilityFor('GROUP'),
+    groupEntry: codedGroupingAvailable ? 'coded-group' as const : sourceGroupingAvailable ? 'source-group' as const : 'group' as const,
     pivot: reshapeAvailabilityFor('PIVOT'),
   };
   const relatedExpandCapability = capabilityStage?.capabilities.find(

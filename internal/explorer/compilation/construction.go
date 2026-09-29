@@ -21,7 +21,7 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 	var sourceColumns []recipe.StageColumn
 	terminalCombine := len(authored.Steps) == 1 && authored.Steps[0].Operation.Kind == authoringv2.ConstructionOperationCombine
 	if terminalCombine {
-		if len(columns) != 0 || len(emitted) != 0 {
+		if len(columns) != 0 || len(emitted) != 0 || len(authored.SourceProjections) != 0 {
 			return nil, fmt.Errorf("terminal combine cannot also declare source projection columns")
 		}
 	} else {
@@ -29,6 +29,17 @@ func recipeConstruction(authored *authoringv2.Construction, columns []authoringv
 		sourceColumns, err = recipeConstructionSourceColumns(columns, emitted)
 		if err != nil {
 			return nil, err
+		}
+		for _, projection := range authored.SourceProjections {
+			name := authoringv2.ConstructionSourceProjectionName(projection.ColumnID)
+			for _, existing := range sourceColumns {
+				if existing.ID == projection.ColumnID || existing.Name == name {
+					return nil, fmt.Errorf("source projection %q collides with the resolved public source schema", projection.ColumnID)
+				}
+			}
+			sourceColumns = append(sourceColumns, recipe.StageColumn{
+				ID: projection.ColumnID, Name: name, Label: projection.Label, Type: projection.LogicalType,
+			})
 		}
 	}
 	construction := &recipe.Construction{

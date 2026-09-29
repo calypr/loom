@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "planRevision": 4,
-  "status": "planned",
+  "status": "in_progress",
   "baseline": {
     "branch": "arch/integration",
     "sha": "1301c3b30ceb26e4e37344b61afb890bd6d64564",
@@ -30,7 +30,22 @@
       { "id": "BUILDER-UI-03", "title": "Use full-width editors with clear Apply and Back to table actions", "status": "in_progress" },
       { "id": "BUILDER-UI-04", "title": "Compact table navigation and disclose history detail on selection", "status": "in_progress" },
       { "id": "BUILDER-UI-05", "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time", "status": "in_progress" }
-    ]
+    ],
+    "latestEvidence": {
+      "feature": "Rows: group by direct-source scalar field",
+      "status": "browser_path_passed",
+      "domUsability": "passed_for_condition_source_group_path",
+      "resultCorrectness": "12_rendered_counts_matched_independent_cda_source_query",
+      "persistence": "applied_reloaded_edited_removed_and_reloaded",
+      "artifact": ".artifacts/cda-builder/2026-09-28-rows-priority/condition-source-group-browser.json",
+      "cdaResource": "Condition",
+      "sourceField": "onsetString",
+      "displayedCountsChecked": 12,
+      "editorToPreviewMs": 4481,
+      "rowsOpenToPreviewMs": 6780,
+      "verification": "7 focused Go tests, 23 focused UI tests, TypeScript check, and OpenAPI check passed; broader Go run had two failures in catalog cardinality and a server timeout",
+      "remaining": "Pivot and related-source keys still require row-first authoring; full priority subgoal remains in progress"
+    }
   },
   "executionOrder": [
     "S01",

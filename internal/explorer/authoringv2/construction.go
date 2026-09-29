@@ -41,8 +41,20 @@ const (
 // exact published table revisions. Version identifies this operation
 // contract, independently of the workspace's older V2 semantics version.
 type Construction struct {
-	Version int                `json:"version"`
-	Steps   []ConstructionStep `json:"steps"`
+	Version           int                            `json:"version"`
+	Steps             []ConstructionStep             `json:"steps"`
+	SourceProjections []ConstructionSourceProjection `json:"sourceProjections,omitempty"`
+}
+
+// ConstructionSourceProjection is a compiler-authorized source field needed
+// by a construction operation but excluded from the document's public columns.
+type ConstructionSourceProjection struct {
+	ColumnID     string `json:"columnId"`
+	OccurrenceID string `json:"occurrenceId"`
+	FieldPath    string `json:"fieldPath"`
+	FHIRType     string `json:"fhirType"`
+	LogicalType  string `json:"logicalType"`
+	Label        string `json:"label"`
 }
 
 // MarshalJSON keeps an empty construction as an explicit empty sequence at

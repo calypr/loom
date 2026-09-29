@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func constructionProposalService(t *testing.T) (*Service, *fakeStore, capability.Snapshot) {
@@ -477,6 +478,130 @@ func TestConstructionCodedGroupChoicesRequirePopulatedCodeAndShowPathBreadcrumb(
 	}
 	if want := "BodyStructure · includedStructure[] › structure › coding[]"; choices[0].Label != want {
 		t.Fatalf("coded group choice label = %q, want breadcrumb %q", choices[0].Label, want)
+	}
+}
+
+func TestConstructionGroupSourceExposesPopulatedGeneratedScalarWhenObserved(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope",
+			SchemaDigest: "schema", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
+			FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
+			TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
+		},
+		capability.Policy{Route: capability.RoutePolicy{Version: "traversal", AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "body-structure", ResourceType: "BodyStructure", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 2}},
+		nil,
+		[]capability.Candidate{
+			{ID: "active", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "active", Label: "Whether this record is in active use", LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
+			{ID: "id", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "id", Label: "Logical id", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
+			{ID: "patient", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "patient", Label: "Patient", LogicalType: "string", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 2},
+		},
+		nil,
+	)
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{config: Config{RowChoicePlanner: resolver}}
+	base := constructionBase{
+		snapshot: snapshot,
+		document: authoringv2.Document{
+			RootResourceType: "BodyStructure",
+			Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+		},
+	}
+	capability, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capability.Supported || capability.ReasonCode != "" || len(capability.Choices) != 1 {
+		t.Fatalf("BodyStructure source choices = %#v, want one eligible root scalar", capability)
+	}
+	choice := capability.Choices[0]
+	if choice.FieldPath != "active" || choice.Label != "Whether this record is in active use" || choice.FHIRType != "boolean" ||
+		choice.LogicalType != "boolean" || choice.ValueType != "BOOLEAN" || choice.IsIdentifier || choice.IsReference || !choice.IsPopulated {
+		t.Fatalf("BodyStructure active choice = %#v", choice)
+	}
+	transformed, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", "group-step")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transformed.Supported || transformed.ReasonCode != "TRANSFORMED_STAGE_SOURCE_INPUT_UNSUPPORTED" || len(transformed.Choices) != 0 {
+		t.Fatalf("transformed-stage source choices = %#v", transformed)
+	}
+}
+
+func TestConstructionGroupSourceChoicesExcludeConstantResourceTypeMetadata(t *testing.T) {
+	snapshot := capability.NewSnapshot(
+		capability.SnapshotIdentity{
+			Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: "scope",
+			SchemaDigest: "schema", ResourceInventoryDigest: "resources", RelationshipDigest: "relationships",
+			FieldDigest: "fields", ProtocolVersion: "protocol", CompilerVersion: "compiler",
+			TraversalPolicyVersion: "traversal", ProjectionPolicyVersion: "projection",
+		},
+		capability.Policy{Route: capability.RoutePolicy{Version: "traversal", AllowsRepeatedEdges: true, AllowsSelfLoops: true}},
+		capability.StatusReady, true, false,
+		[]capability.Node{{ID: "body-structure", ResourceType: "BodyStructure", RowRootEligible: true, RowGrain: "RESOURCE", Populated: true, DocumentCount: 135}},
+		nil,
+		[]capability.Candidate{{
+			ID: "resource-type", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "resourceType",
+			Label: "Resource Type", LogicalType: "string", Cardinality: "required_one",
+			ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar}, Observed: true, Populated: true, ObservedDocumentCount: 135,
+		}},
+		nil,
+	)
+	index, err := fhirschema.GeneratedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewSchemaRowChoiceResolver(index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := authoringv2.Document{
+		RootResourceType: "BodyStructure",
+		Route:            authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "BodyStructure"},
+	}
+	rowChoices, err := resolver.ListRowChoices(context.Background(), snapshot, document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rowChoices) != 1 || rowChoices[0].Path != "resourceType" {
+		t.Fatalf("fixture row choices = %#v, want only the observed resourceType choice", rowChoices)
+	}
+	service := &Service{config: Config{RowChoicePlanner: resolver, RowChoiceResolver: resolver}}
+	base := constructionBase{snapshot: snapshot, document: document}
+	sourceInput, err := service.constructionGroupSourceCapability(context.Background(), base, "body-structures", recipe.ConstructionSourceProjectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceInput.Supported || sourceInput.ReasonCode != "NO_ELIGIBLE_POPULATED_SCALAR_GROUP_FIELDS" || len(sourceInput.Choices) != 0 {
+		t.Fatalf("constant resourceType was offered as a useful source group: %#v", sourceInput)
+	}
+	_, err = service.resolveConstructionGroupSource(context.Background(), base, ConstructionProposalRequest{
+		Project: "project-a", ExplorerID: "explorer-a", OutputID: "body-structures",
+		GroupSource: &ConstructionGroupSourceSelection{RowChoiceID: rowChoices[0].ChoiceID, ColumnID: "source_resource_type"},
+	}, "source_resource_type")
+	if lifecycleErrorCode(err) != "RESOURCE_METADATA_GROUP_SOURCE_UNSUPPORTED" {
+		t.Fatalf("resourceType group request error = %v, want metadata-field rejection", err)
+	}
+}
+
+func TestConstructionGroupSourceCandidateRequiresPopulatedField(t *testing.T) {
+	choice := capability.RowChoice{Kind: capability.RowChoiceFieldGroupKey, NodeID: "body-structure", ResourceType: "BodyStructure", Path: "active"}
+	snapshot := capability.Snapshot{Candidates: []capability.Candidate{{
+		ID: "active", NodeID: "body-structure", ResourceType: "BodyStructure", FieldPath: "active",
+		LogicalType: "boolean", Cardinality: "optional_one", ProjectionModes: []capability.ProjectionMode{capability.ProjectionScalar},
+		Observed: false, Populated: false,
+	}}}
+	if _, ok := constructionGroupSourceCandidate(snapshot, choice); ok {
+		t.Fatal("offered an unpopulated field as a source grouping key")
 	}
 }
 
