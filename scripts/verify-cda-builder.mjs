@@ -21,13 +21,14 @@ const capabilityRequests = [];
 const categoryDiscoveryRequests = [];
 const requestStartedAt = new Map();
 const chooseRelatedSource = async (resourceType) => {
+  const openedFieldsTab = await browserEval(browser.cdp, `const tab=[...document.querySelectorAll('[aria-label="Column types"] button')].find(button=>button.innerText==='Fields and related data');if(tab?.getAttribute('aria-pressed')==='false'){tab.click();return true;}return false;`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 30000);
   const sources = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="construction-add-columns-source-option"]')].map(button=>({label:button.getAttribute('aria-label'),key:button.getAttribute('data-source-key'),kind:button.getAttribute('data-source-kind'),selected:button.getAttribute('aria-pressed')==='true',visible:button.offsetParent!==null}));`);
   const source = sources.find((item) => item.kind === 'RELATED' && item.label?.startsWith(`${resourceType},`));
   assert(source, `${resourceType} is missing from the visible related source list`);
   await browserEval(browser.cdp, `document.querySelector('[data-source-key=${JSON.stringify(source.key)}]').click();return true;`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-source-key=${JSON.stringify(source.key)}]')?.getAttribute('aria-pressed')==='true'`, 30000);
-  return { source, sources };
+  return { source, sources, openedFieldsTab };
 };
 browser?.cdp.on('Network.requestWillBeSent', (event) => {
   if (event.request.url.includes('/authoring/v2/')) requestStartedAt.set(event.requestId,Date.now());
@@ -2587,7 +2588,7 @@ try {
       source: 'Arango loom_dev, project loom_dev_cda_fhir, generation cda-fhir-v1, direct subject_Patient edges',
       evidencePath: '.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-oracle.json',
       manyPatientId,
-      manyObservationEdges: 38,
+      manyObservationEdges: undefined,
       zeroPatientId,
       zeroObservationEdges: 0,
       ...(changeSavedRoute ? { focusOraclePath: process.env.LOOM_CDA_FOCUS_ORACLE_PATH } : {}),
@@ -2603,7 +2604,6 @@ try {
     let focusConditionExpected;
     if (changeSavedRoute) {
       assert(focusOracleResult?.patientKey, 'Arango focus oracle is missing the Patient key');
-      assert.equal(focusOracleCounts.subject_Patient, rawOracle.manyObservationEdges, 'Fresh Arango Subject count differs from the retained raw oracle');
       assert(Array.isArray(focusOracleEdges), 'Arango focus oracle is missing bounded direct Observation edge details');
       const focusIDs = [...new Set(focusOracleEdges
         .filter(edge => edge.relationship === 'focus_Patient')
@@ -2622,9 +2622,32 @@ try {
       rawOracle.subjectConditionCount = subjectConditionExpected;
       rawOracle.focusConditionCount = focusConditionExpected;
     }
-    const rawValues = includeAllAndPresence
-      ? JSON.parse(await readFile('.artifacts/cda-builder/2026-09-26T22-25-42.310Z/related-observation-values.json', 'utf8'))
-      : undefined;
+    const arangoContainers = execFileSync('docker', ['ps', '--format', '{{.Names}}'], { encoding: 'utf8' })
+      .trim().split(/\r?\n/).filter(name => /^loom-dev-.+-arangodb-1$/.test(name));
+    assert.equal(arangoContainers.length, 1, 'Expected one CDA Arango container');
+    const aql = `FOR patient IN Patient
+      FILTER patient.project_id == "loom_dev_cda_fhir" AND patient.dataset_generation == "cda-fhir-v1"
+        AND patient.id IN ${JSON.stringify([manyPatientId, zeroPatientId])}
+      LET observations = (FOR edge IN fhir_edge
+        FILTER edge.project == "loom_dev_cda_fhir" AND edge.dataset_generation == "cda-fhir-v1"
+          AND edge.label == "subject_Patient" AND edge._to == patient._id
+          AND IS_SAME_COLLECTION("Observation", edge._from)
+        LET observation = DOCUMENT(edge._from)
+        FILTER observation.project_id == "loom_dev_cda_fhir" AND observation.dataset_generation == "cda-fhir-v1"
+        SORT observation.id RETURN {id: observation.id, status: observation.status})
+      RETURN {patientId: patient.id, subjectObservations: observations}`;
+    const oracleJS = `db._useDatabase("loom_dev");print(JSON.stringify(db._query(${JSON.stringify(aql)}).toArray()));`;
+    const oracleCommand = `arangosh --server.endpoint tcp://127.0.0.1:8529 --server.username root --server.password "$ARANGO_ROOT_PASSWORD" --javascript.execute-string '${oracleJS.replaceAll("'", "'\\''")}'`;
+    const oracleOutput = execFileSync('docker', ['exec', arangoContainers[0], 'sh', '-lc', oracleCommand], { encoding: 'utf8' });
+    const rawValues = { source: rawOracle.source, patients: JSON.parse(oracleOutput.trim().split(/\r?\n/).at(-1)) };
+    rawOracle.manyObservationEdges = rawValues.patients.find(patient => patient.patientId === manyPatientId)?.subjectObservations.length;
+    rawOracle.zeroObservationEdges = rawValues.patients.find(patient => patient.patientId === zeroPatientId)?.subjectObservations.length;
+    assert(rawOracle.manyObservationEdges > 1, 'Many-match Patient must still have several source records');
+    assert.equal(rawOracle.zeroObservationEdges, 0, 'Zero-match Patient must still have no source records');
+    if (changeSavedRoute) assert.equal(focusOracleCounts.subject_Patient, rawOracle.manyObservationEdges, 'Focus oracle differs from the current Subject records');
+    await mkdir(evidenceDirectory, { recursive: true });
+    rawOracle.evidencePath = join(evidenceDirectory, 'related-observation-source-oracle.json');
+    await writeFile(rawOracle.evidencePath, JSON.stringify(rawValues, null, 2));
     assert.equal(explorerId, targetExplorer);
     const startedAt = Date.now();
     const clicks = [];
@@ -2720,7 +2743,9 @@ try {
     };
     const addRelatedForm = async (form, labelPattern, contributorValue) => {
       await clickDOM('button[aria-label^="Add columns:"]', `Open related columns for ${form}`);
-      await chooseRelatedSource('Observation');
+      const relatedSource = await chooseRelatedSource('Observation');
+      if (relatedSource.openedFieldsTab) clicks.push({ sequence: clicks.length + 1, label: 'Browse fields and related data', method: 'DOM button click()' });
+      clicks.push({ sequence: clicks.length + 1, label: 'Select Observation related source', source: relatedSource.source, method: 'DOM button click()' });
       await waitForBrowser(browser.cdp, `Boolean(document.querySelector('input[aria-label="Select Observation.id"]:not(:disabled)'))`, 60000);
       await clickDOM('input[aria-label="Select Observation.id"]', `Select Observation.id for ${form}`);
       await clickButtonText('Add 1 selected feature', `Open Observation.id ${form} choices`);
@@ -2742,12 +2767,12 @@ try {
         const predicateChoices = await browserEval(browser.cdp,
           'return [...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].filter(input=>input.name.startsWith("construction-condition-")).map(input=>({name:input.name,label:input.closest("label")?.innerText??"",disabled:input.disabled}));');
         results.predicateChoices = predicateChoices;
-        const equals = predicateChoices.find(option => /Only records where id equals/i.test(option.label));
+        const equals = predicateChoices.find(option => /Only records where Observation ID equals/i.test(option.label));
         assert(equals && !equals.disabled, 'Related Observation.id equality condition is unavailable');
         await browserEval(browser.cdp,
-          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.name===' + JSON.stringify(equals.name) + '&&/Only records where id equals/i.test(input.closest("label")?.innerText??""));input.click();return true;');
-        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id exact value"]'))`, 30000);
-        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', contributorValue, 'Limit related Observations to one ID');
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>input.name===' + JSON.stringify(equals.name) + '&&/Only records where Observation ID equals/i.test(input.closest("label")?.innerText??""));input.click();return true;');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="Observation ID exact value"]'))`, 30000);
+        await setInputValue('[role="dialog"] input[aria-label="Observation ID exact value"]', contributorValue, 'Limit related Observations to one ID');
       }
       const proposalStartedAt = Date.now();
       await browserEval(browser.cdp,
@@ -2799,7 +2824,7 @@ try {
       return { output, proposalPreview, proposalPreviewMs, contributorValue, coverageText };
     };
     try {
-      await waitForBrowser(browser.cdp, `[...document.querySelectorAll('button')].some(button=>button.innerText.trim().endsWith('Specimen'))`, 30000);
+      await waitForBrowser(browser.cdp, `document.body.innerText.includes('DATASET WORKSPACE')`, 30000);
       const baseline = await browserEval(browser.cdp,
         'return [...document.querySelectorAll("button")].filter(button=>button.innerText.trim().startsWith("▤")).map(button=>button.innerText.trim());');
       results.baselineTables = baseline;
@@ -2855,6 +2880,7 @@ try {
       const relatedClickStart = clicks.length;
       await clickDOM('button[aria-label^="Add columns:"]', 'Open related columns');
       const relatedSource = await chooseRelatedSource('Observation');
+      if (relatedSource.openedFieldsTab) clicks.push({ sequence: clicks.length + 1, label: 'Browse fields and related data', method: 'DOM button click()' });
       clicks.push({ sequence: clicks.length + 1, label: 'Select Observation related source', source: relatedSource.source });
       await waitForBrowser(browser.cdp,
         'Boolean(document.querySelector("input[aria-label=\\"Select Observation.id\\"]:not(:disabled)"))', 60000);
@@ -2952,9 +2978,9 @@ try {
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
         await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Open saved matching-record choices');
         await browserEval(browser.cdp,
-          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Only records where id equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Observation.id EQUALS condition is unavailable");input.click();return true;');
-        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]"))', 30000);
-        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', focusObservationId, 'Set saved Observation.id EQUALS value');
+          'const input=[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].find(input=>/Only records where Observation ID equals/i.test(input.closest("label")?.innerText??""));if(!input)throw new Error("Observation.id EQUALS condition is unavailable");input.click();return true;');
+        await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"Observation ID exact value\\"]"))', 30000);
+        await setInputValue('[role="dialog"] input[aria-label="Observation ID exact value"]', focusObservationId, 'Set saved Observation.id EQUALS value');
         await waitForBrowser(browser.cdp,
           '[...document.querySelectorAll("[role=\\"dialog\\"] button")].some(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled)', 30000);
         const subjectConditionStartedAt = Date.now();
@@ -3001,24 +3027,24 @@ try {
         await waitForBrowser(browser.cdp, 'Boolean(document.querySelector("[role=\\"dialog\\"]"))', 30000);
         await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Inspect saved matching-record rule');
         results.savedRouteChoices = await browserEval(browser.cdp,
-          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"id exact value\\"]")?.value,controls:[...dialog?.querySelectorAll("input,button")??[]].map(input=>({tag:input.tagName,label:input.getAttribute("aria-label")??input.closest("label")?.innerText??input.innerText,checked:input.checked??null,disabled:input.disabled??false}))};');
+          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {text:dialog?.innerText,radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"Observation ID exact value\\"]")?.value,controls:[...dialog?.querySelectorAll("input,button")??[]].map(input=>({tag:input.tagName,label:input.getAttribute("aria-label")??input.closest("label")?.innerText??input.innerText,checked:input.checked??null,disabled:input.disabled??false}))};');
         const savedSubjectChoice = results.savedRouteChoices.radios.find(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? ''));
         const focusChoice = results.savedRouteChoices.radios.find(choice => /Direct relationship: Patient to Observation via Focus/i.test(choice.label ?? ''));
         const savedCountChoice = results.savedRouteChoices.radios.find(choice => /Count matching records/i.test(choice.label ?? ''));
         assert(savedSubjectChoice?.checked && !savedSubjectChoice.disabled, 'Saved Subject route is not selected or is disabled');
         assert(focusChoice && !focusChoice.disabled, 'Direct Focus route is unavailable for the saved Observation.id step');
         assert(savedCountChoice?.checked && !savedCountChoice.disabled, 'Saved COUNT form is not selected or is disabled');
-        const savedEqualsCondition = results.savedRouteChoices.conditions.find(choice => /Only records where id equals/i.test(choice.label ?? ''));
+        const savedEqualsCondition = results.savedRouteChoices.conditions.find(choice => /Only records where Observation ID equals/i.test(choice.label ?? ''));
         assert(savedEqualsCondition?.checked, 'Saved Observation.id EQUALS condition did not reopen as selected');
         assert.equal(results.savedRouteChoices.exactValue, focusObservationId, 'Saved Observation.id EQUALS value was not restored');
         await clickDOM('[role="dialog"] [data-testid^="catalog-route-alternatives-"] summary', 'Show alternative saved routes');
         await captureScreenshot('saved-observation-route-edit-controls.png');
         await clickDOM('[role="dialog"] input[type="radio"][aria-label=' + JSON.stringify(focusChoice.label) + ']', 'Choose direct Focus route');
         results.savedRouteControls = await browserEval(browser.cdp,
-          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"id exact value\\"]")?.value,alerts:[...dialog?.querySelectorAll("[role=\\"alert\\"]")??[]].map(element=>element.innerText),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
+          'const dialog=document.querySelector("[role=\\"dialog\\"]");return {radios:[...dialog?.querySelectorAll("input[type=\\"radio\\"]")??[]].map(input=>({label:input.getAttribute("aria-label"),checked:input.checked,disabled:input.disabled})),conditions:[...dialog?.querySelectorAll("input[name^=\\"construction-condition-\\"]")??[]].map(input=>({label:input.closest("label")?.innerText,checked:input.checked})),exactValue:dialog?.querySelector("input[aria-label=\\"Observation ID exact value\\"]")?.value,alerts:[...dialog?.querySelectorAll("[role=\\"alert\\"]")??[]].map(element=>element.innerText),buttons:[...dialog?.querySelectorAll("button")??[]].map(button=>({text:button.innerText.trim(),disabled:button.disabled}))};');
         const selectedFocusChoice = results.savedRouteControls.radios.find(choice => /Direct relationship: Patient to Observation via Focus/i.test(choice.label ?? ''));
         const selectedCountChoice = results.savedRouteControls.radios.find(choice => /Count matching records/i.test(choice.label ?? ''));
-        const selectedEqualsCondition = results.savedRouteControls.conditions.find(choice => /Only records where id equals/i.test(choice.label ?? ''));
+        const selectedEqualsCondition = results.savedRouteControls.conditions.find(choice => /Only records where Observation ID equals/i.test(choice.label ?? ''));
         const focusAddChoice = results.savedRouteControls.buttons.find(button => /^Add 1 (column|selected feature)$/i.test(button.text));
         assert(selectedFocusChoice?.checked && !selectedFocusChoice.disabled, 'Direct Focus route did not become selected');
         assert(selectedCountChoice?.checked && !selectedCountChoice.disabled, 'Saved COUNT form changed or became disabled');
@@ -3095,7 +3121,7 @@ try {
         assert.deepEqual(visibleState(results.restored), visibleState(results.originalFilteredPreview), 'Removing the Focus step did not restore the pre-step Patient table');
         results.assertions = [
           'Created and selected a temporary Patient root through Builder DOM controls.',
-          'Added Observation.id COUNT on the direct Subject route; the proposal and reloaded row matched 38 Arango subject_Patient edges.',
+          `Added Observation.id COUNT on the direct Subject route; the proposal and reloaded row matched ${rawOracle.manyObservationEdges} Arango subject_Patient edges.`,
           `Saved COUNT with EQUALS survived the Subject-to-Focus edit; the rendered proposal and reloaded row matched ${focusConditionExpected} direct Focus edges for the selected Observation.id.`,
           'Removed the saved Focus step and restored the original filtered Patient rows and columns.',
           'The temporary table was deleted and the original table list was restored.',
@@ -3109,6 +3135,9 @@ try {
         const expectedIDs = rawValues.patients.find(patient => patient.patientId === manyPatientId).subjectObservations.map(observation => observation.id).sort();
         assert.deepEqual([...results.manyForms.row[results.allForm.output.name]].sort(), expectedIDs);
         assert.equal(results.manyForms.row[results.presenceForm.output.name], true);
+        const allHeader = results.manyForms.visible.headers.findIndex(header => header.toLowerCase() === results.allForm.output.label.toLowerCase());
+        assert(allHeader >= 0, 'All-values column is missing from the rendered table');
+        assert.deepEqual(results.manyForms.visible.rows[0][allHeader].split('; ').sort(), expectedIDs, 'Rendered related IDs differ from CDA');
         if (action === 'Verify related eligibility via presence filter') {
           const baselineStepCount=await browserEval(browser.cdp, `return document.querySelectorAll('[data-testid^="construction-history-step-"]').length;`);
           await clickDOM('button[aria-label^="Filter rows:"]','Open Filter rows for related presence');
@@ -3182,7 +3211,7 @@ try {
           await navigate(browser.cdp, pageURL);
           await selectTemporaryTable();
           results.editedFormMany = await previewFor(manyPatientId);
-          assert.equal(results.editedFormMany.row[results.editedFormOutput.name], 38, 'Edited related COUNT differs from raw CDA');
+          assert.equal(results.editedFormMany.row[results.editedFormOutput.name], rawOracle.manyObservationEdges, 'Edited related COUNT differs from raw CDA');
         }
         results.filteredForm = await addRelatedForm('COUNT', /Count matching records/i, expectedIDs[0]);
         results.manyFiltered = await previewFor(manyPatientId);
@@ -3208,13 +3237,13 @@ try {
           '[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].some(input=>/Count matching records/i.test(input.getAttribute("aria-label")??""))', 30000);
         await clickDOM('[role="dialog"] [data-testid^="catalog-matching-advanced-"] summary', 'Open saved contributor filter');
         results.savedContributorChoices = await browserEval(browser.cdp,
-          'return {radios:[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText,checked:input.checked})),exactValue:document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"id exact value\\"]")?.value};');
+          'return {radios:[...document.querySelectorAll("[role=\\"dialog\\"] input[type=\\"radio\\"]")].map(input=>({label:input.getAttribute("aria-label"),text:input.closest("label")?.innerText,checked:input.checked})),exactValue:document.querySelector("[role=\\"dialog\\"] input[aria-label=\\"Observation ID exact value\\"]")?.value};');
         assert(results.savedContributorChoices.radios.some(choice => /Direct relationship: Patient to Observation via Subject/i.test(choice.label ?? '') && choice.checked), 'Saved contributor route was not preselected');
         assert(results.savedContributorChoices.radios.some(choice => /Count matching records/i.test(choice.label ?? '') && choice.checked), 'Saved Count form was not preselected');
-        assert(results.savedContributorChoices.radios.some(choice => /Only records where id equals/i.test(choice.text ?? '') && choice.checked), 'Saved equality rule was not preselected');
+        assert(results.savedContributorChoices.radios.some(choice => /Only records where Observation ID equals/i.test(choice.text ?? '') && choice.checked), 'Saved equality rule was not preselected');
         assert.equal(results.savedContributorChoices.exactValue, expectedIDs[0], 'Saved contributor value was not restored');
-        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="id exact value"]'))`, 30000);
-        await setInputValue('[role="dialog"] input[aria-label="id exact value"]', expectedIDs[1], 'Change saved contributor ID');
+        await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"] input[aria-label="Observation ID exact value"]'))`, 30000);
+        await setInputValue('[role="dialog"] input[aria-label="Observation ID exact value"]', expectedIDs[1], 'Change saved contributor ID');
         await browserEval(browser.cdp,
           'const button=[...document.querySelectorAll("[role=\\"dialog\\"] button")].find(button=>button.innerText.trim()==="Add 1 column"&&!button.disabled);if(!button)throw new Error("Save edited source choice unavailable");button.click();return true;');
         await waitForBrowser(browser.cdp,
@@ -3264,6 +3293,34 @@ try {
         if (changeSavedForm) assert.equal(results.zero.row[results.editedFormOutput.name], 0);
         else assert.equal(results.zero.row[results.presenceForm.output.name], false);
         assert.equal(results.zero.row[results.filteredForm.output.name], 0);
+        const allHeader = results.zero.visible.headers.findIndex(header => header.toLowerCase() === results.allForm.output.label.toLowerCase());
+        assert.equal(results.zero.visible.rows[0][allHeader], '—', 'Empty related values should render as an empty cell');
+      }
+      if (action === 'Verify direct Observation forms many and zero') {
+        results.removalPreviews = [];
+        let remaining = await browserEval(browser.cdp, 'return document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length;');
+        while (remaining > 1) {
+          const lastStep = await browserEval(browser.cdp, 'return [...document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]")].at(-1)?.getAttribute("data-testid");');
+          await clickDOM('[data-testid=' + JSON.stringify(lastStep) + ']', 'Select related step for removal');
+          await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid^="construction-remove-step-"]:not(:disabled)'))`, 10000);
+          await clickDOM('[data-testid^="construction-remove-step-"]', 'Remove related step');
+          await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status')==='ready'`, 10000);
+          await clickDOM('[data-testid="construction-apply-proposal"]', 'Apply related step removal');
+          await navigate(browser.cdp, pageURL);
+          await selectTemporaryTable();
+          remaining -= 1;
+          assert.equal(await browserEval(browser.cdp, 'return document.querySelectorAll("[data-testid^=\\"construction-history-step-\\"]").length;'), remaining, 'Removed related step returned after reload');
+          results.removalPreviews.push(await previewFor(zeroPatientId, null));
+        }
+        const restored = results.removalPreviews.at(-1);
+        assert.deepEqual(restored.visible.headers, ['PATIENT ID'], 'Removing related steps did not restore the bounded source table');
+        assert.equal(restored.visible.rows.length, 1);
+        assert.deepEqual(restored.visible.rows[0], [zeroPatientId]);
+        assert(results.removalPreviews.every(preview => preview.previewElapsedMs < 5000), 'Related step removal preview exceeded five seconds');
+        const previewTimes = [results.relatedProposalPreviewMs,
+          ...['many', 'manyForms', 'manyFiltered', 'editedContributor', 'zero'].map(key => results[key].previewElapsedMs),
+          ...['allForm', 'presenceForm', 'filteredForm'].map(key => results[key].proposalPreviewMs)];
+        assert(previewTimes.every(ms => ms < 5000), `Related-record preview exceeded five seconds: ${JSON.stringify(previewTimes)}`);
       }
 
       }
@@ -3274,7 +3331,7 @@ try {
         'Selected the Observation related source and the Observation.id COUNT form through Builder DOM controls.',
         'Proposal route contains exactly one direct subject edge from Patient to Observation.',
         'Applied and reloaded the related COUNT construction before preview.',
-        'Filtered to the known many Patient and matched the independent raw count of 38.',
+        `Filtered to the known many Patient and matched the independent raw count of ${rawOracle.manyObservationEdges}.`,
         'Edited the saved Patient.id filter to the known zero Patient and matched the independent raw count of 0.',
         'No publication action was invoked.',
       ];
@@ -3284,7 +3341,7 @@ try {
           changeSavedForm
             ? 'Saved PRESENCE reopened and changed to COUNT; the reloaded many and zero Patients matched raw CDA counts.'
             : 'PRESENCE returned true for the many Patient and false for the zero Patient.',
-          'A contributor rule limited related Observation.id to one raw CDA ID and changed COUNT from 38 to 1 for the many Patient; the zero Patient remained at 0.',
+          `A contributor rule limited related Observation.id to one raw CDA ID and changed COUNT from ${rawOracle.manyObservationEdges} to 1 for the many Patient; the zero Patient remained at 0.`,
         );
       }
       }

@@ -197,6 +197,35 @@
       "coverageBrowserMs": 2101,
       "artifact": ".artifacts/cda-builder/2026-09-29T17-52-50.678Z/indirect-specimen-patient-journey.json",
       "remaining": "This case has one match. Zero and many related matches require their separate CDA cases; reducing route-selection clicks remains a usability opportunity."
+    },
+    "relatedMultiplicityEvidence": {
+      "feature": "Choose zero/many related values and restrict contributing records",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Fields and related data offered Count matching records, all matching values, and presence. Advanced matching choices accepted one Observation ID. Saved route, result form, and equality value reopened correctly. The combined lifecycle used 67 recorded interactions across four operations, filter editing, reloads, removal, and cleanup.",
+      "resultCorrectness": "A fresh Arango oracle restricted edges to Observation resources and confirmed 38 Subject matches for the many Patient and zero for the other. All 38 rendered IDs matched that oracle. The zero Patient remained a row with count 0, an empty all-values cell, and presence false. Contributor filtering reduced the many count to 1; editing the selected ID retained 1.",
+      "persistence": "Each operation was applied and reloaded. The saved contributor rule was edited and reloaded, then an earlier Patient filter was edited to the zero-match Patient. Each of the four related steps was removed individually, with reload and preview after each removal. Restoration showed only Patient ID, and the temporary table was deleted.",
+      "previewBrowserMs": {
+        "many": 1098,
+        "manyForms": 1062,
+        "contributor": 1086,
+        "editedContributor": 1241,
+        "zero": 1057
+      },
+      "proposalBrowserMs": {
+        "count": 1678,
+        "all": 2044,
+        "presence": 2283,
+        "contributor": 2246
+      },
+      "removalPreviewBrowserMs": [
+        1264,
+        1036,
+        1034,
+        1053
+      ],
+      "artifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/patient-related-forms-many-zero.json",
+      "sourceArtifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/related-observation-source-oracle.json",
+      "remaining": "This proves the bounded direct Subject route. Multi-hop zero/many cases, row expansion, full-table performance, and the final combined CDA rerun remain separate."
     }
   },
   "executionOrder": [
