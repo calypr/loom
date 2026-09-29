@@ -199,6 +199,10 @@ export const RowDefinitionSettingsPanel = ({
   readonly relatedRows: { readonly supported: boolean; readonly reason?: string };
   readonly reshapeRows: Record<'group' | 'pivot', { readonly supported: boolean; readonly reason?: string }> & {
     readonly groupEntry: 'group' | 'source-group' | 'coded-group';
+    readonly groupAlternatives: ReadonlyArray<{
+      readonly kind: 'group' | 'source-group' | 'coded-group';
+      readonly label: string;
+    }>;
   };
   readonly onChooseRelatedRows: () => void;
   readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot') => void;
@@ -254,7 +258,7 @@ export const RowDefinitionSettingsPanel = ({
         return;
       }
       const options = selectionOptions(choices);
-      setSettings({ kind: 'editing', choices, options, selectionId: '' });
+      setSettings({ kind: 'editing', choices, options, selectionId: table.document.rows.kind === 'RECORDS' ? 'records' : '' });
     } catch (error) {
       if (requestEpoch !== settingsRequestEpoch.current) return;
       setSettings({
@@ -380,29 +384,42 @@ export const RowDefinitionSettingsPanel = ({
         <span className="shrink-0 font-medium text-blue-800">Change <span aria-hidden="true">→</span></span>
       </button>
       {settings.kind !== 'closed' ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl bg-white p-4 shadow-xl sm:p-5">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="mx-auto min-h-dvh w-full max-w-5xl px-4 py-5 sm:px-8 sm:py-8">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-900">Define rows</h3>
+                <h3 className="text-xl font-semibold text-slate-900">Define rows</h3>
                 <p className="mt-1 text-xs text-slate-600">Currently: {currentRowMeaning}</p>
               </div>
-              <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Close</button>
+              <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-sm" onClick={cancel}>Back to table</button>
             </div>
             <div className="mt-3 space-y-3">
-              <section aria-label="Choose a row change" className="grid gap-2 sm:grid-cols-3">
-                <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
-                  onClick={() => chooseReshape(reshapeRows.groupEntry)}
-                  className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
-                  <span className="block text-sm font-semibold text-slate-900">Group records</span>
-                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported
-                    ? reshapeRows.groupEntry === 'coded-group'
-                      ? 'Group by a recorded code without adding a column first.'
-                      : reshapeRows.groupEntry === 'source-group'
-                        ? 'Group by a source field without adding a column first.'
-                      : 'Group by a column already in this table.'
-                    : reshapeRows.group.reason}</span>
-                </button>
+              <section aria-label="Choose a row change" className="grid gap-2 md:grid-cols-3">
+                <div className="rounded-lg border border-slate-200">
+                  <button type="button" data-testid="construction-action-group-rows" disabled={disabled || !reshapeRows.group.supported}
+                    onClick={() => chooseReshape(reshapeRows.groupEntry)}
+                    className="w-full p-3 text-left hover:bg-blue-50 disabled:opacity-50">
+                    <span className="block text-sm font-semibold text-slate-900">Group records</span>
+                    <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported
+                      ? reshapeRows.groupEntry === 'coded-group'
+                        ? 'Group by a recorded code without adding a column first.'
+                        : reshapeRows.groupEntry === 'source-group'
+                          ? 'Group by a source field without adding a column first.'
+                        : 'Group by a column already in this table.'
+                      : reshapeRows.group.reason}</span>
+                  </button>
+                  {reshapeRows.groupAlternatives.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 border-t border-slate-200 px-2 py-1.5">
+                      {reshapeRows.groupAlternatives.map((alternative) => (
+                        <button key={alternative.kind} type="button" data-testid={`construction-action-${alternative.kind}-rows`}
+                          disabled={disabled} onClick={() => chooseReshape(alternative.kind)}
+                          className="rounded px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-50">
+                          {alternative.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !reshapeRows.pivot.supported}
                   onClick={() => chooseReshape('pivot')}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
@@ -413,9 +430,10 @@ export const RowDefinitionSettingsPanel = ({
                   onClick={chooseRelatedRows}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Related records</span>
-                  <span className="mt-1 block text-xs text-slate-600">One row per matching record on a related path.</span>
+                  <span className="mt-1 block text-xs text-slate-600">{relatedRows.supported
+                    ? 'One row per matching record on a related path.'
+                    : relatedRows.reason ?? 'Checking available related row paths…'}</span>
                 </button>
-                {!relatedRows.supported ? <p className="text-xs text-slate-600 sm:col-span-3">{relatedRows.reason ?? 'Checking available related row paths…'}</p> : null}
               </section>
               <div className="min-w-0">
                 <section aria-label="Row shape settings" className="text-sm text-slate-800">
@@ -424,7 +442,7 @@ export const RowDefinitionSettingsPanel = ({
                   {settings.kind === 'editing' ? (
                     <>
                 <label className="block text-sm font-medium text-slate-800">
-                  <span>Or choose individual records or repeated values</span>
+                  <span>Start with records or expand repeated values</span>
                   <select
                     aria-label="What should each row represent?"
                     className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2"

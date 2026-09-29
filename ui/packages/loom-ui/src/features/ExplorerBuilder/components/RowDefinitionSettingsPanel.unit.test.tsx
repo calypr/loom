@@ -93,7 +93,7 @@ const relatedRowProps = {
   ),
   startingCollectionSettings: <section aria-label="Starting collection">Collection controls</section>,
   relatedRows: { supported: false, reason: 'No executable route' },
-  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, pivot: { supported: true } },
+  reshapeRows: { group: { supported: true }, groupEntry: 'group' as const, groupAlternatives: [], pivot: { supported: true } },
   onChooseRelatedRows: vi.fn(),
   onChooseReshape: vi.fn(),
   onChangeRootOccurrence: vi.fn(),
@@ -116,6 +116,7 @@ const renderSettings = (overrides: {
   relatedRowsSupported?: boolean;
   pivotSupported?: boolean;
   codedGroupDefault?: boolean;
+  sourceGroupAlternative?: boolean;
   onChangeRootOccurrence?: (nodeId: string, occurrenceId: string) => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
@@ -131,7 +132,8 @@ const renderSettings = (overrides: {
       {...relatedRowProps}
       onChangeRootOccurrence={onChangeRootOccurrence}
       relatedRows={{ supported: overrides.relatedRowsSupported ?? false, reason: 'No executable route' }}
-      reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group', pivot: {
+      reshapeRows={{ group: { supported: true }, groupEntry: overrides.codedGroupDefault ? 'coded-group' : 'group',
+        groupAlternatives: overrides.sourceGroupAlternative ? [{ kind: 'source-group', label: 'By source field' }] : [], pivot: {
         supported: overrides.pivotSupported ?? true,
         reason: 'No executable category-to-column operation',
       } }}
@@ -194,6 +196,14 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(group).toHaveTextContent('without adding a column first');
     fireEvent.click(group);
     expect(onChooseReshape).toHaveBeenCalledWith('coded-group');
+  });
+
+  it('opens source-field grouping directly when coded grouping is the default', async () => {
+    const { onChooseReshape } = renderSettings({ codedGroupDefault: true, sourceGroupAlternative: true });
+    fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+    fireEvent.click(await screen.findByRole('button', { name: 'By source field' }));
+    expect(onChooseReshape).toHaveBeenCalledWith('source-group');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('opens the category-to-column editor directly from Rows', async () => {
@@ -622,7 +632,7 @@ describe('RowDefinitionSettingsPanel', () => {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findAllByText('The server could not compare this row definition.')).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(proposeRowDefinition).toHaveBeenCalledTimes(1);
     expect(onApply).not.toHaveBeenCalled();
@@ -652,7 +662,7 @@ describe('RowDefinitionSettingsPanel', () => {
       target: { value: 'expanded:expanded-choice' },
     });
     expect((await screen.findByRole('alert')).textContent).toContain(serverError.message);
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to table' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(onApply).not.toHaveBeenCalled();
   });

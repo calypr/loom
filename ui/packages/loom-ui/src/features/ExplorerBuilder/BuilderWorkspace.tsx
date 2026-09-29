@@ -2383,9 +2383,16 @@ const BuilderWorkspaceContent = ({
     constructionLifecycle.capabilities.status === 'ready' &&
     constructionLifecycle.capabilities.response.sourceInput?.supported &&
     constructionLifecycle.capabilities.response.sourceInput.choices.some((choice) => choice.isPopulated);
+  const stageGroupingAvailability = reshapeAvailabilityFor('GROUP');
+  const groupEntries = [
+    ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'By recorded code' }] : []),
+    ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'By source field' }] : []),
+    ...(stageGroupingAvailability.supported ? [{ kind: 'group' as const, label: 'By table column' }] : []),
+  ];
   const reshapeRowsAvailability = {
-    group: codedGroupingAvailable || sourceGroupingAvailable ? { supported: true } : reshapeAvailabilityFor('GROUP'),
-    groupEntry: codedGroupingAvailable ? 'coded-group' as const : sourceGroupingAvailable ? 'source-group' as const : 'group' as const,
+    group: groupEntries.length > 0 ? { supported: true } : stageGroupingAvailability,
+    groupEntry: groupEntries[0]?.kind ?? 'group' as const,
+    groupAlternatives: groupEntries.slice(1),
     pivot: reshapeAvailabilityFor('PIVOT'),
   };
   const relatedExpandCapability = capabilityStage?.capabilities.find(

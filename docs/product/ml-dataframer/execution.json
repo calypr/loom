@@ -41,10 +41,20 @@
       "cdaResource": "Condition",
       "sourceField": "onsetString",
       "displayedCountsChecked": 12,
-      "editorToPreviewMs": 4481,
-      "rowsOpenToPreviewMs": 6780,
-      "verification": "7 focused Go tests, 23 focused UI tests, TypeScript check, and OpenAPI check passed; broader Go run had two failures in catalog cardinality and a server timeout",
+      "editorToPreviewMs": 4484,
+      "rowsOpenToPreviewMs": 6769,
+      "browserClicks": 15,
+      "directSourceGroupChoice": true,
+      "verification": "7 focused Go tests, 24 focused Rows UI tests, TypeScript check, and OpenAPI check passed; broader Go run had two failures in catalog cardinality and a server timeout",
       "remaining": "Pivot and related-source keys still require row-first authoring; full priority subgoal remains in progress"
+    },
+    "layoutEvidence": {
+      "feature": "Rows editor page layout",
+      "status": "desktop_and_phone_browser_path_passed",
+      "desktopScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/rows-editor-desktop.png",
+      "phoneScreenshot": ".artifacts/cda-builder/2026-09-28-rows-priority/rows-editor-phone.png",
+      "result": "The editor occupies the viewport, related-row unavailability appears in its choice, the current record-row shape is selected, and Back to table restores the Builder",
+      "remaining": "Simplify the row choices and bring Pivot keys into the same flow"
     }
   },
   "executionOrder": [
