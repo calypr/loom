@@ -280,6 +280,43 @@ describe('ConstructionWorkspace', () => {
     }
   });
 
+  it('keeps a pivot with many categories readable in the step history', () => {
+    const categories = Array.from({ length: 5 }, (_, index) => ({
+      key: { kind: 'STRING' as const, string: `specimen-${index}` },
+      outputColumnId: `pivot-${index}`,
+    }));
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'pivot-specimens',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'PIVOT', pivot: {
+          constructionId: 'pivot-specimens',
+          groupKeyIds: ['patient'],
+          categoryColumnId: 'specimen',
+          valueColumnId: 'value',
+          categories,
+          duplicatePolicy: 'ERROR',
+          missingCellPolicy: 'NULL',
+          unlistedCategoryPolicy: 'ERROR',
+        } },
+        outputs: [
+          { id: 'patient', name: 'patient', label: 'Patient Reference' },
+          ...categories.map(({ outputColumnId }, index) => ({
+            id: outputColumnId, name: outputColumnId, label: `specimen-${index}`,
+          })),
+        ],
+      }],
+    };
+
+    const [step] = constructionHistorySteps(construction, [
+      { id: 'patient', name: 'patient', label: 'Patient Reference' },
+      { id: 'specimen', name: 'specimen', label: 'Specimen ID' },
+      { id: 'value', name: 'value', label: 'Value' },
+    ]);
+    expect(step?.summary).toBe('Group by Patient Reference; use Specimen ID to create 5 columns from Value.');
+  });
+
   it('summarizes and exposes saved Group and Expand steps while describing Combine inputs', () => {
     const construction: Construction = {
       version: 1,

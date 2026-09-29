@@ -289,8 +289,10 @@ const codingPathLabel = (path: string): string => path.split('.').map((segment) 
   return words ? words[0].toUpperCase() + words.slice(1) : '';
 }).filter(Boolean).join(' → ');
 
-const normalizedName = (value: string): string =>
-  value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
+const normalizedName = (value: string): string => {
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'column';
+  return /^[0-9]/.test(normalized) ? `column_${normalized}` : normalized;
+};
 
 const uniqueName = (base: string, used: ReadonlySet<string>): string => {
   const normalized = normalizedName(base);

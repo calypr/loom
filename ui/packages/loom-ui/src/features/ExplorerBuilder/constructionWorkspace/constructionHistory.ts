@@ -55,10 +55,11 @@ const formatStep = (
       const outputs = pivot.categories
         .map((category) => step.outputs.find((column) => column.id === category.outputColumnId)?.label)
         .filter((label): label is string => Boolean(label));
+      const outputSummary = outputs.length > 3 ? `${outputs.length} columns` : outputs.join(', ') || 'columns';
       return {
         id: step.id,
         title: 'Pivot',
-        summary: `Group by ${groupKeys}; use ${columnLabel(pivot.categoryColumnId)} to create ${outputs.join(', ') || 'columns'} from ${columnLabel(pivot.valueColumnId)}.`,
+        summary: `Group by ${groupKeys}; use ${columnLabel(pivot.categoryColumnId)} to create ${outputSummary} from ${columnLabel(pivot.valueColumnId)}.`,
         editable: true,
       };
     }
@@ -66,10 +67,11 @@ const formatStep = (
       const outputs = step.operation.codedPivot.categories
         .map((category) => step.outputs.find((column) => column.id === category.outputColumnId)?.label)
         .filter((label): label is string => Boolean(label));
+      const outputSummary = outputs.length > 3 ? `${outputs.length} coded values` : outputs.join(', ') || 'the selected coded values';
       return {
         id: step.id,
         title: 'Coded values to columns',
-        summary: `Keep one row per source record and make ${outputs.join(', ') || 'the selected coded values'} into columns.`,
+        summary: `Keep one row per source record and make ${outputSummary} into columns.`,
         editable: true,
       };
     }

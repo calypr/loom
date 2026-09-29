@@ -24,12 +24,36 @@
     "title": "Make the dataframe table the primary Builder workspace",
     "status": "in_progress",
     "tasks": [
-      { "id": "BUILDER-UI-01", "title": "Move coded-value discovery and source editing into Add columns", "status": "in_progress" },
-      { "id": "BUILDER-UI-02", "title": "Unify row definition and reshape entry in one compact Rows editor", "status": "in_progress" },
-      { "id": "BUILDER-UI-02A", "title": "Discover Group and Pivot keys and values inside Rows before regular column selection", "status": "in_progress" },
-      { "id": "BUILDER-UI-03", "title": "Use full-width editors with clear Apply and Back to table actions", "status": "in_progress" },
-      { "id": "BUILDER-UI-04", "title": "Compact table navigation and disclose history detail on selection", "status": "in_progress" },
-      { "id": "BUILDER-UI-05", "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time", "status": "in_progress" }
+      {
+        "id": "BUILDER-UI-01",
+        "title": "Move coded-value discovery and source editing into Add columns",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-02",
+        "title": "Unify row definition and reshape entry in one compact Rows editor",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-02A",
+        "title": "Discover Group and Pivot keys and values inside Rows before regular column selection",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-03",
+        "title": "Use full-width editors with clear Apply and Back to table actions",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-04",
+        "title": "Compact table navigation and disclose history detail on selection",
+        "status": "in_progress"
+      },
+      {
+        "id": "BUILDER-UI-05",
+        "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time",
+        "status": "in_progress"
+      }
     ],
     "latestEvidence": {
       "feature": "Rows: group by direct-source scalar field",
@@ -88,13 +112,13 @@
     },
     "pivotCategoryDiscovery": {
       "feature": "Find category values in the Rows pivot editor",
-      "status": "browser_refusal_paths_passed",
-      "domUsability": "Fresh CDA Builder pages allowed the researcher to choose group, category, and value fields; both refusal messages appeared in the editor",
-      "resultCorrectness": "An independent bounded Arango query found 257 distinct qualifying Specimen IDs; the API returned LIMIT_EXCEEDED. A sparse body-site field returned MISSING_UNSUPPORTED. Complete limited-category discovery remains unverified on live CDA.",
-      "persistence": "No operation applied because both selected category fields were unsupported; Apply, reload, edit, and removal remain unverified for this pivot flow",
-      "performance": "Original category request fell back to a full scan at about 7 seconds and sometimes timed out after 9 seconds. The bounded witness returned three CDA results in 2.19 to 2.29 seconds. Browser discovery messages appeared in 2.24 seconds.",
-      "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/browser-report.json",
-      "remaining": "Verify a complete category scan and Apply, reload, edit, and remove on a bounded CDA pivot; then run the full Builder feature audit"
+      "status": "browser_complete_and_refusal_paths_passed",
+      "domUsability": "The bounded BodyStructure path found and selected 135 categories in 1.834 seconds; Specimen ID overflow and sparse body-site refusal messages appeared in the editor",
+      "resultCorrectness": "Arango confirms 135 distinct BodyStructure IDs. The high-cardinality Specimen ID request returned LIMIT_EXCEEDED with a 257-row overflow witness and skipped the full category query.",
+      "persistence": "The bounded table pivot applied, survived reload, and was removed through the saved-step UI",
+      "performance": "BodyStructure discovery took 1.834 seconds in Chrome. A warm Specimen overflow request took 2.54 seconds, including a 675 ms witness. One cold request took 8.55 seconds; the earlier timeout cause remains unconfirmed.",
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Measure cold and concurrent category requests; verify coded-source pivot separately"
     },
     "codedPivotAvailability": {
       "feature": "Check direct coded-source availability before offering a Rows pivot",
@@ -104,6 +128,28 @@
       "persistence": "No edit was made; this is an availability decision",
       "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
       "remaining": "Verify the enabled coded Pivot path on a resource with a direct paired source"
+    },
+    "directSourceColumnsEvidence": {
+      "feature": "Add direct BodyStructure fields to a constructed CDA table",
+      "status": "browser_apply_reload_passed",
+      "domUsability": "The Fields and related data picker enabled direct fields after capability loading; it initially displayed disabled checkboxes while checking row identity",
+      "resultCorrectness": "patient.reference and resourceType were populated in all 25 preview rows; the source collection has 135 BodyStructure records and every resourceType value is BodyStructure",
+      "persistence": "Applied two columns and confirmed both after reload; edit or removal of those columns remains unverified",
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Verify direct-column edit or removal and improve the capability-loading cue"
+    },
+    "tablePivotEvidence": {
+      "feature": "Pivot bounded CDA rows using existing table columns",
+      "status": "browser_apply_reload_remove_passed",
+      "domUsability": "Rows led to Categories to columns; the editor discovered and selected 135 categories. Numeric-leading IDs no longer block proposal creation. Saved history now summarizes large category sets by count.",
+      "resultCorrectness": "The proposal and reloaded table showed 25 preview rows and 136 columns. Arango has 135 distinct BodyStructure IDs, 132 distinct patient references, and only BodyStructure resourceType values.",
+      "persistence": "Applied, reloaded, removed through saved step history, and reloaded with source-record rows restored",
+      "discoveryBrowserMs": 1834,
+      "proposalBrowserMs": 3651,
+      "proposalBackendMs": 647,
+      "removalProposalBackendMs": 534,
+      "artifact": ".artifacts/cda-builder/2026-09-29-bounded-pivot/summary.json",
+      "remaining": "Check the saved-step summary in a live browser with a large pivot; coded-source pivot remains separate"
     }
   },
   "executionOrder": [

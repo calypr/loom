@@ -869,6 +869,64 @@ describe('ConstructionReshapeEditor', () => {
     });
   });
 
+  it('proposes valid pivot outputs for discovered digit-leading categories', () => {
+    const bodyStructureIds = [
+      '123e4567-e89b-12d3-a456-426614174000',
+      '223e4567-e89b-12d3-a456-426614174001',
+    ];
+    const discovery = {
+      stageId: sourceStage.id,
+      categoryColumnId: 'site-id',
+      valueColumnId: 'age-id',
+      status: 'complete',
+      categories: bodyStructureIds.map((id, index) => ({
+        key: { kind: 'STRING' as const, string: id },
+        label: `Body structure ${index + 1}`,
+      })),
+    } satisfies NonNullable<ConstructionReshapeEditorProps['pivotDiscovery']>;
+    const existingOutputName = 'column_123e4567_e89b_12d3_a456_426614174000';
+    const pivotStage = {
+      ...sourceStage,
+      columns: [
+        ...sourceColumns,
+        { id: 'sex-id', name: existingOutputName, label: 'Sex', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    const onCandidateChange = vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>();
+    render(
+      <ConstructionReshapeEditor
+        construction={{ version: 1, steps: [] }}
+        capabilities={capabilitiesFor([pivotStage], pivotStage)}
+        selectedColumns={['sex-id']}
+        pivotDiscovery={discovery}
+        disabled={false}
+        onCandidateChange={onCandidateChange}
+        onEditStep={vi.fn()}
+        onDiscoverCategories={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('construction-reshape-choice-pivot'));
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent).toBeDefined();
+    if (!intent) throw new Error('Expected discovered categories to produce a pivot candidate');
+    const candidate = constructionSchema.parse(intent.candidateConstruction);
+    const step = candidate.steps[0];
+    expect(step?.operation.kind).toBe('PIVOT');
+    if (step?.operation.kind !== 'PIVOT') throw new Error('Expected a pivot candidate');
+    const categoryOutputIds = new Set(step.operation.pivot.categories.map((category) => category.outputColumnId));
+    const categoryOutputs = step.outputs.filter((output) => categoryOutputIds.has(output.id));
+
+    expect(categoryOutputs.map(({ name, label }) => ({ name, label }))).toEqual([
+      { name: `${existingOutputName}_2`, label: 'Body structure 1' },
+      { name: 'column_223e4567_e89b_12d3_a456_426614174001', label: 'Body structure 2' },
+    ]);
+    expect(new Set(step.outputs.map((output) => output.name)).size).toBe(step.outputs.length);
+  });
+
   it('keeps a manual category opt-out when discovery refreshes', () => {
     const categories = [
       { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
