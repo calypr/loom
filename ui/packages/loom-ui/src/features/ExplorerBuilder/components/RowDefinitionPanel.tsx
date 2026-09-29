@@ -39,9 +39,9 @@ export const RowDefinitionPanel = ({
   return (
     <section aria-label="Row occurrence settings" className="rounded-lg border border-slate-200 p-3 text-sm text-slate-800">
       <label className="block font-medium text-slate-900">
-        <span>One row per</span>
+        <span>Record type</span>
         <select
-          aria-label="One row per"
+          aria-label="Record type"
           className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-blue-500 disabled:opacity-50"
           value="base"
           disabled={disabled}

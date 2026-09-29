@@ -82,7 +82,7 @@ it('attaches a selected file collection through a server-issued route choice', a
     'data-selection-revision-id',
     'selection-1',
   );
-  expect(screen.getByText(/2 selected DocumentReference resources/)).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Starting collection' })).toBeInTheDocument();
   expect(await screen.findByText(/Specimen → DocumentReference via subject_Specimen/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Use selected resources' }));
   expect(onAttach).toHaveBeenCalledWith('population-route-1');
@@ -226,7 +226,8 @@ it('preserves an attached non-direct route when a direct route is also available
 
 it('keeps an unselected table as an all-authorized-resource workflow', () => {
   render(<PopulationPanel table={table} loading={false} disabled={false} project="project" explorerId="patients" snapshotToken="snapshot" onAttach={vi.fn()} onClear={vi.fn()} />);
-  expect(screen.getByText(/uses every authorized Specimen resource/)).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Starting collection' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Use selected resources' })).toBeNull();
 });
 
 it('exposes active and attached revision identities at the collection boundary', () => {

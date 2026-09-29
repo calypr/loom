@@ -2222,7 +2222,7 @@ const BuilderWorkspaceContent = ({
     setReshapeEntry((current) => current + 1);
     setActiveConstructionFamily('RESHAPE');
   };
-  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => {
+  const chooseReshapeRows = (kind: 'group' | 'source-group' | 'coded-group' | 'categories' | 'pivot' | 'coded-pivot') => {
     constructionLifecycle.cancel();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);

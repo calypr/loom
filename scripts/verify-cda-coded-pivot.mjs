@@ -51,10 +51,9 @@ try {
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
   await click(`document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[role="dialog"][aria-label="Row definition settings"]'))`);
-  await click(`[...document.querySelectorAll('[role="dialog"][aria-label="Row definition settings"] summary')].find(node=>node.innerText.startsWith('Starting collection:'))?.click();return true;`);
   await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources'&&!button.disabled))`);
   await click(`[...document.querySelectorAll('[aria-label="Starting collection"] button')].find(button=>button.innerText==='Use selected resources').click();return true;`);
-  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection"]')?.innerText.includes('constrain one row per Observation')`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('1 Observation resources attached')`);
   await click(`document.querySelector('[role="dialog"][aria-label="Row definition settings"] button').click();return true;`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled===false`);
   await click(`document.querySelector('[data-testid="construction-rows-settings-trigger"]').click();return true;`);

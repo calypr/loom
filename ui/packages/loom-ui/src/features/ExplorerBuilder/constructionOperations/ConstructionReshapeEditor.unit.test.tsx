@@ -98,6 +98,38 @@ const assertCandidateMatchesSchemaAnd = (
 afterEach(cleanup);
 
 describe('ConstructionReshapeEditor', () => {
+  it('resolves the neutral categories entry to coded pivot when capabilities support it', () => {
+    const codedStage = {
+      ...sourceStage,
+      capabilities: [...sourceStage.capabilities, { kind: 'CODED_PIVOT' as const, supported: true }],
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({ initialKind: 'categories', capabilities: capabilitiesFor([codedStage], codedStage) });
+
+    expect(screen.getByText(/Coded source discovery is unavailable for these starting records/)).toBeInTheDocument();
+  });
+
+  it('resolves the neutral categories entry to table pivot when coded pivot is unsupported', () => {
+    renderEditor({ initialKind: 'categories' });
+
+    expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    expect(screen.getByText('Not needed in this test.')).toBeInTheDocument();
+  });
+
+  it('opens an unsupported table pivot and explains the capability limit inside the editor', () => {
+    const unsupportedPivotStage = {
+      ...sourceStage,
+      capabilities: sourceStage.capabilities.map((capability) => capability.kind === 'PIVOT'
+        ? { ...capability, reasonCode: 'INSUFFICIENT_SCALAR_COLUMNS', reason: 'pivot requires public scalar group, category, and value columns' }
+        : capability),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({ initialKind: 'pivot', capabilities: capabilitiesFor([unsupportedPivotStage], unsupportedPivotStage) });
+
+    expect(screen.getByRole('region', { name: 'Pivot categories into columns' })).toBeInTheDocument();
+    expect(screen.getByText(/needs a field to keep each row grouped, a category field, and a value field/)).toBeInTheDocument();
+    expect(screen.queryByText(/public scalar/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Pivot category field')).toBeDisabled();
+  });
+
   it('opens the requested row operation without another choice click', () => {
     renderEditor({ initialKind: 'group' });
     expect(screen.getByRole('region', { name: 'Summarize into groups' })).toBeInTheDocument();

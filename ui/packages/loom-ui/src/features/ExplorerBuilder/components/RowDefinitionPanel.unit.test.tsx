@@ -51,7 +51,7 @@ describe('RowDefinitionPanel', () => {
     const onChange = vi.fn();
     render(<RowDefinitionPanel catalog={catalog} table={table} disabled={false} onChange={onChange} />);
 
-    const select = screen.getByRole('combobox', { name: 'One row per' });
+    const select = screen.getByRole('combobox', { name: 'Record type' });
     expect(screen.getByRole('option', { name: 'Specimen' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Observation via observations' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Encounter via encounter' })).toBeTruthy();
@@ -67,7 +67,7 @@ describe('RowDefinitionPanel', () => {
       document: { ...table.document, route: { occurrenceId: 'base', resourceType: 'Specimen' } },
     } as DraftTable;
     render(<RowDefinitionPanel catalog={catalog} table={rootOnly} disabled={false} onChange={vi.fn()} />);
-    expect(screen.queryByRole('combobox', { name: 'One row per' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Record type' })).toBeNull();
     expect(screen.queryByLabelText('Row occurrence settings')).toBeNull();
   });
 });

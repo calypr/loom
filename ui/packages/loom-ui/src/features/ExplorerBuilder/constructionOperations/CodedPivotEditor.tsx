@@ -41,6 +41,7 @@ export const CodedPivotEditor = ({
   construction,
   editingStep,
   disabled,
+  unavailableReason,
   onCandidateChange,
 }: {
   readonly client: Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>;
@@ -53,6 +54,7 @@ export const CodedPivotEditor = ({
   readonly construction: Construction;
   readonly editingStep?: ConstructionStep;
   readonly disabled: boolean;
+  readonly unavailableReason?: string;
   readonly onCandidateChange: (intent: CandidateIntent | undefined) => void;
 }) => {
   const saved = editingStep?.operation.kind === 'CODED_PIVOT' ? editingStep.operation.codedPivot : undefined;
@@ -192,6 +194,7 @@ export const CodedPivotEditor = ({
 
   return (
     <section aria-label="Coded values as columns" className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+      {unavailableReason ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{unavailableReason}</p> : null}
       <div>
         <h3 className="text-base font-semibold text-slate-950">Coded values as columns</h3>
         <p className="text-sm text-slate-600">Keep one row per {rowRoot} record. Each selected code becomes a column filled by its paired value.</p>
@@ -207,9 +210,9 @@ export const CodedPivotEditor = ({
       {sourcesLoading ? <p role="status" className="text-sm text-slate-600">Finding coded sources…</p> : null}
       {sourceError ? <p role="alert" className="text-sm text-red-700">{sourceError}</p> : null}
       {!sourcesLoading && !sourceError && visibleSources.length === 0 ? <p className="text-sm text-slate-600">{
-        sourceNextCursor ? 'No direct coded source appears on this page. Browse more sources or search by name.'
+          sourceNextCursor ? 'No direct coded source appears on this page. Browse more sources or search by name.'
           : sourceQuery ? 'No direct coded source matches this search.'
-            : 'No direct coded source is available for these rows.'
+            : 'No direct coded source is available on these starting records. Use category and value fields already in this table, or add a coded-value column from a related record and then reopen Categories to columns.'
       }</p> : null}
       {visibleSources.length > 0 ? <fieldset className="grid max-h-60 gap-2 overflow-y-auto sm:grid-cols-2">
         <legend className="mb-1 text-sm font-medium text-slate-800">Source of coded values</legend>

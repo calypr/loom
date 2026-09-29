@@ -80,10 +80,6 @@ type ProposalState =
   | { readonly kind: 'stale'; readonly selection: RowDefinitionSelection }
   | { readonly kind: 'applying'; readonly selection: RowDefinitionSelection };
 
-type CodedSourceAvailability =
-  | { readonly kind: 'idle' | 'loading' | 'available' | 'unavailable' }
-  | { readonly kind: 'error'; readonly message: string };
-
 const selectionOptions = (choices: RowDefinitionChoicesResponse): ReadonlyArray<SelectionOption> => {
   const options: SelectionOption[] = [{
     value: 'records',
@@ -185,7 +181,7 @@ export const RowDefinitionSettingsPanel = ({
   onChooseReshape,
   onChangeRootOccurrence,
 }: {
-  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision' | 'browseFrameSourceOptions'>;
+  readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'>;
   readonly project: string;
   readonly explorerId: string;
   readonly authResourcePath?: string;
@@ -211,47 +207,18 @@ export const RowDefinitionSettingsPanel = ({
     readonly pivotAlternative?: 'pivot';
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories') => void;
   readonly onChangeRootOccurrence: (nodeId: string, occurrenceId: string) => void;
 }) => {
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [groupAuthoringOpen, setGroupAuthoringOpen] = useState(false);
-  const [codedSourceAvailability, setCodedSourceAvailability] = useState<CodedSourceAvailability>({ kind: 'idle' });
   const settingsRequestEpoch = useRef(0);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const proposalController = useRef<AbortController | undefined>(undefined);
   const proposalRequestEpoch = useRef(0);
 
   const settingsOpen = settings.kind !== 'closed';
-
-  useEffect(() => {
-    if (!settingsOpen || reshapeRows.pivotEntry !== 'coded-pivot' || !reshapeRows.pivot.supported) return;
-    const controller = new AbortController();
-    setCodedSourceAvailability({ kind: 'loading' });
-    const inspect = async () => {
-      let cursor: string | undefined;
-      do {
-        const page = await client.browseFrameSourceOptions({
-          project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
-          resourceType: table.document.rootResourceType, ...(cursor ? { cursor } : {}), limit: 50,
-        }, controller.signal);
-        if (controller.signal.aborted) return;
-        if (page.sources.some((source) => source.route.length === 0 && source.resourceType === table.document.rootResourceType)) {
-          setCodedSourceAvailability({ kind: 'available' });
-          return;
-        }
-        cursor = page.nextCursor;
-      } while (cursor);
-      setCodedSourceAvailability({ kind: 'unavailable' });
-    };
-    void inspect().catch((error: unknown) => {
-      if (!controller.signal.aborted) setCodedSourceAvailability({
-        kind: 'error', message: requestFailureMessage(error, 'Coded source choices could not be loaded.'),
-      });
-    });
-    return () => controller.abort();
-  }, [settingsOpen, reshapeRows.pivotEntry, reshapeRows.pivot.supported, client, project, explorerId, authResourcePath, snapshotToken, table.outputId, table.document.rootResourceType]);
 
   const cancelPendingPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -374,7 +341,7 @@ export const RowDefinitionSettingsPanel = ({
     cancel();
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories') => {
     cancel();
     onChooseReshape(kind);
   };
@@ -388,6 +355,7 @@ export const RowDefinitionSettingsPanel = ({
     ? settings.options.filter((option) => option.shapeValue === selectedOption.shapeValue && option.policyLabel)
     : [];
   const explicitGroupRootMatches = selection?.resourceType === table.document.rootResourceType;
+  const startingCollectionDescription = startingCollectionSummary.replace(/^Starting collection:\s*/, '');
   const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
     const choices = await client.listRowDefinitionChoices({
       project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
@@ -403,19 +371,6 @@ export const RowDefinitionSettingsPanel = ({
     schedulePreview((preferred ?? options[0]!).selection);
     setGroupAuthoringOpen(false);
   };
-
-  const directCodedSourceAvailable = codedSourceAvailability.kind === 'available';
-  const useTablePivot = reshapeRows.pivotEntry !== 'coded-pivot'
-    || ((codedSourceAvailability.kind === 'unavailable' || codedSourceAvailability.kind === 'error')
-      && reshapeRows.pivotAlternative === 'pivot');
-  const pivotSupported = reshapeRows.pivot.supported && (useTablePivot || directCodedSourceAvailable);
-  const pivotReason = reshapeRows.pivotEntry === 'coded-pivot' && !useTablePivot
-    ? codedSourceAvailability.kind === 'unavailable'
-      ? 'No direct coded value and paired value source is available for these rows.'
-      : codedSourceAvailability.kind === 'error'
-        ? codedSourceAvailability.message
-        : 'Checking available coded values…'
-    : reshapeRows.pivot.reason;
 
   return (
     <>
@@ -471,13 +426,11 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </div>
                 <div className="rounded-lg border border-slate-200">
-                  <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !pivotSupported}
-                    onClick={() => chooseReshape(useTablePivot ? 'pivot' : 'coded-pivot')}
+                  <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled}
+                    onClick={() => chooseReshape('categories')}
                     className="w-full p-3 text-left hover:bg-blue-50 disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
-                    <span className="mt-1 block text-xs text-slate-600">{pivotSupported
-                      ? useTablePivot ? 'Use a category and value column from this table.' : 'Choose coded values directly from the source records.'
-                      : pivotReason}</span>
+                    <span className="mt-1 block text-xs text-slate-600">Choose coded values from the starting records or use category and value fields already in this table.</span>
                   </button>
                   {reshapeRows.pivotAlternative ? <div className="border-t border-slate-100 px-2 pb-2">
                     <button type="button" data-testid="construction-action-table-pivot-rows"
@@ -521,9 +474,8 @@ export const RowDefinitionSettingsPanel = ({
                   </select>
                 </label>
                 {selectedPolicies.length > 1 ? (
-                  <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2">
-                    <summary className="cursor-pointer text-sm font-medium text-slate-800">When a source record has no matching values: {selectedOption?.policyLabel}</summary>
-                    <label className="mt-2 block text-xs text-slate-700">
+                  <section aria-label="Unmatched record handling" className="mt-3 grid gap-1">
+                    <label className="block text-xs font-medium text-slate-700">
                       <span>Change how unmatched records are handled</span>
                       <select
                         aria-label="Unmatched record policy"
@@ -540,7 +492,7 @@ export const RowDefinitionSettingsPanel = ({
                         {selectedPolicies.map((option) => <option key={option.value} value={option.value}>{option.policyLabel}</option>)}
                       </select>
                     </label>
-                  </details>
+                  </section>
                 ) : null}
                 {groupAuthoringOpen && selection ? (
                   <ExplicitGroupAuthoring
@@ -555,21 +507,21 @@ export const RowDefinitionSettingsPanel = ({
                   />
                 ) : null}
                 {!groupAuthoringOpen ? (
-                  <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <summary className="cursor-pointer font-semibold text-slate-900">Named cohorts from selected records</summary>
+                  <section aria-label="Named cohorts" className="mt-4 border-t border-slate-200 pt-3">
+                    <h4 className="text-sm font-semibold text-slate-900">Named cohorts</h4>
                     {selection && explicitGroupRootMatches ? (
                       <>
                         <p className="mt-1 text-xs text-slate-600">Start with the {selection.memberCount} selected {selection.resourceType} records, then name each cohort.</p>
-                        <button type="button" className="mt-3 rounded-md border border-blue-700 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50" disabled={disabled} onClick={() => setGroupAuthoringOpen(true)}>
+                        <button type="button" className="mt-2 rounded-md border border-blue-700 px-3 py-2 text-xs font-semibold text-blue-800 hover:bg-blue-50" disabled={disabled} onClick={() => setGroupAuthoringOpen(true)}>
                           Create groups from this selection
                         </button>
                       </>
                     ) : selection ? (
                       <p className="mt-1 text-xs text-amber-900">The current selection uses {selection.resourceType}, while this table uses {table.document.rootResourceType}. Choose a matching existing selection before creating groups.</p>
                     ) : (
-                      <p className="mt-1 text-xs text-slate-600">Choose a saved set of records under Starting collection, then return here to name the cohorts.</p>
+                      <p className="mt-1 text-xs text-slate-600">To name cohorts, choose a saved collection below.</p>
                     )}
-                  </details>
+                  </section>
                 ) : null}
                     </>
                   ) : null}
@@ -584,22 +536,17 @@ export const RowDefinitionSettingsPanel = ({
                   {comparison.base?.sampled || comparison.candidate?.sampled ? ' · sampled' : ''}
                 </p>
                 {comparison.status === 'UNAVAILABLE' ? <p role="status" className="mt-2 text-amber-900">{comparison.reason}</p> : null}
-                {comparison.affectedColumns.length > 0 || comparison.examples.length > 0 || comparison.notices.length > 0 ? (
-                  <details className="mt-2 text-xs text-slate-600">
-                    <summary className="cursor-pointer font-medium text-blue-800">See affected columns and sample row IDs</summary>
-                    {comparison.affectedColumns.length > 0 ? <p className="mt-2">Affected columns: {comparison.affectedColumns.join(', ')}</p> : null}
-                    {comparison.examples.length > 0 ? (
-                      <ul className="mt-2 space-y-1" aria-label="Membership changes">
-                        {comparison.examples.map((example) => (
-                          <li key={example.rowIdentity}>
-                            {example.basePresent === example.candidatePresent ? 'Unchanged' : example.candidatePresent ? 'Added' : 'Removed'} · {example.rowIdentity}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {comparison.notices.map((notice) => <p key={notice} className="mt-2">{notice}</p>)}
-                  </details>
+                {comparison.affectedColumns.length > 0 ? <p className="mt-2 text-xs text-slate-600">Affected columns: {comparison.affectedColumns.join(', ')}</p> : null}
+                {comparison.examples.length > 0 ? (
+                  <ul className="mt-2 space-y-1 text-xs text-slate-600" aria-label="Membership changes">
+                    {comparison.examples.map((example) => (
+                      <li key={example.rowIdentity}>
+                        {example.basePresent === example.candidatePresent ? 'Unchanged' : example.candidatePresent ? 'Added' : 'Removed'} · {example.rowIdentity}
+                      </li>
+                    ))}
+                  </ul>
                 ) : null}
+                {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
               </section>
                   ) : null}
                   {proposalState.kind === 'fresh' && !currentProposal?.proposalId ? (
@@ -615,17 +562,18 @@ export const RowDefinitionSettingsPanel = ({
                   ) : null}
                 </section>
               </div>
-              <details className="min-w-0 border-t border-slate-200 pt-3">
-                <summary className="cursor-pointer text-sm font-medium text-blue-800">Use another record type as rows</summary>
-                <div className="mt-3">{renderRootSettings((nodeId, occurrenceId) => {
+              <section aria-label="Starting record type" className="min-w-0 border-t border-slate-200 pt-3">
+                <h4 className="text-sm font-semibold text-slate-900">Starting record type</h4>
+                <div className="mt-2">{renderRootSettings((nodeId, occurrenceId) => {
                   cancel();
                   onChangeRootOccurrence(nodeId, occurrenceId);
                 })}</div>
-              </details>
-              <details className="min-w-0 border-t border-slate-200 pt-3">
-                <summary className="cursor-pointer text-sm font-medium text-blue-800">{startingCollectionSummary}</summary>
-                <section aria-label="Starting collection settings" className="mt-3">{startingCollectionSettings}</section>
-              </details>
+              </section>
+              <section aria-label="Starting collection settings" className="min-w-0 border-t border-slate-200 pt-3">
+                <h4 className="text-sm font-semibold text-slate-900">Starting collection</h4>
+                <p className="mt-1 text-xs text-slate-600">{startingCollectionDescription}</p>
+                <div className="mt-2">{startingCollectionSettings}</div>
+              </section>
             </div>
           </div>
         </div>

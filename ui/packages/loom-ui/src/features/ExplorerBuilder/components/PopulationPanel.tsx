@@ -171,22 +171,10 @@ export const PopulationPanel = ({
       aria-label="Starting collection"
       data-selection-revision-id={selectionRevisionId}
       data-attached-selection-revision-id={attached?.selectionRevisionId}
-      className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-slate-800"
+      className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-semibold text-slate-900">Starting collection</h2>
-          {attached ? (
-            <p className="mt-1">
-              {selection?.memberCount.toLocaleString() ?? 'Saved'} {selection?.resourceType ?? attached.route.at(-1)?.resourceType ?? table.document.rootResourceType} resources constrain one row per {table.document.rootResourceType}.
-            </p>
-          ) : selection ? (
-            <p className="mt-1">
-              {selection.memberCount.toLocaleString()} selected {selection.resourceType} resources are ready to constrain this table.
-            </p>
-          ) : (
-            <p className="mt-1">No starting collection is attached. This table uses every authorized {table.document.rootResourceType} resource.</p>
-          )}
           {loading ? <p className="mt-1 text-slate-600">Loading the saved selection…</p> : null}
           {error ? <p role="alert" className="mt-1 text-red-700">{error}</p> : null}
         </div>

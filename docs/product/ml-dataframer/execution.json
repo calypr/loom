@@ -37,7 +37,9 @@
       {
         "id": "BUILDER-UI-02A",
         "title": "Discover Group and Pivot keys and values inside Rows before regular column selection",
-        "status": "in_progress"
+        "status": "in_progress",
+        "acceptance": "Choose row keys, category and value from existing columns or populated source fields within Pivot. Acquire missing inputs internally; one Apply persists one editable operation, and removal restores its input table. No separate Add columns workflow.",
+        "remainingBoundary": "Ordinary pivot category discovery currently scans only persisted stages. Candidate input acquisition and category discovery must share the existing compiler execution path before atomic Apply; related multiplicity remains an explicit choice when ambiguous."
       },
       {
         "id": "BUILDER-UI-03",
@@ -133,12 +135,12 @@
     },
     "codedPivotAvailability": {
       "feature": "Check direct coded-source availability before offering a Rows pivot",
-      "status": "browser_availability_passed",
+      "status": "superseded_by_clickable_pivot_entry",
       "domUsability": "The BodyStructure Rows menu now disables Categories to columns and explains that no direct code and paired value source is available",
       "resultCorrectness": "The editor's source inventory returned no direct paired source for the 135 authorized BodyStructure records",
       "persistence": "No edit was made; this is an availability decision",
       "artifact": ".artifacts/cda-builder/2026-09-28-category-discovery/bodystructure-choice.json",
-      "remaining": "The enabled Observation coded Pivot path is verified; check other resource types as the CDA catalog exposes direct paired sources"
+      "remaining": "Source availability is handled inside Pivot rather than disabling its entry. Ordinary Pivot still needs implicit acquisition of missing inputs."
     },
     "directSourceColumnsEvidence": {
       "feature": "Add direct BodyStructure fields to a constructed CDA table",
@@ -226,6 +228,36 @@
       "artifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/patient-related-forms-many-zero.json",
       "sourceArtifact": ".artifacts/cda-builder/2026-09-29T18-01-29.132Z/related-observation-source-oracle.json",
       "remaining": "This proves the bounded direct Subject route. Multi-hop zero/many cases, row expansion, full-table performance, and the final combined CDA rerun remain separate."
+    },
+    "pivotAuthoringRequirement": {
+      "desiredFlow": [
+        "Choose row identity or grouping",
+        "Choose category source",
+        "Choose paired value or value field",
+        "Resolve meaningful multiplicity",
+        "Apply one editable operation"
+      ],
+      "inputAcquisition": "Pivot inputs may come from populated source fields even when not visible columns; acquire them internally without a separate Add columns action.",
+      "currentLimitation": "Ordinary table Pivot uses saved scalar columns and saved-stage category discovery. Direct coded Pivot already discovers root code/value pairs without adding columns. Related-source and general field acquisition inside ordinary Pivot remains unimplemented."
+    },
+    "rowsMenuCleanup": {
+      "status": "browser_path_passed",
+      "artifact": ".artifacts/cda-builder/pivot-entry-cleanup/report.json",
+      "screenshot": ".artifacts/cda-builder/pivot-entry-cleanup/define-rows.png",
+      "checked": "Existing CDA Specimen table expanded to Medication: open Rows, inspect all settings without disclosures, select Categories to columns, read missing-input explanation, confirm incomplete Apply unavailable, return to table. No saved changes.",
+      "remaining": "Ordinary pivot source acquisition is still separate; implicit input binding and atomic removal are not implemented by this menu cleanup.",
+      "regression": {
+        "unitTests": "67 passed across five focused UI files",
+        "typecheck": "passed",
+        "codedPivotArtifact": ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
+        "lifecycle": "bounded real CDA integer pivot applied, reloaded, edited, reloaded, removed, restored; zero API errors",
+        "clicks": 23,
+        "timingsMs": {
+          "proposal": 4458,
+          "preview": 3477,
+          "editProposal": 4458
+        }
+      }
     }
   },
   "executionOrder": [

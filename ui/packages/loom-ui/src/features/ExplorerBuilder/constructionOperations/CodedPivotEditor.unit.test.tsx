@@ -7,6 +7,21 @@ import type { Construction } from '../../../types';
 import { CodedPivotEditor } from './CodedPivotEditor';
 
 describe('CodedPivotEditor', () => {
+  it('explains the related-source prerequisite when no direct coded source is available', async () => {
+    const browseFrameSourceOptions = vi.fn().mockResolvedValue({ sources: [] });
+    const browseSemanticInventory = vi.fn();
+    render(<CodedPivotEditor
+      client={{ browseFrameSourceOptions, browseSemanticInventory } as unknown as Pick<LoomClient, 'browseFrameSourceOptions' | 'browseSemanticInventory'>}
+      project="cda" explorerId="builder" snapshotToken="snapshot" outputId="observations"
+      rowRoot="Observation" construction={{ version: 1, steps: [] } satisfies Construction}
+      disabled={false} onCandidateChange={vi.fn()}
+    />);
+
+    expect(await screen.findByText(/No direct coded source is available on these starting records/)).toBeInTheDocument();
+    expect(screen.getByText(/Use category and value fields already in this table, or add a coded-value column from a related record/)).toBeInTheDocument();
+    expect(browseSemanticInventory).not.toHaveBeenCalled();
+  });
+
   it('turns a signed direct-source category into a row-first construction without raw columns', async () => {
     const browseFrameSourceOptions = vi.fn().mockResolvedValue({
       sources: [{

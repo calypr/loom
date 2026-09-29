@@ -108,10 +108,6 @@ const selectionPage = {
   ],
 };
 
-const browseFrameSourceOptions = vi.fn().mockResolvedValue({
-  sources: [{ route: [], resourceType: 'Patient' }],
-});
-
 const renderSettings = (overrides: {
   draftVersion?: number;
   draftDigest?: string;
@@ -146,7 +142,7 @@ const renderSettings = (overrides: {
       }, ...(overrides.tablePivotAlternative ? { pivotAlternative: 'pivot' as const } : {}) }}
       onChooseRelatedRows={onChooseRelatedRows}
       onChooseReshape={onChooseReshape}
-      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
+      client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
       project="project-a"
       explorerId="explorer-a"
       snapshotToken="snapshot-1"
@@ -176,6 +172,8 @@ describe('RowDefinitionSettingsPanel', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
     expect(dialog.contains(screen.getByRole('region', { name: 'Row occurrence settings' }))).toBe(true);
     expect(dialog.contains(screen.getByRole('region', { name: 'Starting collection' }))).toBe(true);
+    expect(screen.getByText('All authorized Patient records')).toBeInTheDocument();
+    expect(dialog.querySelectorAll('details')).toHaveLength(0);
     expect(dialog.contains(await screen.findByRole('combobox', { name: 'What should each row represent?' }))).toBe(true);
   });
 
@@ -213,54 +211,49 @@ describe('RowDefinitionSettingsPanel', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens the category-to-column editor directly from Rows', async () => {
+  it('opens the neutral category-to-column entry directly from Rows', async () => {
     const { onChooseReshape } = renderSettings();
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     fireEvent.click(await screen.findByTestId('construction-action-pivot-rows'));
-    expect(onChooseReshape).toHaveBeenCalledWith('pivot');
+    expect(onChooseReshape).toHaveBeenCalledWith('categories');
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('starts from coded source values when the server supports row-first pivot', async () => {
+  it('opens the neutral category entry when coded pivot is preferred', async () => {
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    await waitFor(() => expect(pivot).toBeEnabled());
-    expect(pivot).toHaveTextContent('directly from the source records');
+    expect(pivot).toBeEnabled();
     fireEvent.click(pivot);
-    expect(onChooseReshape).toHaveBeenCalledWith('coded-pivot');
+    expect(onChooseReshape).toHaveBeenCalledWith('categories');
   });
 
-  it('explains the missing direct coded source before opening the pivot editor', async () => {
-    browseFrameSourceOptions.mockResolvedValueOnce({ sources: [] });
+  it('opens the neutral category entry before direct source availability is checked', async () => {
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    await waitFor(() => expect(pivot).toHaveTextContent('No direct coded value and paired value source'));
-    expect(pivot).toBeDisabled();
+    expect(pivot).toBeEnabled();
     fireEvent.click(pivot);
-    expect(onChooseReshape).not.toHaveBeenCalled();
+    expect(onChooseReshape).toHaveBeenCalledWith('categories');
   });
 
   it('uses table columns when coded values are absent but table Pivot is available', async () => {
-    browseFrameSourceOptions.mockResolvedValueOnce({ sources: [] });
     const { onChooseReshape } = renderSettings({ codedPivotDefault: true, tablePivotAlternative: true });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    await waitFor(() => expect(pivot).toHaveTextContent('Use a category and value column from this table'));
+    expect(pivot).toHaveTextContent('Choose coded values from the starting records');
     expect(pivot).toBeEnabled();
-    fireEvent.click(pivot);
+    fireEvent.click(await screen.findByTestId('construction-action-table-pivot-rows'));
     expect(onChooseReshape).toHaveBeenCalledWith('pivot');
   });
 
-  it('disables row operations the backend has not declared executable', async () => {
+  it('opens category-to-column editor when the backend has not declared support', async () => {
     const { onChooseReshape } = renderSettings({ pivotSupported: false });
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const pivot = await screen.findByTestId('construction-action-pivot-rows');
-    expect(pivot).toBeDisabled();
-    expect(pivot).toHaveTextContent('No executable category-to-column operation');
+    expect(pivot).toBeEnabled();
     fireEvent.click(pivot);
-    expect(onChooseReshape).not.toHaveBeenCalled();
+    expect(onChooseReshape).toHaveBeenCalledWith('categories');
   });
 
   it('closes row settings before changing the root occurrence', async () => {
@@ -269,7 +262,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
     const dialog = await screen.findByRole('dialog', { name: 'Row definition settings' });
 
-    fireEvent.click(screen.getByText('Use another record type as rows'));
+    fireEvent.click(screen.getByText('Starting record type'));
     fireEvent.click(screen.getByRole('button', { name: 'Change row occurrence' }));
 
     expect(onChangeRoot).toHaveBeenCalledWith('patient', 'patient-root');
@@ -289,7 +282,7 @@ describe('RowDefinitionSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     const shape = await screen.findByRole('combobox', { name: 'What should each row represent?' });
     fireEvent.change(shape, { target: { value: 'expanded:expanded-choice' } });
-    expect(screen.getByText(/^When a source record has no matching values: Keep records with no values as one empty row$/)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeInTheDocument();
     await waitFor(() => expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
       selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'PRESERVE_PARENT' } },
     }), expect.any(AbortSignal)));
@@ -362,12 +355,11 @@ describe('RowDefinitionSettingsPanel', () => {
     }));
 
     fireEvent.change(select, { target: { value: 'explicit:grouprev_0123456789abcdef' } });
-    expect(screen.getByText(/^When a source record has no matching values: Put records without a group in their own group$/)).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Unmatched record policy' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Unmatched record policy' }), {
       target: { value: 'explicit:grouprev_0123456789abcdef:EXCLUDE' },
     });
     expect(await screen.findByText('4 rows → 2 rows')).toBeTruthy();
-    fireEvent.click(screen.getByText('See affected columns and sample row IDs'));
     expect(screen.getByText('Added · grouprev_0123456789abcdef:group-a')).toBeTruthy();
     expect(screen.getByText('Removed · patient-4')).toBeTruthy();
     expect(proposeRowDefinition).toHaveBeenCalledWith(expect.objectContaining({
@@ -461,7 +453,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"
@@ -476,9 +468,7 @@ describe('RowDefinitionSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure rows' }));
     await screen.findByRole('combobox', { name: 'What should each row represent?' });
-    const manualGroups = screen.getByText('Named cohorts from selected records').closest('details');
-    expect(manualGroups).not.toHaveAttribute('open');
-    fireEvent.click(screen.getByText('Named cohorts from selected records'));
+    expect(screen.getByRole('region', { name: 'Named cohorts' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create groups from this selection' }));
     await screen.findByText('Record 3 · record-c');
     expect(getSelection).toHaveBeenCalledWith(
@@ -520,7 +510,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection, createExplicitGroupRevision }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"
@@ -566,7 +556,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision, browseFrameSourceOptions }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection, createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
       />,
@@ -612,7 +602,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision, browseFrameSourceOptions }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition: vi.fn().mockResolvedValue(proposal), getSelection: vi.fn().mockResolvedValue(selectionPage), createExplicitGroupRevision }}
         project="project-a" explorerId="explorer-a" snapshotToken="snapshot-1" draftVersion={4} draftDigest="draft-digest-4"
         table={table} selection={sourceSelection} disabled={false} onApply={vi.fn().mockResolvedValue(true)}
       />,
@@ -634,7 +624,7 @@ describe('RowDefinitionSettingsPanel', () => {
     const proposeRowDefinition = vi.fn().mockResolvedValue(proposal);
     const onApply = vi.fn().mockResolvedValue(true);
     const props = {
-      client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn(), browseFrameSourceOptions },
+      client: { listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() },
       project: 'project-a', explorerId: 'explorer-a', snapshotToken: 'snapshot-1',
       draftVersion: 4, draftDigest: 'draft-digest-4', table, disabled: false, onApply,
       ...relatedRowProps,
@@ -685,7 +675,7 @@ describe('RowDefinitionSettingsPanel', () => {
     render(
       <RowDefinitionSettingsPanel
         {...relatedRowProps}
-        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn(), browseFrameSourceOptions }}
+        client={{ listRowDefinitionChoices, proposeRowDefinition, getSelection: vi.fn(), createExplicitGroupRevision: vi.fn() }}
         project="project-a"
         explorerId="explorer-a"
         snapshotToken="snapshot-1"

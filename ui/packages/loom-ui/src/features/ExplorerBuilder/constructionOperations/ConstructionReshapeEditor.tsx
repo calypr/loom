@@ -51,6 +51,7 @@ type ReshapeColumn = ConstructionStageDescriptor['columns'][number];
 type ReshapeStage = ConstructionStageDescriptor;
 type ReshapeCapabilities = ConstructionCapabilitiesResponse;
 type SourceInputChoice = NonNullable<ReshapeCapabilities['sourceInput']>['choices'][number];
+type StageCapability = { readonly supported: boolean; readonly reason: string; readonly reasonCode?: string };
 
 type GroupKey = {
   readonly inputColumnId: string;
@@ -174,7 +175,7 @@ type ReshapeForm =
   | UnpivotForm
   | { readonly kind: 'unsupported'; readonly message: string };
 
-export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'related-expand';
+export type ReshapeEntryKind = 'choose' | 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'related-expand';
 
 const reshapeFormLabels = {
   group: 'Group records',
@@ -228,7 +229,7 @@ const createOpaqueId = (prefix: string): string => {
 const capabilityFor = (
   stage: ReshapeStage,
   kind: ReshapeOperationKind,
-): { readonly supported: boolean; readonly reason: string } => {
+): StageCapability => {
   const capability = stage.capabilities.find((candidate) => candidate.kind === kind);
   if (!capability) {
     return {
@@ -236,9 +237,16 @@ const capabilityFor = (
       reason: `Loom has not returned ${reshapeKindLabel(kind)} support for this stage.`,
     };
   }
+  const reason = kind === 'PIVOT' && capability.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
+    ? 'Categories to columns needs a field to keep each row grouped, a category field, and a value field. Add those columns before pivoting.'
+    : capability.reason ?? 'Loom does not support this operation at the selected stage.';
   return capability.supported
-    ? { supported: true, reason: '' }
-    : { supported: false, reason: capability.reason ?? 'Loom does not support this operation at the selected stage.' };
+    ? { supported: true, reason: '', reasonCode: capability.reasonCode }
+    : {
+      supported: false,
+      reason,
+      reasonCode: capability.reasonCode,
+    };
 };
 
 const isReshapeOperationKind = (kind: string): kind is ReshapeOperationKind =>
@@ -1152,6 +1160,9 @@ const formForStep = (
     if (initialKind === 'coded-group') return initialCodedGroupForm(stage);
     if (initialKind === 'pivot') return initialPivotForm(stage, []);
     if (initialKind === 'coded-pivot') return { kind: 'coded-pivot' };
+    if (initialKind === 'categories') {
+      return capabilityFor(stage, 'CODED_PIVOT').supported ? { kind: 'coded-pivot' } : initialPivotForm(stage, []);
+    }
     return { kind: initialKind ?? 'choose' };
   }
   if (sourceGroupProjection(construction, editingStep)) return initialSourceGroupForm(
@@ -1466,6 +1477,9 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       {form.kind === 'unsupported' ? (
         <p role="status" data-testid="construction-reshape-edit-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{form.message}</p>
       ) : null}
+      {form.kind === 'coded-pivot' && !props.codedPivotContext ? (
+        <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">Coded source discovery is unavailable for these starting records. Use category and value fields already in this table, or add a coded-value column first.</p>
+      ) : null}
       {contractUnavailable ? (
         <p role="status" data-testid="construction-reshape-schema-unavailable" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">The construction schema did not accept this reshape, so Loom has not previewed it.</p>
       ) : null}
@@ -1595,6 +1609,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           construction={construction}
           editingStep={editingStep}
           disabled={disabled || !codedPivotSupport.supported}
+          unavailableReason={!codedPivotSupport.supported ? codedPivotSupport.reason : undefined}
           onCandidateChange={onCandidateChange}
         />
       ) : null}
