@@ -1307,7 +1307,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   };
 
   return (
-    <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid gap-3">
+    <section aria-label="Reshape editor" data-testid="construction-reshape-editor" className="grid content-start gap-3">
 
       {props.onAddCodedValues && form.kind !== 'pivot' && form.kind !== 'coded-group' ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -1608,10 +1608,10 @@ const GroupEditor = (props: {
   };
 
   return (
-    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="grid gap-4 rounded-lg border border-slate-200 p-3">
+    <section aria-label="Summarize into groups" data-testid="construction-reshape-group" className="grid content-start gap-4 rounded-lg border border-slate-200 p-3">
       <header>
-        <h4 className="text-sm font-semibold text-slate-900">Summarize rows</h4>
-        <p className="mt-1 text-sm text-slate-600">Group fields become the new row labels. Each summary becomes another column.</p>
+        <h4 className="m-0 text-sm font-semibold text-slate-900">Summarize rows</h4>
+        <p className="mb-0 mt-1 text-sm text-slate-600">Group fields become the new row labels. Each summary becomes another column.</p>
       </header>
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
 
@@ -1655,7 +1655,7 @@ const GroupEditor = (props: {
 
       <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3" disabled={props.disabled || !props.supported}>
         <legend className="px-1 text-sm font-semibold text-slate-800">Summaries</legend>
-        <p className="text-sm text-slate-600">Choose what each group should report. Count rows works without a selected field.</p>
+        <p className="m-0 text-sm text-slate-600">Choose what each group should report. Count rows works without a selected field.</p>
         {props.form.aggregates.length === 0 ? (
           <p role="status" className="text-sm text-amber-900">Add at least one summary before proposing this group.</p>
         ) : null}
