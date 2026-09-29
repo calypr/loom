@@ -103,19 +103,23 @@
     },
     "codedPivotImplementation": {
       "feature": "Choose coded source categories in Rows before adding visible columns",
-      "status": "browser_apply_reload_remove_passed",
-      "domUsability": "Rows \u2192 Categories to columns offered direct Observation component values by type. The integer path took 17 clicks; the two-column string path took 18 clicks, including table setup, preview, reload, and removal.",
+      "status": "browser_apply_reload_edit_remove_passed",
+      "domUsability": "Rows \u2192 Categories to columns offered direct Observation component values by type. The full integer lifecycle took 26 clicks; the two-column string lifecycle took 27 clicks, including setup, saved editing, preview, reload, removal, and table cleanup.",
       "resultCorrectness": "One selected CDA Observation produced Days to collection = 162 and, in a separate string family, Specimen type = analyte and Primary disease type = Ductal and lobular neoplasms. Independent Arango reads matched all three code/value pairings.",
-      "persistence": "Applied each coded Pivot, reloaded and previewed saved values, removed the operation from step history, and reloaded with no construction steps. Both disposable tables were deleted.",
-      "proposalBrowserMs": 3041,
-      "savedPreviewBrowserMs": 2535,
-      "stringProposalBrowserMs": 3276,
-      "stringSavedPreviewBrowserMs": 2511,
+      "persistence": "Applied integer and string coded Pivots, reloaded and previewed source-correct values, reopened each saved operation, changed missing-value handling to ERROR, applied, reloaded, confirmed the saved policy and unchanged values, removed the operation, and reloaded with no construction steps. Both disposable tables were deleted.",
+      "proposalBrowserMs": 3247,
+      "savedPreviewBrowserMs": 2574,
+      "stringProposalBrowserMs": 3259,
+      "stringSavedPreviewBrowserMs": 2505,
       "artifacts": [
         ".artifacts/cda-builder/bounded-coded-pivot-integer.json",
         ".artifacts/cda-builder/bounded-coded-pivot-string.json"
       ],
-      "remaining": "Edit a saved coded Pivot; ordinary full-table performance still needs separate measurement"
+      "remaining": "Full-table performance and other source families need separate measurement. Bounded integer and string saved-edit lifecycles passed.",
+      "integerEditProposalBrowserMs": 3246,
+      "integerEditedPreviewBrowserMs": 2134,
+      "stringEditProposalBrowserMs": 3246,
+      "stringEditedPreviewBrowserMs": 2282
     },
     "pivotCategoryDiscovery": {
       "feature": "Find category values in the Rows pivot editor",
