@@ -26,6 +26,7 @@
     "tasks": [
       { "id": "BUILDER-UI-01", "title": "Move coded-value discovery and source editing into Add columns", "status": "in_progress" },
       { "id": "BUILDER-UI-02", "title": "Unify row definition and reshape entry in one compact Rows editor", "status": "in_progress" },
+      { "id": "BUILDER-UI-02A", "title": "Discover Group and Pivot keys and values inside Rows before regular column selection", "status": "planned" },
       { "id": "BUILDER-UI-03", "title": "Use full-width editors with clear Apply and Back to table actions", "status": "in_progress" },
       { "id": "BUILDER-UI-04", "title": "Compact table navigation and disclose history detail on selection", "status": "in_progress" },
       { "id": "BUILDER-UI-05", "title": "Verify each building action on CDA in the browser, including reload, removal, layout, and preview time", "status": "in_progress" }

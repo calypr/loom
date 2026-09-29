@@ -4,6 +4,10 @@
 
 Complete this subgoal before closing more operation work packages. The table is the main workspace. Keep a compact row summary with the table title; open one Rows editor for starting records, related rows, grouping, expansion, and reshape choices. Keep all executable options available, with plain labels first and technical paths in details. Put coded-value discovery and source management inside Add columns. Complex editors use the workspace width and offer clear Apply and Back to table actions; they do not squeeze beside the table. Keep the left table list compact, with history details available on selection. Remove redundant cards and explanatory copy that obscures the current table. Calculate and derived arithmetic columns remain outside this goal.
 
+Group and Pivot must discover usable keys and values from schema-derived coded and related data inside Rows, before regular column selection. If the operation needs a source field, configure it in the same flow. A Group menu that only offers record IDs and references does not satisfy row design, even if the backend can execute it. Keep discovery independent of any one FHIR resource type.
+
+The current backend lists `FIELD_GROUP` row choices but returns `GROUPED_ROW_COMPILER_UNAVAILABLE` for their proposals. Construction `GROUP` and `PIVOT` only list fields already projected into the current stage. Close this gap through an executable row-first path, then prove on CDA that a useful coded or related grouping can be chosen, rendered, applied, reloaded, and removed without first adding a raw FHIR column by hand.
+
 Accept this subgoal only after fresh-page CDA browser paths for Rows, Add columns, Filter rows, and Reshape show their available options, render a result, save, reload, edit or remove, and restore the prior table. Check the click path and readable labels, inspect the layout at desktop and narrow widths, and record preview times; an interaction that takes more than five seconds needs a measured performance fix or an honest visible limitation. Backend and frontend success are separate checks.
 
 Revision 4. Planned on 2026-09-19. This is the only active product execution plan.

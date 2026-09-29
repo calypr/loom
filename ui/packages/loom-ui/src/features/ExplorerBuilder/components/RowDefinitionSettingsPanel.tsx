@@ -393,13 +393,13 @@ export const RowDefinitionSettingsPanel = ({
                   onClick={() => chooseReshape('group')}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group records</span>
-                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported ? 'One row per group, with counts or summaries.' : reshapeRows.group.reason}</span>
+                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.group.supported ? 'Group by a column already in this table.' : reshapeRows.group.reason}</span>
                 </button>
                 <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || !reshapeRows.pivot.supported}
                   onClick={() => chooseReshape('pivot')}
                   className="rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Categories to columns</span>
-                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.pivot.supported ? 'Fill columns from coded or other category values.' : reshapeRows.pivot.reason}</span>
+                  <span className="mt-1 block text-xs text-slate-600">{reshapeRows.pivot.supported ? 'Use a category and value column from this table.' : reshapeRows.pivot.reason}</span>
                 </button>
                 <button type="button" disabled={disabled || !relatedRows.supported}
                   onClick={chooseRelatedRows}
