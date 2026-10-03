@@ -2,17 +2,36 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { browserEval, click, launchBrowser, navigate, waitForBrowser } from './lib/browser.mjs';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
 
 // Run against the construction checkout's local stack and loaded CDA fixture.
 const origin = process.env.LOOM_UI_ORIGIN ?? 'http://127.0.0.1:30008';
 const apiOrigin = process.env.LOOM_API_ORIGIN ?? 'http://127.0.0.1:8188';
+assert.equal(new URL(origin).origin, 'http://127.0.0.1:30008', 'Use only the local CDA Builder UI');
+assert.equal(new URL(apiOrigin).origin, 'http://127.0.0.1:8188', 'Use only the local unrestricted no-auth CDA API');
 const project = 'loom_dev_cda_fhir';
 const observationId = '485e2567-b566-56f3-b5bd-5f025f37cd95';
+const differentialMode = process.argv[2] === 'differential';
+const generation = 'cda-fhir-v1';
+const codedPairs = [
+  { system: 'https://cda.readthedocs.io', code: 'specimen_type', label: 'Specimen type' },
+  { system: 'https://cda.readthedocs.io', code: 'primary_disease_type', label: 'Primary disease type' },
+];
 const explorer = `compound-coded-qa-${Date.now()}`;
 const evidenceDirectory = process.env.LOOM_VERIFY_OUTPUT ?? '/tmp/loom-compound-coded-verification';
 const base = `/api/v1/projects/${project}/explorers/${explorer}`;
-const state = { explorer, observationId, timingsMs: {}, failures: [], requests: [] };
+const state = { explorer, observationId, mode: differentialMode ? 'differential' : 'single-observation', timingsMs: {}, failures: [], requests: [] };
+const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
+let observationIDs = [observationId];
+let rawSources = [];
+let statusColumn;
+let statusColumnID;
+let statusInputColumnID;
+let apiBuildFreeze;
+const requestsById = new Map();
 
 const api = async (path, method = 'GET', body) => {
   const response = await fetch(apiOrigin + path, {
@@ -28,18 +47,85 @@ const api = async (path, method = 'GET', body) => {
 const rowsReady = (cdp) => waitForBrowser(cdp,
   `!document.body.innerText.includes('Loading your table') && document.querySelector('[data-testid="construction-rows-settings-trigger"]')?.disabled === false`);
 
-const proposed = async (cdp, started, timing) => {
-  await waitForBrowser(cdp, `['ready','error','needs-repair'].includes(document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'))`);
-  const result = await browserEval(cdp, `return {status:document.querySelector('[data-testid="construction-proposal-panel"]')?.getAttribute('data-proposal-status'),text:document.querySelector('[data-testid="construction-proposal-panel"]')?.innerText,rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText))};`);
-  state.timingsMs[timing] = Date.now() - started;
+const finishTiming = (name, started) => {
+  state.timingsMs[name] = Date.now() - started;
+  assert(state.timingsMs[name] <= 5000, `${name} took ${state.timingsMs[name]} ms`);
+};
+
+const proposed = async (cdp, started, timing, expectedBuilder, requestStart) => {
+  const deadline = started + 5000;
+  let request;
+  while (!(request = state.requests.slice(requestStart).findLast((entry) => entry.url.endsWith('/construction-proposals') && entry.completedAt))) {
+    assert(Date.now() < deadline, `${timing} did not complete a fresh construction proposal within five seconds`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert(request.response, `${timing} proposal response could not be captured: ${request.responseBodyError ?? 'unknown response body error'}`);
+  assert.equal(request.status, 200, `${timing} proposal request failed: ${JSON.stringify(request.response)}`);
+  assert(request.response.proposalId, `${timing} proposal response omitted its receipt`);
+  assert.equal(request.body.snapshotToken, expectedBuilder.catalog.snapshotToken, `${timing} must use the current catalog snapshot`);
+  assert.equal(request.body.expectedDraftVersion, expectedBuilder.draftVersion, `${timing} must use the current saved draft version`);
+  assert.equal(request.body.expectedDraftDigest, expectedBuilder.draftDigest, `${timing} must use the current saved draft digest`);
+  assert.equal(request.response.outputId, savedDocument(expectedBuilder).output.id);
+  assert.equal(request.response.snapshotToken, expectedBuilder.catalog.snapshotToken);
+  assert.equal(request.response.draftVersion, expectedBuilder.draftVersion);
+  assert.equal(request.response.draftDigest, expectedBuilder.draftDigest);
+  const remaining = deadline - Date.now();
+  assert(remaining > 0, `${timing} exceeded five seconds before its receipt rendered`);
+  await waitForBrowser(cdp, `(() => {const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return panel?.dataset.proposalId===${JSON.stringify(request.response.proposalId)}&&['ready','error','needs-repair'].includes(panel?.dataset.proposalStatus);})()`, remaining);
+  const result = await browserEval(cdp, `const panel=document.querySelector('[data-testid="construction-proposal-panel"]');return {status:panel?.getAttribute('data-proposal-status'),proposalId:panel?.dataset.proposalId,text:panel?.innerText,headers:[...document.querySelectorAll('[data-testid="construction-proposal-preview"] th')].map(cell=>cell.querySelector('span')?.textContent?.trim()??cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="construction-proposal-preview-row"]')].map(row=>[...row.querySelectorAll('td')].map(cell=>cell.innerText.trim()))};`);
+  assert.equal(result.proposalId, request.response.proposalId, `${timing} DOM must show the fresh response receipt`);
+  finishTiming(timing, started);
   assert.equal(result.status, 'ready', result.text);
-  assert(state.timingsMs[timing] <= 5000, `${timing} took ${state.timingsMs[timing]} ms`);
-  return result;
+  return { ...result, request };
 };
 
 const savedDocument = (builder) => {
   assert.equal(builder.workspace.documents.length, 1);
   return builder.workspace.documents[0];
+};
+
+const assertNamedPreviewValues = (preview, expected, label) => {
+  assert.equal(preview.rows.length, 1, `${label} must produce exactly one grouped row`);
+  for (const [columnLabel, expectedValue] of expected) {
+    const indices = preview.headers.flatMap((header, index) => header.toLowerCase() === columnLabel.toLowerCase() ? [index] : []);
+    assert.equal(indices.length, 1, `${label} must expose one ${columnLabel} column; headers=${JSON.stringify(preview.headers)}`);
+    assert.equal(preview.rows[0][indices[0]], expectedValue, `${label} value for ${columnLabel}`);
+  }
+};
+
+const assertSourceIdentityRows = (rendered, sources, builderDocument, label) => {
+  const idColumn = builderDocument.columns.find((column) => column.source?.kind === 'field' && column.source.field?.path === 'id');
+  const status = builderDocument.columns.find((column) => column.source?.kind === 'field' && column.source.field?.path === 'status');
+  assert(idColumn, `${label} must retain the direct Observation.id binding`);
+  assert(status, `${label} must retain the direct Observation.status binding`);
+  assert.equal(status.column, statusColumn.column);
+  if (status.columnId) assert.equal(status.columnId, statusInputColumnID);
+  assert.equal(rendered.rows.length, sources.length, `${label} must render exactly the selected raw resources`);
+  const idIndex = rendered.headers.findIndex((header) => header.toLowerCase() === idColumn.label.toLowerCase());
+  const statusIndex = rendered.headers.findIndex((header) => header.toLowerCase() === status.label.toLowerCase());
+  assert(idIndex >= 0, `${label} is missing the ${idColumn.label} column`);
+  assert(statusIndex >= 0, `${label} is missing the ${status.label} column`);
+  const renderedIDs = rendered.rows.map((row) => row[idIndex]);
+  assert.equal(new Set(renderedIDs).size, sources.length, `${label} must render unique Observation IDs`);
+  assert.deepEqual([...renderedIDs].sort(), sources.map((source) => source.id).sort(), `${label} ID population must match the raw source oracle`);
+  for (const source of sources) {
+    const row = rendered.rows.find((candidate) => candidate[idIndex] === source.id);
+    assert(row, `${label} omitted ${source.id}`);
+    assert.equal(row[statusIndex], source.status, `${label} must preserve the exact status paired with ${source.id}`);
+  }
+};
+
+const applyAuthoringCommands = async (commands) => {
+  const builder = await api(base + '/authoring/v2/builder');
+  const response = await api(base + '/authoring/v2/commands', 'POST', {
+    commandId: `${explorer}-${Date.now()}`,
+    semanticsVersion: builder.workspace?.semanticsVersion ?? 10,
+    snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion,
+    expectedDraftDigest: builder.draftDigest,
+    commands,
+  });
+  return { response, builder: await api(base + '/authoring/v2/builder') };
 };
 
 await mkdir(evidenceDirectory, { recursive: true });
@@ -48,30 +134,117 @@ browser.cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => state.failur
 browser.cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
   if (type === 'error') state.failures.push({ kind: 'console', text: args.map(arg => arg.value ?? arg.description ?? '').join(' ') });
 });
-browser.cdp.on('Network.responseReceived', ({ response }) => {
-  if (response.url.includes('/api/') && response.status >= 400) state.failures.push({ kind: 'http', status: response.status, url: response.url });
+browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
+  if (response.url.includes('/api/') && response.status >= 400) state.failures.push({ kind: 'http', requestId, status: response.status, url: response.url });
 });
-browser.cdp.on('Network.requestWillBeSent', ({ request }) => {
-  if (request.url.includes('/api/') && request.method !== 'GET') state.requests.push({ method: request.method, url: request.url, body: request.postData ? JSON.parse(request.postData) : undefined });
+browser.cdp.on('Network.requestWillBeSent', ({ requestId, request }) => {
+  if (request.url.includes('/api/') && request.method !== 'GET') {
+    const entry = { requestId, method: request.method, url: request.url,
+      body: request.postData ? JSON.parse(request.postData) : undefined, startedAt: Date.now() };
+    state.requests.push(entry);
+    requestsById.set(requestId, entry);
+  }
+});
+browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
+  const entry = requestsById.get(requestId);
+  if (entry) entry.status = response.status;
+});
+browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
+  const entry = requestsById.get(requestId);
+  if (!entry || !entry.url.endsWith('/construction-proposals') && !(entry.status >= 400)) return;
+  void browser.cdp.send('Network.getResponseBody', { requestId }).then(({ body, base64Encoded }) => {
+    const raw = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
+    entry.response = JSON.parse(raw);
+    const failure = state.failures.find((item) => item.requestId === requestId);
+    if (failure) { failure.request = entry.body; failure.response = entry.response; }
+    entry.completedAt = Date.now();
+  }).catch((error) => {
+    entry.responseBodyError = String(error);
+    entry.completedAt = Date.now();
+  });
 });
 
 try {
-  const raw = execFileSync('rtk', ['proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1', 'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
-    `print(JSON.stringify(db.Observation.byExample({id:"${observationId}"}).toArray().map(d=>({id:d.id,project:d.project,generation:d.dataset_generation,component:d.payload.component}))))`], { encoding: 'utf8', timeout: 30000 });
-  const [source] = JSON.parse(raw.slice(raw.indexOf('[')));
-  assert.equal(source?.project, project, 'The real CDA source record is required');
-  const expectedValue = source.component.find(component => component.code?.coding?.some(coding => coding.system === 'https://cda.readthedocs.io' && coding.code === 'specimen_type'))?.valueString;
-  const expectedDisease = source.component.find(component => component.code?.coding?.some(coding => coding.system === 'https://cda.readthedocs.io' && coding.code === 'primary_disease_type'))?.valueString;
-  assert.equal(expectedValue, 'analyte');
-  assert.equal(typeof expectedDisease, 'string');
-  state.oracle = { generation: source.generation, specimenType: expectedValue, primaryDiseaseType: expectedDisease, count: 1 };
+  apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
+  state.apiBuildFreeze = { initial: apiBuildFreeze.initial };
+  const readRawObservations = (query) => {
+    const raw = execFileSync('rtk', [
+      'proxy', 'docker', 'exec', process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6a37-arangodb-1',
+      'arangosh', '--server.database', 'loom_dev', '--javascript.execute-string',
+      `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
+    ], { encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
+    const start = raw.indexOf('[');
+    assert(start >= 0, `Arango returned no JSON array: ${raw.slice(-1000)}`);
+    return JSON.parse(raw.slice(start));
+  };
+  const pairValues = (source) => codedPairs.map((pair) => {
+    const matches = (source.component ?? []).flatMap((component) =>
+      (component?.code?.coding ?? [])
+        .filter((coding) => coding.system === pair.system && coding.code === pair.code)
+        .map(() => component.valueString));
+    return matches.length === 1 && typeof matches[0] === 'string' && matches[0].trim() ? matches[0] : undefined;
+  });
+
+  if (differentialMode) {
+    const query = `FOR d IN Observation FILTER d.project == ${JSON.stringify(project)} AND d.dataset_generation == ${JSON.stringify(generation)} SORT d.id LIMIT 1000 RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,component:d.payload.component}`;
+    const scanned = readRawObservations(query);
+    assert(scanned.length <= 1000, 'The independent coded-group oracle must remain bounded to 1000 Observation resources');
+    assert.equal(new Set(scanned.map((source) => source.id).filter((id) => typeof id === 'string')).size,
+      scanned.filter((source) => typeof source.id === 'string').length,
+      'The scoped raw oracle must not group duplicate Observation identities');
+    const buckets = new Map();
+    for (const source of scanned) {
+      if (source.project !== project || source.generation !== generation || source.resourceType !== 'Observation' ||
+          typeof source.id !== 'string' || typeof source.status !== 'string' || !source.status.trim()) continue;
+      const values = pairValues(source);
+      if (values.some((value) => value === undefined) || new Set(values).size !== values.length || values.includes(source.status)) continue;
+      const key = JSON.stringify([source.status, ...codedPairs.map((pair, index) => [pair.system, pair.code, values[index]])]);
+      const bucket = buckets.get(key) ?? { status: source.status, values, sources: [] };
+      bucket.sources.push(source);
+      buckets.set(key, bucket);
+    }
+    const bucket = [...buckets.values()].find((candidate) => candidate.sources.length >= 2);
+    assert(bucket, 'The first 1000 scoped Observations contain no two-resource group sharing Observation.status and both exact Coding.system/code pairs');
+    rawSources = bucket.sources.slice(0, 2);
+    observationIDs = rawSources.map((source) => source.id);
+    assert.equal(new Set(observationIDs).size, 2, 'Differential witnesses must be distinct Observation IDs');
+    state.oracle = {
+      source: 'bounded raw Arango Observation payload query, independently grouped by status and JSON([Coding.system, Coding.code]) identity',
+      queryLimit: 1000,
+      scanned: scanned.length,
+      generation,
+      codingPairs: codedPairs.map(({ system, code }) => ({ system, code })),
+      status: bucket.status,
+      values: bucket.values,
+      selectedIDs: observationIDs,
+      expectedGroupCount: rawSources.length,
+      expectedRows: [[...bucket.values, bucket.status, String(rawSources.length)]],
+      groupingPairs: codedPairs.map((pair, index) => ({ system: pair.system, code: pair.code, value: bucket.values[index] })),
+    };
+  } else {
+    const query = `FOR d IN Observation FILTER d.id == ${JSON.stringify(observationId)} RETURN {id:d.id,project:d.project,generation:d.dataset_generation,resourceType:d.payload.resourceType,status:d.payload.status,component:d.payload.component}`;
+    rawSources = readRawObservations(query);
+    const [source] = rawSources;
+    assert.equal(source?.project, project, 'The real CDA source record is required');
+    assert.equal(source?.generation, generation);
+    assert.equal(source?.resourceType, 'Observation');
+    assert.equal(source?.id, observationId);
+    const values = pairValues(source);
+    assert.equal(values.length, 2);
+    assert.equal(values[0], 'analyte');
+    assert.equal(typeof values[1], 'string');
+    state.oracle = { generation: source.generation, specimenType: values[0], primaryDiseaseType: values[1], count: 1,
+      codingPairs: codedPairs.map(({ system, code }) => ({ system, code })) };
+  }
+  state.observationIDs = observationIDs;
+  state.oracleSources = rawSources.map((source) => ({ id: source.id, status: source.status, component: source.component }));
   await api(`/api/v1/projects/${project}/explorers`, 'POST', { name: explorer, title: 'Compound coded grouping verification' });
   const initial = await api(base + '/authoring/v2/builder');
   assert.equal(initial.catalog.generation, state.oracle.generation);
   const selection = await api(base + '/selections', 'POST', {
     snapshotToken: initial.catalog.snapshotToken,
     idempotencyKey: explorer,
-    source: { kind: 'resources', resources: { refs: [{ project, generation: initial.catalog.generation, resourceType: 'Observation', id: observationId }] } },
+    source: { kind: 'resources', resources: { refs: observationIDs.map((id) => ({ project, generation: initial.catalog.generation, resourceType: 'Observation', id })) } },
   });
   const url = `${origin}/?project=${project}&explorer=${explorer}&mode=builder&selection=${encodeURIComponent(selection.id)}`;
   state.url = url;
@@ -83,9 +256,58 @@ try {
   await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
   await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Starting collection"] button')].some(button => button.innerText === 'Use selected resources' && !button.disabled)`);
   await click(browser.cdp, '[aria-label="Starting collection"] button', { name: 'Use selected resources' });
-  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes('1 Observation resources attached')`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[aria-label="Starting collection settings"]')?.innerText.includes(${JSON.stringify(`${observationIDs.length} Observation resources attached`)})`);
+  if (differentialMode) {
+    const current = await api(base + '/authoring/v2/builder');
+    const document = savedDocument(current);
+    assert.equal(document.rootResourceType, 'Observation');
+    const observationNode = current.catalog.nodes.find((node) => node.resourceType === 'Observation');
+    const idCandidate = current.catalog.candidates.find((candidate) => candidate.nodeId === observationNode?.nodeId && candidate.fieldPath === 'id');
+    const statusCandidate = current.catalog.candidates.find((candidate) => candidate.nodeId === observationNode?.nodeId && candidate.fieldPath === 'status');
+    assert(idCandidate && statusCandidate, 'The ordinary-grouping differential requires direct Observation id and status candidates');
+    assert.equal(document.columns.find((column) => column.source?.field?.path === 'id')?.logicalType, 'string');
+    const added = await applyAuthoringCommands([{
+      type: 'ADD_COLUMN', outputId: document.output.id, occurrenceId: 'base',
+      candidateId: statusCandidate.candidateId, projectionMode: 'VALUE',
+      initialPresentation: 'TABLE', title: 'Observation status',
+    }]);
+    state.statusColumnCommand = added.response;
+    state.baseline = added.builder;
+    statusColumn = savedDocument(state.baseline).columns.find((column) => column.source?.field?.path === 'status');
+    assert(statusColumn, 'The direct Observation.status source binding was not retained');
+    assert.equal(statusColumn.source.kind, 'field');
+    assert.equal(statusColumn.source.field.path, 'status');
+    assert.equal(statusColumn.source.field.projectionMode, 'VALUE');
+    assert.equal(statusColumn.logicalType, 'string');
+    statusColumnID = statusColumn.columnId ?? statusColumn.column;
+    const sourceCapabilities = await api(base + '/authoring/v2/construction-capabilities', 'POST', {
+      snapshotToken: state.baseline.catalog.snapshotToken,
+      expectedDraftVersion: state.baseline.draftVersion,
+      expectedDraftDigest: state.baseline.draftDigest,
+      outputId: savedDocument(state.baseline).output.id,
+      stageId: 'source_projection',
+    });
+    const sourceStatus = sourceCapabilities.selectedStage.columns.find((column) => column.name === statusColumn.column);
+    assert(sourceStatus?.id, 'The source-stage descriptor must identify the configured status field');
+    statusInputColumnID = sourceStatus.id;
+    state.statusSourceDescriptor = sourceStatus;
+    const savedPopulation = savedDocument(state.baseline).population;
+    assert.equal(savedPopulation.selectionRevisionId, selection.id);
+    assert.equal(savedPopulation.route?.length ?? 0, 0);
+    assert.deepEqual(savedDocument(state.baseline).columns.filter((column) => ['id', 'status'].includes(column.source?.field?.path)).map((column) => column.source.field.path), ['id', 'status']);
+    const statusReloadAt = Date.now();
+    await navigate(browser.cdp, url);
+    await rowsReady(browser.cdp);
+    await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="preview-table-scroll"]')) && ${observationIDs.map((id) => `document.querySelector('[data-testid="preview-table-scroll"]')?.innerText.includes(${JSON.stringify(id)})`).join(' && ')}`);
+    finishTiming('reloadStatusBinding', statusReloadAt);
+    state.statusSourceReload = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+    assert(state.statusSourceReload.headers.some((header) => /status/i.test(header)), 'The ordinary Observation.status grouping field must be visible in the native table');
+    assertSourceIdentityRows(state.statusSourceReload, rawSources, savedDocument(state.baseline), 'Reloaded ordinary Observation source table');
+  } else {
+    state.baseline = await api(base + '/authoring/v2/builder');
+  }
+  await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-group-rows"]')?.disabled===false`);
-  state.baseline = await api(base + '/authoring/v2/builder');
   const requestStart = state.requests.length;
   const openedAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-action-group-rows"]');
@@ -94,17 +316,27 @@ try {
   assert(state.timingsMs.openPicker <= 5000, `Opening the coded picker took ${state.timingsMs.openPicker} ms`);
   state.groupChoices = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Group by"]')].map(input=>({label:input.getAttribute('aria-label'),disabled:input.disabled,checked:input.checked}));`);
   assert(!await browserEval(browser.cdp, `return document.body.innerText.includes('Need a coded-value column first?');`));
+  const proposalRequestStart = state.requests.length;
   const selectedAt = Date.now();
   await click(browser.cdp, 'input[aria-label="Group by coded value: Specimen type"]');
-  state.proposal = await proposed(browser.cdp, selectedAt, 'selectToPreview');
-  assert.deepEqual(state.proposal.rows, [[state.oracle.specimenType, '1']], 'The grouped preview must match the raw CDA value and record count');
+  state.proposal = await proposed(browser.cdp, selectedAt, 'selectToPreview', state.baseline, proposalRequestStart);
+  if (differentialMode) {
+    assertNamedPreviewValues(state.proposal, [
+      [codedPairs[0].label, state.oracle.values[0]],
+      ['Row count', String(state.oracle.expectedGroupCount)],
+    ], 'First coded group preview');
+  } else {
+    assert.deepEqual(state.proposal.rows, [[state.oracle.specimenType, '1']], 'The grouped preview must match the raw CDA value and record count');
+  }
   const beforeApply = await api(base + '/authoring/v2/builder');
   assert.equal(beforeApply.draftDigest, state.baseline.draftDigest, 'Selecting a code must not save its prerequisite');
   assert.deepEqual(beforeApply.workspace, state.baseline.workspace);
   const proposalRequests = state.requests.slice(requestStart);
   assert(!proposalRequests.some(request => request.url.includes('construction-choice-proposals') || request.url.endsWith('/commands')), 'The coded selection must not issue a separate saved-column command');
+  const firstApplyAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 1`);
+  finishTiming('applyFirstCodedGroup', firstApplyAt);
   state.saved = await api(base + '/authoring/v2/builder');
   assert.deepEqual(state.requests.slice(requestStart).filter(request => request.url.endsWith('/commands')).flatMap(request => request.body.commands.map(command => command.type)), ['APPLY_CONSTRUCTION_PROPOSAL'], 'One Apply must save both parts in one command');
   const construction = savedDocument(state.saved).construction;
@@ -114,6 +346,9 @@ try {
   assert.equal(group.operation.kind, 'GROUP');
   assert.equal(helper.ownerStepId, group.id);
   assert.equal(helper.operation.codedPivot.categories.length, 1);
+  if (differentialMode) {
+    assert.deepEqual(helper.operation.codedPivot.categories.map(({ system, code }) => ({ system, code })), [{ system: codedPairs[0].system, code: codedPairs[0].code }], 'The first coded Group input must preserve its exact system/code identity');
+  }
   assert.equal(savedDocument(state.saved).columns.length, savedDocument(state.baseline).columns.length, 'The prerequisite must not become a standalone source column');
 
   await navigate(browser.cdp, url);
@@ -123,36 +358,97 @@ try {
   await click(browser.cdp, `[data-testid="construction-edit-step-${group.id}"]`);
   await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Specimen type"]')?.checked`);
   await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by coded value: Primary disease type"]:not(:disabled)')`);
+  const editProposalRequestStart = state.requests.length;
   const editedAt = Date.now();
   await click(browser.cdp, 'input[aria-label="Group by coded value: Primary disease type"]');
-  state.editedProposal = await proposed(browser.cdp, editedAt, 'editToPreview');
+  state.editedProposal = await proposed(browser.cdp, editedAt, 'editToPreview', state.saved, editProposalRequestStart);
   assert.equal(state.editedProposal.rows.length, 1);
-  assert(state.editedProposal.rows[0].includes(state.oracle.specimenType));
-  assert(state.editedProposal.rows[0].includes(state.oracle.primaryDiseaseType));
-  assert(state.editedProposal.rows[0].includes('1'));
-  await waitForBrowser(browser.cdp, `document.querySelector('input[aria-label="Group by Observation ID"]:not(:disabled)')`);
+  if (differentialMode) {
+    assertNamedPreviewValues(state.editedProposal, [
+      ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
+      ['Row count', String(state.oracle.expectedGroupCount)],
+    ], 'Two-coded-field preview');
+  } else {
+    assert(state.editedProposal.rows[0].includes(state.oracle.specimenType));
+    assert(state.editedProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+    assert(state.editedProposal.rows[0].includes('1'));
+  }
+  let ordinaryKeySelector = 'input[aria-label="Group by Observation ID"]';
+  if (differentialMode) {
+    const ordinaryKeyLabel = await browserEval(browser.cdp, `const inputs=[...document.querySelectorAll('input[type="checkbox"][aria-label^="Group by"]')];return inputs.find(item=>/status/i.test(item.getAttribute('aria-label')??''))?.getAttribute('aria-label')??'';`);
+    assert(ordinaryKeyLabel, 'The Group editor did not offer the direct Observation.status binding as an ordinary grouping key');
+    ordinaryKeySelector = `input[type="checkbox"][aria-label=${JSON.stringify(ordinaryKeyLabel)}]`;
+  }
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(ordinaryKeySelector)}))`);
   const ordinaryKeyAt = Date.now();
-  await click(browser.cdp, 'input[aria-label="Group by Observation ID"]');
-  state.mixedKeyProposal = await proposed(browser.cdp, ordinaryKeyAt, 'ordinaryKeyToPreview');
+  const ordinaryKeyState = await browserEval(browser.cdp, `const input=document.querySelector(${JSON.stringify(ordinaryKeySelector)});return {disabled:input?.disabled,checked:input?.checked};`);
+  assert.equal(ordinaryKeyState.disabled, false);
+  assert.equal(ordinaryKeyState.checked, false, 'The direct ordinary source key must start unselected before this edit');
+  const ordinaryProposalRequestStart = state.requests.length;
+  await click(browser.cdp, ordinaryKeySelector);
+  state.mixedKeyProposal = await proposed(browser.cdp, ordinaryKeyAt, 'ordinaryKeyToPreview', state.saved, ordinaryProposalRequestStart);
   assert.equal(state.mixedKeyProposal.rows.length, 1);
-  assert(state.mixedKeyProposal.rows[0].includes(observationId), 'An existing source field must survive the coded prerequisite');
-  assert(state.mixedKeyProposal.rows[0].includes(state.oracle.specimenType));
-  assert(state.mixedKeyProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+  if (differentialMode) {
+    assertNamedPreviewValues(state.mixedKeyProposal, [
+      ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
+      ['Observation status', state.oracle.status],
+      ['Row count', String(state.oracle.expectedGroupCount)],
+    ], 'Coded fields plus ordinary Observation.status group preview');
+  } else {
+    assert(state.mixedKeyProposal.rows[0].includes(observationId), 'An existing source field must survive the coded prerequisite');
+    assert(state.mixedKeyProposal.rows[0].includes(state.oracle.specimenType));
+    assert(state.mixedKeyProposal.rows[0].includes(state.oracle.primaryDiseaseType));
+  }
+  const editedApplyAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  finishTiming('applyEditedCodedGroup', editedApplyAt);
   state.edited = await api(base + '/authoring/v2/builder');
-  const editedSteps = savedDocument(state.edited).construction.steps;
+  const editedDocument = savedDocument(state.edited);
+  const editedSteps = editedDocument.construction.steps;
   assert.equal(editedSteps.length, 2);
+  assert.deepEqual(editedDocument.population, savedDocument(state.baseline).population, 'Coded grouping must preserve the exact selected Observation population');
   assert.equal(editedSteps[0].id, helper.id, 'Editing must reuse the owned prerequisite');
   assert.equal(editedSteps[0].operation.codedPivot.categories.length, 2);
   assert.equal(editedSteps[0].rowValues.length, 1);
   assert.equal(editedSteps[0].rowValues[0].policy, 'ONE');
+  if (differentialMode) {
+    const durablePairs = editedSteps[0].operation.codedPivot.categories
+      .map(({ system, code }) => JSON.stringify([system, code])).sort();
+    const expectedPairs = codedPairs.map(({ system, code }) => JSON.stringify([system, code])).sort();
+    assert.deepEqual(durablePairs, expectedPairs, 'The grouped coded source must persist exact system/code pairs, not code-only keys');
+    const helper = editedSteps[0];
+    const group = editedSteps[1];
+    assert.equal(helper.operation.codedPivot.source.route?.length ?? 0, 0, 'Coded categories must remain bound to the direct Observation source');
+    const statusBinding = helper.rowValues.find((value) => value.inputColumnId === statusInputColumnID);
+    assert(statusBinding, 'CODED_PIVOT must carry the authored Observation.status column into its GROUP owner');
+    assert.equal(statusBinding.policy, 'ONE');
+    assert(group.operation.group.keys.some((key) => key.inputColumnId === statusBinding.outputColumnId), 'GROUP must use the status passthrough output as an ordinary key');
+  }
+
+  const groupedReloadAt = Date.now();
+  await navigate(browser.cdp, url);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-history-step-${group.id}"]')`);
+  await rowsReady(browser.cdp);
+  finishTiming('reloadEditedCodedGroup', groupedReloadAt);
+  state.groupedReload = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+  assert.equal(state.groupedReload.rows.length, 1);
+  if (differentialMode) assertNamedPreviewValues(state.groupedReload, [
+    ...codedPairs.map((pair, index) => [pair.label, state.oracle.values[index]]),
+    ['Observation status', state.oracle.status],
+    ['Row count', String(state.oracle.expectedGroupCount)],
+  ], 'Reloaded coded group');
 
   await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
   const removedAt = Date.now();
+  const removalProposalRequestStart = state.requests.length;
   await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.removalProposal = await proposed(browser.cdp, removedAt, 'removeToPreview');
-  assert.deepEqual(state.removalProposal.rows, [[observationId]], 'Removing the compound group must restore its original source table');
+  state.removalProposal = await proposed(browser.cdp, removedAt, 'removeToPreview', state.edited, removalProposalRequestStart);
+  if (differentialMode) {
+    assertSourceIdentityRows(state.removalProposal, rawSources, savedDocument(state.baseline), 'Coded group removal proposal');
+  } else {
+    assert.deepEqual(state.removalProposal.rows, [[observationId]], 'Removing the compound group must restore its original source table');
+  }
   await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
   await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
   state.afterRemovalCancel = await api(base + '/authoring/v2/builder');
@@ -160,25 +456,55 @@ try {
   assert.deepEqual(state.afterRemovalCancel.workspace, state.edited.workspace);
   await click(browser.cdp, `[data-testid="construction-history-step-${group.id}"]`);
   const confirmedRemovalAt = Date.now();
+  const confirmedRemovalRequestStart = state.requests.length;
   await click(browser.cdp, `[data-testid="construction-remove-step-${group.id}"]`);
-  state.confirmedRemovalProposal = await proposed(browser.cdp, confirmedRemovalAt, 'confirmedRemovalToPreview');
-  assert.deepEqual(state.confirmedRemovalProposal.rows, [[observationId]]);
+  state.confirmedRemovalProposal = await proposed(browser.cdp, confirmedRemovalAt, 'confirmedRemovalToPreview', state.edited, confirmedRemovalRequestStart);
+  if (differentialMode) {
+    assertSourceIdentityRows(state.confirmedRemovalProposal, rawSources, savedDocument(state.baseline), 'Confirmed coded group removal proposal');
+  } else {
+    assert.deepEqual(state.confirmedRemovalProposal.rows, [[observationId]]);
+  }
+  const finalApplyAt = Date.now();
   await click(browser.cdp, '[data-testid="construction-apply-proposal"]');
   await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]') && document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0`);
+  finishTiming('applyGroupRemoval', finalApplyAt);
   state.restored = await api(base + '/authoring/v2/builder');
   assert.equal(savedDocument(state.restored).construction?.steps?.length ?? 0, 0, 'Removing GROUP must remove its owned extraction');
   const sourceColumnSemantics = (columns) => columns.map(({ columnId: generatedStageId, ...column }) => column);
   assert.deepEqual(sourceColumnSemantics(savedDocument(state.restored).columns), sourceColumnSemantics(savedDocument(state.baseline).columns));
+  const restoredReloadAt = Date.now();
   await navigate(browser.cdp, url);
   await rowsReady(browser.cdp);
-  await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && document.body.innerText.includes(${JSON.stringify(observationId)})`);
+  await waitForBrowser(browser.cdp, `document.querySelectorAll('[data-testid^="construction-history-step-"]').length === 0 && ${observationIDs.map((id) => `document.body.innerText.includes(${JSON.stringify(id)})`).join(' && ')}`);
+  finishTiming('reloadRestoredSource', restoredReloadAt);
   state.restoredAfterReload = await api(base + '/authoring/v2/builder');
   assert.deepEqual(state.restoredAfterReload.workspace, state.restored.workspace, 'The restored table must persist after fresh reload');
+  if (differentialMode) {
+    const restoredRows = await browserEval(browser.cdp, `return {headers:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(cell=>cell.innerText.trim()),rows:[...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim()))};`);
+    assert(restoredRows.headers.some((header) => /status/i.test(header)));
+    assertSourceIdentityRows(restoredRows, rawSources, savedDocument(state.restoredAfterReload), 'Restored source table after reload');
+  }
   assert.deepEqual(state.failures, [], 'The browser lifecycle must not hide HTTP or runtime failures');
 } catch (error) {
   state.failures.push({ kind: 'assertion', text: String(error.stack ?? error) });
+  if (error.invalidatesRun) state.status = 'invalidated';
   process.exitCode = 1;
 } finally {
+  if (apiBuildFreeze) {
+    try { state.apiBuildFreeze = { ...state.apiBuildFreeze, ...(await apiBuildFreeze.assertUnchanged()) }; }
+    catch (error) {
+      state.status = 'invalidated';
+      state.apiBuildFreeze = { unchanged: false, invalidatesRun: true, productFailure: false, error: String(error) };
+      state.failures.push({ kind: 'api-build-freeze', invalidatesRun: true, text: String(error) });
+      process.exitCode = 1;
+    }
+  }
+  try { state.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) {
+    state.status = 'invalidated';
+    state.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths ?? [], invalidatesRun: true, productFailure: false, error: String(error) };
+    state.failures.push({ kind: 'source-freeze', invalidatesRun: true, text: String(error) });
+    process.exitCode = 1;
+  }
   state.body = await browserEval(browser.cdp, 'return document.body.innerText;').catch(String);
   await writeFile(join(evidenceDirectory, `${explorer}.json`), JSON.stringify(state, null, 2));
   await browser.close();
