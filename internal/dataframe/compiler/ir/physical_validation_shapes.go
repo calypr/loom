@@ -119,6 +119,20 @@ func validatePhysicalSubplan(subplan PhysicalSubplan, parent map[string]bool, bi
 			if err := definePhysicalVariable(defined, operation.CollectionScan.Variable); err != nil {
 				return fmt.Errorf("subplan operation %d: %w", index, err)
 			}
+		case PhysicalKeySetLookupOp:
+			lookup := operation.KeySetLookup
+			if err := requireCollectionBind(bindVars, lookup.CollectionBindKey); err != nil {
+				return fmt.Errorf("subplan operation %d collection: %w", index, err)
+			}
+			if err := validatePhysicalValue(lookup.Keys, defined, bindVars); err != nil {
+				return fmt.Errorf("subplan operation %d key set: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, lookup.KeyVariable); err != nil {
+				return fmt.Errorf("subplan operation %d key variable: %w", index, err)
+			}
+			if err := definePhysicalVariable(defined, lookup.Variable); err != nil {
+				return fmt.Errorf("subplan operation %d resource variable: %w", index, err)
+			}
 		case PhysicalDocumentLookupOp:
 			lookup := operation.DocumentLookup
 			if err := requireCollectionBind(bindVars, lookup.CollectionBindKey); err != nil {

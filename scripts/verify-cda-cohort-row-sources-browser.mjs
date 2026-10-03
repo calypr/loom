@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
 
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
@@ -16,20 +19,50 @@ const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6
 const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
+const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+const apiBuildTarget = 'local-cda-api';
+const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
 const report = { project, generation, resourceType, explorer, cases: [], errors: [], requests: [], nativeRequests: [], started: new Date().toISOString() };
 await mkdir(evidence, { recursive: true });
 
 let browser;
 let builder;
 let outputId;
+let frozenApiBuild;
+let frozenSource;
 const nativeById = new Map();
 const pendingNetworkReads = new Set();
-const api = async (path, body) => {
+const invalidateRun = (kind, reason) => {
+  if (report.status !== 'invalidated') {
+    report.priorStatus = report.status ?? 'not-started';
+    if (report.error) report.priorError = report.error;
+  }
+  report.status = 'invalidated';
+  report.productFailure = false;
+  report.invalidations ??= [];
+  if (!report.invalidations.some(item => item.kind === kind && item.reason === reason)) report.invalidations.push({ kind, reason });
+  report.error = `${kind}: ${reason}`;
+  process.exitCode = 1;
+};
+const finalizeFreeze = async (kind, check, failureDetails) => {
+  const finishedAt = new Date().toISOString();
+  try {
+    const result = await check();
+    report[kind] = { ...report[kind], ...result, finishedAt };
+    if (result.invalidatesRun || result.unchanged === false) {
+      invalidateRun(kind, result.reason ?? report[kind].reason ?? 'freeze was not established for the complete run');
+    }
+  } catch (error) {
+    report[kind] = { ...report[kind], ...failureDetails(error), finishedAt };
+    invalidateRun(kind, error.reason ?? String(error));
+  }
+};
+const api = async (path, body, timeoutMs = 30000) => {
   const response = await fetch(apiOrigin + path, {
     method: body ? 'POST' : 'GET',
     headers: { 'Content-Type': 'application/json', 'X-Request-ID': `cohort-row-sources-browser-${randomUUID()}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const value = await response.json();
   report.requests.push({ path, body, status: response.status, response: path.endsWith('/builder') ? {
@@ -93,20 +126,109 @@ const inspectCohortRow = async name => {
   assert.deepEqual(listed, expected, 'Native source-record panel must list exactly the independently pinned cohort members');
   assert.deepEqual(native.response.contributors.map(item => `${item.resourceType}/${item.resourceId}`).sort(), expected,
     'Row-lineage response must have the exact independently pinned contributor set');
+  const sourceContributors = native.response.contributors
+    .map(({ resourceType: contributorType, resourceId, occurrenceKey }) => ({ resourceType: contributorType, resourceId, occurrenceKey }))
+    .sort((left, right) => `${left.resourceType}/${left.resourceId}`.localeCompare(`${right.resourceType}/${right.resourceId}`));
   assert.equal(new Set(listed).size, expected.length, 'Each pinned member must appear once');
   assert.equal(native.response.hasMore ?? false, false, 'The complete two-member cohort must fit in one lineage page');
   const identity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(selector + ' p.font-mono')})?.textContent;`);
   assert(identity);
+  const rowId = native.body.rowId;
+  assert.equal(typeof rowId, 'string', 'The native row inspector must submit the displayed row identity as a string');
+  let rowIdObject;
+  try { rowIdObject = JSON.parse(rowId); } catch { assert.fail(`Cohort row identity is not serialized JSON: ${rowId}`); }
+  assert.equal(identity, rowId, 'The displayed Preview identity and the native inspector request must match exactly');
+  assert(rowIdObject && typeof rowIdObject === 'object' && !Array.isArray(rowIdObject), `Cohort row identity must be a JSON object: ${rowId}`);
+  assert.deepEqual(Object.keys(rowIdObject).sort(), ['group_id', 'group_revision_id']);
+  assert.equal(rowIdObject.group_id, 'qa-cohort');
+  assert.equal(rowIdObject.group_revision_id, report.cohort.revisionId);
   report.inspections ??= [];
-  report.inspections.push({ name, identity, count: listed.length, contributors: listed, lineageStatus: native.response.status, receiptId: native.response.receiptId });
+  report.inspections.push({ name, identity, rowId, rowIdObject, count: listed.length, contributors: listed, sourceContributors, lineageStatus: native.response.status, receiptId: native.response.receiptId });
   await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaCohortClose='true';return true;`);
   await click(browser.cdp, '[data-qa-cohort-close="true"]');
   await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(selector)})`);
   record(name, started);
-  return identity;
+  return { identity, rowId, rowIdObject, receiptId: native.body.receiptId, sourceContributors };
+};
+
+const traceCohortCell = async (name, inspection, cellColumn) => {
+  assert(cellColumn, 'The saved cohort must expose a traceable resourceType output column');
+  const traceStarted = Date.now();
+  const cellTrace = await api(base + '/cell-trace', {
+    receiptId: inspection.receiptId,
+    outputId,
+    rowId: inspection.rowId,
+    column: cellColumn,
+    limit: 10,
+  }, 5000);
+  const traceDurationMs = Date.now() - traceStarted;
+  assert(traceDurationMs <= 5000, `${name} CellTrace took ${traceDurationMs}ms`);
+  assert.equal(cellTrace.binding.receiptId, inspection.receiptId);
+  assert.equal(cellTrace.binding.outputId, outputId);
+  assert.equal(cellTrace.binding.project, project);
+  assert.equal(cellTrace.binding.generation, generation);
+  assert.equal(cellTrace.binding.scopeDigest, report.cohort.sourceScopeDigest);
+  assert.equal(cellTrace.feature.column, cellColumn);
+  assert.deepEqual(JSON.parse(cellTrace.trace.rowId), inspection.rowIdObject, 'CellTrace must resolve the Preview row identity submitted by the native inspector');
+  assert.equal(cellTrace.trace.column, cellColumn);
+  assert.equal(cellTrace.trace.complete, true, JSON.stringify(cellTrace.trace));
+  assert.equal(cellTrace.trace.status, 'VALUE', JSON.stringify(cellTrace.trace));
+  assert.equal(cellTrace.trace.value, resourceType, 'The receipt-bound member field trace must return Specimen');
+  const expectedRefs = report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort();
+  const tracedRefs = (cellTrace.trace.contributions ?? [])
+    .filter(item => item.resourceType && item.resourceId)
+    .map(item => `${item.resourceType}/${item.resourceId}`)
+    .sort();
+  if (tracedRefs.length > 0) {
+    assert.deepEqual([...new Set(tracedRefs)], expectedRefs, 'Typed CellTrace source contributors must equal the exact pinned cohort');
+  }
+  report.cellTraces ??= [];
+  const result = {
+    name,
+    mode: 'API-driven receipt-bound CellTrace after the native row inspector',
+    rowId: inspection.rowId,
+    rowIdObject: inspection.rowIdObject,
+    rowLineageReceiptId: inspection.receiptId,
+    receiptId: cellTrace.binding.receiptId,
+    outputId,
+    column: cellColumn,
+    status: cellTrace.trace.status,
+    complete: cellTrace.trace.complete,
+    value: cellTrace.trace.value,
+    sourceContributors: inspection.sourceContributors,
+    cellTraceSourceRefs: tracedRefs,
+    cellTraceSourceContributorsSupported: tracedRefs.length > 0,
+    contributions: cellTrace.trace.contributions,
+    durationMs: traceDurationMs,
+  };
+  report.cellTraces.push(result);
+  record(`${name}-cell-trace`, traceStarted);
+  return { ...result, trace: cellTrace.trace };
 };
 
 try {
+  const apiBuildStartedAt = new Date().toISOString();
+  report.apiBuildFreeze = { target: apiBuildTarget, startedAt: apiBuildStartedAt };
+  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
+  report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: frozenApiBuild.initial };
+  const sourceFreezeStartedAt = new Date().toISOString();
+  report.sourceFreeze = { startedAt: sourceFreezeStartedAt, available: false };
+  try {
+    frozenSource = await captureSourceFreeze(sourceRoot);
+    report.sourceFreeze = { ...report.sourceFreeze, available: true, watchedFileCount: frozenSource.watchedFileCount };
+  } catch (error) {
+    report.sourceFreeze = {
+      ...report.sourceFreeze,
+      unchanged: false,
+      changedPaths: [],
+      invalidatesRun: true,
+      productFailure: false,
+      error: String(error),
+    };
+    const captureError = new Error(`Initial source freeze capture failed: ${String(error)}`);
+    captureError.initialSourceFreezeFailure = true;
+    throw captureError;
+  }
   const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
   const raw = spawnSync('rtk', [
     'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
@@ -225,7 +347,7 @@ try {
   assert.equal(groupedDocument.rows.groups.source.explicit.revisionId, cohort.revisionId);
   assert.equal(groupedDocument.rows.groups.source.explicit.unassignedMemberPolicy, 'ERROR');
   assert.equal(groupedDocument.population.selectionRevisionId, selection.id);
-  const identity = await inspectCohortRow('inspect-named-cohort-row');
+  const savedInspection = await inspectCohortRow('inspect-named-cohort-row');
 
   const beforeField = builder;
   const fieldStart = Date.now();
@@ -250,28 +372,107 @@ try {
   assert.equal(fieldDocument.rows.groups.source.explicit.revisionId, cohort.revisionId, 'Adding a member field must retain the named cohort row binding');
   assert.equal(fieldDocument.population.selectionRevisionId, selection.id, 'Adding a member field must retain the pinned source selection');
   assert.deepEqual(doc(beforeField).rows.groups, groupedDocument.rows.groups);
+  const resourceTypeColumn = fieldDocument.columns.find(column => column.source.kind === 'field' && column.source.field?.path === 'resourceType');
+  assert(resourceTypeColumn?.column, 'The saved cohort must expose the applied Specimen.resourceType output column');
+  const savedFieldInspection = await inspectCohortRow('inspect-saved-cohort-row-after-field-apply');
+  assert.equal(savedFieldInspection.rowId, savedInspection.rowId, 'Applying the member field must retain the cohort row identity');
+  const savedCellTrace = await traceCohortCell('saved-cohort-cell-trace', savedFieldInspection, resourceTypeColumn.column);
 
   await openTable(2, 4);
   const afterReload = await api(base + '/builder');
   assert.equal(doc(afterReload).rows.groups.source.explicit.revisionId, cohort.revisionId);
   assert.equal(doc(afterReload).population.selectionRevisionId, selection.id);
+  const reloadedResourceTypeColumn = doc(afterReload).columns.find(column => column.source.kind === 'field' && column.source.field?.path === 'resourceType');
+  assert.equal(reloadedResourceTypeColumn?.column, resourceTypeColumn.column, 'Reload must retain the exact typed resourceType output column');
   const cells = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="cell"]')].map(cell=>cell.innerText.trim());`);
   assert.equal(cells.length, 4);
   assert(cells.includes('Two Specimens'), 'Reloaded cohort row must retain its named group label');
   assert(cells.includes(resourceType), 'Reloaded cohort row must retain the member field');
   assert(sources.every(source => cells.some(cell => cell.includes(source.id))), 'Reloaded cohort row must retain both pinned member IDs');
-  const reloadedIdentity = await inspectCohortRow('inspect-reloaded-named-cohort-row');
-  assert.equal(reloadedIdentity, identity, 'The row identity and source contributor scope must survive the field edit and reload');
+  const reloadedInspection = await inspectCohortRow('inspect-reloaded-named-cohort-row');
+  assert.equal(reloadedInspection.identity, savedFieldInspection.identity, 'The row identity must survive the field edit and reload');
+  assert.equal(reloadedInspection.rowId, savedFieldInspection.rowId, 'CellTrace must receive the same serialized object row identity after reload');
+  assert.deepEqual(reloadedInspection.rowIdObject, savedFieldInspection.rowIdObject);
+  assert.deepEqual(
+    reloadedInspection.sourceContributors.map(item => `${item.resourceType}/${item.resourceId}`).sort(),
+    savedFieldInspection.sourceContributors.map(item => `${item.resourceType}/${item.resourceId}`).sort(),
+    'Reload must retain the exact typed source contributors',
+  );
+  const reloadedCellTrace = await traceCohortCell('reloaded-cohort-cell-trace', reloadedInspection, reloadedResourceTypeColumn.column);
+  assert.deepEqual(JSON.parse(reloadedCellTrace.trace.rowId), JSON.parse(savedCellTrace.trace.rowId), 'CellTrace must retain the same complete structured identity after reload');
+  assert.equal(reloadedCellTrace.cellTraceSourceContributorsSupported, savedCellTrace.cellTraceSourceContributorsSupported, 'CellTrace contributor support must be stable after reload');
+  assert.deepEqual(reloadedCellTrace.cellTraceSourceRefs, savedCellTrace.cellTraceSourceRefs, 'Typed CellTrace contributors must be stable after reload');
+  report.cellTraceCoverage = {
+    mode: 'API-driven receipt-bound CellTrace for a native Preview object identity after member-field Apply',
+    saved: { receiptId: savedCellTrace.receiptId, rowId: savedFieldInspection.rowId, value: savedCellTrace.value, status: savedCellTrace.status },
+    reloaded: { receiptId: reloadedCellTrace.receiptId, rowId: reloadedInspection.rowId, value: reloadedCellTrace.value, status: reloadedCellTrace.status },
+    stableRowIdentity: savedFieldInspection.rowId === reloadedInspection.rowId,
+    sameReceiptWithinEachCellTrace: report.cellTraces.every(trace => trace.receiptId === trace.rowLineageReceiptId),
+    sourceContributors: savedFieldInspection.sourceContributors,
+    cellTraceSourceContributorsSupported: savedCellTrace.cellTraceSourceContributorsSupported,
+    contributorRefs: report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort(),
+  };
+  assert(report.cellTraceCoverage.stableRowIdentity);
+  assert(report.cellTraceCoverage.sameReceiptWithinEachCellTrace);
   assert(report.cases.length <= 10, `The verifier must stay within ten bounded sequences; saw ${report.cases.length}`);
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
 } catch (error) {
-  report.status = 'failed';
+  const apiBuildInvalidated = error instanceof ApiBuildFreezeError;
+  const sourceFreezeInvalidated = error.initialSourceFreezeFailure;
+  report.status = apiBuildInvalidated || sourceFreezeInvalidated ? 'invalidated' : 'failed';
   report.error = String(error.stack ?? error);
+  if (apiBuildInvalidated) {
+    report.apiBuildFreeze = {
+      ...report.apiBuildFreeze,
+      initial: error.before,
+      ...(error.after?.checked ? { after: error.after } : {}),
+      unchanged: false,
+      invalidatesRun: true,
+      productFailure: false,
+      reason: error.reason,
+    };
+    report.priorStatus = 'not-started';
+    report.productFailure = false;
+    report.invalidations = [{ kind: 'apiBuildFreeze', reason: error.reason }];
+  } else if (sourceFreezeInvalidated) {
+    report.sourceFreeze = {
+      ...report.sourceFreeze,
+      unchanged: false,
+      changedPaths: error.changedPaths ?? [],
+      invalidatesRun: true,
+      productFailure: false,
+      error: report.sourceFreeze.error ?? String(error),
+    };
+    report.priorStatus = 'not-started';
+    report.productFailure = false;
+    report.invalidations = [{ kind: 'sourceFreeze', reason: error.message }];
+  }
   process.exitCode = 1;
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
 } finally {
   await Promise.allSettled([...pendingNetworkReads]);
+  if (frozenSource) await finalizeFreeze('sourceFreeze', () => frozenSource.assertUnchanged(), error => ({
+    unchanged: false,
+    changedPaths: error.changedPaths ?? [],
+    invalidatesRun: true,
+    productFailure: false,
+    error: String(error),
+  }));
+  await finalizeFreeze('apiBuildFreeze', async () => {
+    if (frozenApiBuild) return frozenApiBuild.assertUnchanged();
+    const finalOnly = await captureApiBuildFreeze(readApiBuildStamp);
+    return { after: finalOnly.initial, unchanged: false, invalidatesRun: true, productFailure: false };
+  }, error => ({
+    ...(frozenApiBuild
+      ? { ...(error.before ? { initial: error.before } : {}), ...(error.after ? { after: error.after } : {}) }
+      : error.before ? { after: error.before } : {}),
+    unchanged: false,
+    invalidatesRun: true,
+    productFailure: false,
+    ...(error.reason ? { reason: error.reason } : {}),
+    error: String(error),
+  }));
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();

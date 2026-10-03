@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -99,11 +100,19 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 	if rowID == "" || column == "" {
 		return CellTraceResult{}, fmt.Errorf("cell trace row ID and column are required")
 	}
+	if compiled.ExplicitIdentityObject {
+		canonical, err := canonicalCellTraceIdentityJSON(rowID)
+		if err != nil {
+			return CellTraceResult{}, fmt.Errorf("cell trace row ID has an invalid object identity: %w", err)
+		}
+		rowID = canonical
+	}
 	maxWitness := request.MaxWitnessRows
 	if maxWitness <= 0 {
 		maxWitness = defaultCellTraceWitnessRows
 	}
-	if compiled.ValueColumn == "" || compiled.StatusColumn == "" || compiled.ContributionsColumn == "" || (compiled.IdentityPartsColumn == "" && compiled.ExplicitIdentityColumn == "") {
+	if compiled.ValueColumn == "" || compiled.StatusColumn == "" || compiled.ContributionsColumn == "" || (compiled.IdentityPartsColumn == "" && compiled.ExplicitIdentityColumn == "") ||
+		(compiled.ExplicitIdentityObject && compiled.ExplicitIdentityColumn == "") {
 		return CellTraceResult{}, fmt.Errorf("cell trace query is missing typed result columns")
 	}
 
@@ -158,7 +167,13 @@ func compileCellTraceOutput(resolved Resolved, request CellTraceRequest) (compil
 func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]any) (string, error) {
 	if query.ExplicitIdentityColumn != "" {
 		value, ok := row[query.ExplicitIdentityColumn]
-		if !ok || value == nil || strings.TrimSpace(fmt.Sprint(value)) == "" {
+		if !ok || value == nil {
+			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
+		}
+		if query.ExplicitIdentityObject {
+			return canonicalCellTraceObjectValue(value)
+		}
+		if strings.TrimSpace(fmt.Sprint(value)) == "" {
 			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
 		}
 		return fmt.Sprint(value), nil
@@ -178,6 +193,71 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+// The compiler publishes a singleton __loom_row_id for composed cohort
+// outputs; its cohort stage defines that identity as a required object. Other
+// construction identities retain their scalar or identity-parts metadata.
+func canonicalCellTraceObjectValue(value any) (string, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("encode cell trace object identity: %w", err)
+	}
+	return canonicalCellTraceIdentityJSON(string(encoded))
+}
+
+func canonicalCellTraceIdentityJSON(raw string) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	start, err := decoder.Token()
+	if err != nil {
+		return "", fmt.Errorf("decode object identity: %w", err)
+	}
+	if start != json.Delim('{') {
+		return "", fmt.Errorf("object identity must be a JSON object")
+	}
+	parts := make(map[string]string, 2)
+	for decoder.More() {
+		keyToken, keyErr := decoder.Token()
+		if keyErr != nil {
+			return "", fmt.Errorf("decode object identity key: %w", keyErr)
+		}
+		key, ok := keyToken.(string)
+		if !ok || (key != "group_revision_id" && key != "group_id") {
+			return "", fmt.Errorf("object identity contains an unsupported key")
+		}
+		if _, exists := parts[key]; exists {
+			return "", fmt.Errorf("object identity repeats key %q", key)
+		}
+		var value string
+		if err := decoder.Decode(&value); err != nil {
+			return "", fmt.Errorf("decode object identity key %q: %w", key, err)
+		}
+		if strings.TrimSpace(value) == "" {
+			return "", fmt.Errorf("object identity key %q is empty", key)
+		}
+		parts[key] = value
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		if err != nil {
+			return "", fmt.Errorf("decode object identity end: %w", err)
+		}
+		return "", fmt.Errorf("object identity has an invalid terminator")
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return "", fmt.Errorf("object identity contains trailing JSON")
+		}
+		return "", fmt.Errorf("decode trailing object identity: %w", err)
+	}
+	if len(parts) != 2 {
+		return "", fmt.Errorf("object identity must contain group revision and group keys")
+	}
+	canonical, err := json.Marshal(parts)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize object identity: %w", err)
+	}
+	return string(canonical), nil
 }
 
 func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {

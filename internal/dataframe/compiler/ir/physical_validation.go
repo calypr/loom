@@ -1070,6 +1070,9 @@ func (operation PhysicalOperation) validatePayload() error {
 	if operation.CollectionScan != nil {
 		payloads++
 	}
+	if operation.KeySetLookup != nil {
+		payloads++
+	}
 	if operation.DocumentLookup != nil {
 		payloads++
 	}
@@ -1108,6 +1111,7 @@ func (operation PhysicalOperation) validatePayload() error {
 		(operation.Kind == PhysicalPathExtendOp && operation.PathExtend != nil) ||
 		(operation.Kind == PhysicalGraphReturnOp && operation.GraphReturn != nil) ||
 		(operation.Kind == PhysicalCollectionScanOp && operation.CollectionScan != nil) ||
+		(operation.Kind == PhysicalKeySetLookupOp && operation.KeySetLookup != nil) ||
 		(operation.Kind == PhysicalDocumentLookupOp && operation.DocumentLookup != nil) ||
 		(operation.Kind == PhysicalPopulationMappingReturnOp && operation.PopulationMappingReturn != nil) ||
 		(operation.Kind == PhysicalCellTraceReturnOp && operation.CellTraceReturn != nil) ||

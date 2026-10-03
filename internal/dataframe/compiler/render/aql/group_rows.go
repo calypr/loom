@@ -40,21 +40,24 @@ LET definitions = (FOR definition IN @@%s
   SORT definition.ordinal ASC, definition.groupId ASC
   RETURN definition)
 LET explicit_rows = (FOR definition IN definitions
-  LET members = (FOR member IN all_memberships
+  LET member_records = (FOR member IN all_memberships
     FILTER member.groupId == definition.groupId
     SORT member.project ASC, member.generation ASC, member.resourceType ASC, member.id ASC
     LET source = FIRST(FOR resource IN @@%s
       FILTER resource.id == member.ref.id AND resource.project == member.ref.project AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType
       RETURN resource)
     FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
-    RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: source == null ? null : source.payload})
-  RETURN {group_revision_id: revision._key, group_id: definition.groupId, group_label: definition.label, group_ordinal: definition.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: definition.groupId}, members: members})
-LET unassigned_row = {group_revision_id: revision._key, group_id: "__loom_unassigned__", group_label: "Unassigned", group_ordinal: MAX(definitions[*].ordinal) + 1, __loom_row_id: {group_revision_id: revision._key, group_id: "__loom_unassigned__"}, members: (FOR selected IN unassigned
+    RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})
+  LET contributor_keys = UNIQUE((FOR member_record IN member_records FILTER member_record.__loom_storage_key != null RETURN member_record.__loom_storage_key))
+  RETURN {group_revision_id: revision._key, group_id: definition.groupId, group_label: definition.label, group_ordinal: definition.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: definition.groupId}, members: (FOR member_record IN member_records RETURN KEEP(member_record, "source_identity", "payload")), __loom_root_contributor_keys: contributor_keys})
+LET unassigned_records = (FOR selected IN unassigned
 	LET source = FIRST(FOR resource IN @@%s
 	    FILTER resource.id == selected.id AND resource.project == selected.project AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType
 	    RETURN resource)
 	  FILTER source == null OR @%s == true OR source.auth_resource_path IN @%s
-	  RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source == null ? null : source.payload})}
+	  RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})
+LET unassigned_contributor_keys = UNIQUE((FOR member_record IN unassigned_records FILTER member_record.__loom_storage_key != null RETURN member_record.__loom_storage_key))
+LET unassigned_row = {group_revision_id: revision._key, group_id: "__loom_unassigned__", group_label: "Unassigned", group_ordinal: MAX(definitions[*].ordinal) + 1, __loom_row_id: {group_revision_id: revision._key, group_id: "__loom_unassigned__"}, members: (FOR member_record IN unassigned_records RETURN KEEP(member_record, "source_identity", "payload")), __loom_root_contributor_keys: unassigned_contributor_keys}
 LET rows = @%s == "GROUP_AS_UNASSIGNED" AND LENGTH(unassigned) > 0 ? APPEND(explicit_rows, [unassigned_row]) : explicit_rows
 FOR row IN rows
 SORT row.group_ordinal ASC, row.group_id ASC
@@ -181,34 +184,33 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 	source := r.newInternalVariable("cohort_group_source")
 	definition := r.newInternalVariable("cohort_group_definition")
 	groupRows := r.newInternalVariable("cohort_group_rows")
+	groupContributorKeys := r.newInternalVariable("cohort_group_contributor_keys")
+	unassignedContributorKeys := r.newInternalVariable("cohort_unassigned_contributors")
 	lines = append(lines,
 		fmt.Sprintf("  LET %s = (FOR %s IN definitions", groupRows, definition),
 		fmt.Sprintf("    LET %s = (FOR member IN all_memberships", memberRecords),
 		fmt.Sprintf("      FILTER member.groupId == %s.groupId", definition),
 		fmt.Sprintf("      LET %s = FIRST(FOR resource IN @@%s", source, rows.ResourceCollectionBindKey),
 		"        FILTER resource.id == member.ref.id AND resource.project == member.ref.project AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType",
-		fmt.Sprintf("        FILTER resource._key IN %s", contributors),
-		fmt.Sprintf("        FILTER @%s == true OR resource.auth_resource_path IN @%s", rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey),
 		"        RETURN resource)",
-		// A composed cohort emits only members backed by resources present in its
-		// effective input. The source-only cohort renderer separately preserves
-		// pinned memberships with missing resources as null-payload members.
-		fmt.Sprintf("      FILTER %s != null", source),
-		fmt.Sprintf("      RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: %s.payload, __loom_storage_key: %s._key})", source, source),
+		fmt.Sprintf("      FILTER %s", cohortMemberInputPredicate(source, contributors, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("      FILTER %s", cohortMemberAuthorizationPredicate(source, rows, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("      RETURN {source_identity: {project: member.ref.project, generation: member.ref.generation, resource_type: member.ref.resourceType, id: member.ref.id}, payload: %s == null ? null : %s.payload, __loom_storage_key: %s == null ? null : %s._key})", source, source, source, source),
 		fmt.Sprintf("    LET members = (FOR %s IN %s RETURN KEEP(%s, \"source_identity\", \"payload\"))", memberRow, memberRecords, memberRow),
-		fmt.Sprintf("    RETURN {group_revision_id: revision._key, group_id: %s.groupId, group_label: %s.label, group_ordinal: %s.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: %s.groupId}, members: members, %q: UNIQUE(%s[*].__loom_storage_key)})", definition, definition, definition, definition, cohort.RootContributorOutputColumn, memberRecords),
+		fmt.Sprintf("    LET %s = UNIQUE((FOR member IN %s FILTER member.__loom_storage_key != null RETURN member.__loom_storage_key))", groupContributorKeys, memberRecords),
+		fmt.Sprintf("    RETURN {group_revision_id: revision._key, group_id: %s.groupId, group_label: %s.label, group_ordinal: %s.ordinal, __loom_row_id: {group_revision_id: revision._key, group_id: %s.groupId}, members: members, %q: %s})", definition, definition, definition, definition, cohort.RootContributorOutputColumn, groupContributorKeys),
 	)
 	lines = append(lines,
 		"  LET unassigned_records = (FOR selected IN unassigned",
 		"    LET source = FIRST(FOR resource IN @@"+rows.ResourceCollectionBindKey,
 		"      FILTER resource.id == selected.id AND resource.project == selected.project AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType",
-		fmt.Sprintf("      FILTER resource._key IN %s", contributors),
-		fmt.Sprintf("      FILTER @%s == true OR resource.auth_resource_path IN @%s", rows.AuthUnrestrictedBindKey, rows.AuthResourcePathsBindKey),
 		"      RETURN resource)",
-		"    FILTER source != null",
-		"    RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source.payload, __loom_storage_key: source._key})",
+		fmt.Sprintf("    FILTER %s", cohortMemberInputPredicate("source", contributors, cohort.PreserveMissingMembers)),
+		fmt.Sprintf("    FILTER %s", cohortMemberAuthorizationPredicate("source", rows, cohort.PreserveMissingMembers)),
+		"    RETURN {source_identity: {project: selected.project, generation: selected.generation, resource_type: selected.resourceType, id: selected.id}, payload: source == null ? null : source.payload, __loom_storage_key: source == null ? null : source._key})",
 		"  LET unassigned_members = (FOR member IN unassigned_records RETURN KEEP(member, \"source_identity\", \"payload\"))",
-		fmt.Sprintf("  LET unassigned_row = {group_revision_id: revision._key, group_id: \"__loom_unassigned__\", group_label: \"Unassigned\", group_ordinal: MAX(definitions[*].ordinal) + 1, __loom_row_id: {group_revision_id: revision._key, group_id: \"__loom_unassigned__\"}, members: unassigned_members, %q: UNIQUE(unassigned_records[*].__loom_storage_key)}", cohort.RootContributorOutputColumn),
+		fmt.Sprintf("  LET %s = UNIQUE((FOR member IN unassigned_records FILTER member.__loom_storage_key != null RETURN member.__loom_storage_key))", unassignedContributorKeys),
+		fmt.Sprintf("  LET unassigned_row = {group_revision_id: revision._key, group_id: \"__loom_unassigned__\", group_label: \"Unassigned\", group_ordinal: MAX(definitions[*].ordinal) + 1, __loom_row_id: {group_revision_id: revision._key, group_id: \"__loom_unassigned__\"}, members: unassigned_members, %q: %s}", cohort.RootContributorOutputColumn, unassignedContributorKeys),
 		fmt.Sprintf("  LET rows = @%s == \"GROUP_AS_UNASSIGNED\" AND LENGTH(unassigned) > 0 ? APPEND(%s, [unassigned_row]) : %s", rows.PolicyBindKey, groupRows, groupRows),
 		fmt.Sprintf("  FOR %s IN rows", stage.OutputRowVariable),
 		fmt.Sprintf("  SORT %s.group_ordinal ASC, %s.group_id ASC", stage.OutputRowVariable, stage.OutputRowVariable),
@@ -239,6 +241,20 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 	lines = append(lines, reduction...)
 	lines = append(lines, "  RETURN MERGE("+stage.OutputRowVariable+", {"+strings.Join(outputs, ", ")+"})")
 	return lines, nil
+}
+
+func cohortMemberInputPredicate(source, contributors string, preserveMissing bool) string {
+	if preserveMissing {
+		return fmt.Sprintf("%s == null OR %s._key IN %s", source, source, contributors)
+	}
+	return fmt.Sprintf("%s != null AND %s._key IN %s", source, source, contributors)
+}
+
+func cohortMemberAuthorizationPredicate(source string, rows ir.PhysicalGroupRows, preserveMissing bool) string {
+	if preserveMissing {
+		return fmt.Sprintf("%s == null OR @%s == true OR %s.auth_resource_path IN @%s", source, rows.AuthUnrestrictedBindKey, source, rows.AuthResourcePathsBindKey)
+	}
+	return fmt.Sprintf("@%s == true OR %s.auth_resource_path IN @%s", rows.AuthUnrestrictedBindKey, source, rows.AuthResourcePathsBindKey)
 }
 
 func validateGroupRowsBindReferences(rows ir.PhysicalGroupRows, binds map[string]any, query string) error {

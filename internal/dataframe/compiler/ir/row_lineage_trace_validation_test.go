@@ -99,12 +99,17 @@ func TestClonePhysicalPlanCopiesRowLineageTraceStages(t *testing.T) {
 		Trace: &PhysicalRowLineageTrace{RootKeyBindKey: "root_key", Stages: []PhysicalRowLineageStageMatch{{
 			StageID: "related_one", Kind: PhysicalStageRelatedExpandOp,
 			StageRowIDBindKey: "row_one", RelatedTerminalIDBindKey: "terminal_one", RelatedRowKind: "RELATED",
+			IdentityKeyBindKeys: []string{"owner_key"},
 		}}},
 	}}}
 	cloned := ClonePhysicalPlan(plan)
 	cloned.StageSequence.RowLineageReturn.Trace.Stages[0].StageID = "changed"
+	cloned.StageSequence.RowLineageReturn.Trace.Stages[0].IdentityKeyBindKeys[0] = "changed_key"
 	if plan.StageSequence.RowLineageReturn.Trace.Stages[0].StageID != "related_one" {
 		t.Fatal("mutating a cloned trace changed the source Trace.Stages backing array")
+	}
+	if plan.StageSequence.RowLineageReturn.Trace.Stages[0].IdentityKeyBindKeys[0] != "owner_key" {
+		t.Fatal("mutating a cloned trace changed an owner key bind in the source plan")
 	}
 	if cloned.StageSequence.RowLineageReturn.Trace == plan.StageSequence.RowLineageReturn.Trace {
 		t.Fatal("cloned plan shares the row lineage Trace pointer")

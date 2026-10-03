@@ -336,7 +336,13 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 		return fmt.Errorf("row lineage requires a supported construction sequence over the direct source projection")
 	}
 	if terminal.Trace != nil {
-		if err := validatePhysicalRelatedRowLineageTrace(sequence, terminal, *terminal.Trace, sourceOperations, bindVars); err != nil {
+		var err error
+		if terminal.Trace.RootKeyBindKey == "" {
+			err = validatePhysicalConstructionPivotLineageTrace(sequence, terminal, *terminal.Trace, sourceOperations, bindVars)
+		} else {
+			err = validatePhysicalRelatedRowLineageTrace(sequence, terminal, *terminal.Trace, sourceOperations, bindVars)
+		}
+		if err != nil {
 			return err
 		}
 	} else {
@@ -377,6 +383,75 @@ func validatePhysicalStageRowLineage(sequence PhysicalStageSequence, terminal Ph
 	fetchLimit, fetchOK := bindVars[terminal.FetchLimitBindKey].(int)
 	if !offsetOK || offset < 0 || !limitOK || limit < 1 || limit > 100 || !fetchOK || fetchLimit != limit+1 {
 		return fmt.Errorf("row lineage requires a nonnegative offset and a page of 1 through 100 plus one row")
+	}
+	return nil
+}
+
+func validatePhysicalConstructionPivotLineageTrace(
+	sequence PhysicalStageSequence,
+	terminal PhysicalRowLineageReturn,
+	trace PhysicalRowLineageTrace,
+	sourceOperations []PhysicalOperation,
+	bindVars map[string]any,
+) error {
+	if sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 || len(trace.Stages) != 1 {
+		return fmt.Errorf("construction Pivot lineage requires one terminal typed owner over direct root identity")
+	}
+	stage := sequence.Stages[0]
+	match := trace.Stages[0]
+	pivot := stage.GroupedPivot
+	if stage.Kind != PhysicalStagePivotOp || pivot == nil || pivot.CodedCorrelation != nil ||
+		stage.InputStageID != sequence.SourceStageID || stage.ID != sequence.FinalStageID ||
+		match.StageID != stage.ID || match.Kind != PhysicalStagePivotOp ||
+		match.StageRowIDBindKey != terminal.RowIDBindKey || match.RelatedTerminalIDBindKey != "" ||
+		match.RelatedRowKind != "" || len(match.IdentityKeyBindKeys) != len(pivot.GroupKeys) {
+		return fmt.Errorf("construction Pivot lineage owner does not match its typed stage")
+	}
+	_, sourceType, err := validateCodedPivotSourceRoot(sourceOperations, bindVars)
+	if err != nil {
+		return fmt.Errorf("construction Pivot lineage source: %w", err)
+	}
+	if sourceType != terminal.ResourceType {
+		return fmt.Errorf("construction Pivot source resource %q differs from terminal resource %q", sourceType, terminal.ResourceType)
+	}
+	if _, ok := bindVars[match.StageRowIDBindKey].(string); !ok {
+		return fmt.Errorf("construction Pivot row identity bind %q must be a string", match.StageRowIDBindKey)
+	}
+	seen := map[string]bool{match.StageRowIDBindKey: true}
+	for index, key := range pivot.GroupKeys {
+		bindKey := match.IdentityKeyBindKeys[index]
+		if bindKey == "" || seen[bindKey] {
+			return fmt.Errorf("construction Pivot key bind %q is empty or duplicated", bindKey)
+		}
+		seen[bindKey] = true
+		if err := requireBind(bindVars, bindKey); err != nil {
+			return err
+		}
+		value := bindVars[bindKey]
+		valid := value == nil
+		if value != nil {
+			switch key.Kind {
+			case "STRING":
+				_, valid = value.(string)
+			case "INTEGER":
+				switch value.(type) {
+				case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+					valid = true
+				}
+			case "DECIMAL":
+				switch value.(type) {
+				case float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+					valid = true
+				}
+			case "BOOLEAN":
+				_, valid = value.(bool)
+			default:
+				valid = false
+			}
+		}
+		if !valid {
+			return fmt.Errorf("construction Pivot key bind %q has the wrong type for %q", bindKey, key.Kind)
+		}
 	}
 	return nil
 }
@@ -459,7 +534,7 @@ func validatePhysicalRelatedRowLineageTrace(sequence PhysicalStageSequence, term
 			if match.StageID != stage.ID || match.Kind != PhysicalStageRelatedExpandOp {
 				return fmt.Errorf("row lineage trace stage %d does not match authored stage %q", traceIndex, stage.ID)
 			}
-			if match.StageRowIDBindKey == "" || match.RelatedTerminalIDBindKey == "" ||
+			if match.StageRowIDBindKey == "" || match.RelatedTerminalIDBindKey == "" || len(match.IdentityKeyBindKeys) != 0 ||
 				(match.RelatedRowKind != "RELATED" && match.RelatedRowKind != "EMPTY") {
 				return fmt.Errorf("row lineage trace stage %q requires exact row and related terminal bindings", stage.ID)
 			}
@@ -1014,22 +1089,43 @@ func validatePhysicalStageRelatedSource(stage PhysicalConstructionStage, related
 		return fmt.Errorf("related output does not match its typed route and form")
 	}
 	subplan := relatedSourceProjectionSubplan(*relatedProjection.Expression, related.Form)
-	if len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil || subplan.Operations[1].Filter == nil {
-		return fmt.Errorf("related source route does not begin with its root contributor filter")
-	}
-	rootFilter := subplan.Operations[1].Filter.Predicate
-	rootVariable := subplan.Operations[0].CollectionScan.Variable
-	wantOperator, wantRight := "EQUALS", related.AnchorColumnID
-	if rootContributorColumn != "" {
-		wantRight = rootContributorColumn
-		if rootContributorColumn == "__loom_root_contributor_keys" {
-			wantOperator = "IN"
+	var rootVariable string
+	if rootContributorColumn == "__loom_root_contributor_keys" {
+		if len(subplan.Operations) == 0 || subplan.Operations[0].Kind != PhysicalKeySetLookupOp || subplan.Operations[0].KeySetLookup == nil {
+			return fmt.Errorf("related source contributor-set route must begin with an exact key-set lookup")
 		}
-	}
-	if rootFilter.Operator != wantOperator || rootFilter.Left.Variable != rootVariable ||
-		!reflect.DeepEqual(rootFilter.Left.Path, []string{"_key"}) || rootFilter.Right == nil ||
-		rootFilter.Right.Variable != stage.InputRowVariable || !reflect.DeepEqual(rootFilter.Right.Path, []string{wantRight}) {
-		return fmt.Errorf("related source root scan does not use the exact row anchor or compiler-owned contributor set")
+		lookup := subplan.Operations[0].KeySetLookup
+		if lookup.CollectionBindKey != "root_collection" || lookup.Keys.Variable != stage.InputRowVariable ||
+			!reflect.DeepEqual(lookup.Keys.Path, []string{rootContributorColumn}) ||
+			subplan.Operations[0].Source.ResourceType != related.RootResourceType {
+			return fmt.Errorf("related source key-set lookup does not use the exact compiler-owned root contributor set")
+		}
+		rootVariable = lookup.Variable
+		rootScope := physicalScopeResource{
+			description:         "related-source root contributor lookup",
+			projectVariables:    []string{rootVariable},
+			datasetGenVariables: []string{rootVariable},
+			authPaths:           []PhysicalValue{{Variable: rootVariable, Path: []string{physicalScopeAuthPathField}}},
+		}
+		windowEnd := physicalScopeWindowEnd(subplan.Operations, 1)
+		if err := validatePhysicalScopeWindow(subplan.Operations, 0, windowEnd, rootScope); err != nil {
+			return fmt.Errorf("related source key-set scope: %w", err)
+		}
+	} else {
+		if len(subplan.Operations) < 2 || subplan.Operations[0].CollectionScan == nil || subplan.Operations[1].Filter == nil {
+			return fmt.Errorf("related source route does not begin with its root contributor filter")
+		}
+		rootFilter := subplan.Operations[1].Filter.Predicate
+		rootVariable = subplan.Operations[0].CollectionScan.Variable
+		wantRight := related.AnchorColumnID
+		if rootContributorColumn != "" {
+			wantRight = rootContributorColumn
+		}
+		if rootFilter.Operator != "EQUALS" || rootFilter.Left.Variable != rootVariable ||
+			!reflect.DeepEqual(rootFilter.Left.Path, []string{"_key"}) || rootFilter.Right == nil ||
+			rootFilter.Right.Variable != stage.InputRowVariable || !reflect.DeepEqual(rootFilter.Right.Path, []string{wantRight}) {
+			return fmt.Errorf("related source root scan does not use the exact row anchor or scalar contributor")
+		}
 	}
 	if identityProjection == nil || identityProjection.Value.Variable != stage.InputRowVariable ||
 		len(identityProjection.Value.Path) != 1 || identityProjection.Value.Path[0] != stage.RowIdentityColumn {
@@ -1093,7 +1189,7 @@ func validatePhysicalStageCohortGroup(stage PhysicalConstructionStage, cohort Ph
 		if input.Name != cohort.RootContributorOutputColumn || input.Cardinality != "many" {
 			return fmt.Errorf("contributor input %q is not a root contributor set", cohort.ContributorInputColumn)
 		}
-	} else if input.Name != "_key" || input.Identity != true || input.Cardinality != "required_one" {
+	} else if input.Name != "_key" || input.Cardinality != "required_one" {
 		return fmt.Errorf("contributor input %q is not the direct root storage identity", cohort.ContributorInputColumn)
 	}
 	output, found := physicalStageColumnMap(stage.OutputColumns)[cohort.RootContributorOutputColumn]

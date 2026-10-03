@@ -3,6 +3,8 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
 	"reflect"
 	"strings"
 
@@ -91,6 +93,9 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		}
 		return RowLineageCapability{Available: true}
 	}
+	if rowLineageConstructionPivotPreimage(output) {
+		return RowLineageCapability{Available: true}
+	}
 	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil {
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_OPERATION_UNSUPPORTED", Operation: string(stage.Kind)}
 	}
@@ -106,6 +111,27 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 		return RowLineageCapability{ReasonCode: "ROW_LINEAGE_IDENTITY_UNAVAILABLE", Operation: string(stage.Kind)}
 	}
 	return RowLineageCapability{Available: true}
+}
+
+// rowLineageConstructionPivotPreimage admits only a direct terminal ordinary
+// construction Pivot. Its typed key tuple selects the multi-root preimage;
+// mixed-owner sequences remain unsupported until their owner chain is decoded.
+func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool {
+	sequence := output.Plan.StageSequence
+	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
+		!rowLineageHasDirectRootSource(output.Plan.Operations) || output.RowIdentity == nil {
+		return false
+	}
+	stage := sequence.Stages[0]
+	pivot := stage.GroupedPivot
+	return stage.ID != "" && stage.InputStageID == sequence.SourceStageID &&
+		stage.Kind == ir.PhysicalStagePivotOp && pivot != nil &&
+		pivot.CodedCorrelation == nil && len(pivot.GroupKeys) > 0 && len(pivot.Categories) > 0 &&
+		pivot.UnlistedCategoryPolicy == "ERROR" &&
+		(pivot.DuplicatePolicy == "ERROR" || pivot.DuplicatePolicy == "SUM" || pivot.DuplicatePolicy == "MIN" || pivot.DuplicatePolicy == "MAX") &&
+		(pivot.MissingCellPolicy == "ERROR" || pivot.MissingCellPolicy == "NULL") && stage.RowIdentityColumn != "" &&
+		stage.RowIdentityColumn == sequence.FinalRowIdentity && sequence.FinalStageID == stage.ID &&
+		output.RootResourceType != "" && rowLineageHasPhysicalIdentity(output, stage, sequence)
 }
 
 func rowLineageHasRelatedExpand(sequence *ir.PhysicalStageSequence) bool {
@@ -445,6 +471,23 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 			return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source has no validated root scope before its projection")
 		}
 		physical.Operations = append(physical.Operations[:anchorIndex], append([]ir.PhysicalOperation{rootFilter}, physical.Operations[anchorIndex:]...)...)
+	} else if rowLineageConstructionPivotPreimage(output) {
+		stage := physical.StageSequence.Stages[0]
+		match := ir.PhysicalRowLineageStageMatch{
+			StageID: stage.ID, Kind: ir.PhysicalStagePivotOp, StageRowIDBindKey: rowLineageRowIDBind,
+			IdentityKeyBindKeys: make([]string, len(stage.GroupedPivot.GroupKeys)),
+		}
+		for index := range stage.GroupedPivot.GroupKeys {
+			bindKey := fmt.Sprintf("row_lineage_pivot_group_key_%d", index)
+			physical.BindVars[bindKey] = nil
+			match.IdentityKeyBindKeys[index] = bindKey
+		}
+		if decoded, ok := decodeConstructionPivotLineageIdentity(rowID, *stage.GroupedPivot); ok {
+			for index, bindKey := range match.IdentityKeyBindKeys {
+				physical.BindVars[bindKey] = decoded[index]
+			}
+		}
+		lineageTrace = &ir.PhysicalRowLineageTrace{Stages: []ir.PhysicalRowLineageStageMatch{match}}
 	}
 	returnCount := 0
 	for index := range physical.Operations {
@@ -488,6 +531,76 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
 		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	}, nil
+}
+
+func decodeConstructionPivotLineageIdentity(rowID string, pivot ir.PhysicalGroupedPivot) ([]any, bool) {
+	decoder := json.NewDecoder(strings.NewReader(rowID))
+	decoder.UseNumber()
+	var identity []json.RawMessage
+	if decoder.Decode(&identity) != nil || len(identity) != len(pivot.GroupKeys)+2 {
+		return nil, false
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return nil, false
+	}
+	var marker, constructionID string
+	if json.Unmarshal(identity[0], &marker) != nil || marker != "GROUPED_PIVOT" ||
+		json.Unmarshal(identity[1], &constructionID) != nil || constructionID != pivot.ConstructionID {
+		return nil, false
+	}
+	keys := make([]any, len(pivot.GroupKeys))
+	for index, key := range pivot.GroupKeys {
+		var pair []json.RawMessage
+		if json.Unmarshal(identity[index+2], &pair) != nil || len(pair) != 2 {
+			return nil, false
+		}
+		var kind string
+		if json.Unmarshal(pair[0], &kind) != nil || kind != key.Kind {
+			return nil, false
+		}
+		value, valid := decodePivotLineageScalar(pair[1], kind)
+		if !valid {
+			return nil, false
+		}
+		keys[index] = value
+	}
+	return keys, true
+}
+
+func decodePivotLineageScalar(raw json.RawMessage, kind string) (any, bool) {
+	if string(raw) == "null" {
+		return nil, true
+	}
+	switch kind {
+	case "STRING":
+		var value string
+		if json.Unmarshal(raw, &value) != nil {
+			return nil, false
+		}
+		return value, true
+	case "INTEGER":
+		var value json.Number
+		if json.Unmarshal(raw, &value) != nil {
+			return nil, false
+		}
+		integer, err := value.Int64()
+		return integer, err == nil
+	case "DECIMAL":
+		var value json.Number
+		if json.Unmarshal(raw, &value) != nil {
+			return nil, false
+		}
+		decimal, err := value.Float64()
+		return decimal, err == nil && !math.IsInf(decimal, 0) && !math.IsNaN(decimal)
+	case "BOOLEAN":
+		var value bool
+		if json.Unmarshal(raw, &value) != nil {
+			return nil, false
+		}
+		return value, true
+	default:
+		return nil, false
+	}
 }
 
 func parseGroupRowsRowID(rowID string) (revisionID, groupID string, canonical bool) {

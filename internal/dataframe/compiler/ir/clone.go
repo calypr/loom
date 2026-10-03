@@ -85,6 +85,9 @@ func clonePhysicalStageSequence(sequence *PhysicalStageSequence) *PhysicalStageS
 		if sequence.RowLineageReturn.Trace != nil {
 			trace := *sequence.RowLineageReturn.Trace
 			trace.Stages = append([]PhysicalRowLineageStageMatch(nil), sequence.RowLineageReturn.Trace.Stages...)
+			for index := range trace.Stages {
+				trace.Stages[index].IdentityKeyBindKeys = append([]string(nil), trace.Stages[index].IdentityKeyBindKeys...)
+			}
 			rowLineage.Trace = &trace
 		}
 		copy.RowLineageReturn = &rowLineage
@@ -531,6 +534,11 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 	if operation.CollectionScan != nil {
 		collectionCopy := *operation.CollectionScan
 		copy.CollectionScan = &collectionCopy
+	}
+	if operation.KeySetLookup != nil {
+		lookupCopy := *operation.KeySetLookup
+		lookupCopy.Keys = clonePhysicalValue(operation.KeySetLookup.Keys)
+		copy.KeySetLookup = &lookupCopy
 	}
 	if operation.PopulationMappingReturn != nil {
 		mappingCopy := *operation.PopulationMappingReturn

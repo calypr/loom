@@ -261,13 +261,21 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 	if err != nil {
 		return CompiledRecipeOutput{}, err
 	}
+	if output.GroupRows != nil && !composedCohort {
+		baseOutputSchema = append(baseOutputSchema, CompiledOutputColumn{
+			ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,
+			SemanticPath: "construction_root_contributors:group_rows",
+			Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
+			RootContributorResourceType: output.RootResourceType,
+		})
+	}
 	var reshapeSchema []CompiledOutputColumn
 	var stageDescriptors []CompiledStageDescriptor
 	finalStageIdentity := ""
 	var derivedTypes map[string]derivedColumnMetadata
 	if output.GroupRows != nil && !composedCohort {
 		reshapeSchema = CloneCompiledOutputSchema(baseOutputSchema)
-		stageDescriptors, finalStageIdentity, err = describeGroupRowsStages(output, baseOutputSchema)
+		stageDescriptors, finalStageIdentity, err = describeGroupRowsStages(output, reshapeSchema)
 		if err != nil {
 			return CompiledRecipeOutput{}, err
 		}
@@ -309,6 +317,14 @@ func compileRecipeOutput(output semantic.OutputPlan, bindings recipe.RuntimeBind
 		if output.TableReshape != nil {
 			outputSchema = reconcileRecipeTableReshapeSchema(outputSchema, reshapeSchema)
 		}
+		if output.GroupRows != nil && !composedCohort {
+			outputSchema = append(outputSchema, CompiledOutputColumn{
+				ID: rootContributorSetColumn, Name: rootContributorSetColumn, Label: rootContributorSetColumn,
+				SemanticPath: "construction_root_contributors:group_rows",
+				Kind:         string(expression.KindString), Cardinality: string(expression.Many), Internal: true,
+				RootContributorResourceType: output.RootResourceType,
+			})
+		}
 	}
 	return CompiledRecipeOutput{
 		Name: output.Name, RootResourceType: output.RootResourceType,
@@ -349,7 +365,7 @@ func describeGroupRowsStages(output semantic.OutputPlan, outputSchema []Compiled
 	groupRows := CompiledStageDescriptor{
 		ID: "group_rows", InputStageID: recipe.ConstructionSourceProjectionID, Operation: "GROUP_ROWS",
 		Columns: CloneCompiledOutputSchema(outputSchema), RowIdentityColumn: rowIdentity,
-		Capabilities: withConstructionCapability(stageCapabilities(outputSchema, false), StageOperationCapability{Operation: recipe.ConstructionOperationKind("ROW_VALUES"), Supported: true}),
+		Capabilities: withConstructionCapability(stageCapabilities(outputSchema, hasRootContributorIdentity(outputSchema, output.RootResourceType)), StageOperationCapability{Operation: recipe.ConstructionOperationKind("ROW_VALUES"), Supported: true}),
 	}
 	return []CompiledStageDescriptor{source, groupRows}, rowIdentity, nil
 }

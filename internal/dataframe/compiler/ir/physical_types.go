@@ -81,6 +81,9 @@ const (
 	PhysicalPathExtendOp     PhysicalOperationKind = "PATH_EXTEND"
 	PhysicalGraphReturnOp    PhysicalOperationKind = "GRAPH_RETURN"
 	PhysicalCollectionScanOp PhysicalOperationKind = "COLLECTION_SCAN"
+	// PhysicalKeySetLookupOp iterates an exact array of resource _keys and
+	// resolves each document without scanning the whole collection.
+	PhysicalKeySetLookupOp PhysicalOperationKind = "KEY_SET_LOOKUP"
 	// PhysicalDocumentLookupOp reads one compiler-pinned resource collection
 	// using an exact active document identity captured from an earlier stage.
 	PhysicalDocumentLookupOp PhysicalOperationKind = "DOCUMENT_LOOKUP"
@@ -125,6 +128,7 @@ type PhysicalOperation struct {
 	PathExtend                *PhysicalPathExtend
 	GraphReturn               *PhysicalGraphReturn
 	CollectionScan            *PhysicalCollectionScan
+	KeySetLookup              *PhysicalKeySetLookup
 	DocumentLookup            *PhysicalDocumentLookup
 	PopulationMappingReturn   *PhysicalPopulationMappingReturn
 	CellTraceReturn           *PhysicalCellTraceReturn

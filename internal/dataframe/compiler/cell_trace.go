@@ -26,6 +26,9 @@ type CompiledCellTraceQuery struct {
 	OmissionColumn         string
 	IdentityPartsColumn    string
 	ExplicitIdentityColumn string
+	// ExplicitIdentityObject is set only when construction lowering proves the
+	// final explicit identity is a required compiler-owned object column.
+	ExplicitIdentityObject bool
 	RowIdentity            *spec.RowIdentity
 	ContributionOffset     int
 	ContributionLimit      int
@@ -143,10 +146,33 @@ func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *i
 	}
 	if lineage.RowIdentityColumn == "__loom_row_id" {
 		query.ExplicitIdentityColumn = ir.PhysicalCellTraceExplicitIdentityField
+		query.ExplicitIdentityObject, err = constructionCellTraceIdentityIsObject(physical.StageSequence, lineage.RowIdentityColumn)
+		if err != nil {
+			return CompiledCellTraceQuery{}, err
+		}
 	} else {
 		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
 	}
 	return query, nil
+}
+
+func constructionCellTraceIdentityIsObject(sequence *ir.PhysicalStageSequence, columnName string) (bool, error) {
+	if sequence == nil || strings.TrimSpace(columnName) == "" {
+		return false, fmt.Errorf("construction cell trace has no typed final identity")
+	}
+	for _, column := range sequence.FinalColumns {
+		if column.Name != columnName {
+			continue
+		}
+		if column.Kind != "object" {
+			return false, nil
+		}
+		if !column.Internal || !column.Identity || column.Cardinality != "required_one" {
+			return false, fmt.Errorf("construction cell trace object identity is not a required compiler-owned identity")
+		}
+		return true, nil
+	}
+	return false, fmt.Errorf("construction cell trace final identity column %q is missing", columnName)
 }
 
 func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir.PhysicalStageSequence, column string) (*ir.PhysicalCellTraceConstruction, error) {

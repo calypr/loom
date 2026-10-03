@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestConstructionPivotCellTraceUsesPreviewLiteralIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.IdentityPartsColumn != "" ||
+	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.IdentityPartsColumn != "" || trace.ExplicitIdentityObject ||
 		!strings.Contains(trace.Query, "__loom_construction_final_row.__loom_row_id") {
 		t.Fatalf("cell trace does not read Preview's explicit identity directly:\n%s\n%#v", trace.Query, trace)
 	}
@@ -103,6 +104,247 @@ func constructionPivotIdentityRecipeOutput() recipe.Output {
 			}},
 		},
 	}
+}
+
+func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.T) {
+	output := compileComposedCohortIdentityOutput(t)
+	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != "__loom_row_id" {
+		t.Fatalf("composed cohort identity = %#v, want its compiler-owned final identity", output.RowIdentity)
+	}
+	if output.Plan.StageSequence == nil || output.Plan.StageSequence.FinalRowIdentity != "__loom_row_id" {
+		t.Fatalf("composed cohort final stage identity = %#v", output.Plan.StageSequence)
+	}
+	var finalIdentity *ir.PhysicalStageColumn
+	for index := range output.Plan.StageSequence.FinalColumns {
+		column := &output.Plan.StageSequence.FinalColumns[index]
+		if column.Name == "__loom_row_id" {
+			finalIdentity = column
+			break
+		}
+	}
+	if finalIdentity == nil || finalIdentity.Kind != "object" || finalIdentity.Cardinality != "required_one" || !finalIdentity.Internal || !finalIdentity.Identity {
+		t.Fatalf("composed cohort Preview identity schema = %#v, want a required compiler-owned object", finalIdentity)
+	}
+
+	preview, err := aql.RenderPhysicalPlan(output.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(preview.Query, "__loom_row_id: {group_revision_id: revision._key, group_id:") {
+		t.Fatalf("ordinary Preview lowering does not emit its structured cohort identity:\n%s", preview.Query)
+	}
+	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField ||
+		!strings.Contains(trace.Query, ".__loom_row_id") {
+		t.Fatalf("ordinary CellTrace lowering does not read the same structured identity:\n%s\n%#v", trace.Query, trace)
+	}
+	if !trace.ExplicitIdentityObject || trace.RowIdentity == nil || trace.RowIdentity.Grain != spec.RowGrainGroups ||
+		len(trace.RowIdentity.Fields) != 1 || trace.RowIdentity.Fields[0] != "__loom_row_id" {
+		t.Fatalf("CellTrace did not retain the compiler's composed-cohort identity proof: %#v", trace)
+	}
+
+	previewObject := map[string]any{
+		"group_revision_id": "grouprev_cell_trace_identity",
+		"group_id":          "cohort-a",
+	}
+	previewRow := map[string]any{"__loom_row_id": previewObject}
+	if err := ensureStableRowIdentity(previewRow, output.RowIdentity, preview.BindVars); err != nil {
+		t.Fatalf("normalize Preview identity: %v", err)
+	}
+	if got := previewRow["__loom_row_id"]; fmt.Sprint(got) != fmt.Sprint(previewObject) {
+		t.Fatalf("Preview changed its already-published object identity: %#v", got)
+	}
+	previewIdentityBytes, err := json.Marshal(previewRow["__loom_row_id"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewRowID := string(previewIdentityBytes) // Preview GraphQL marshals row maps; the client later JSON.stringify's the parsed object.
+	for _, rowID := range []string{
+		previewRowID,
+		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,
+	} {
+		engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			return visit(map[string]any{
+				trace.ExplicitIdentityColumn: previewRow["__loom_row_id"],
+				trace.ValueColumn:            "Pair",
+				trace.StatusColumn:           "VALUE",
+				trace.ContributionsColumn:    []any{},
+				trace.HasMoreColumn:          false,
+				trace.OmissionColumn:         "",
+			})
+		}}
+		result, traceErr := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+			Output: "cohort_cell_trace_identity", RowID: rowID, Column: "group_label", Limit: 10,
+		})
+		if traceErr != nil || result.Status != CellTraceValue || result.Value != "Pair" {
+			t.Fatalf("CellTrace did not match Preview object %s: result=%#v err=%v", rowID, result, traceErr)
+		}
+	}
+}
+
+func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *testing.T) {
+	output := compileComposedCohortIdentityOutput(t)
+	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "group_label", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		rowID   string
+		wantErr string
+		queried bool
+	}{
+		{name: "malformed", rowID: `{"group_revision_id":`, wantErr: "invalid object identity"},
+		{name: "duplicate key", rowID: `{"group_id":"attacker","group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`, wantErr: "invalid object identity"},
+		{name: "extra key", rowID: `{"group_revision_id":"grouprev_cell_trace_identity","group_id":"cohort-a","extra":"forged"}`, wantErr: "invalid object identity"},
+		{name: "missing key", rowID: `{"group_revision_id":"grouprev_cell_trace_identity"}`, wantErr: "invalid object identity"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			queried := false
+			engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				queried = true
+				return visit(map[string]any{
+					trace.ExplicitIdentityColumn: map[string]any{
+						"group_revision_id": "grouprev_cell_trace_identity",
+						"group_id":          "cohort-a",
+					},
+				})
+			}}
+			_, traceErr := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+				Output: "cohort_cell_trace_identity", RowID: test.rowID, Column: "group_label", Limit: 10,
+			})
+			if traceErr == nil || !strings.Contains(traceErr.Error(), test.wantErr) {
+				t.Fatalf("CellTrace error = %v, want it to contain %q", traceErr, test.wantErr)
+			}
+			if queried != test.queried {
+				t.Fatalf("query invoked = %t, want %t", queried, test.queried)
+			}
+		})
+	}
+}
+
+func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
+	output := compileComposedCohortPivotOutput(t)
+	if output.Plan.StageSequence == nil || output.Plan.StageSequence.FinalRowIdentity != "__loom_row_id" {
+		t.Fatalf("cohort Pivot final identity = %#v", output.Plan.StageSequence)
+	}
+	var finalIdentity *ir.PhysicalStageColumn
+	for index := range output.Plan.StageSequence.FinalColumns {
+		column := &output.Plan.StageSequence.FinalColumns[index]
+		if column.Name == "__loom_row_id" {
+			finalIdentity = column
+			break
+		}
+	}
+	if finalIdentity == nil || finalIdentity.Kind != "string" || finalIdentity.Cardinality != "required_one" || !finalIdentity.Internal || !finalIdentity.Identity {
+		t.Fatalf("cohort Pivot Preview identity schema = %#v, want a required compiler-owned scalar", finalIdentity)
+	}
+	trace, err := compiler.CompileCellTraceOutputWithPolicy(output, "ordinal_pair", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || trace.ExplicitIdentityObject ||
+		trace.RowIdentity == nil || len(trace.RowIdentity.Fields) != 1 || trace.RowIdentity.Fields[0] != "__loom_row_id" {
+		t.Fatalf("cohort Pivot CellTrace identity = %#v, want scalar explicit identity", trace)
+	}
+	rowID := `["GROUPED_PIVOT","cohort_pivot_identity",["STRING","pair"]]`
+	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		return visit(map[string]any{
+			trace.ExplicitIdentityColumn: rowID,
+			trace.ValueColumn:            int64(2),
+			trace.StatusColumn:           "VALUE",
+			trace.ContributionsColumn:    []any{},
+			trace.HasMoreColumn:          false,
+			trace.OmissionColumn:         "",
+		})
+	}}
+	result, err := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+		Output: "cohort_cell_trace_identity", RowID: rowID, Column: "ordinal_pair", Limit: 10,
+	})
+	if err != nil || result.Status != CellTraceValue || result.Value != int64(2) {
+		t.Fatalf("CellTrace scalar cohort-Pivot identity = %#v err=%v", result, err)
+	}
+}
+
+func compileComposedCohortIdentityOutput(t *testing.T) lower.CompiledRecipeOutput {
+	return compileComposedCohortOutput(t, false)
+}
+
+func compileComposedCohortPivotOutput(t *testing.T) lower.CompiledRecipeOutput {
+	return compileComposedCohortOutput(t, true)
+}
+
+func compileComposedCohortOutput(t *testing.T, appendPivot bool) lower.CompiledRecipeOutput {
+	t.Helper()
+	selectedID, selectedGroup := "a", "pair"
+	output := recipe.Output{
+		Name: "cohort_cell_trace_identity", RootResourceType: "Patient", RowGrain: "groups",
+		Fields: []recipe.Field{{Name: "id", ColumnID: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Construction: &recipe.Construction{Version: 1,
+			SourceColumns: []recipe.StageColumn{{ID: "id", Name: "id", Type: "string"}},
+			Steps: []recipe.ConstructionStep{
+				{
+					ID: "keep_a", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedID}},
+					}},
+					Outputs: []recipe.StageColumn{{ID: "id", Name: "id", Type: "string"}},
+				},
+				{
+					ID: "keep_pair", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+						ColumnID: "group_id", Operator: recipe.FilterEquals, Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &selectedGroup}},
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "group_id", Name: "group_id", Type: "string"},
+						{ID: "group_label", Name: "group_label", Type: "string"},
+						{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"},
+						{ID: "members", Name: "members", Type: "array"},
+						{ID: "id", Name: "id", Type: "array"},
+					},
+				},
+			},
+		},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_cell_trace_identity", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED", AfterStepID: "keep_a",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "id", Policy: recipe.ConstructionRowValueAll}},
+		},
+	}
+	if appendPivot {
+		category := "pair"
+		output.Construction.Steps = append(output.Construction.Steps, recipe.ConstructionStep{
+			ID: "cohort_pivot", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_pair"}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+				ConstructionID: "cohort_pivot_identity", GroupKeyIDs: []string{"group_id"},
+				CategoryColumnID: "group_label", ValueColumnID: "group_ordinal",
+				Categories: []recipe.ConstructionPivotCategory{{
+					Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &category}, OutputColumnID: "ordinal_pair_id",
+				}},
+				DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+				UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+			}},
+			Outputs: []recipe.StageColumn{{ID: "group_id", Name: "group_id", Type: "string"}, {ID: "ordinal_pair_id", Name: "ordinal_pair", Type: "integer"}},
+		})
+	}
+	plan, err := semantic.BuildRecipePlan(recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "cohort identity mismatch", TranslationVersion: "test",
+		Outputs: []recipe.Output{output},
+	}, recipe.RuntimeBindings{Project: "project-a", SelectionProject: "project-a", DatasetGeneration: "generation-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "project-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled.Outputs[0]
 }
 
 func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *testing.T) {

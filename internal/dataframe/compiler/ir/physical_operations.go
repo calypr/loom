@@ -425,6 +425,15 @@ type PhysicalCollectionScan struct {
 	CollectionBindKey string
 }
 
+// PhysicalKeySetLookup iterates an exact compiler-owned set of document keys
+// and resolves each document from one compiler-pinned collection.
+type PhysicalKeySetLookup struct {
+	Variable          string
+	KeyVariable       string
+	CollectionBindKey string
+	Keys              PhysicalValue
+}
+
 // PhysicalDocumentLookup resolves an exact hidden _id in one compiler-chosen
 // resource collection. The renderer verifies the resolved _id still equals
 // the captured value before later scope filters or traversals can use it.

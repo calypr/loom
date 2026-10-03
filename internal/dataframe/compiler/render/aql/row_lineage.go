@@ -12,6 +12,10 @@ func (r *physicalPlanRenderer) renderConstructionRowLineage(sourceQuery string, 
 		return RenderedPhysicalPlan{}, fmt.Errorf("row lineage requires a construction stage")
 	}
 	if terminal.Trace != nil {
+		if len(stages) == 1 && stages[0].Kind == ir.PhysicalStagePivotOp &&
+			len(terminal.Trace.Stages) == 1 && terminal.Trace.Stages[0].Kind == ir.PhysicalStagePivotOp {
+			return r.renderConstructionPivotRowLineage(sourceQuery, stages[0], terminal.Trace.Stages[0], terminal)
+		}
 		return r.renderComposedRelatedRowLineage(sourceQuery, stages, terminal)
 	}
 	stage := stages[0]

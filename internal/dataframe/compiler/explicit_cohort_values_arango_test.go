@@ -16,6 +16,287 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testing.T) {
+	ctx, client := openConstructionReshapeArango(t)
+	collections := []store.CollectionSpec{
+		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
+		{Name: "loom_explorer_explicit_group_revisions"}, {Name: "loom_explorer_selections"},
+		{Name: "loom_explorer_explicit_group_definitions"}, {Name: "loom_explorer_explicit_group_memberships"},
+		{Name: "loom_explorer_selection_members"},
+	}
+	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+		t.Fatal(err)
+	}
+	project, generation := "loom_cohort_related_append_"+uuid.NewString(), "cohort-related-generation-"+uuid.NewString()
+	revision, selection := project+"_revision", project+"_selection"
+	owned := map[string][]string{}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for collection, keys := range owned {
+			if len(keys) == 0 {
+				continue
+			}
+			query := fmt.Sprintf("FOR d IN %s FILTER d._key IN @keys REMOVE d IN %s", collection, collection)
+			if err := client.ExecuteAQL(cleanupCtx, query, map[string]any{"keys": keys}); err != nil {
+				t.Errorf("remove owned related-cohort fixtures from %s: %v", collection, err)
+			}
+		}
+	})
+	insert := func(collection string, documents ...map[string]any) {
+		t.Helper()
+		raw := make([]json.RawMessage, 0, len(documents))
+		for _, document := range documents {
+			key, ok := document["_key"].(string)
+			if !ok || key == "" {
+				t.Fatalf("fixture document in %s has no key: %#v", collection, document)
+			}
+			owned[collection] = append(owned[collection], key)
+			encoded, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw = append(raw, encoded)
+		}
+		if err := client.InsertBatchRaw(ctx, collection, raw, false, "document"); err != nil {
+			t.Fatalf("insert %s related-cohort fixture: %v", collection, err)
+		}
+	}
+	insert("loom_explorer_explicit_group_revisions", map[string]any{
+		"_key": revision, "state": "COMPLETE", "project": project, "generation": generation, "resourceType": "Patient",
+		"sourceSelectionRevisionId": selection, "scopeDigest": "scope-current", "sourceMembershipDigest": "members-current",
+	})
+	insert("loom_explorer_selections", map[string]any{
+		"_key": selection, "complete": true, "project": project, "generation": generation, "resourceType": "Patient",
+		"scopeDigest": "scope-current", "membershipDigest": "members-current",
+	})
+	for ordinal, group := range []string{"many", "one", "zero"} {
+		insert("loom_explorer_explicit_group_definitions", map[string]any{
+			"_key": project + "_definition_" + group, "revisionId": revision, "project": project,
+			"groupId": group, "label": group, "ordinal": ordinal,
+		})
+	}
+	const missingID, wrongProjectID, wrongGenerationID, filteredID, deniedID = "missing", "wrong_project", "wrong_generation", "filtered", "denied"
+	assigned := []string{"a", "b", filteredID, deniedID, missingID, wrongProjectID, wrongGenerationID, "c", "unassigned"}
+	selectionMembers := make([]map[string]any, 0, len(assigned))
+	for _, id := range assigned {
+		selectionMembers = append(selectionMembers, map[string]any{
+			"_key": project + "_selected_" + id, "selectionId": selection, "project": project,
+			"generation": generation, "resourceType": "Patient", "id": id,
+		})
+	}
+	insert("loom_explorer_selection_members", selectionMembers...)
+	for _, id := range []string{"a", "b", filteredID, deniedID, missingID, wrongProjectID, wrongGenerationID} {
+		insert("loom_explorer_explicit_group_memberships", map[string]any{
+			"_key": project + "_membership_many_" + id, "revisionId": revision, "project": project,
+			"generation": generation, "resourceType": "Patient", "id": id, "groupId": "many",
+			"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": id},
+		})
+	}
+	insert("loom_explorer_explicit_group_memberships", map[string]any{
+		"_key": project + "_membership_one_c", "revisionId": revision, "project": project,
+		"generation": generation, "resourceType": "Patient", "id": "c", "groupId": "one",
+		"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": "c"},
+	})
+	patient := func(id, resourceProject, resourceGeneration, authPath string) map[string]any {
+		return map[string]any{
+			"_key": project + "_patient_" + id + "_" + resourceProject + "_" + resourceGeneration,
+			"id":   id, "project": resourceProject, "project_id": resourceProject, "dataset_generation": resourceGeneration,
+			"resourceType": "Patient", "auth_resource_path": authPath, "payload": map[string]any{"id": id, "resourceType": "Patient"},
+		}
+	}
+	for _, id := range []string{"a", "b", filteredID, "c", "unassigned"} {
+		insert("Patient", patient(id, project, generation, "/allowed"))
+	}
+	insert("Patient", patient(deniedID, project, generation, "/denied"),
+		patient(wrongProjectID, project+"_foreign", generation, "/allowed"),
+		patient(wrongGenerationID, project, generation+"_old", "/allowed"))
+
+	observation := func(id, resourceProject, resourceGeneration, authPath string) map[string]any {
+		return map[string]any{
+			"_key": project + "_observation_" + id, "id": id, "project": resourceProject, "project_id": resourceProject,
+			"dataset_generation": resourceGeneration, "resourceType": "Observation", "auth_resource_path": authPath,
+			"payload": map[string]any{"id": id, "resourceType": "Observation"},
+		}
+	}
+	for _, id := range []string{"a1", "a2", "b1", "filtered1", "c1", "unassigned1", "denied_target", "edge_denied"} {
+		auth := "/allowed"
+		if id == "denied_target" {
+			auth = "/denied"
+		}
+		insert("Observation", observation(id, project, generation, auth))
+	}
+	insert("Observation", observation("wrong_generation_target", project, generation+"_old", "/allowed"),
+		observation("wrong_project_target", project+"_foreign", generation, "/allowed"))
+	edge := func(key, observationID, patientID, edgeAuth string) map[string]any {
+		return relatedCountEdge(project, generation, key,
+			"Observation/"+project+"_observation_"+observationID,
+			"Patient/"+project+"_patient_"+patientID+"_"+project+"_"+generation,
+			"subject_Patient", "Observation", "Patient", edgeAuth)
+	}
+	edges := []map[string]any{
+		edge("a1", "a1", "a", "/allowed"), edge("a1_duplicate", "a1", "a", "/allowed"),
+		edge("a2", "a2", "a", "/allowed"), edge("b1", "b1", "b", "/allowed"),
+		edge("filtered", "filtered1", filteredID, "/allowed"), edge("c1", "c1", "c", "/allowed"),
+		edge("unassigned", "unassigned1", "unassigned", "/allowed"),
+		edge("denied_root", "a1", deniedID, "/allowed"),
+		edge("denied_target", "denied_target", "a", "/allowed"),
+		edge("denied_edge", "edge_denied", "a", "/denied"),
+		edge("wrong_generation", "wrong_generation_target", "a", "/allowed"),
+		edge("wrong_project", "wrong_project_target", "a", "/allowed"),
+	}
+	insert("fhir_edge", edges...)
+
+	bindings := recipe.RuntimeBindings{
+		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
+	}
+	groupRows := func(after string) *recipe.GroupRows {
+		return &recipe.GroupRows{
+			RevisionID: revision, UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED", AfterStepID: after,
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "patient_id", Policy: recipe.ConstructionRowValueAll}},
+		}
+	}
+	base := recipe.Output{
+		Name: "Cohort", RootResourceType: "Patient", RowGrain: "groups",
+		Fields:    []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		GroupRows: groupRows(""),
+	}
+	relatedStep := func(input recipe.ConstructionInputRef) recipe.ConstructionStep {
+		return recipe.ConstructionStep{
+			ID: "add_observation_count", Inputs: []recipe.ConstructionInputRef{input},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionRelatedSourceOp, RelatedSource: &recipe.ConstructionRelatedSource{
+				AnchorColumnID: "__loom_row_id", ChoiceID: "patient-observation-choice", SourceOccurrenceID: "observation-node",
+				Source:            recipe.ConstructionRelatedFieldSource{CandidateID: "observation-id", NodeID: "observation-node", ResourceType: "Observation", Path: "Observation.id", Cardinality: "required_one", LogicalType: "string"},
+				Route:             []recipe.ConstructionRelatedRouteStep{{EdgeID: "patient-observation", FromNodeID: "patient-node", ToNodeID: "observation-node", FromResourceType: "Patient", ToResourceType: "Observation", Relationship: "subject_Patient", StorageDirection: "INBOUND", MatchMode: "OPTIONAL"}},
+				ContributorPolicy: "ALL_MATCHES", Form: "COUNT", OutputColumnID: "observation-count",
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "group_id", Name: "group_id"}, {ID: "group_label", Name: "group_label"},
+				{ID: "group_ordinal", Name: "group_ordinal"}, {ID: "members", Name: "members"},
+				{ID: "patient_id", Name: "patient_id"},
+				{ID: "observation-count", Name: "observation_count"},
+			},
+		}
+	}
+	withRelatedCount := func(output recipe.Output, steps []recipe.ConstructionStep, input recipe.ConstructionInputRef) recipe.Output {
+		updated := output
+		construction := recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}}}
+		construction.Steps = append(append([]recipe.ConstructionStep(nil), steps...), relatedStep(input))
+		updated.Construction = &construction
+		return updated
+	}
+	execute := func(output recipe.Output) []map[string]any {
+		t.Helper()
+		compiled := lowerConstructionOutput(t, output, bindings)
+		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("compile cohort output %q: %v", output.Name, err)
+		}
+		return executeReshapeOracleQuery(t, ctx, client, query)
+	}
+	assertRelatedCounts := func(rows []map[string]any, expected map[string]float64) {
+		t.Helper()
+		counts := make(map[string]float64, len(rows))
+		for _, row := range rows {
+			if count, ok := row["observation_count"]; ok {
+				counts[row["group_id"].(string)] = count.(float64)
+			}
+		}
+		if !reflect.DeepEqual(counts, expected) {
+			t.Fatalf("related COUNT values = %#v, want %#v (rows %#v)", counts, expected, rows)
+		}
+	}
+	assertSameMembers := func(before, after []map[string]any, name string) {
+		t.Helper()
+		membersByGroup := func(rows []map[string]any) map[string]any {
+			result := make(map[string]any, len(rows))
+			for _, row := range rows {
+				result[row["group_id"].(string)] = row["members"]
+			}
+			return result
+		}
+		if !reflect.DeepEqual(membersByGroup(before), membersByGroup(after)) {
+			t.Fatalf("%s changed explicit cohort member rows: before=%#v after=%#v", name, membersByGroup(before), membersByGroup(after))
+		}
+		valuesByGroup := func(rows []map[string]any) map[string]any {
+			result := make(map[string]any, len(rows))
+			for _, row := range rows {
+				result[row["group_id"].(string)] = row["patient_id"]
+			}
+			return result
+		}
+		if !reflect.DeepEqual(valuesByGroup(before), valuesByGroup(after)) {
+			t.Fatalf("%s changed authored cohort row values: before=%#v after=%#v", name, valuesByGroup(before), valuesByGroup(after))
+		}
+	}
+	assertFixtureMembers := func(rows []map[string]any, filtered bool) {
+		t.Helper()
+		ids := make(map[string][]string, len(rows))
+		for _, row := range rows {
+			members, ok := row["members"].([]any)
+			if !ok {
+				t.Fatalf("group %q members = %#v", row["group_id"], row["members"])
+			}
+			groupID := row["group_id"].(string)
+			ids[groupID] = []string{}
+			for _, raw := range members {
+				member := raw.(map[string]any)
+				identity := member["source_identity"].(map[string]any)
+				id := identity["id"].(string)
+				ids[groupID] = append(ids[groupID], id)
+				if id == missingID || id == wrongProjectID || id == wrongGenerationID {
+					if member["payload"] != nil {
+						t.Fatalf("out-of-scope/missing cohort member %q leaked payload %#v", id, member["payload"])
+					}
+				}
+				if id == deniedID {
+					t.Fatalf("unauthorized root member appeared in group %q: %#v", row["group_id"], member)
+				}
+				if filtered && id == filteredID {
+					t.Fatalf("pre-cohort filter did not exclude existing member %q", id)
+				}
+			}
+		}
+		many := []string{"a", "b", missingID, wrongGenerationID, wrongProjectID}
+		if !filtered {
+			many = []string{"a", "b", filteredID, missingID, wrongGenerationID, wrongProjectID}
+		} else {
+			many = []string{"a", "b"}
+		}
+		want := map[string][]string{"many": many, "one": {"c"}, "zero": {}, "__loom_unassigned__": {"unassigned"}}
+		if !reflect.DeepEqual(ids, want) {
+			t.Fatalf("cohort fixture members = %#v, want %#v", ids, want)
+		}
+	}
+
+	baselineRows := execute(base)
+	candidate := withRelatedCount(base, nil, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID})
+	candidateRows := execute(candidate)
+	assertSameMembers(baselineRows, candidateRows, "adding related COUNT")
+	assertFixtureMembers(candidateRows, false)
+	assertRelatedCounts(candidateRows, map[string]float64{"many": 4, "one": 1, "zero": 0, "__loom_unassigned__": 1})
+
+	filterValue := filteredID
+	filteredSteps := []recipe.ConstructionStep{{
+		ID: "exclude_filtered", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+		Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+			ColumnID: "patient_id", Operator: recipe.FilterNotEquals,
+			Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+		}},
+		Outputs: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}},
+	}}
+	filteredBase := base
+	filteredBase.GroupRows = groupRows("exclude_filtered")
+	filteredBase.Construction = &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "patient_id", Name: "patient_id"}}, Steps: filteredSteps}
+	filteredBaselineRows := execute(filteredBase)
+	filteredCandidate := withRelatedCount(filteredBase, filteredSteps, recipe.ConstructionInputRef{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID})
+	filteredRows := execute(filteredCandidate)
+	assertSameMembers(filteredBaselineRows, filteredRows, "adding related COUNT after a filtered cohort")
+	assertFixtureMembers(filteredRows, true)
+	assertRelatedCounts(filteredRows, map[string]float64{"many": 3, "one": 1, "zero": 0, "__loom_unassigned__": 1})
+}
+
 func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	collections := []string{"Patient", "loom_explorer_explicit_group_revisions", "loom_explorer_selections", "loom_explorer_explicit_group_definitions", "loom_explorer_explicit_group_memberships", "loom_explorer_selection_members"}
@@ -194,8 +475,25 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		got := executeReshapeOracleQuery(t, ctx, client, query)
 		if len(got) != 1 || got[0]["group_id"] != "pair" ||
 			!reflect.DeepEqual(got[0]["ids"], []any{"a", "b"}) ||
-			!reflect.DeepEqual(got[0]["identifiers"], []any{"shared", "value-0", "value-1"}) || len(got[0]["members"].([]any)) != 2 {
+			!reflect.DeepEqual(got[0]["identifiers"], []any{"shared", "value-0", "value-1"}) || len(got[0]["members"].([]any)) != 3 {
 			t.Fatalf("post-cohort FILTER lost the pinned cohort's computed values: %#v", got)
+		}
+		memberIDs := make([]string, 0, 3)
+		missingNullPayload := false
+		for _, rawMember := range got[0]["members"].([]any) {
+			member := rawMember.(map[string]any)
+			identity := member["source_identity"].(map[string]any)
+			id := identity["id"].(string)
+			memberIDs = append(memberIDs, id)
+			if id == "denied" {
+				t.Fatalf("post-cohort FILTER retained an unauthorized member: %#v", got[0]["members"])
+			}
+			if id == "missing" && member["payload"] == nil {
+				missingNullPayload = true
+			}
+		}
+		if !reflect.DeepEqual(memberIDs, []string{"a", "b", "missing"}) || !missingNullPayload {
+			t.Fatalf("post-cohort FILTER changed exact pinned member identities/null payload: ids=%#v members=%#v", memberIDs, got[0]["members"])
 		}
 	})
 	t.Run("one_disagreement", func(t *testing.T) {

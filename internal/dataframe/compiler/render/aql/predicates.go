@@ -308,6 +308,17 @@ func (r *physicalPlanRenderer) renderSubplan(subplan ir.PhysicalSubplan, indent 
 		switch operation.Kind {
 		case ir.PhysicalCollectionScanOp:
 			lines = append(lines, fmt.Sprintf("%sFOR %s IN @@%s", indent+"  ", operation.CollectionScan.Variable, operation.CollectionScan.CollectionBindKey))
+		case ir.PhysicalKeySetLookupOp:
+			lookup := operation.KeySetLookup
+			keys, err := r.renderValue(lookup.Keys)
+			if err != nil {
+				return "", fmt.Errorf("subplan operation %d key set: %w", index, err)
+			}
+			lines = append(lines,
+				fmt.Sprintf("%sFOR %s IN SORTED_UNIQUE(%s)", indent+"  ", lookup.KeyVariable, keys),
+				fmt.Sprintf("%sLET %s = DOCUMENT(@@%s, %s)", indent+"    ", lookup.Variable, lookup.CollectionBindKey, lookup.KeyVariable),
+				fmt.Sprintf("%sFILTER %s != null AND %s._key == %s", indent+"    ", lookup.Variable, lookup.Variable, lookup.KeyVariable),
+			)
 		case ir.PhysicalDocumentLookupOp:
 			rendered, err := r.renderDocumentLookup(*operation.DocumentLookup, indent+"  ")
 			if err != nil {

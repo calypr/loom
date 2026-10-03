@@ -59,6 +59,9 @@ type PhysicalRowLineageStageMatch struct {
 	StageRowIDBindKey        string
 	RelatedTerminalIDBindKey string
 	RelatedRowKind           string
+	// IdentityKeyBindKeys carries decoded keys for a GROUP or PIVOT preimage
+	// owner, in the order of that owner's typed key list.
+	IdentityKeyBindKeys []string
 }
 
 type PhysicalStageColumn struct {
@@ -146,6 +149,7 @@ type PhysicalStageCohortGroup struct {
 	ContributorInputMany        bool
 	RootContributorOutputColumn string
 	RootContributorVariable     string
+	PreserveMissingMembers      bool
 }
 
 // PhysicalStageRowValue reduces values from contributors retained by a shape

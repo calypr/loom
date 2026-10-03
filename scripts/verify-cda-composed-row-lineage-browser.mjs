@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -11,8 +12,11 @@ import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrows
 // work is integrated. This script is restricted to the local no-auth fixture.
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
-const explorer = `composed-row-lineage-${Date.now()}-${randomUUID().slice(0, 8)}`;
-const evidence = process.argv[2] ?? `/tmp/loom-composed-row-lineage-${Date.now()}`;
+const lineageMode = process.env.LOOM_COMPOSED_LINEAGE_MODE ?? 'COMPOSED_RELATED';
+assert(['COMPOSED_RELATED', 'DIRECT_PIVOT'].includes(lineageMode), `Unsupported LOOM_COMPOSED_LINEAGE_MODE: ${lineageMode}`);
+const directPivot = lineageMode === 'DIRECT_PIVOT';
+const explorer = `${directPivot ? 'direct-pivot-lineage' : 'composed-row-lineage'}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+const evidence = process.argv[2] ?? `/tmp/loom-${directPivot ? 'direct-pivot' : 'composed-row-lineage'}-${Date.now()}`;
 const rootDiscoveryLimit = 2000;
 const witnessPathsLimit = 2;
 const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
@@ -29,11 +33,11 @@ const arangoContainer = process.env.LOOM_ARANGO_CONTAINER ?? 'loom-dev-6d7df93d6
 const base = `/api/v1/projects/${project}/explorers/${explorer}/authoring/v2`;
 const explorersPath = `/api/v1/projects/${project}/explorers`;
 const report = {
-  explorer, project, generation, scope: {
+  explorer, project, generation, lineageMode, scope: {
     apiOrigin: localAPI.origin, uiOrigin: localUI.origin,
     authorization: 'local no-auth unrestricted API',
     oracleScope: 'project + dataset generation + explicit member root IDs',
-  }, routeContract: [
+  }, routeContract: directPivot ? ['Observation direct membership roots', 'ordinary Pivot grouped by Observation FHIR resource ID, categorized by Observation.status'] : [
     'Specimen -[subject]-> Patient',
     'Patient <-[subject]- Observation -[specimen]-> Specimen',
     'Specimen -[subject]-> Patient',
@@ -42,7 +46,7 @@ const report = {
 };
 await mkdir(evidence, { recursive: true });
 const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
-let browser, builder, outputId;
+let browser, builder, outputId, apiBuildFreeze;
 const nativeById = new Map();
 const pendingNetworkReads = new Set();
 const oracleQueries = [];
@@ -334,7 +338,388 @@ const expand = async ({ name, targetType, routeLabel, expectedRows }) => {
   await apply(expectedRows);
 };
 
+const runDirectPivot = async () => {
+  const sourceQuery = `FOR observation IN Observation FILTER ${scopedDocument('observation')} AND IS_STRING(observation.payload.status) AND observation.payload.status != "" SORT observation._key LIMIT 2000 RETURN {id:observation.id,_id:observation._id,_key:observation._key,status:observation.payload.status,project:observation.project,dataset_generation:observation.dataset_generation}`;
+  const candidates = rawQuery(sourceQuery);
+  assert(candidates.length >= 2, 'The scoped raw Observation scan must find at least two status-bearing records');
+  const candidatesByStatus = new Map();
+  for (const candidate of candidates) {
+    assert(candidate.project === project && candidate.dataset_generation === generation);
+    const matching = candidatesByStatus.get(candidate.status) ?? [];
+    if (matching.length < 2) matching.push(candidate);
+    candidatesByStatus.set(candidate.status, matching);
+  }
+  const chosen = [...candidatesByStatus.values()].find(records => records.length === 2);
+  assert(chosen, 'The bounded CDA scan must find two distinct Observation IDs with one shared status category');
+  const members = [...chosen].sort((left, right) => left.id.localeCompare(right.id));
+  assert.notEqual(members[0].id, members[1].id);
+  const categoryKey = { kind: 'STRING', string: members[0].status };
+  const baselineRows = members.map(member => [member.id, member.status]);
+  const expectedRows = members.map(member => [member.id, member.id]);
+  const expectedContributorByID = new Map(members.map(member => [member.id, ['Observation', member.id, member._key]]));
+  report.oracle = {
+    query: sourceQuery,
+    scope: 'project + dataset generation + exact two-member Observation selection',
+    candidateScanCount: candidates.length,
+    members,
+    typedCategories: [categoryKey],
+    groupedCategoryMemberships: [{ groupKey: members.map(member => member.id), category: categoryKey, sourceIDs: members.map(member => member.id) }],
+    expectedRows,
+    expectedContributors: [...expectedContributorByID.values()],
+    rawQueryLog: oracleQueries,
+  };
+
+  await api(explorersPath, { name: explorer, title: 'Direct Pivot source-record inspection QA' });
+  builder = await api(base + '/builder');
+  assert.equal(builder.workspace?.documents?.length ?? 0, 0, 'Direct Pivot verifier must own a fresh empty Explorer');
+  assert.equal(builder.catalog.generation, generation);
+  const node = builder.catalog.nodes.find(candidate => candidate.resourceType === 'Observation');
+  assert(node, 'Catalog must expose Observation as a direct source root');
+  await command([{ type: 'CREATE_TABLE', title: 'Direct Pivot lineage', rootNodeId: node.nodeId }]);
+  outputId = builder.workspace.documents[0].output.id;
+  const idField = builder.catalog.candidates.find(candidate => candidate.nodeId === node.nodeId && candidate.fieldPath === 'id');
+  const statusField = builder.catalog.candidates.find(candidate => candidate.nodeId === node.nodeId && candidate.fieldPath === 'status');
+  assert(idField && statusField, 'Direct Pivot requires the independently witnessed Observation.id and Observation.status fields');
+  await command([
+    { type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: idField.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation FHIR resource ID' },
+    { type: 'ADD_COLUMN', outputId, occurrenceId: 'base', candidateId: statusField.candidateId, projectionMode: 'VALUE', initialPresentation: 'TABLE', title: 'Observation.status' },
+  ]);
+  const selection = await api(base.replace('/authoring/v2', '/selections'), {
+    snapshotToken: builder.catalog.snapshotToken,
+    idempotencyKey: explorer,
+    source: { kind: 'resources', resources: { refs: members.map(member => ({ project, generation, resourceType: 'Observation', id: member.id })) } },
+  });
+  const routes = await api(base + '/population-routes', { snapshotToken: builder.catalog.snapshotToken, outputId, selectionRevisionId: selection.id, limit: 50 });
+  const direct = routes.choices.find(choice => choice.route.length === 0);
+  assert(direct, 'The explicit member selection must provide a direct Observation route');
+  await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+  const sourceWorkspace = builder.workspace;
+  const sourceDraftVersion = builder.draftVersion;
+  const sourceDraftDigest = builder.draftDigest;
+
+  browser = await launchBrowser(evidence);
+  browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
+  browser.cdp.on('Runtime.exceptionThrown', event => report.errors.push({ kind: 'runtime', details: event.exceptionDetails }));
+  browser.cdp.on('Network.loadingFailed', event => { if (event.type === 'Script' && event.errorText !== 'net::ERR_ABORTED') report.errors.push({ kind: 'module', error: event.errorText }); });
+  browser.cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime }) => {
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith(base + '/')) return;
+    const authorizationHeaderPresent = Object.keys(request.headers ?? {}).some(header => header.toLowerCase() === 'authorization');
+    const entry = { requestId, path: url.pathname, origin: url.origin, authorizationHeaderPresent, method: request.method, startedAt: Math.round(wallTime * 1000) };
+    if (request.postData) entry.body = JSON.parse(request.postData);
+    nativeById.set(requestId, entry);
+    report.nativeRequests.push(entry);
+  });
+  browser.cdp.on('Network.responseReceived', ({ requestId, response }) => {
+    const entry = nativeById.get(requestId);
+    if (entry) entry.status = response.status;
+    if (response.status >= 400 && !response.url.endsWith('/favicon.ico')) report.errors.push({ kind: 'http', status: response.status, url: response.url });
+  });
+  browser.cdp.on('Network.loadingFinished', ({ requestId }) => {
+    const entry = nativeById.get(requestId);
+    if (!entry) return;
+    entry.completedAt = Date.now();
+    const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
+      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
+      try { entry.response = JSON.parse(body); } catch { entry.response = body.slice(0, 32768); }
+    }).catch(error => { entry.responseReadError = String(error); }).finally(() => pendingNetworkReads.delete(read));
+    pendingNetworkReads.add(read);
+  });
+
+  const chooseField = async (label, prefix) => {
+    const selector = `select[aria-label=${JSON.stringify(label)}]`;
+    const options = await browserEval(browser.cdp, `return [...document.querySelector(${JSON.stringify(selector)}).options].map(option=>({value:option.value,label:option.textContent.trim()}));`);
+    const field = options.find(option => option.label.startsWith(prefix));
+    assert(field, `${label} lacks ${prefix}: ${JSON.stringify(options)}`);
+    await selectOption(browser.cdp, selector, field.value, field.value.startsWith('source:') ? {
+      settledWhen: `document.querySelector(${JSON.stringify(selector)})?.selectedOptions[0]?.textContent.startsWith(${JSON.stringify(prefix)}) || Boolean(document.querySelector('[data-testid="construction-proposal-ready"]'))`,
+    } : {});
+  };
+  const typePivotOutputName = async name => {
+    const advanced = '[data-testid="construction-reshape-pivot-advanced"]';
+    if (!await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(advanced)})?.open;`)) {
+      await click(browser.cdp, `${advanced} summary`);
+    }
+    await waitForBrowser(browser.cdp, `document.querySelectorAll('input[aria-label^="Pivot output name "]').length === 1`);
+    const inputs = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot output name "]')].map(input=>({label:input.getAttribute('aria-label'),value:input.value,disabled:input.disabled}));`);
+    assert.equal(inputs.length, 1, `The direct status Pivot must expose one category output name: ${JSON.stringify(inputs)}`);
+    assert.equal(inputs[0].disabled, false, 'Native Pivot output name must be editable');
+    const selector = `input[aria-label=${JSON.stringify(inputs[0].label)}]`;
+    await click(browser.cdp, selector);
+    await browserEval(browser.cdp, `document.activeElement.select();return true;`);
+    await browser.cdp.send('Input.insertText', { text: name });
+    assert.equal(await browserEval(browser.cdp, `return document.activeElement.value;`), name, 'Native typing must set the exact Pivot physical output name');
+  };
+  const configurePivot = async () => {
+    await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-action-pivot-rows"]')?.disabled === false`);
+    await click(browser.cdp, '[data-testid="construction-action-pivot-rows"]');
+    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]') || document.body.innerText.includes('Coded values as columns')`);
+    const ordinaryPivotOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('select[aria-label="Pivot category field"]'));`);
+    if (!ordinaryPivotOpen) {
+      await click(browser.cdp, 'button', { name: 'Change row operation' });
+      await click(browser.cdp, '[data-testid="construction-reshape-choice-pivot"]');
+    }
+    await waitForBrowser(browser.cdp, `document.querySelector('select[aria-label="Pivot category field"]:not(:disabled)')`);
+    const groupLabels = await browserEval(browser.cdp, `return [...document.querySelectorAll('input[aria-label^="Pivot group "]')].map(input=>({label:input.getAttribute('aria-label'),checked:input.checked,disabled:input.disabled}));`);
+    const expectedGroupLabel = 'Pivot group Observation FHIR resource ID';
+    assert(groupLabels.some(group => group.label === expectedGroupLabel), `Pivot editor lacks the Observation ID group key: ${JSON.stringify(groupLabels)}`);
+    for (const group of groupLabels) {
+      const selector = `input[aria-label=${JSON.stringify(group.label)}]`;
+      assert(!group.disabled, `Pivot group key is disabled: ${group.label}`);
+      const shouldBeChecked = group.label === expectedGroupLabel;
+      if (group.checked !== shouldBeChecked) await click(browser.cdp, selector);
+    }
+    await chooseField('Pivot category field', 'Observation.status');
+    const started = Date.now();
+    await chooseField('Pivot values field', 'Observation.id');
+    return started;
+  };
+  const assertPivotPreview = (preview, label) => {
+    assert(preview, `${label} must include a protocol preview`);
+    assert.equal(preview.outputId, outputId);
+    assert.equal(preview.rowCount, members.length, `${label} must retain exactly the two selected source groups`);
+    const values = preview.rows.map(row => preview.columns.map(column => row[column.column]));
+    const sorted = rows => rows.map(row => JSON.stringify(row)).sort();
+    assert.deepEqual(sorted(values), sorted(expectedRows), `${label} cells must exactly equal the raw two-member Pivot oracle`);
+    assert(preview.rows.every(row => typeof row.__loom_row_id === 'string' && row.__loom_row_id.length > 0));
+  };
+  const pivotFromResponse = (response, expectedCategoryOutputName = null) => {
+    const pivotStep = response.candidateConstruction?.steps?.find(step => step.operation.kind === 'PIVOT');
+    assert(pivotStep, 'Native proposal must contain the direct ordinary Pivot step');
+    const pivot = pivotStep.operation.pivot;
+    assert.equal(typeof pivot.constructionId, 'string');
+    assert.equal(pivot.groupKeyIds.length, 1, 'Direct Pivot must group by exactly the witnessed Observation ID');
+    const group = pivotStep.outputs.find(column => column.id === pivot.groupKeyIds[0]);
+    assert(group?.label?.includes('Observation FHIR resource ID'), `Pivot group identity must remain Observation.id: ${JSON.stringify(pivotStep.outputs)}`);
+    assert.deepEqual(pivot.categories.map(category => category.key), [categoryKey], 'Native category domain must exactly equal the typed raw CDA status domain');
+    const categoryOutput = pivotStep.outputs.find(column => column.id === pivot.categories[0].outputColumnId);
+    assert(categoryOutput, 'The typed raw status category must resolve to its declared Pivot output');
+    if (expectedCategoryOutputName !== null) assert.equal(categoryOutput.name, expectedCategoryOutputName, 'Native proposal must retain the exact requested physical output name');
+    assert(response.preview.columns.some(column => column.column === categoryOutput.name), 'Protocol preview must contain the declared physical category output column');
+    const expectedIDs = members.map(member => JSON.stringify(['GROUPED_PIVOT', pivot.constructionId, ['STRING', member.id]])).sort();
+    const actualIDs = response.preview.rows.map(row => row.__loom_row_id).sort();
+    assert.deepEqual(actualIDs, expectedIDs, 'Pivot identities must encode the typed raw Observation IDs');
+    assertPivotPreview(response.preview, 'Native Pivot proposal');
+    return { stepID: pivotStep.id, constructionId: pivot.constructionId, rowIDs: expectedIDs, categoryOutputName: categoryOutput.name };
+  };
+  const rowIDFor = (identity, id) => JSON.stringify(['GROUPED_PIVOT', identity.constructionId, ['STRING', id]]);
+  const assertPreviewCells = (preview, rows, label) => {
+    assert(preview, `${label} must include a protocol preview`);
+    assert.equal(preview.outputId, outputId);
+    const actual = preview.rows.map(row => preview.columns.map(column => row[column.column]));
+    const sorted = values => values.map(row => JSON.stringify(row)).sort();
+    assert.deepEqual(sorted(actual), sorted(rows), `${label} must exactly match the independently queried raw source rows`);
+  };
+  const waitForPreview = async (started, label) => {
+    const deadline = started + 5000;
+    while (true) {
+      await Promise.all([...pendingNetworkReads]);
+      const request = report.nativeRequests.findLast(entry => entry.path === base + '/preview' && entry.startedAt >= started && entry.completedAt && entry.status === 200 && entry.response);
+      if (request) return request.response;
+      assert(Date.now() < deadline, `${label} did not receive a fresh saved Preview within five seconds`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+  const rowsWithInspectorNumbers = async () => browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(row=>({rowNumber:Number(row.querySelector('button[aria-label^="Inspect row "]')?.getAttribute('aria-label')?.match(/^Inspect row (\\d+) identity$/)?.[1]),cells:[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.trim())})).filter(row=>Number.isInteger(row.rowNumber));`);
+  const inspect = async (id, expectedRowID, savedPreview, label) => {
+    const rows = await rowsWithInspectorNumbers();
+    const visible = rows.find(row => row.cells[0] === id);
+    assert(visible, `${label}: raw Observation ${id} must have a mounted Pivot group row`);
+    assert(visible.rowNumber > 0 && visible.rowNumber <= 25);
+    const started = Date.now();
+    const before = report.nativeRequests.length;
+    await click(browser.cdp, `button[aria-label="Inspect row ${visible.rowNumber} identity"]`);
+    const dialog = `[role="dialog"][aria-label="Row ${visible.rowNumber} identity"]`;
+    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog)})`);
+    await waitForBrowser(browser.cdp, `document.querySelector(${JSON.stringify(dialog + ' ul li')})`);
+    const deadline = started + 5000;
+    const lineageRequests = () => report.nativeRequests.slice(before).filter(request => request.path === base + '/row-lineage');
+    while (!lineageRequests().some(request => request.completedAt && request.response)) {
+      assert(Date.now() < deadline, `${label} did not complete native row-lineage within five seconds`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    await Promise.all([...pendingNetworkReads]);
+    assert(Date.now() - started <= 5000, `${label} inspector action exceeded five seconds`);
+    const requests = lineageRequests();
+    assert.equal(requests.length, 1, 'One direct Pivot row must use one bounded native lineage page');
+    const request = requests[0];
+    const selectedRowIdentity = await browserEval(browser.cdp, `return document.querySelector(${JSON.stringify(dialog + ' p.font-mono')})?.textContent;`);
+    assert.equal(selectedRowIdentity, expectedRowID, `${label} inspector must use the independently computed typed Pivot identity`);
+    assert.equal(request.status, 200);
+    assert.equal(request.body.outputId, outputId);
+    assert.equal(request.body.rowId, expectedRowID);
+    assert.equal(request.body.receiptId, savedPreview.receiptId, 'Native source inspection must bind to the current saved Preview receipt');
+    assert.equal(request.body.offset ?? 0, 0);
+    assert.equal(request.body.limit, 25);
+    assert.equal(request.response.receiptId, savedPreview.receiptId);
+    assert.equal(request.response.outputId, outputId);
+    assert.equal(request.response.rowId, expectedRowID);
+    assert.equal(request.response.hasMore, false);
+    assert.equal(request.response.nextOffset ?? null, null);
+    const contributors = request.response.contributors.map(item => [item.resourceType, item.resourceId, item.occurrenceKey]);
+    assert.deepEqual(contributors, [expectedContributorByID.get(id)], `${label} source tuples must exactly match the independent raw CDA member witness`);
+    const visibleContributors = await browserEval(browser.cdp, `return [...document.querySelectorAll(${JSON.stringify(dialog + ' ul li')})].map(item=>item.innerText.trim());`);
+    assert.equal(visibleContributors.length, 1);
+    assert(visibleContributors[0].includes(`Observation/${id}`), visibleContributors[0]);
+    report.cases.push({ name: label, elapsedMs: Date.now() - started, rowID: expectedRowID, receiptId: savedPreview.receiptId, contributors });
+    await browserEval(browser.cdp, `const button=[...document.querySelectorAll(${JSON.stringify(dialog + ' button')})].find(item=>item.innerText==='Close');button.dataset.qaDirectPivotClose=${JSON.stringify(label)};return true;`);
+    await click(browser.cdp, `[data-qa-direct-pivot-close=${JSON.stringify(label)}]`);
+    await waitForBrowser(browser.cdp, `!document.querySelector(${JSON.stringify(dialog)})`);
+  };
+
+  await open();
+  await assertMountedRows(baselineRows, 'direct-pivot-starting-table');
+  const configureStarted = await configurePivot();
+  await typePivotOutputName('null');
+  const proposalResponse = await proposal('direct-pivot-source-preview', configureStarted, expectedRows);
+  pivotFromResponse(proposalResponse, 'null');
+  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  const cancelState = await api(base + '/builder');
+  assert.deepEqual(cancelState.workspace, sourceWorkspace, 'Cancel must preserve the exact saved source workspace');
+  assert.equal(cancelState.draftVersion, sourceDraftVersion, 'Cancel must preserve the source draft version');
+  assert.equal(cancelState.draftDigest, sourceDraftDigest, 'Cancel must preserve the source draft digest');
+  await assertMountedRows(baselineRows, 'direct-pivot-cancel-preserves-source');
+  const confirmedStarted = await configurePivot();
+  await typePivotOutputName('null');
+  const confirmedProposal = await proposal('confirmed-direct-pivot-source-preview', confirmedStarted, expectedRows);
+  const identity = pivotFromResponse(confirmedProposal, 'null');
+  const applyStarted = Date.now();
+  await apply(expectedRows);
+  builder = await api(base + '/builder');
+  const authoredWorkspace = builder.workspace;
+  const authoredDraftVersion = builder.draftVersion;
+  const authoredDraftDigest = builder.draftDigest;
+  const authoredRows = doc(builder).construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert(authoredRows && authoredRows.id === identity.stepID, 'Apply must persist the exact native Pivot stage inspected in the proposal');
+  const authoredCategoryOutput = authoredRows.outputs.find(column => column.id === authoredRows.operation.pivot.categories[0].outputColumnId);
+  assert.equal(authoredCategoryOutput?.name, 'null', 'The native Pivot must persist the exact reserved-word physical output name');
+  const appliedPreview = await waitForPreview(applyStarted, 'applied direct Pivot');
+  const appliedRowIDs = appliedPreview.rows.map(row => row.__loom_row_id).sort();
+  assert.deepEqual(appliedRowIDs, identity.rowIDs, 'Apply must preserve exact typed Pivot row identities');
+  assertPivotPreview(appliedPreview, 'Applied direct Pivot');
+  assert(appliedPreview.columns.some(column => column.column === 'null'), 'Saved Preview must expose the physical Pivot output named null');
+  const firstOpenStarted = Date.now();
+  await open();
+  await assertMountedRows(expectedRows, 'direct-pivot-first-load');
+  const firstOpenPreview = await waitForPreview(firstOpenStarted, 'first direct Pivot load');
+  assert.deepEqual(firstOpenPreview.rows.map(row => row.__loom_row_id).sort(), identity.rowIDs);
+  for (const member of members) {
+    const rowID = rowIDFor(identity, member.id);
+    await inspect(member.id, rowID, firstOpenPreview, `direct-pivot-inspect-${member.id}`);
+  }
+  assert.deepEqual((await api(base + '/builder')).workspace, authoredWorkspace, 'Source inspection must not mutate the saved direct Pivot');
+
+  const reloadStarted = Date.now();
+  builder = await api(base + '/builder');
+  await open();
+  await assertMountedRows(expectedRows, 'direct-pivot-reload');
+  const reloadedPreview = await waitForPreview(reloadStarted, 'reloaded direct Pivot');
+  assert.deepEqual(reloadedPreview.rows.map(row => row.__loom_row_id).sort(), identity.rowIDs, 'Reload must retain exact typed Pivot row identities');
+  assertPivotPreview(reloadedPreview, 'Reloaded direct Pivot');
+  for (const member of members) {
+    const rowID = rowIDFor(identity, member.id);
+    await inspect(member.id, rowID, reloadedPreview, `direct-pivot-reload-inspect-${member.id}`);
+  }
+  assert.deepEqual((await api(base + '/builder')).workspace, authoredWorkspace, 'Reloaded source inspection must leave the saved Pivot unchanged');
+
+  const editCancelStarted = Date.now();
+  await click(browser.cdp, `[data-testid="construction-history-step-${identity.stepID}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
+  await click(browser.cdp, `[data-testid="construction-edit-step-${identity.stepID}"]`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
+  await typePivotOutputName('direct_status');
+  const editCancelProposal = await proposal('direct-pivot-output-name-cancel-preview', editCancelStarted, expectedRows);
+  const editCancelIdentity = pivotFromResponse(editCancelProposal, 'direct_status');
+  assert.equal(editCancelIdentity.constructionId, identity.constructionId, 'Editing the physical column name must preserve the Pivot row identity construction');
+  assert.deepEqual(editCancelIdentity.rowIDs, identity.rowIDs, 'Previewed name edits must preserve the independently typed Pivot row IDs');
+  await click(browser.cdp, '[data-testid="construction-cancel-proposal"]');
+  await waitForBrowser(browser.cdp, `!document.querySelector('[data-testid="construction-proposal-panel"]')`);
+  const afterEditCancel = await api(base + '/builder');
+  assert.deepEqual(afterEditCancel.workspace, authoredWorkspace, 'Canceling a Pivot name edit must preserve the exact saved null-name workspace');
+  assert.equal(afterEditCancel.draftVersion, authoredDraftVersion, 'Canceling a Pivot name edit must preserve draft version');
+  assert.equal(afterEditCancel.draftDigest, authoredDraftDigest, 'Canceling a Pivot name edit must preserve draft digest');
+  const stillNullStep = doc(afterEditCancel).construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert.equal(stillNullStep.outputs.find(column => column.id === stillNullStep.operation.pivot.categories[0].outputColumnId)?.name, 'null');
+  builder = afterEditCancel;
+  await assertMountedRows(expectedRows, 'direct-pivot-name-edit-cancel-preserves-null-output');
+
+  const editApplyStarted = Date.now();
+  await click(browser.cdp, `[data-testid="construction-history-step-${identity.stepID}"]`);
+  await waitForBrowser(browser.cdp, `document.querySelector('[data-testid=${JSON.stringify(`construction-edit-step-${identity.stepID}`)}]')?.disabled === false`);
+  await click(browser.cdp, `[data-testid="construction-edit-step-${identity.stepID}"]`);
+  await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-reshape-pivot"] input[aria-label^="Pivot output name "]'))`);
+  await typePivotOutputName('direct_status');
+  const editApplyProposal = await proposal('direct-pivot-output-name-apply-preview', editApplyStarted, expectedRows);
+  const editedIdentity = pivotFromResponse(editApplyProposal, 'direct_status');
+  assert.equal(editedIdentity.stepID, identity.stepID, 'Editing the Pivot must retain the authored stage identity');
+  assert.equal(editedIdentity.constructionId, identity.constructionId, 'Editing a Pivot output name must retain its typed row identity construction');
+  assert.deepEqual(editedIdentity.rowIDs, identity.rowIDs, 'Edited Pivot proposal must retain the exact typed row IDs');
+  const editSaveStarted = Date.now();
+  await apply(expectedRows);
+  builder = await api(base + '/builder');
+  const editedWorkspace = builder.workspace;
+  const editedDraftVersion = builder.draftVersion;
+  const editedDraftDigest = builder.draftDigest;
+  const editedStep = doc(builder).construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert(editedStep && editedStep.id === identity.stepID);
+  assert.equal(editedStep.outputs.find(column => column.id === editedStep.operation.pivot.categories[0].outputColumnId)?.name, 'direct_status', 'Apply must persist the natively edited physical output name');
+  const editedPreview = await waitForPreview(editSaveStarted, 'applied direct Pivot output-name edit');
+  assertPreviewCells(editedPreview, expectedRows, 'Applied output-name edit');
+  assert.deepEqual(editedPreview.rows.map(row => row.__loom_row_id).sort(), editedIdentity.rowIDs);
+  assert(editedPreview.columns.some(column => column.column === 'direct_status'));
+
+  const editReloadStarted = Date.now();
+  await open();
+  await assertMountedRows(expectedRows, 'direct-pivot-name-edit-reload');
+  const editedReloadPreview = await waitForPreview(editReloadStarted, 'reloaded direct Pivot output-name edit');
+  assertPreviewCells(editedReloadPreview, expectedRows, 'Reloaded output-name edit');
+  assert.deepEqual(editedReloadPreview.rows.map(row => row.__loom_row_id).sort(), editedIdentity.rowIDs);
+  const reloadedEditedStep = doc(await api(base + '/builder')).construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert.equal(reloadedEditedStep.outputs.find(column => column.id === reloadedEditedStep.operation.pivot.categories[0].outputColumnId)?.name, 'direct_status', 'Reload must retain the exact edited physical output name');
+  for (const member of members) {
+    await inspect(member.id, rowIDFor(editedIdentity, member.id), editedReloadPreview, `direct-pivot-edited-inspect-${member.id}`);
+  }
+  assert.deepEqual((await api(base + '/builder')).workspace, editedWorkspace, 'Edited source inspection must leave the saved Pivot unchanged');
+
+  const removalCancelBaseline = { workspace: editedWorkspace, draftVersion: editedDraftVersion, draftDigest: editedDraftDigest };
+  const cancelRemovalProposal = await proposeRemoval(identity.stepID, 'direct-pivot-removal-cancel-preview', baselineRows);
+  assert(!cancelRemovalProposal.candidateConstruction.steps.some(step => step.operation.kind === 'PIVOT'), 'Pivot removal proposal must restore the source-only construction');
+  assertPreviewCells(cancelRemovalProposal.preview, baselineRows, 'Pivot removal cancel proposal');
+  await cancelRemoval(removalCancelBaseline, 'direct-pivot-removal-cancel', expectedRows);
+  const afterRemovalCancelStep = doc(builder).construction.steps.find(step => step.operation.kind === 'PIVOT');
+  assert.equal(afterRemovalCancelStep.outputs.find(column => column.id === afterRemovalCancelStep.operation.pivot.categories[0].outputColumnId)?.name, 'direct_status');
+
+  const removalApplyStarted = Date.now();
+  const applyRemovalProposal = await proposeRemoval(identity.stepID, 'direct-pivot-removal-apply-preview', baselineRows);
+  assert(!applyRemovalProposal.candidateConstruction.steps.some(step => step.operation.kind === 'PIVOT'), 'Applied removal proposal must omit the Pivot stage');
+  assertPreviewCells(applyRemovalProposal.preview, baselineRows, 'Pivot removal apply proposal');
+  await apply(baselineRows);
+  builder = await api(base + '/builder');
+  const restoredWorkspace = builder.workspace;
+  assert(!doc(builder).construction.steps.some(step => step.operation.kind === 'PIVOT'), 'Apply must remove the authored Pivot stage');
+  const restoredPreview = await waitForPreview(removalApplyStarted, 'applied Pivot removal');
+  assertPreviewCells(restoredPreview, baselineRows, 'Source rows after Pivot removal');
+  const restoredReloadStarted = Date.now();
+  await open();
+  await assertMountedRows(baselineRows, 'direct-pivot-removal-reload-source-restoration');
+  const restoredReloadPreview = await waitForPreview(restoredReloadStarted, 'reloaded source after Pivot removal');
+  assertPreviewCells(restoredReloadPreview, baselineRows, 'Reloaded source after Pivot removal');
+  assert.deepEqual((await api(base + '/builder')).workspace, restoredWorkspace, 'Reload must preserve the exact source-only workspace after Pivot removal');
+
+  assert(report.nativeRequests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native direct Pivot requests must remain on the local unrestricted no-auth endpoints');
+  assert.deepEqual(report.errors, [], 'Direct Pivot lifecycle and source inspection must produce no browser or HTTP errors');
+  report.directPivot = { stepID: identity.stepID, constructionId: identity.constructionId, selectionRevisionId: selection.id, category: categoryKey, nullPhysicalOutputName: 'null', editedPhysicalOutputName: 'direct_status', sourceIDs: members.map(member => member.id), rowIDs: identity.rowIDs, previewRows: expectedRows, restoredSourceRows: baselineRows, finalWorkspaceHasPivot: false };
+};
+
 try {
+  apiBuildFreeze = await captureApiBuildFreeze(() => checkContainerApiBuildStamp(localCDAApiContainer()));
+  report.apiBuildFreeze = { initial: apiBuildFreeze.initial };
+  if (directPivot) {
+    await runDirectPivot();
+    report.status = 'passed';
+  } else {
   const repeatedWitnesses = rawQuery(repeatedLeafWitnessQuery);
   assert(repeatedWitnesses.length === 2, 'Fixture needs two distinct scoped roots with a three-stage repeated-Patient path');
   assert(repeatedWitnesses.every(row => typeof row.repeatedPathOverflow === 'boolean'), 'Witness search must report its bounded-path overflow sentinel');
@@ -404,6 +789,9 @@ try {
   const direct = routes.choices.find(choice => choice.route.length === 0);
   assert(direct, 'Exact explicit member selection must have a direct population route');
   await command([{ type: 'SET_TABLE_POPULATION', outputId, selectionRevisionId: selection.id, routeChoiceId: direct.routeChoiceId }]);
+  const sourceWorkspace = builder.workspace;
+  const sourceDraftVersion = builder.draftVersion;
+  const sourceDraftDigest = builder.draftDigest;
 
   browser = await launchBrowser(evidence);
   browser.cdp.on('Runtime.consoleAPICalled', event => { if (event.type === 'error') report.errors.push({ kind: 'console', args: event.args }); });
@@ -623,10 +1011,20 @@ try {
   assert(report.nativeRequests.every(request => localOrigins.has(request.origin) && !request.authorizationHeaderPresent), 'Native Builder requests must remain on the local no-auth endpoints');
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
+  }
 } catch (error) {
-  report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
+  report.status = error.invalidatesRun ? 'invalidated' : 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
 } finally {
+  if (apiBuildFreeze) {
+    try { report.apiBuildFreeze = { ...report.apiBuildFreeze, ...(await apiBuildFreeze.assertUnchanged()) }; }
+    catch (error) {
+      report.priorStatus = report.status;
+      report.status = 'invalidated';
+      report.apiBuildFreeze = { unchanged: false, invalidatesRun: true, productFailure: false, error: String(error) };
+      process.exitCode = 1;
+    }
+  }
   try { report.sourceFreeze = await sourceFreeze.assertUnchanged(); } catch (error) {
     report.priorStatus = report.status;
     report.status = 'invalidated';

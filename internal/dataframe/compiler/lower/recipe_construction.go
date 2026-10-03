@@ -190,6 +190,10 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 		inputRow := allocateConstructionVariable(usedVariables, "cohort_input", len(sequence.Stages))
 		outputRow := allocateConstructionVariable(usedVariables, "cohort_output", len(sequence.Stages))
 		rootContributorVariable := allocateConstructionVariable(usedVariables, "cohort_root_contributors", len(sequence.Stages))
+		preserveMissingMembers := len(cohort.Output.Root.Filters) == 0
+		for index := 0; preserveMissingMembers && index <= cohortAnchorIndex; index++ {
+			preserveMissingMembers = !constructionOperationCanDropRows(construction.Steps[index].Operation)
+		}
 		physical := ir.PhysicalConstructionStage{
 			ID: recipe.ConstructionCohortGroupStageID, InputStageID: priorStageID,
 			Kind: ir.PhysicalStageCohortGroupOp, InputRowVariable: inputRow, OutputRowVariable: outputRow,
@@ -198,6 +202,7 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 				Rows: cohort.Rows, ContributorInputColumn: contributor.Name,
 				ContributorInputMany:        contributor.Cardinality == string(expression.Many),
 				RootContributorOutputColumn: rootContributorSetColumn, RootContributorVariable: rootContributorVariable,
+				PreserveMissingMembers: preserveMissingMembers,
 			},
 			RowIdentityColumn: constructionRowID,
 		}
@@ -313,6 +318,27 @@ func constructionCohortAnchorIndex(construction recipe.Construction, cohort *coh
 		}
 	}
 	return -1, fmt.Errorf("cohort afterStepId %q does not name a construction step", cohort.AfterStepID)
+}
+
+// constructionOperationCanDropRows identifies successful construction stages
+// that can remove an input row. Cohort missing-member preservation follows
+// this typed operation policy: a missing source resource cannot satisfy a
+// row-dropping stage before the cohort.
+func constructionOperationCanDropRows(operation recipe.ConstructionOperation) bool {
+	switch operation.Kind {
+	case recipe.ConstructionFilterOp, recipe.ConstructionRelatedEligibilityOp:
+		return true
+	case recipe.ConstructionRelatedExpandOp:
+		return operation.RelatedExpand != nil && operation.RelatedExpand.EmptyPolicy == recipe.ExpansionExclude
+	case recipe.ConstructionUnpivotOp:
+		return operation.Unpivot != nil && operation.Unpivot.NullRowPolicy == recipe.UnpivotNullDrop
+	case recipe.ConstructionGroupOp:
+		return operation.Group != nil && operation.Group.MissingKeyPolicy.Normalized() == recipe.ConstructionGroupMissingKeyExclude
+	default:
+		// ERROR policies abort the whole candidate. They do not successfully
+		// filter rows; ordinary and coded Pivot have no supported row-drop policy.
+		return false
+	}
 }
 
 func cohortNeedsRetainedRootContributors(construction recipe.Construction, cohort *cohortGroupCompileInput) bool {
@@ -945,7 +971,11 @@ func lowerConstructionStep(plan *ir.PhysicalPlan, step recipe.ConstructionStep, 
 			})
 		}
 	}
-	outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
+	if base.Kind == ir.PhysicalStageGroupOp || base.Kind == ir.PhysicalStagePivotOp || base.Kind == ir.PhysicalStageUnpivotOp {
+		outputSchema = append(outputSchema, constructionGeneratedRowIdentitySchema(outputIdentity))
+	} else {
+		outputSchema = append(outputSchema, constructionIdentitySchema(outputIdentity, outputSchema, inputSchema))
+	}
 	if base.Kind == ir.PhysicalStageDeriveOp || base.Kind == ir.PhysicalStageFilterOp || base.Kind == ir.PhysicalStageRelatedEligibilityOp || base.Kind == ir.PhysicalStageRelatedSourceOp || base.Kind == ir.PhysicalStageRelatedFieldOp {
 		base.OutputProjections = append(base.OutputProjections, ir.PhysicalProjection{
 			Name: outputIdentity, Hidden: true,
@@ -1039,29 +1069,40 @@ func lowerConstructionRelatedSource(
 
 	rootVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_%d_root", index), index)
 	rootNode := semantic.SemanticNode{Alias: plan.Source.SemanticNode, ResourceType: rootResourceType}
-	subplan := ir.PhysicalSubplan{
-		Captures: []string{inputRow},
-		Operations: []ir.PhysicalOperation{{
-			Kind:           ir.PhysicalCollectionScanOp,
-			Source:         ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType},
-			CollectionScan: &ir.PhysicalCollectionScan{Variable: rootVariable, CollectionBindKey: "root_collection"},
-		}},
+	keySetAnchor := !directRootAnchor && hasContributor && contributor.Cardinality == string(expression.Many)
+	rootOperation := ir.PhysicalOperation{
+		Kind:   ir.PhysicalCollectionScanOp,
+		Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType},
+		CollectionScan: &ir.PhysicalCollectionScan{
+			Variable: rootVariable, CollectionBindKey: "root_collection",
+		},
 	}
+	if keySetAnchor {
+		keyVariable := allocateConstructionVariable(usedVariables, fmt.Sprintf("related_%d_root_key", index), index)
+		rootOperation = ir.PhysicalOperation{
+			Kind:   ir.PhysicalKeySetLookupOp,
+			Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType, SemanticField: "_key"},
+			KeySetLookup: &ir.PhysicalKeySetLookup{
+				Variable: rootVariable, KeyVariable: keyVariable, CollectionBindKey: "root_collection",
+				Keys: ir.PhysicalValue{Variable: inputRow, Path: []string{contributor.Name}},
+			},
+		}
+	}
+	subplan := ir.PhysicalSubplan{Captures: []string{inputRow}, Operations: []ir.PhysicalOperation{rootOperation}}
 	rootKeyFilter := ir.PhysicalPredicate{
 		Operator: "EQUALS", Left: ir.PhysicalValue{Variable: rootVariable, Path: []string{"_key"}},
 		Right: &ir.PhysicalValue{Variable: inputRow, Path: []string{inputIdentity}},
 	}
 	if !directRootAnchor {
 		rootKeyFilter.Right = &ir.PhysicalValue{Variable: inputRow, Path: []string{contributor.Name}}
-		if contributor.Cardinality == string(expression.Many) {
-			rootKeyFilter.Operator = "IN"
-		}
 	}
-	subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
-		Kind:   ir.PhysicalFilterOp,
-		Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType, SemanticField: "_key"},
-		Filter: &ir.PhysicalFilter{Predicate: rootKeyFilter},
-	})
+	if !keySetAnchor {
+		subplan.Operations = append(subplan.Operations, ir.PhysicalOperation{
+			Kind:   ir.PhysicalFilterOp,
+			Source: ir.PhysicalSource{SemanticNode: rootNode.Alias, ResourceType: rootResourceType, SemanticField: "_key"},
+			Filter: &ir.PhysicalFilter{Predicate: rootKeyFilter},
+		})
+	}
 	subplan.Operations = appendProjectScope(subplan.Operations, []string{rootVariable}, "", rootNode)
 	subplan.Operations = appendDatasetGenerationScope(subplan.Operations, []string{rootVariable}, "", rootNode)
 	subplan.Operations = appendAuthScope(subplan.Operations, []ir.PhysicalValue{{Variable: rootVariable, Path: []string{"auth_resource_path"}}}, fmt.Sprintf("related_%d_root_scope_allowed", index), rootNode)
@@ -1830,6 +1871,13 @@ func constructionIdentitySchema(identity string, output, input []CompiledOutputC
 			return column
 		}
 	}
+	return CompiledOutputColumn{
+		ID: identity, Name: identity, Label: identity, SemanticPath: "construction:row_identity",
+		Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true,
+	}
+}
+
+func constructionGeneratedRowIdentitySchema(identity string) CompiledOutputColumn {
 	return CompiledOutputColumn{
 		ID: identity, Name: identity, Label: identity, SemanticPath: "construction:row_identity",
 		Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true, Identity: true,
