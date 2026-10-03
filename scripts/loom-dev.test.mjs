@@ -4,7 +4,54 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, builderDOMReadyCondition, builderDraftMatchesPreviewDOM, builderPreviewIsFreshForDraft, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+
+test('automatic preview witness must use a new receipt for the committed Builder draft and snapshot', () => {
+  const baseline = {
+    snapshotToken: 'snapshot-current',
+    draftVersion: 8,
+    draftDigest: 'digest-before',
+    previewReceiptId: 'receipt-before',
+    outputId: 'table-patient',
+  };
+  const state = {
+    lifecycleState: 'READY',
+    draftVersion: 9,
+    draftDigest: 'digest-after',
+    catalog: { snapshotToken: 'snapshot-current' },
+    workspace: { documents: [{ output: { id: 'table-patient' } }] },
+  };
+  const preview = {
+    status: 'ready',
+    receiptId: 'receipt-after',
+    outputId: 'table-patient',
+    proposalId: '',
+    draftVersion: 9,
+    draftDigest: 'digest-after',
+  };
+
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId), true);
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, receiptId: baseline.previewReceiptId }, baseline.outputId), false,
+    'a ready preview with the old receipt must not satisfy freshness');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, {
+    ...preview,
+    receiptId: baseline.previewReceiptId,
+    text: 'Dataframe contract dev-patient-001',
+  }, baseline.outputId), false,
+    'old fixture text cannot make the previous preview receipt fresh');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, status: 'stale' }, baseline.outputId), false,
+    'a stale preview cannot satisfy an exact-value assertion');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, proposalId: 'proposal-candidate' }, baseline.outputId), false,
+    'a candidate preview must not stand in for the saved table preview');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, state, { ...preview, draftDigest: baseline.draftDigest }, baseline.outputId), false,
+    'the visible preview draft digest must match the committed Builder response');
+  assert.equal(builderPreviewIsFreshForDraft(baseline, { ...state, catalog: { snapshotToken: 'snapshot-stale' } }, preview, baseline.outputId), false,
+    'a preview from another source snapshot must not satisfy freshness');
+  assert.equal(builderDraftMatchesPreviewDOM(baseline, state, { ...preview, status: 'stale' }, baseline.outputId), true,
+    'a failed preview diagnostic can still be tied to the newly committed draft');
+  assert.equal(builderDraftMatchesPreviewDOM(baseline, state, { ...preview, draftVersion: 8 }, baseline.outputId), false,
+    'a DOM draft version behind the API must not satisfy the committed-draft witness');
+});
 
 test('Builder browser readiness requires a loaded workspace or the current empty-editor controls', () => {
   const editor = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx'), 'utf8');
@@ -36,6 +83,77 @@ test('J04 creates its initial table through the visible row-type control', () =>
   assert.match(createAction, /clickButton\('Choose Observation rows'\)/);
   assert.match(createAction, /input\[aria-label="Search features by field name, concept, or code"\]/);
   assert.match(driver.slice(driver.lastIndexOf('const builderURL =', start), start), /demo-controls span.*target\.fixtureProject.*explorerId/s);
+});
+
+test('verify-fast creates its Observation and Patient tables through the current row picker and Add columns editor', () => {
+  const driver = readFileSync(join(process.cwd(), 'scripts/loom-dev.mjs'), 'utf8');
+  const builder = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx'), 'utf8');
+  const rowPicker = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx'), 'utf8');
+  const catalog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx'), 'utf8');
+  const actionBar = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx'), 'utf8');
+  const choiceDialog = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/features/ExplorerBuilder/components/CatalogSelectionDialog.tsx'), 'utf8');
+  const start = driver.indexOf('const verifyBrowserScenario =');
+  const end = driver.indexOf('\nconst measureHotReload =', start);
+  assert.ok(start >= 0 && end > start, 'generic verify-fast scenario must remain identifiable');
+  const scenario = driver.slice(start, end);
+  const ownerStart = scenario.indexOf("setInput('first-table-name', 'Observation owner records')");
+  const patientStart = scenario.indexOf("setInput('first-table-name', 'Patients with observations')");
+  assert.ok(ownerStart >= 0 && patientStart > ownerStart, 'both fixture table setup flows must remain in order');
+  const ownerFlow = scenario.slice(ownerStart, patientStart);
+  const patientFlow = scenario.slice(patientStart);
+
+  assert.match(rowPicker, /aria-label=\{`Choose \$\{node\.resourceType\} rows`\}/);
+  assert.match(builder, /id="first-table-name"/);
+  assert.match(actionBar, /data-testid=\{`construction-action-\$\{family\.toLowerCase\(\)\.replace\('_', '-'\)\}`\}/);
+  assert.match(builder, /aria-label=\{`\$\{activeOperation\.label\} editor`\}/);
+  assert.match(builder, /data-testid="construction-source-setup"/);
+  assert.match(builder, /Advanced source setup/);
+  assert.match(builder, /tablePreview\.rows !== null/);
+  assert.match(builder, /state\.reconciliation === 'resolved'/);
+  assert.match(builder, /tablePreview\.receiptId === state\.receipt\.receiptId/);
+  assert.match(actionBar, /label: 'Add columns'/);
+  assert.match(builder, /Fields and related data/);
+  assert.match(catalog, /data-testid="feature-catalog-raw-fields"/);
+  assert.match(choiceDialog, /Choose how to add these fields/);
+  assert.match(choiceDialog, /`Add \$\{groups\.length\} \$\{groups\.length === 1 \? 'column' : 'columns'\}`/);
+
+  assert.doesNotMatch(scenario, /clickButton\('Create table'\)|clickButton\('Preview'\)|textContent\.trim\(\) === 'Preview'|One row per|Source and column setup|Search fields and concepts|Choose output forms/);
+  assert.match(ownerFlow, /button\[aria-label="Choose Observation rows"\]/);
+  assert.match(ownerFlow, /construction-action-add-columns/);
+  assert.match(ownerFlow, /clickButton\('Fields and related data'\)/);
+  assert.match(ownerFlow, /shared: Keep each matching record/);
+  assert.match(ownerFlow, /candidate\.textContent\.trim\(\) === 'Add 1 column'/);
+  assert.match(ownerFlow, /clickButton\('Apply columns'\)/);
+  assert.match(ownerFlow, /builder-persists-owner-record-construction/);
+  assert.match(ownerFlow, /ownerPath: 'component\[\]'/);
+  assert.match(ownerFlow, /valuePath: 'valueQuantity\.value'/);
+  assert.match(ownerFlow, /captureBuilderPreviewBaseline\(target, cdp, ownerRecordsExplorerId\)/);
+  assert.match(ownerFlow, /waitForFreshBuilderPreview\(/);
+  assert.match(ownerFlow, /readBuilderPreviewDOM\(cdp\)\)\.receiptId/);
+  assert.match(ownerFlow, /preview-owner-record-inspector-preserves-value-unit-code-and-source/);
+
+  assert.match(patientFlow, /button\[aria-label="Choose Patient rows"\]/);
+  assert.match(patientFlow, /construction-action-add-columns/);
+  assert.match(patientFlow, /feature-catalog-raw-fields/);
+  assert.match(patientFlow, /Select Patient\.id/);
+  assert.match(patientFlow, /clickButton\('Apply columns'\)/);
+  assert.match(patientFlow, /advanced source setup is unavailable/);
+  assert.match(patientFlow, /Feature authoring view/);
+  assert.match(patientFlow, /builder-catalog-adds-default-root-field-without-graph/);
+  assert.match(patientFlow, /builder-configures-exact-root-fields/);
+  assert.match(patientFlow, /RELATIONSHIP_CARDINALITY_VIOLATION/);
+  assert.match(patientFlow, /TEMPORAL_TIE_AMBIGUOUS/);
+  assert.match(patientFlow, /preview-shows-exact-fixture-table/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, exactTablePreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, valueCountPreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION'/);
+  assert.match(patientFlow, /waitForFreshBuilderDiagnostic\(target, cdp, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS'/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, tiePolicyPreviewBaseline/);
+  assert.match(patientFlow, /waitForFreshBuilderPreview\(target, cdp, explorerId, maximumPreviewBaseline/);
+  assert.match(patientFlow, /clickButton\('Publish'\)/);
+  assert.match(patientFlow, /clickButton\('Viewer'\)/);
+  assert.match(patientFlow, /clickButton\('Download dataset'\)/);
+  assert.match(scenario, /demo-controls span.*target\.fixtureProject.*bootstrapExplorerId/s);
 });
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {

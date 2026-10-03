@@ -4412,6 +4412,116 @@ const fetchBuilderState = async (target, explorerId) => {
   return value;
 };
 
+const readBuilderPreviewDOM = async (cdp) => evaluate(cdp, `(() => {
+  const preview = document.querySelector('[data-testid="construction-preview"]');
+  return {
+    status: preview?.getAttribute('data-preview-status') ?? '',
+    receiptId: preview?.getAttribute('data-preview-receipt-id') ?? '',
+    outputId: preview?.getAttribute('data-preview-output-id') ?? '',
+    proposalId: preview?.getAttribute('data-preview-proposal-id') ?? '',
+    draftVersion: Number(preview?.getAttribute('data-current-draft-version') ?? 0),
+    draftDigest: preview?.getAttribute('data-current-draft-digest') ?? '',
+    text: document.body.innerText,
+  };
+})()`);
+
+export const builderDraftMatchesPreviewDOM = (baseline, state, preview, outputId) => {
+  const selectedDocument = state?.workspace?.documents?.find((document) => document.output?.id === outputId);
+  return Boolean(
+    selectedDocument &&
+    state.lifecycleState === 'READY' &&
+    baseline?.snapshotToken &&
+    state.catalog?.snapshotToken === baseline.snapshotToken &&
+    Number.isInteger(state.draftVersion) &&
+    state.draftVersion > baseline.draftVersion &&
+    state.draftDigest &&
+    state.draftDigest !== baseline.draftDigest &&
+    preview?.outputId === outputId &&
+    preview.draftVersion === state.draftVersion &&
+    preview.draftDigest === state.draftDigest,
+  );
+};
+
+export const builderPreviewIsFreshForDraft = (baseline, state, preview, outputId) =>
+  builderDraftMatchesPreviewDOM(baseline, state, preview, outputId) &&
+  preview.status === 'ready' &&
+  !preview.proposalId &&
+  Boolean(preview.receiptId) &&
+  preview.receiptId !== baseline.previewReceiptId;
+
+const captureBuilderPreviewBaseline = async (target, cdp, explorerId) => {
+  const [state, preview] = await Promise.all([
+    fetchBuilderState(target, explorerId),
+    readBuilderPreviewDOM(cdp),
+  ]);
+  const outputId = state.workspace?.documents?.[0]?.output?.id;
+  if (!outputId) throw new Error('Builder preview baseline has no selected table output');
+  return {
+    snapshotToken: state.catalog?.snapshotToken ?? '',
+    draftVersion: state.draftVersion,
+    draftDigest: state.draftDigest,
+    previewReceiptId: preview.receiptId,
+    outputId,
+    text: preview.text,
+  };
+};
+
+const waitForFreshBuilderPreview = async (target, cdp, explorerId, baseline, report, assertionName) => {
+  const deadline = Date.now() + 60000;
+  let latest;
+  while (Date.now() < deadline) {
+    const [state, preview] = await Promise.all([
+      fetchBuilderState(target, explorerId),
+      readBuilderPreviewDOM(cdp),
+    ]);
+    latest = { state, preview };
+    if (builderPreviewIsFreshForDraft(baseline, state, preview, baseline.outputId)) {
+      report.target.previewFreshness ??= [];
+      report.target.previewFreshness.push({
+        assertion: assertionName,
+        snapshotToken: state.catalog.snapshotToken,
+        draftVersion: state.draftVersion,
+        draftDigest: state.draftDigest,
+        outputId: baseline.outputId,
+        previousReceiptId: baseline.previewReceiptId,
+        receiptId: preview.receiptId,
+      });
+      return state;
+    }
+    await sleep(200);
+  }
+  throw new Error(`automatic preview did not produce a fresh receipt for the committed Builder draft: ${JSON.stringify({
+    outputId: baseline.outputId,
+    baseline: { snapshotToken: baseline.snapshotToken, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest, receiptId: baseline.previewReceiptId },
+    current: latest && { snapshotToken: latest.state.catalog?.snapshotToken, draftVersion: latest.state.draftVersion, draftDigest: latest.state.draftDigest, ...latest.preview },
+  })}`);
+};
+
+const waitForFreshBuilderDiagnostic = async (target, cdp, explorerId, baseline, code) => {
+  const deadline = Date.now() + 60000;
+  let latest;
+  while (Date.now() < deadline) {
+    const [state, preview] = await Promise.all([
+      fetchBuilderState(target, explorerId),
+      readBuilderPreviewDOM(cdp),
+    ]);
+    latest = { state, preview };
+    if (
+      builderDraftMatchesPreviewDOM(baseline, state, preview, baseline.outputId) &&
+      preview.status === 'stale' &&
+      !preview.proposalId &&
+      !baseline.text.includes(code) &&
+      preview.text.includes(code)
+    ) return;
+    await sleep(200);
+  }
+  throw new Error(`automatic preview did not report ${code} for the newly committed Builder draft: ${JSON.stringify({
+    outputId: baseline.outputId,
+    baseline: { snapshotToken: baseline.snapshotToken, draftVersion: baseline.draftVersion, draftDigest: baseline.draftDigest },
+    current: latest && { snapshotToken: latest.state.catalog?.snapshotToken, draftVersion: latest.state.draftVersion, draftDigest: latest.state.draftDigest, ...latest.preview },
+  })}`);
+};
+
 const fetchJ01Preview = async (target, explorerId, outputId, state, limit = 1000) => {
   let receiptId = state.receipt?.receiptId ?? state.receiptId;
   if (!receiptId) {
@@ -4891,14 +5001,17 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     report.target.ownerRecordsExplorerId = ownerRecordsExplorerId;
 
     await browserEval(cdp, `setInput('first-table-name', 'Observation owner records')`);
-    await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Observation owner records') && Boolean(document.querySelector('[data-testid="construction-source-setup"]'))`);
-    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details) throw new Error('source setup is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]')) || Boolean(document.querySelector('[aria-label="Row definition"] select[aria-label="One row per"]'))`);
-    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (button) { if (button.disabled) throw new Error('Observation row choice is unavailable'); button.click(); } else { const selected = document.querySelector('select[aria-label="One row per"] option:checked'); if (selected?.textContent.trim() !== 'Observation') throw new Error('Observation rows are not selected'); }`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`);
-    await browserEval(cdp, `const summary = [...document.querySelectorAll('summary')].find((item) => item.textContent.includes('Source and column setup')); if (summary && !summary.parentElement.open) summary.click();`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Observation rows"]:not(:disabled)'))`);
+    await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Observation rows"]'); if (!button || button.disabled) throw new Error('Observation row choice is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Observation owner records') && Boolean(document.querySelector('[data-testid="construction-workspace"]')) && Boolean(document.querySelector('[data-testid="construction-action-add-columns"]'))`);
+    const ownerRecordsInitialBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
+    const ownerRecordsInitialTable = ownerRecordsInitialBuilder.workspace?.documents?.[0];
+    recordAssertion(report, 'owner-records-builder-creates-observation-rows', 'Observation', ownerRecordsInitialTable?.rootResourceType);
+    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-action-add-columns"]'); if (!button || button.disabled) throw new Error('Add columns action is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
+    await browserEval(cdp, `clickButton('Fields and related data')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('details[data-testid="feature-catalog-raw-fields"]'))`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'shared')`);
     await browserEval(cdp, `clickButton('Search')`);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('article')].find((article) => article.textContent.includes('urn:study:A · shared') && article.textContent.includes('valueQuantity.value') && article.querySelector('input[type="checkbox"]:not(:disabled)')))`);
@@ -4913,9 +5026,12 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     `);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Add 1 selected feature')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Choose output forms') && Boolean(document.querySelector('[aria-label="shared: Keep each matching record"]'))`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('[role="dialog"]')].find((dialog) => dialog.innerText.includes('Choose how to add these fields') && dialog.querySelector('[aria-label="shared: Keep each matching record"]')))`);
     await browserEval(cdp, `const input = inputByLabel('shared: Keep each matching record'); if (!input) throw new Error('OWNER_RECORDS form is missing'); input.click();`);
-    await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    await browserEval(cdp, `const dialog = [...document.querySelectorAll('[role="dialog"]')].find((candidate) => candidate.innerText.includes('Choose how to add these fields')); const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => candidate.textContent.trim() === 'Add 1 column'); if (!button || button.disabled) throw new Error('owner-record column confirmation is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    const ownerPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, ownerRecordsExplorerId);
+    await browserEval(cdp, `clickButton('Apply columns')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured shared"]'))`);
     const ownerRecordsBuilder = await fetchBuilderState(target, ownerRecordsExplorerId);
     const ownerRecordsColumn = ownerRecordsBuilder.workspace.documents[0].columns.find((column) => column.label === 'shared');
@@ -4932,13 +5048,17 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       ownerPath: ownerRecordsColumn?.source?.ownerRecords?.binding?.ownerPath,
       valuePath: ownerRecordsColumn?.source?.ownerRecords?.binding?.valuePath,
     });
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.querySelector('[data-preview-status="ready"]')?.getAttribute('data-preview-receipt-id')`, 60000);
-    const ownerPreviewReceiptID = String(await evaluate(cdp, `document.querySelector('[data-preview-status="ready"]')?.getAttribute('data-preview-receipt-id') || ''`));
+    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-close-operation-editor"]'); if (!button) throw new Error('Add columns editor close control is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Add columns editor"]')`);
+    const ownerPreviewReadyBuilder = await waitForFreshBuilderPreview(
+      target, cdp, ownerRecordsExplorerId, ownerPreviewBaseline, report,
+      'owner-records-preview-uses-current-saved-column-draft',
+    );
+    const ownerPreviewReceiptID = String((await readBuilderPreviewDOM(cdp)).receiptId);
     const ownerPreview = await requestJSON(`${bootstrapAuthoringURL(target, ownerRecordsExplorerId)}/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receiptId: ownerPreviewReceiptID, outputId: ownerRecordsBuilder.workspace.documents[0].output.id, limit: 1000 }),
+      body: JSON.stringify({ receiptId: ownerPreviewReceiptID, outputId: ownerPreviewReadyBuilder.workspace.documents[0].output.id, limit: 1000 }),
       timeout: 90000,
     });
     if (!ownerPreview.response.ok || !Array.isArray(ownerPreview.value?.rows)) {
@@ -4989,15 +5109,20 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const verificationBrowserURL = `${target.uiUrl}/?project=${encodeURIComponent(target.fixtureProject)}&explorer=${encodeURIComponent(explorerId)}&mode=builder`;
 
     await browserEval(cdp, `setInput('first-table-name', 'Patients with observations')`);
-    await browserEval(cdp, `clickButton('Create table')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('What should one row represent?') && document.body.innerText.includes('Patients with observations')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('button[aria-label="Choose Patient rows"]:not(:disabled)'))`);
     await browserEval(cdp, `const button = document.querySelector('button[aria-label="Choose Patient rows"]'); if (!button || button.disabled) throw new Error('Patient row choice is unavailable'); button.click();`);
-    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]'))`);
-    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (details && !details.open) details.querySelector('summary')?.click();`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Search fields and concepts')`);
+    await waitForBrowser(cdp, `document.body.innerText.includes('Patients with observations') && Boolean(document.querySelector('[data-testid="construction-workspace"]')) && Boolean(document.querySelector('[data-testid="construction-action-add-columns"]'))`);
+    const patientInitialBuilder = await fetchBuilderState(target, explorerId);
+    const patientInitialTable = patientInitialBuilder.workspace?.documents?.[0];
+    recordAssertion(report, 'patient-builder-creates-patient-rows', 'Patient', patientInitialTable?.rootResourceType);
+    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-action-add-columns"]'); if (!button || button.disabled) throw new Error('Add columns action is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Add columns editor"]'))`);
+    await browserEval(cdp, `clickButton('Fields and related data')`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Search features by field name, concept, or code"]')) && Boolean(document.querySelector('details[data-testid="feature-catalog-raw-fields"]'))`);
     await browserEval(cdp, `setInput('Search features by field name, concept, or code', 'id')`);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Search' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Search')`);
+    await browserEval(cdp, `const details = document.querySelector('details[data-testid="feature-catalog-raw-fields"]'); if (!details) throw new Error('raw FHIR field list is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Select Patient.id"]:not(:disabled)'))`);
     await browserEval(cdp, `
       const input = inputByLabel('Select Patient.id');
@@ -5007,6 +5132,13 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     `);
     await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add 1 selected feature' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Add 1 selected feature')`);
+    await waitForBrowser(cdp, `document.querySelector('[role="dialog"] h2')?.textContent.trim() === 'Choose how to add these fields' || Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    const patientNeedsFormChoice = await evaluate(cdp, `document.querySelector('[role="dialog"] h2')?.textContent.trim() === 'Choose how to add these fields'`);
+    if (patientNeedsFormChoice) {
+      await browserEval(cdp, `const dialog = document.querySelector('[role="dialog"]'); const selected = dialog?.querySelector('input[type="radio"]:checked'); const button = [...(dialog?.querySelectorAll('button') || [])].find((candidate) => candidate.textContent.trim() === 'Add 1 column'); if (!selected || !button || button.disabled) throw new Error('Patient ID default form is unavailable'); button.click();`);
+    }
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Apply columns' && !button.disabled))`);
+    await browserEval(cdp, `clickButton('Apply columns')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured id"]'))`);
     const catalogBuilder = await fetchBuilderState(target, explorerId);
     const catalogIDColumn = catalogBuilder.workspace.documents[0].columns.find((column) => column.label === 'id');
@@ -5023,6 +5155,10 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     });
     await snapshot(cdp, join(evidenceDir, 'builder-catalog-column.html'));
     recordEvidence(report, join(evidenceDir, 'builder-catalog-column.html'));
+    await browserEval(cdp, `const button = document.querySelector('[data-testid="construction-close-operation-editor"]'); if (!button) throw new Error('Add columns editor close control is unavailable'); button.click();`);
+    await waitForBrowser(cdp, `!document.querySelector('[aria-label="Add columns editor"]')`);
+    await browserEval(cdp, `const details = document.querySelector('[data-testid="construction-source-setup"]'); if (!details) throw new Error('advanced source setup is unavailable'); if (!details.open) details.querySelector('summary')?.click();`);
+    await waitForBrowser(cdp, `Boolean(document.querySelector('[aria-label="Feature authoring view"]'))`);
     await browserEval(cdp, `clickButton('Advanced graph')`);
     await waitForBrowser(cdp, `document.body.innerText.includes('Current query') && document.body.innerText.includes('Patient columns')`);
     await browserEval(cdp, `clickCandidate('name[].family', 'to table')`);
@@ -5079,7 +5215,6 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       operator: 'EXISTS',
       quantifier: 'ANY',
     }, scopedCount?.contributor);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
     await browserEval(cdp, `clickButton('Yes / no')`);
     let featureBuilder;
     const featureDeadline = Date.now() + 30000;
@@ -5121,11 +5256,11 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       valueCandidateVisible = await evaluate(cdp, `Boolean(document.querySelector('input[aria-label="Add valueQuantity.value to table"]'))`);
     }
     if (!valueCandidateVisible) throw new Error('valueQuantity.value candidate did not remain visible after Builder reconciliation');
+    const exactTablePreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `clickCandidate('valueQuantity.value', 'to table')`);
     await waitForBrowser(cdp, `Boolean(document.querySelector('input[aria-label="Display name for configured valueQuantity.value"]'))`);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('Preview and configure') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    await waitForFreshBuilderPreview(target, cdp, explorerId, exactTablePreviewBaseline, report,
+      'patient-preview-uses-current-configured-field-draft');
     await snapshot(cdp, join(evidenceDir, 'builder-preview.html'));
     recordEvidence(report, join(evidenceDir, 'builder-preview.html'));
     const preview = await evaluate(cdp, `(() => {
@@ -5154,19 +5289,18 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     const rejectedState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'unacknowledged-related-selection-cannot-publish', false,
       Boolean(rejectedState.active?.revisionId || rejectedState.runtime?.outputs?.length));
+    const requireOnePreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Require zero or one value')`);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('RELATIONSHIP_CARDINALITY_VIOLATION')`, 60000);
+    await waitForFreshBuilderDiagnostic(target, cdp, explorerId, requireOnePreviewBaseline, 'RELATIONSHIP_CARDINALITY_VIOLATION');
     recordAssertion(report, 'require-one-rejects-ambiguous-related-values', true,
       String(await evaluate(cdp, 'document.body.innerText')).includes('RELATIONSHIP_CARDINALITY_VIOLATION'));
     const ambiguousState = await fetchExplorerState(target, explorerId);
     recordAssertion(report, 'ambiguous-require-one-does-not-publish', false,
       Boolean(ambiguousState.active?.revisionId || ambiguousState.runtime?.outputs?.length));
+    const valueCountPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Count values or records')`);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    await waitForFreshBuilderPreview(target, cdp, explorerId, valueCountPreviewBaseline, report,
+      'value-count-preview-uses-current-aggregate-draft');
     const valueCounts = await evaluate(cdp, `(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
@@ -5188,6 +5322,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     await browserEval(cdp, `selectOptionValue('Compare with row date', 'meta.lastUpdated')`);
     recordAssertion(report, 'date-aware-editor-selects-expected-source-and-anchor', ['effectiveDateTime', 'meta.lastUpdated'],
       await evaluate(cdp, `[document.querySelector('select[aria-label="Record date"]')?.value, document.querySelector('select[aria-label="Compare with row date"]')?.value]`));
+    const temporalPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     const beforeTemporalApply = await fetchBuilderState(target, explorerId);
     recordAssertion(report, 'date-aware-editor-does-not-persist-partial-policy', 'COUNT',
       beforeTemporalApply.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.operation);
@@ -5218,13 +5353,12 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       precision: temporalFeature?.source?.aggregate?.contributorWindow?.precision,
       tiePolicy: temporalFeature?.source?.aggregate?.ordering?.tiePolicy,
     });
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('TEMPORAL_TIE_AMBIGUOUS')`, 60000);
+    await waitForFreshBuilderDiagnostic(target, cdp, explorerId, temporalPreviewBaseline, 'TEMPORAL_TIE_AMBIGUOUS');
     recordAssertion(report, 'date-aware-selection-rejects-equal-date-ambiguity', true,
       String(await evaluate(cdp, 'document.body.innerText')).includes('TEMPORAL_TIE_AMBIGUOUS'));
     await browserEval(cdp, `clickButton('Edit date window')`);
     await browserEval(cdp, `selectOption('Equal date handling', 'Choose deterministically by resource key')`);
+    const tiePolicyPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `clickButton('Apply date selection')`);
     const tiePolicyDeadline = Date.now() + 30000;
     while (Date.now() < tiePolicyDeadline) {
@@ -5235,9 +5369,8 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
     }
     recordAssertion(report, 'builder-persists-explicit-equal-date-resolution', 'RESOURCE_KEY',
       temporalBuilder?.workspace.documents[0].columns.find((column) => column.label === 'valueQuantity.value')?.source?.aggregate?.ordering?.tiePolicy);
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001')`, 60000);
+    await waitForFreshBuilderPreview(target, cdp, explorerId, tiePolicyPreviewBaseline, report,
+      'resource-key-preview-uses-current-temporal-policy-draft');
     const temporalValues = await evaluate(cdp, `(() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
       const rows = [...(table?.querySelectorAll('[role="row"]') || [])];
@@ -5253,6 +5386,7 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       ['dev-patient-001', '172.5'],
       ['dev-patient-002', '68'],
     ], temporalValues);
+    const maximumPreviewBaseline = await captureBuilderPreviewBaseline(target, cdp, explorerId);
     await browserEval(cdp, `selectOption('Across related Observation records for valueQuantity.value', 'Maximum value')`);
     let reducedBuilder;
     const reductionDeadline = Date.now() + 30000;
@@ -5278,9 +5412,9 @@ const verifyBrowserScenario = async (target, report, full, entryTarget = target)
       path: reducedValueFeature?.source?.aggregate?.path,
       contributorWindow: reducedValueFeature?.source?.aggregate?.contributorWindow,
     });
-    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Preview' && !button.disabled))`);
-    await browserEval(cdp, `clickButton('Preview')`);
-    await waitForBrowser(cdp, `document.body.innerText.includes('Dataframe contract') && document.body.innerText.includes('dev-patient-001') && Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
+    await waitForFreshBuilderPreview(target, cdp, explorerId, maximumPreviewBaseline, report,
+      'maximum-preview-uses-current-unwindowed-aggregate-draft');
+    await waitForBrowser(cdp, `Boolean([...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Publish' && !button.disabled))`, 60000);
     await browserEval(cdp, `clickButton('Publish')`);
     const runtimeStarted = Date.now();
     let state;
