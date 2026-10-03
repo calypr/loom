@@ -607,6 +607,10 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		for index := range groupRowsCopy.MemberValues {
 			groupRowsCopy.MemberValues[index].Expression = ClonePhysicalExpression(groupRowsCopy.MemberValues[index].Expression)
 		}
+		if operation.GroupRows.CellTrace != nil {
+			traceCopy := *operation.GroupRows.CellTrace
+			groupRowsCopy.CellTrace = &traceCopy
+		}
 		copy.GroupRows = &groupRowsCopy
 	}
 	if operation.GroupedPivot != nil {

@@ -452,6 +452,41 @@ func validatePhysicalGroupRows(rows PhysicalGroupRows, bindVars map[string]any) 
 			return fmt.Errorf("cohort member value %q: %w", value.Output, err)
 		}
 	}
+	if rows.CellTrace != nil {
+		trace := rows.CellTrace
+		if !physicalPathPartPattern.MatchString(trace.OutputColumn) || !outputs[trace.OutputColumn] || strings.HasPrefix(trace.OutputColumn, "__loom_") {
+			return fmt.Errorf("group-row cell trace output column %q is not a public group field", trace.OutputColumn)
+		}
+		wantCardinality := PhysicalScalarCardinality
+		if trace.OutputColumn == "members" {
+			wantCardinality = PhysicalArrayCardinality
+		} else {
+			for _, value := range rows.MemberValues {
+				if value.Output == trace.OutputColumn && value.Policy == "ALL" {
+					wantCardinality = PhysicalArrayCardinality
+					break
+				}
+			}
+		}
+		if trace.Cardinality != wantCardinality {
+			return fmt.Errorf("group-row cell trace output %q cardinality %q does not match its projected shape %q", trace.OutputColumn, trace.Cardinality, wantCardinality)
+		}
+		if strings.TrimSpace(trace.OffsetBindKey) == "" || strings.TrimSpace(trace.LimitBindKey) == "" || strings.TrimSpace(trace.FetchLimitBindKey) == "" {
+			return fmt.Errorf("group-row cell trace requires offset, limit, and fetch-limit binds")
+		}
+		offset, ok := bindVars[trace.OffsetBindKey].(int)
+		if !ok || offset < 0 {
+			return fmt.Errorf("group-row cell trace offset bind %q must be a non-negative int", trace.OffsetBindKey)
+		}
+		limit, ok := bindVars[trace.LimitBindKey].(int)
+		if !ok || limit <= 0 {
+			return fmt.Errorf("group-row cell trace limit bind %q must be a positive int", trace.LimitBindKey)
+		}
+		fetchLimit, ok := bindVars[trace.FetchLimitBindKey].(int)
+		if !ok || fetchLimit != limit+1 {
+			return fmt.Errorf("group-row cell trace fetch-limit bind %q must be limit plus one", trace.FetchLimitBindKey)
+		}
+	}
 	for _, key := range []string{
 		rows.RevisionCollectionBindKey, rows.SelectionCollectionBindKey,
 		rows.DefinitionsCollectionBindKey, rows.MembershipsCollectionBindKey,

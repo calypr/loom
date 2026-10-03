@@ -53,7 +53,9 @@ func (r *physicalPlanRenderer) renderCellTraceReturn(terminal ir.PhysicalCellTra
 	statusVariable := r.newInternalVariable("trace_status_candidates")
 	pageVariable := r.newInternalVariable("trace_contribution_page")
 	status := fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : %s == null ? "RECORDED_NULL" : "VALUE"`, statusVariable, value)
-	if terminal.Construction != nil {
+	if terminal.RowExists {
+		status = fmt.Sprintf(`%s == null ? "RECORDED_NULL" : "VALUE"`, value)
+	} else if terminal.Construction != nil {
 		if terminal.Construction.RelatedSource != nil {
 			status = fmt.Sprintf(`LENGTH(%s) == 0 ? "NO_MATCH" : "VALUE"`, statusVariable)
 		} else {

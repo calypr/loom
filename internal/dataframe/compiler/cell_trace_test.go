@@ -37,6 +37,129 @@ func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
 	}
 }
 
+func TestCompileCellTraceForSourceOnlyGroupRowsUsesFinalMemberValueAndObjectIdentity(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "GroupedSpecimens", RootResourceType: "Specimen", RowGrain: "groups",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields:           []recipe.Field{{Name: "resourceType", ColumnID: "resource_type", Expr: recipe.Expression{Select: "root.resourceType"}}},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "resource_type", Policy: recipe.ConstructionRowValueOne}},
+		},
+	})
+	if output.Plan.StageSequence != nil || len(output.Plan.Operations) != 1 || output.Plan.Operations[0].GroupRows == nil {
+		t.Fatalf("source-only explicit cohort was not compiled as the ordinary GROUP_ROWS terminal: %#v", output.Plan)
+	}
+	compiled, err := CompileCellTraceOutputWithPolicy(output, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile CellTrace for ordinary group-row member field: %v", err)
+	}
+	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || !compiled.ExplicitIdentityObject {
+		t.Fatalf("group-row trace identity = %#v, want the compiler-proven Preview object identity", compiled)
+	}
+	if output.Plan.Operations[0].GroupRows.CellTrace != nil {
+		t.Fatal("compiling a diagnostic terminal mutated the canonical Preview plan")
+	}
+	for _, want := range []string{
+		"ASSERT(revision != null AND revision.state == \"COMPLETE\"",
+		"revision.project == @project",
+		"revision.generation == @dataset_generation",
+		"source.auth_resource_path IN @auth_resource_paths",
+		"cohort_member.payload.resourceType",
+		".resourceType,",
+		"__loom_row_id",
+		`== null ? "RECORDED_NULL" : "VALUE"`,
+		"__loom_trace_source_identity",
+		"__loom_trace_source_identity.id, value:",
+		"UNIQUE(",
+	} {
+		if !strings.Contains(compiled.Query, want) {
+			t.Errorf("typed GROUP_ROWS CellTrace query is missing %q:\n%s", want, compiled.Query)
+		}
+	}
+	if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("selected scalar member field should carry exact contributor evidence:\n%s", compiled.Query)
+	}
+	for _, field := range []string{ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceExplicitIdentityField} {
+		if !containsBindValue(compiled.BindVars, field) {
+			t.Errorf("group-row CellTrace is missing typed output field %q: %#v", field, compiled.BindVars)
+		}
+	}
+}
+
+func TestCompileSourceOnlyGroupRowsCellTraceMatchesExactOneAndAllMemberValues(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      recipe.Field
+		policy     recipe.ConstructionRowValuePolicy
+		want       []string
+		unexpected []string
+	}{
+		{
+			name:   "ONE scalar",
+			field:  recipe.Field{Name: "resourceType", ColumnID: "resource_type", Expr: recipe.Expression{Select: "root.resourceType"}},
+			policy: recipe.ConstructionRowValueOne,
+			want: []string{
+				"cohort_member.payload.resourceType",
+				"__loom_trace_source_identity",
+				" == __loom_physical_cohort_group_final_row.resourceType",
+				"__loom_trace_source_identity.id, value:",
+				"UNIQUE(",
+			},
+			unexpected: []string{" IN __loom_physical_cohort_group_final_row.resourceType"},
+		},
+		{
+			name:   "ALL repeated scalar leaf",
+			field:  recipe.Field{Name: "given", ColumnID: "given", Expr: recipe.Expression{Select: "root.name[].given[]"}},
+			policy: recipe.ConstructionRowValueAll,
+			want: []string{
+				"ASSERT(IS_ARRAY(",
+				"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH",
+				"cohort_member.payload.name",
+				" IN __loom_physical_cohort_group_final_row.given",
+				"__loom_trace_source_identity.id, value:",
+				"UNIQUE(",
+			},
+			unexpected: []string{" == __loom_physical_cohort_group_final_row.given"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := compilePopulationMappingOutput(t, recipe.Output{
+				Name: "GroupedPatients", RootResourceType: "Patient", RowGrain: "groups",
+				RootColumnNaming: recipe.RootColumnNamingExact,
+				Fields:           []recipe.Field{test.field},
+				GroupRows: &recipe.GroupRows{
+					RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE",
+					RowValues: []recipe.GroupRowValuePolicy{{ColumnID: test.field.ColumnID, Policy: test.policy}},
+				},
+			})
+			compiled, err := CompileCellTraceOutputWithPolicy(output, test.field.Name, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("compile %s GROUP_ROWS CellTrace: %v", test.name, err)
+			}
+			for _, marker := range test.want {
+				if !strings.Contains(compiled.Query, marker) {
+					t.Errorf("query is missing %q:\n%s", marker, compiled.Query)
+				}
+			}
+			for _, marker := range test.unexpected {
+				if strings.Contains(compiled.Query, marker) {
+					t.Errorf("query unexpectedly contains %q:\n%s", marker, compiled.Query)
+				}
+			}
+			if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+				t.Errorf("supported %s output has unavailable contributor evidence:\n%s", test.name, compiled.Query)
+			}
+			if !strings.Contains(compiled.Query, "source.auth_resource_path IN @auth_resource_paths") ||
+				!strings.Contains(compiled.Query, "revision.project == @project") ||
+				!strings.Contains(compiled.Query, "revision.generation == @dataset_generation") {
+				t.Errorf("%s trace lost its project, generation, or authorization scope:\n%s", test.name, compiled.Query)
+			}
+		})
+	}
+}
+
 func TestCompileCellTraceExplainsOptionalTraversalBeforeFirstReduction(t *testing.T) {
 	output := compilePopulationMappingOutput(t, recipe.Output{
 		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",

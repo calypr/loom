@@ -154,34 +154,70 @@ const inspectCohortRow = async name => {
 const traceCohortCell = async (name, inspection, cellColumn) => {
   assert(cellColumn, 'The saved cohort must expose a traceable resourceType output column');
   const traceStarted = Date.now();
-  const cellTrace = await api(base + '/cell-trace', {
+  const fetchCellTracePage = async offset => api(base + '/cell-trace', {
     receiptId: inspection.receiptId,
     outputId,
     rowId: inspection.rowId,
     column: cellColumn,
+    offset,
     limit: 10,
   }, 5000);
+  const firstPage = await fetchCellTracePage(0);
+  const pages = [firstPage];
+  let pageOffset = 0;
+  while (pages.at(-1).trace.hasMore) {
+    const previous = pages.at(-1);
+    const nextOffset = previous.trace.nextOffset;
+    assert(Number.isInteger(nextOffset) && nextOffset > pageOffset,
+      `CellTrace pagination must advance beyond offset ${pageOffset}`);
+    assert(pages.length < 20, 'CellTrace exceeded the verifier page bound');
+    const nextPage = await fetchCellTracePage(nextOffset);
+    assert.equal(nextPage.binding.receiptId, firstPage.binding.receiptId);
+    assert.equal(nextPage.binding.outputId, firstPage.binding.outputId);
+    assert.equal(nextPage.binding.project, firstPage.binding.project);
+    assert.equal(nextPage.binding.generation, firstPage.binding.generation);
+    assert.equal(nextPage.binding.scopeDigest, firstPage.binding.scopeDigest);
+    assert.equal(nextPage.feature.column, firstPage.feature.column);
+    assert.equal(nextPage.trace.rowId, firstPage.trace.rowId);
+    assert.equal(nextPage.trace.column, firstPage.trace.column);
+    assert.equal(nextPage.trace.status, firstPage.trace.status);
+    assert.deepEqual(nextPage.trace.value, firstPage.trace.value);
+    pages.push(nextPage);
+    pageOffset = nextOffset;
+  }
+  const cellTrace = firstPage;
+  const contributions = pages.flatMap(page => page.trace.contributions ?? []);
   const traceDurationMs = Date.now() - traceStarted;
   assert(traceDurationMs <= 5000, `${name} CellTrace took ${traceDurationMs}ms`);
   assert.equal(cellTrace.binding.receiptId, inspection.receiptId);
   assert.equal(cellTrace.binding.outputId, outputId);
   assert.equal(cellTrace.binding.project, project);
+  assert.equal(cellTrace.binding.explorerId, explorer);
   assert.equal(cellTrace.binding.generation, generation);
   assert.equal(cellTrace.binding.scopeDigest, report.cohort.sourceScopeDigest);
   assert.equal(cellTrace.feature.column, cellColumn);
+  assert.equal(cellTrace.feature.sourceResourceType, resourceType);
+  assert.equal(cellTrace.feature.sourcePath, 'resourceType');
   assert.deepEqual(JSON.parse(cellTrace.trace.rowId), inspection.rowIdObject, 'CellTrace must resolve the Preview row identity submitted by the native inspector');
   assert.equal(cellTrace.trace.column, cellColumn);
   assert.equal(cellTrace.trace.complete, true, JSON.stringify(cellTrace.trace));
   assert.equal(cellTrace.trace.status, 'VALUE', JSON.stringify(cellTrace.trace));
   assert.deepEqual(cellTrace.trace.value, [resourceType], 'The ALL member-field trace must return exactly the distinct scoped Specimen value');
-  const expectedRefs = report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort();
-  const tracedRefs = (cellTrace.trace.contributions ?? [])
-    .filter(item => item.resourceType && item.resourceId)
-    .map(item => `${item.resourceType}/${item.resourceId}`)
-    .sort();
-  if (tracedRefs.length > 0) {
-    assert.deepEqual([...new Set(tracedRefs)], expectedRefs, 'Typed CellTrace source contributors must equal the exact pinned cohort');
-  }
+  assert.equal(pages.at(-1).trace.hasMore, false, 'CellTrace contributor pagination must finish before exact comparison');
+  const expectedContributorTuples = report.oracle.cellTraceContributors;
+  const tracedContributorTuples = contributions.map(item => {
+    assert.equal(item.resourceType, resourceType, 'Each CellTrace contributor must identify the authorized source resource type');
+    assert(item.resourceId, 'Each CellTrace contributor must identify its authorized source resource ID');
+    return { resourceType: item.resourceType, resourceId: item.resourceId, value: item.value };
+  }).sort((left, right) => `${left.resourceType}/${left.resourceId}/${JSON.stringify(left.value)}`
+    .localeCompare(`${right.resourceType}/${right.resourceId}/${JSON.stringify(right.value)}`));
+  assert.deepEqual(tracedContributorTuples, expectedContributorTuples,
+    'CellTrace must return the exact scoped source ID/value tuples independently read from the pinned FHIR documents');
+  const tupleKeys = tracedContributorTuples.map(item => `${item.resourceType}\u0000${item.resourceId}\u0000${JSON.stringify(item.value)}`);
+  assert.equal(new Set(tupleKeys).size, expectedContributorTuples.length, 'Each source/value contributor tuple must appear once');
+  const expectedRefs = expectedContributorTuples.map(item => `${item.resourceType}/${item.resourceId}`).sort();
+  const tracedRefs = tracedContributorTuples.map(item => `${item.resourceType}/${item.resourceId}`).sort();
+  assert.deepEqual(tracedRefs, expectedRefs, 'CellTrace contributor source IDs must remain inside the exact authorized cohort');
   report.cellTraces ??= [];
   const result = {
     name,
@@ -196,14 +232,17 @@ const traceCohortCell = async (name, inspection, cellColumn) => {
     complete: cellTrace.trace.complete,
     value: cellTrace.trace.value,
     sourceContributors: inspection.sourceContributors,
+    contributorTuples: tracedContributorTuples,
+    contributorPageCount: pages.length,
+    contributorPages: pages.map(page => ({ hasMore: page.trace.hasMore, nextOffset: page.trace.nextOffset, count: page.trace.contributions?.length ?? 0 })),
     cellTraceSourceRefs: tracedRefs,
-    cellTraceSourceContributorsSupported: tracedRefs.length > 0,
-    contributions: cellTrace.trace.contributions,
+    cellTraceSourceContributorsSupported: true,
+    contributions,
     durationMs: traceDurationMs,
   };
   report.cellTraces.push(result);
   record(`${name}-cell-trace`, traceStarted);
-  return { ...result, trace: cellTrace.trace };
+  return { ...result, trace: { ...cellTrace.trace, contributions, hasMore: false } };
 };
 
 try {
@@ -229,7 +268,7 @@ try {
     captureError.initialSourceFreezeFailure = true;
     throw captureError;
   }
-  const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
+  const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,fieldValue:s.payload.resourceType,generation:s.dataset_generation,project:s.project}`;
   const raw = spawnSync('rtk', [
     'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
     '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(query)}).toArray()));`,
@@ -239,7 +278,13 @@ try {
   assert.equal(sources.length, 2, 'The independent pinned cohort fixture must contain exactly two rows');
   assert.equal(new Set(sources.map(source => source.id)).size, 2, 'The pinned FHIR IDs must be distinct');
   assert(sources.every(source => source.project === project && source.generation === generation && source.resourceType === resourceType));
-  report.oracle = { query, sources };
+  const cellTraceContributors = sources.map(source => ({
+    resourceType: source.resourceType,
+    resourceId: source.id,
+    value: source.fieldValue,
+  })).sort((left, right) => `${left.resourceType}/${left.resourceId}/${JSON.stringify(left.value)}`
+    .localeCompare(`${right.resourceType}/${right.resourceId}/${JSON.stringify(right.value)}`));
+  report.oracle = { query, sources, cellTraceContributors };
 
   await api(root, { name: explorer, title: 'Named cohort source inspection QA' });
   builder = await api(base + '/builder');
@@ -403,6 +448,7 @@ try {
   assert.deepEqual(JSON.parse(reloadedCellTrace.trace.rowId), JSON.parse(savedCellTrace.trace.rowId), 'CellTrace must retain the same complete structured identity after reload');
   assert.equal(reloadedCellTrace.cellTraceSourceContributorsSupported, savedCellTrace.cellTraceSourceContributorsSupported, 'CellTrace contributor support must be stable after reload');
   assert.deepEqual(reloadedCellTrace.cellTraceSourceRefs, savedCellTrace.cellTraceSourceRefs, 'Typed CellTrace contributors must be stable after reload');
+  assert.deepEqual(reloadedCellTrace.contributorTuples, savedCellTrace.contributorTuples, 'Exact CellTrace source/value tuples must be stable after reload');
   report.cellTraceCoverage = {
     mode: 'API-driven receipt-bound CellTrace for a native Preview object identity after member-field Apply',
     saved: { receiptId: savedCellTrace.receiptId, rowId: savedFieldInspection.rowId, value: savedCellTrace.value, status: savedCellTrace.status },
@@ -411,7 +457,10 @@ try {
     sameReceiptWithinEachCellTrace: report.cellTraces.every(trace => trace.receiptId === trace.rowLineageReceiptId),
     sourceContributors: savedFieldInspection.sourceContributors,
     cellTraceSourceContributorsSupported: savedCellTrace.cellTraceSourceContributorsSupported,
-    contributorRefs: report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort(),
+    contributorRefs: report.oracle.cellTraceContributors.map(item => `${item.resourceType}/${item.resourceId}`).sort(),
+    expectedContributorTuples: report.oracle.cellTraceContributors,
+    savedContributorTuples: savedCellTrace.contributorTuples,
+    reloadedContributorTuples: reloadedCellTrace.contributorTuples,
   };
   assert(report.cellTraceCoverage.stableRowIdentity);
   assert(report.cellTraceCoverage.sameReceiptWithinEachCellTrace);

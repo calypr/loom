@@ -123,6 +123,9 @@ type PhysicalCellTraceReturn struct {
 	LimitBindKey      string
 	FetchLimitBindKey string
 	OmissionCode      string
+	// RowExists indicates that the terminal is compiled over an existing typed
+	// output row, so contributor availability does not determine value status.
+	RowExists bool
 }
 
 // PhysicalCellTraceConstruction describes value lineage through an ordered
@@ -418,8 +421,8 @@ type PhysicalSubplan struct {
 }
 
 // PhysicalCollectionScan reads a compiler-provided collection inside a
-// correlated predicate subplan. It is used for indexed immutable membership
-// joins and is not legal as a top-level root scan.
+// correlated subplan. A keyed scan iterates one compiler-proven document-key
+// set and looks up each document directly instead of scanning the collection.
 type PhysicalCollectionScan struct {
 	Variable          string
 	CollectionBindKey string

@@ -157,6 +157,18 @@ type PhysicalGroupRows struct {
 	AuthUnrestrictedBindKey           string
 	LimitBindKey                      string
 	MemberValues                      []PhysicalGroupMemberValue
+	CellTrace                         *PhysicalGroupRowsCellTrace
+}
+
+// PhysicalGroupRowsCellTrace replaces the public row terminal with a bounded
+// trace of one compiler-selected field. The renderer evaluates the field from
+// the exact row it would otherwise return, including its stable group identity.
+type PhysicalGroupRowsCellTrace struct {
+	OutputColumn      string
+	Cardinality       PhysicalCardinality
+	OffsetBindKey     string
+	LimitBindKey      string
+	FetchLimitBindKey string
 }
 
 // PhysicalGroupMemberValue reduces a checked field over the authorized members

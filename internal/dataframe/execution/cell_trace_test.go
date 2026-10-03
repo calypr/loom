@@ -226,6 +226,84 @@ func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *te
 	}
 }
 
+func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t *testing.T) {
+	output := recipe.Output{
+		Name: "grouped_specimens", RootResourceType: "Specimen", RowGrain: "groups",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields:           []recipe.Field{{Name: "resourceType", ColumnID: "resource_type", Expr: recipe.Expression{Select: "root.resourceType"}}},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_cell_trace", UnassignedMemberPolicy: "EXCLUDE",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "resource_type", Policy: recipe.ConstructionRowValueOne}},
+		},
+	}
+	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "grouped cell trace", TranslationVersion: "test", Outputs: []recipe.Output{output}}
+	bindings := recipe.RuntimeBindings{Project: "trace-project", SelectionProject: "selection-project", DatasetGeneration: "generation-a"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "trace-project", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	trace, err := compiler.CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("compile ordinary group-row CellTrace: %v", err)
+	}
+	if !trace.ExplicitIdentityObject || trace.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField {
+		t.Fatalf("group-row CellTrace identity = %#v, want Preview's typed object identity", trace)
+	}
+	rowIdentity := map[string]any{"group_revision_id": "grouprev_cell_trace", "group_id": "cohort-a"}
+	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		if query != trace.Query {
+			t.Fatalf("CellTrace executed a query other than its compiled terminal")
+		}
+		return visit(map[string]any{
+			trace.ExplicitIdentityColumn: rowIdentity,
+			trace.ValueColumn:            "Specimen",
+			trace.StatusColumn:           "VALUE",
+			trace.ContributionsColumn: []any{
+				map[string]any{"resourceType": "Specimen", "resourceId": "specimen-a", "value": "Specimen"},
+				map[string]any{"resourceType": "Specimen", "resourceId": "specimen-b", "value": "Specimen"},
+			},
+			trace.HasMoreColumn:  false,
+			trace.OmissionColumn: "",
+		})
+	}}
+	result, err := engine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+		Output: "grouped_specimens", RowID: `{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace"}`, Column: "resourceType", Limit: 10,
+	})
+	if err != nil || result.Status != CellTraceValue || result.Value != "Specimen" {
+		t.Fatalf("CellTrace did not match Preview's reordered object identity and return the member field: result=%#v err=%v", result, err)
+	}
+	if result.OmissionCode != "" || len(result.Contributions) != 2 ||
+		result.Contributions[0].ResourceID != "specimen-a" || result.Contributions[0].Value != "Specimen" ||
+		result.Contributions[1].ResourceID != "specimen-b" || result.Contributions[1].Value != "Specimen" {
+		t.Fatalf("CellTrace should return exact ONE member contributors: %#v", result)
+	}
+	for _, rowID := range []string{
+		`{"group_revision_id":"grouprev_cell_trace"}`,
+		`{"group_revision_id":"grouprev_cell_trace","group_id":"cohort-a","extra":"forged"}`,
+		`["grouprev_cell_trace","cohort-a"]`,
+	} {
+		queried := false
+		malformedEngine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			queried = true
+			return visit(map[string]any{})
+		}}
+		_, traceErr := malformedEngine.CellTraceCompiled(context.Background(), trace, CellTraceRequest{
+			Output: "grouped_specimens", RowID: rowID, Column: "resourceType", Limit: 10,
+		})
+		if traceErr == nil || !strings.Contains(traceErr.Error(), "invalid object identity") || queried {
+			t.Fatalf("malformed group-row identity %s reached query execution or was accepted: queried=%t err=%v", rowID, queried, traceErr)
+		}
+	}
+}
+
 func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 	output := compileComposedCohortPivotOutput(t)
 	if output.Plan.StageSequence == nil || output.Plan.StageSequence.FinalRowIdentity != "__loom_row_id" {

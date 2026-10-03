@@ -61,6 +61,9 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if physical.StageSequence != nil {
 		return compileConstructionCellTrace(output, &physical, column, offset, limit)
 	}
+	if len(physical.Operations) == 1 && physical.Operations[0].Kind == ir.PhysicalGroupRowsOp && physical.Operations[0].GroupRows != nil {
+		return compileGroupRowsCellTrace(output, &physical, column, offset, limit)
+	}
 	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
 	if err != nil {
 		return CompiledCellTraceQuery{}, err
@@ -109,6 +112,46 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
 	}
 	return query, nil
+}
+
+func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.PhysicalPlan, column string, offset, limit int) (CompiledCellTraceQuery, error) {
+	var cardinality ir.PhysicalCardinality
+	for _, candidate := range output.OutputSchema {
+		if candidate.Name != column || candidate.Internal {
+			continue
+		}
+		cardinality = ir.PhysicalScalarCardinality
+		if candidate.Cardinality == "many" {
+			cardinality = ir.PhysicalArrayCardinality
+		}
+		break
+	}
+	if cardinality == "" {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace column %q is not a public group output", column)
+	}
+	const offsetBind, limitBind, fetchLimitBind = "cell_trace_offset", "cell_trace_limit", "cell_trace_fetch_limit"
+	physical.BindVars[offsetBind] = offset
+	physical.BindVars[limitBind] = limit
+	physical.BindVars[fetchLimitBind] = limit + 1
+	physical.Operations[0].GroupRows.CellTrace = &ir.PhysicalGroupRowsCellTrace{
+		OutputColumn: column, Cardinality: cardinality,
+		OffsetBindKey: offsetBind, LimitBindKey: limitBind, FetchLimitBindKey: fetchLimitBind,
+	}
+	if err := physical.Validate(); err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("validate group-row cell trace plan: %w", err)
+	}
+	rendered, err := aql.RenderPhysicalPlan(*physical)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("render group-row cell trace physical plan: %w", err)
+	}
+	return CompiledCellTraceQuery{
+		Query: rendered.Query, BindVars: rendered.BindVars,
+		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
+		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
+		OmissionColumn: ir.PhysicalCellTraceOmissionField, ExplicitIdentityColumn: ir.PhysicalCellTraceExplicitIdentityField,
+		ExplicitIdentityObject: true, RowIdentity: output.RowIdentity.Clone(),
+		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(*physical),
+	}, nil
 }
 
 func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *ir.PhysicalPlan, column string, offset, limit int) (CompiledCellTraceQuery, error) {

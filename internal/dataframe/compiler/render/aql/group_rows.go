@@ -71,11 +71,23 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		query += "LIMIT @" + rows.LimitBindKey + "\n"
 	}
 	rendered := runtimePhysicalBindVars(plan.BindVars, collectionKeys)
+	renderer := physicalPlanRenderer{bindVars: rendered, collectionKeys: collectionKeys, setVariables: map[string]string{}, reservedVars: map[string]struct{}{"row": {}, "cohort_member": {}, "cohort_value_rows": {}}}
+	traceMemberValue, traceMemberValueFound := groupRowsCellTraceMemberValue(rows)
 	if len(rows.MemberValues) == 0 {
-		query += "RETURN row\n"
+		if rows.CellTrace == nil {
+			query += "RETURN row\n"
+		} else {
+			traceLines, traceErr := renderGroupRowsCellTraceReturn(renderer, *rows.CellTrace, "row", nil, ir.PhysicalGroupMemberValue{})
+			if traceErr != nil {
+				return RenderedPhysicalPlan{}, traceErr
+			}
+			query += strings.Join(traceLines, "\n") + "\n"
+		}
 	} else {
-		renderer := physicalPlanRenderer{bindVars: rendered, collectionKeys: collectionKeys, setVariables: map[string]string{}, reservedVars: map[string]struct{}{"row": {}, "cohort_member": {}, "cohort_value_rows": {}}}
 		projections := make([]string, 0, len(rows.MemberValues))
+		if rows.CellTrace != nil && traceMemberValueFound {
+			projections = append(projections, `"__loom_trace_source_identity": cohort_member.source_identity`)
+		}
 		outputs := make([]string, 0, len(rows.MemberValues))
 		values := make([]ir.PhysicalStageRowValue, 0, len(rows.MemberValues))
 		for index, value := range rows.MemberValues {
@@ -93,12 +105,122 @@ SORT row.group_ordinal ASC, row.group_id ASC
 		if err != nil {
 			return RenderedPhysicalPlan{}, err
 		}
-		query += strings.Join(lines, "\n") + "\nRETURN MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
+		query += strings.Join(lines, "\n") + "\n"
+		if rows.CellTrace == nil {
+			query += "RETURN MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
+		} else {
+			finalRow := renderer.newInternalVariable("cohort_group_final_row")
+			query += "LET " + finalRow + " = MERGE(row, {" + strings.Join(outputs, ", ") + "})\n"
+			var contributorRows *string
+			if traceMemberValueFound {
+				valueRows := "cohort_value_rows"
+				contributorRows = &valueRows
+			}
+			traceLines, traceErr := renderGroupRowsCellTraceReturn(renderer, *rows.CellTrace, finalRow, contributorRows, traceMemberValue)
+			if traceErr != nil {
+				return RenderedPhysicalPlan{}, traceErr
+			}
+			query += strings.Join(traceLines, "\n") + "\n"
+		}
 	}
 	if err := validateGroupRowsBindReferences(rows, rendered, query); err != nil {
 		return RenderedPhysicalPlan{}, err
 	}
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(rendered, query)}, nil
+}
+
+func groupRowsCellTraceMemberValue(rows ir.PhysicalGroupRows) (ir.PhysicalGroupMemberValue, bool) {
+	if rows.CellTrace == nil {
+		return ir.PhysicalGroupMemberValue{}, false
+	}
+	for _, value := range rows.MemberValues {
+		if value.Output == rows.CellTrace.OutputColumn {
+			return value, true
+		}
+	}
+	return ir.PhysicalGroupMemberValue{}, false
+}
+
+func renderGroupRowsCellTraceReturn(renderer physicalPlanRenderer, trace ir.PhysicalGroupRowsCellTrace, rowVariable string, valueRows *string, memberValue ir.PhysicalGroupMemberValue) ([]string, error) {
+	value := ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: trace.Cardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Value:        &ir.PhysicalValue{Variable: rowVariable, Path: []string{trace.OutputColumn}},
+	}
+	identity := ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Value:        &ir.PhysicalValue{Variable: rowVariable, Path: []string{"__loom_row_id"}},
+	}
+	terminal := ir.PhysicalCellTraceReturn{
+		Value: value, ExplicitIdentity: &identity,
+		OffsetBindKey: trace.OffsetBindKey, LimitBindKey: trace.LimitBindKey, FetchLimitBindKey: trace.FetchLimitBindKey,
+		OmissionCode: "TRACE_CONTRIBUTORS_UNAVAILABLE", RowExists: true,
+	}
+	prelude := []string(nil)
+	if valueRows != nil {
+		contributorRows, lines, err := renderGroupRowsCellTraceContributors(renderer, trace, rowVariable, *valueRows, memberValue)
+		if err != nil {
+			return nil, err
+		}
+		prelude = append(prelude, lines...)
+		terminal.Contribution = &ir.PhysicalCellTraceContribution{SetVariable: contributorRows, ValueField: "value"}
+		terminal.OmissionCode = ""
+	}
+	traceLines, err := renderer.renderCellTraceReturn(terminal)
+	if err != nil {
+		return nil, err
+	}
+	return append(prelude, traceLines...), nil
+}
+
+func renderGroupRowsCellTraceContributors(
+	renderer physicalPlanRenderer,
+	trace ir.PhysicalGroupRowsCellTrace,
+	rowVariable, valueRows string,
+	memberValue ir.PhysicalGroupMemberValue,
+) (string, []string, error) {
+	columnBind := renderer.newInternalBindKeyWithValue("group_rows_trace_column", memberValue.Output)
+	input := renderer.newInternalVariable("group_rows_trace_input")
+	item := renderer.newInternalVariable("group_rows_trace_value")
+	contributors := renderer.newInternalVariable("group_rows_trace_contributors")
+	finalValue, err := renderer.renderExpression(ir.PhysicalExpression{
+		Kind: ir.PhysicalValueExpression, Cardinality: trace.Cardinality,
+		NullBehavior: ir.PhysicalPreserveNull,
+		Value:        &ir.PhysicalValue{Variable: rowVariable, Path: []string{trace.OutputColumn}},
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("render group-row trace output value: %w", err)
+	}
+	match := item + " == " + finalValue
+	if memberValue.Policy == "ALL" {
+		match = item + " IN " + finalValue
+	} else if memberValue.Policy != "ONE" {
+		return "", nil, fmt.Errorf("group-row cell trace has unsupported row-value policy %q", memberValue.Policy)
+	}
+	project := func(value string) string {
+		return fmt.Sprintf("{resourceType: %s.__loom_trace_source_identity.resource_type, id: %s.__loom_trace_source_identity.id, value: %s}", input, input, value)
+	}
+	var source string
+	if memberValue.Expression.Cardinality == ir.PhysicalArrayCardinality {
+		arrayValue := renderer.newInternalVariable("group_rows_trace_array")
+		source = fmt.Sprintf(
+			"(FOR %s IN %s LET %s = %s[@%s] FILTER %s != null FOR %s IN (ASSERT(IS_ARRAY(%s), \"CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH\") ? %s : []) FILTER %s != null FILTER %s RETURN %s)",
+			input, valueRows, arrayValue, input, columnBind, arrayValue,
+			item, arrayValue, arrayValue, item, match, project(item),
+		)
+	} else {
+		source = fmt.Sprintf(
+			"(FOR %s IN %s LET %s = %s[@%s] FILTER %s != null FILTER %s RETURN %s)",
+			input, valueRows, item, input, columnBind, item, match, project(item),
+		)
+	}
+	uniqueRows := renderer.newInternalVariable("group_rows_trace_unique")
+	lines := []string{
+		"LET " + contributors + " = " + source,
+		fmt.Sprintf("LET %s = (FOR %s IN UNIQUE(%s) SORT %s.resourceType ASC, %s.id ASC, %s.value ASC RETURN %s)", uniqueRows, item, contributors, item, item, item, item),
+	}
+	return uniqueRows, lines, nil
 }
 
 func (r *physicalPlanRenderer) renderCohortRootScan(root ir.PhysicalRootScan) ([]string, error) {
