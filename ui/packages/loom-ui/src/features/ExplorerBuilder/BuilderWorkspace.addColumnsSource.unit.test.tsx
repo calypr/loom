@@ -37,6 +37,7 @@ const mockLoomClient = vi.hoisted(() => ({
   getSelection: vi.fn(),
   preview: vi.fn(),
   proposeConstruction: vi.fn(),
+  proposeConstructionChoices: vi.fn(),
   resolveConfiguredColumnContexts: vi.fn(),
   searchConstructionChoices: vi.fn(),
 }));
@@ -455,6 +456,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     mockLoomClient.getSelection.mockReset();
     mockLoomClient.preview.mockReset();
     mockLoomClient.proposeConstruction.mockReset();
+    mockLoomClient.proposeConstructionChoices.mockReset();
     mockLoomClient.resolveConfiguredColumnContexts.mockReset().mockResolvedValue({
       snapshotToken: 'snapshot-1',
       draftVersion: 1,
@@ -874,6 +876,24 @@ describe('BuilderWorkspace Add columns source selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 selected feature' }));
 
     const selectionDialog = await screen.findByRole('dialog', { name: 'Choose how to add these fields' });
+    await waitFor(() => expect(mockLoomClient.proposeConstruction.mock.calls.some(
+      ([request]) => request.requestId.startsWith('construction-route-coverage-'),
+    )).toBe(true));
+    const routeCoverageRequest = mockLoomClient.proposeConstruction.mock.calls.find(
+      ([request]) => request.requestId.startsWith('construction-route-coverage-'),
+    )?.[0];
+    expect(routeCoverageRequest?.candidateConstruction).toEqual(expect.objectContaining({
+      steps: [
+        expect.objectContaining({ id: 'keep-vitals' }),
+        expect.objectContaining({
+          operation: expect.objectContaining({
+            kind: 'RELATED_SOURCE',
+            relatedSource: expect.objectContaining({ form: 'ALL' }),
+          }),
+        }),
+      ],
+    }));
+    expect(mockLoomClient.proposeConstructionChoices).not.toHaveBeenCalled();
     fireEvent.click(within(selectionDialog).getByRole('radio', {
       name: 'Observation status: Count matching records',
     }));

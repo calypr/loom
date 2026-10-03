@@ -49,11 +49,22 @@ const routeTechnicalDetails = (route: ConstructionChoice['route']): string => ro
       `${step.fromResourceType} to ${step.toResourceType} via ${step.relationship}; storage ${step.storageDirection.toLowerCase()}; match ${step.matchMode.toLowerCase()}`,
     ).join(' · ');
 
-const routeCoverageForm = (item: CatalogChoiceGroup['item'], choice: ConstructionChoice, rowRoot: string, groupedRows: boolean): 'COUNT' | 'ALL' | undefined => {
-  if (groupedRows && item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot) &&
-    choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
-  if (item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot) &&
-    choice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED')) return 'COUNT';
+const routeCoverageForm = (
+  item: CatalogChoiceGroup['item'],
+  choice: ConstructionChoice,
+  rowRoot: string,
+  groupedRows: boolean,
+  initialSelection?: CatalogInitialSelection,
+): 'COUNT' | 'ALL' | undefined => {
+  if (item.kind === 'FIELD' && isRelatedFieldCatalogItem(item, rowRoot)) {
+    const savedForm = choice.choiceId === initialSelection?.choiceId ? initialSelection.form : undefined;
+    if ((savedForm === 'COUNT' || savedForm === 'ALL') &&
+      choice.options.some((option) => option.form === savedForm && option.support === 'SUPPORTED')) return savedForm;
+    if (groupedRows && choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
+    if (choice.options.some((option) => option.form === 'COUNT' && option.support === 'SUPPORTED')) return 'COUNT';
+    if (choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
+    return undefined;
+  }
   if (item.kind === 'SEMANTIC' && choice.route.length > 0 &&
     choice.options.some((option) => option.form === 'ALL' && option.support === 'SUPPORTED')) return 'ALL';
   return undefined;
@@ -154,7 +165,7 @@ export const CatalogSelectionDialog = ({
   const [routeCoverage, setRouteCoverage] = useState<ReadonlyMap<string, RouteCoverageState>>(() => new Map());
   const coverageRequests = useRef<Map<string, AbortController>>(new Map());
   const inspectRouteCoverage = (group: CatalogChoiceGroup, choice: ConstructionChoice) => {
-    const form = routeCoverageForm(group.item, choice, rowRoot, groupedRowValuePolicy !== undefined);
+    const form = routeCoverageForm(group.item, choice, rowRoot, groupedRowValuePolicy !== undefined, initialSelection);
     if (!onInspectRouteCoverage || !form || coverageRequests.current.has(choice.choiceId)) return;
     const selection = catalogChoiceIntent({ item: group.item, choice, form, rowRoot });
     if (form === 'COUNT' && !selection.relatedSource) return;
@@ -330,7 +341,11 @@ export const CatalogSelectionDialog = ({
                       const renderRouteChoice = ({ routeChoice }: typeof orderedChoices[number]) => {
                         const label = routeLabel(routeChoice.route);
                         const matchCoverage = routeCoverage.get(routeChoice.choiceId);
-                        const canInspectMatches = Boolean(onInspectRouteCoverage && routeCoverageForm(item, routeChoice, rowRoot, groupedRowValuePolicy !== undefined));
+                        const coverageForm = routeCoverageForm(item, routeChoice, rowRoot, groupedRowValuePolicy !== undefined, initialSelection);
+                        const canInspectMatches = Boolean(onInspectRouteCoverage && coverageForm);
+                        const coverageLabel = item.kind === 'SEMANTIC'
+                          ? 'paired values'
+                          : isRelatedFieldCatalogItem(item, rowRoot) ? 'related values' : 'contributing values';
                         return (
                           <div key={routeChoice.choiceId} className="rounded-md border border-slate-200 p-2.5">
                             <label className="flex cursor-pointer items-start gap-2">
@@ -389,7 +404,11 @@ export const CatalogSelectionDialog = ({
                                   'kind' in matchCoverage.coverage ? (
                                     <p>
                                       In {matchCoverage.coverage.displayedRows} displayed {matchCoverage.coverage.displayedRows === 1 ? 'row' : 'rows'}: {matchCoverage.coverage.empty} without this value, {matchCoverage.coverage.one} with one value, {matchCoverage.coverage.many} with two or more values.
-                                      {item.kind === 'SEMANTIC' ? ' This counts paired values, not matching records.' : ' This counts distinct contributing values, not matching records.'}
+                                      {item.kind === 'SEMANTIC'
+                                        ? ' This counts paired values, not matching records.'
+                                        : isRelatedFieldCatalogItem(item, rowRoot)
+                                          ? ' This counts values from matching related records, not matching records.'
+                                          : ' This counts distinct contributing values, not matching records.'}
                                       {matchCoverage.coverage.sampled ? ' This is a sample; full-table coverage has not been measured.' : ''}
                                     </p>
                                   ) : (
@@ -399,12 +418,12 @@ export const CatalogSelectionDialog = ({
                                     </p>
                                   )
                                 ) : matchCoverage?.status === 'loading' ? (
-                                  <p role="status">Checking {item.kind === 'SEMANTIC' ? 'paired values' : groupedRowValuePolicy ? 'contributing values' : 'matching records'} in preview rows…</p>
+                                  <p role="status">Checking {coverageForm === 'ALL' ? coverageLabel : 'matching records'} in preview rows…</p>
                                 ) : (
                                   <>
                                     {matchCoverage?.status === 'error' ? <p role="status">{matchCoverage.message}</p> : null}
                                     <button type="button" disabled={busy} onClick={() => inspectRouteCoverage(group, routeChoice)} className="font-medium text-blue-800 underline underline-offset-2 disabled:text-slate-400">
-                                      {matchCoverage?.status === 'error' ? 'Retry coverage check' : item.kind === 'SEMANTIC' ? 'Check paired values' : groupedRowValuePolicy ? 'Check contributing values' : 'Check matching rows'}
+                                      {matchCoverage?.status === 'error' ? 'Retry coverage check' : coverageForm === 'ALL' ? `Check ${coverageLabel}` : 'Check matching rows'}
                                     </button>
                                   </>
                                 )}

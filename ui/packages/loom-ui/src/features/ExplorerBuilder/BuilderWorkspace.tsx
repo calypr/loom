@@ -1187,7 +1187,8 @@ const BuilderWorkspaceContent = ({
     };
   };
   const inspectRelatedRouteCoverage = async (selection: CatalogChoiceIntent, signal: AbortSignal) => {
-    if (selection.constructionChoice.form === 'ALL' && (!selection.relatedSource || rowValuesSupported)) {
+    const relatedCandidate = selection.relatedSource ? buildRelatedSourceCandidate(selection) : undefined;
+    if (selection.constructionChoice.form === 'ALL' && !relatedCandidate) {
       const current = latestState.current;
       if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
         throw new Error('The current table is still loading.');
@@ -1239,10 +1240,10 @@ const BuilderWorkspaceContent = ({
         sampled: response.preview.sampled !== false || response.preview.partialValidation === true,
       };
     }
-    if (selection.constructionChoice.form !== 'COUNT' || !selection.relatedSource) {
-      throw new Error('Match coverage is unavailable for this result form.');
+    if (!relatedCandidate || (selection.constructionChoice.form !== 'COUNT' && selection.constructionChoice.form !== 'ALL')) {
+      throw new Error('Route coverage is unavailable for this result form.');
     }
-    const candidate = buildRelatedSourceCandidate(selection);
+    const candidate = relatedCandidate;
     const current = latestState.current;
     if (!current.catalog.snapshotToken || !current.draftVersion || !current.draftDigest || !table) {
       throw new Error('The current table is still loading.');
@@ -1279,6 +1280,23 @@ const BuilderWorkspaceContent = ({
     let zero = 0;
     let one = 0;
     let many = 0;
+    if (selection.constructionChoice.form === 'ALL') {
+      let empty = 0;
+      for (const row of rows) {
+        const values = row[candidate.outputColumnName];
+        if (values === null || values === undefined) empty += 1;
+        else if (Array.isArray(values)) {
+          const present = values.filter((value) => value !== null && value !== undefined).length;
+          if (present === 0) empty += 1;
+          else if (present === 1) one += 1;
+          else many += 1;
+        } else throw new Error('Loom did not return related values for this route.');
+      }
+      return {
+        kind: 'VALUES' as const, empty, one, many, displayedRows: rows.length,
+        sampled: preview.sampled !== false || preview.partialValidation === true,
+      };
+    }
     for (const row of rows) {
       const count = row[candidate.outputColumnName];
       if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
@@ -1298,8 +1316,7 @@ const BuilderWorkspaceContent = ({
     saveImmediately = false,
   ) => {
     if (!table) throw new Error('Choose a table before adding features.');
-    const relatedSelections = selections.filter((selection) => selection.relatedSource &&
-      !(rowValuesSupported && selection.constructionChoice.form === 'ALL'));
+    const relatedSelections = selections.filter((selection) => selection.relatedSource);
     if (relatedSelections.length > 0) {
       if (relatedSelections.length !== 1 || selections.length !== 1) {
         throw new Error('Add one related field at a time so Loom can preview its exact route.');

@@ -28,22 +28,30 @@ const countOption: ConstructionChoice['options'][number] = {
   contributorPredicateOperators: ['EXISTS', 'EQUALS'],
 };
 
+const allOption: ConstructionChoice['options'][number] = {
+  ...countOption,
+  form: 'ALL',
+  shape: 'LIST',
+  preservation: 'PRESERVING',
+};
+
 const routeChoice = (
   choiceId: string,
   relationship: string,
   options: ReadonlyArray<ConstructionChoice['options'][number]> = [countOption],
   routeMetadata: Partial<ConstructionChoice['route'][number]> = {},
+  direct = false,
 ): FieldChoice => ({
   choiceId,
   source: {
     kind: 'FIELD',
     candidateId: 'observation-id',
-    nodeId: routeMetadata.toNodeId ?? 'observation-node',
-    resourceType: routeMetadata.toResourceType ?? 'Observation',
+    nodeId: direct ? 'patient-node' : routeMetadata.toNodeId ?? 'observation-node',
+    resourceType: direct ? 'Patient' : routeMetadata.toResourceType ?? 'Observation',
     path: 'id',
     cardinality: 'optional_one',
   },
-  route: [{
+  route: direct ? [] : [{
     edgeId: `${choiceId}-edge`,
     fromNodeId: routeMetadata.fromNodeId ?? 'patient-node',
     toNodeId: routeMetadata.toNodeId ?? 'observation-node',
@@ -68,16 +76,18 @@ const createDialog = (
   insideClosedDetails = false,
   groupedRowValuePolicy?: GroupedRowValuePolicyControl,
   options: ReadonlyArray<ConstructionChoice['options'][number]> = [countOption],
+  initialForm: 'COUNT' | 'ALL' = 'COUNT',
+  directField = false,
 ) => {
-  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', options, routeMetadata);
+  const subjectChoice = routeChoice('saved-subject-choice', 'subject_Patient', options, routeMetadata, directField);
   const focusChoice = routeChoice('focus-choice', 'focus_Patient', options.map(option => ({
     ...option,
     contributorPredicateOperators: focusOperators,
-  })));
-  const resourceType = routeMetadata.toResourceType ?? 'Observation';
+  })), routeMetadata, directField);
+  const resourceType = directField ? 'Patient' : routeMetadata.toResourceType ?? 'Observation';
   const candidate: ExplorerBuilderCandidate = {
     candidateId: 'observation-id',
-    nodeId: routeMetadata.toNodeId ?? 'observation-node',
+    nodeId: directField ? 'patient-node' : routeMetadata.toNodeId ?? 'observation-node',
     fieldPath: 'id',
     label: `${resourceType} ID`,
     logicalType: 'string',
@@ -126,7 +136,7 @@ const createDialog = (
       rowRoot="Patient"
       initialSelection={{
         choiceId: subjectChoice.choiceId,
-        form: 'COUNT',
+        form: initialForm,
         ...(withSavedCondition ? { condition: { mode: 'EQUALS' as const, value: 'known-observation-id' } } : {}),
       }}
       groupedRowValuePolicy={groupedRowValuePolicy}
@@ -184,6 +194,36 @@ describe('CatalogSelectionDialog', () => {
       '1 displayed row: 0 with no match, 1 with one, 0 with two or more. This is a sample; full-table coverage has not been measured.',
     );
     expect(inspect.mock.calls.every(([selection]) => selection.constructionChoice.form === 'COUNT')).toBe(true);
+  });
+
+  it('keeps a saved related ALL form when checking route coverage', async () => {
+    const inspect = vi.fn(async (selection: CatalogChoiceIntent): Promise<RouteCoverage> =>
+      selection.constructionChoice.form === 'ALL'
+        ? { kind: 'VALUES', empty: 0, one: 1, many: 0, displayedRows: 1, sampled: true }
+        : { zero: 0, one: 1, many: 0, displayedRows: 1, sampled: true });
+    createDialog(['EXISTS', 'EQUALS'], {}, false, inspect, false, {
+      value: 'ALL',
+      onChange: vi.fn(),
+    }, [allOption, countOption], 'ALL');
+
+    await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
+    expect(inspect.mock.calls.map(([selection]) => selection.constructionChoice.form)).toEqual(['ALL', 'ALL']);
+  });
+
+  it('keeps grouped root ALL as a root choice with its grouped value policy', async () => {
+    const { onConfirm } = createDialog(['EXISTS', 'EQUALS'], {}, false, undefined, false, {
+      value: 'ALL',
+      onChange: vi.fn(),
+    }, [allOption, countOption], 'COUNT', true);
+    const dialog = screen.getByRole('dialog', { name: 'Choose how to add these fields' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Patient ID: Keep all matching values' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add 1 column' }));
+
+    expect(onConfirm).toHaveBeenCalledWith([{
+      constructionChoice: { choiceId: 'saved-subject-choice', form: 'ALL' },
+      title: 'Patient ID',
+    }]);
+    expect(screen.getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ALL');
   });
 
   it('keeps a saved COUNT equality condition when the new route supports it', async () => {
@@ -279,16 +319,21 @@ describe('CatalogSelectionDialog', () => {
 });
 
 
-it('checks distinct contributor values through ALL even when the grouped policy is ONE', async () => {
-  const inspect = vi.fn(async (_selection: CatalogChoiceIntent): Promise<RouteCoverage> => ({
-    kind: 'VALUES', empty: 0, one: 0, many: 1, displayedRows: 1, sampled: false,
-  }));
+it('keeps a saved COUNT route on COUNT while grouped route coverage uses related ALL', async () => {
+  const inspect = vi.fn(async (selection: CatalogChoiceIntent): Promise<RouteCoverage> =>
+    selection.constructionChoice.form === 'ALL'
+      ? { kind: 'VALUES', empty: 0, one: 0, many: 1, displayedRows: 1, sampled: false }
+      : { zero: 0, one: 1, many: 0, displayedRows: 1, sampled: true });
   createDialog(['EXISTS', 'EQUALS'], {}, false, inspect, false,
     { value: 'ONE', onChange: vi.fn() },
     [{ ...countOption, form: 'ALL', shape: 'LIST' }, countOption]);
   await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
-  expect(inspect.mock.calls.every(([selection]) => selection.constructionChoice.form === 'ALL')).toBe(true);
+  expect(inspect.mock.calls.map(([selection]) => selection.constructionChoice.form)).toEqual(['COUNT', 'ALL']);
   expect(screen.getByTestId('catalog-route-coverage-saved-subject-choice')).toHaveTextContent(
-    '1 displayed row: 0 without this value, 0 with one value, 1 with two or more values. This counts distinct contributing values, not matching records.',
+    '1 displayed row: 0 with no match, 1 with one, 0 with two or more. This is a sample; full-table coverage has not been measured.',
   );
+  expect(screen.getByTestId('catalog-route-coverage-focus-choice')).toHaveTextContent(
+    '1 displayed row: 0 without this value, 0 with one value, 1 with two or more values. This counts values from matching related records, not matching records.',
+  );
+  expect(screen.getByRole('combobox', { name: 'Values per grouped row' })).toHaveProperty('value', 'ONE');
 });
