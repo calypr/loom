@@ -12,6 +12,7 @@ cache=${LOOM_ACCEPTANCE_FIXTURE_CACHE:-"$repo_root/.cache/acceptance/fixture"}
 source_root=${LOOM_DEMO_SOURCE_ROOT:-$repo_root}
 isolated=${LOOM_ACCEPTANCE_ISOLATED:-false}
 fixture_prepared=${LOOM_ACCEPTANCE_FIXTURE_PREPARED:-false}
+api_image=${LOOM_API_IMAGE:-loom-demo-api:local}
 
 [[ "$acceptance_id" =~ ^[a-f0-9]{16}$ ]] || { echo "invalid acceptance ID" >&2; exit 2; }
 [[ "$run_id" =~ ^[a-f0-9]{16}$ ]] || { echo "invalid acceptance run ID" >&2; exit 2; }
@@ -71,7 +72,12 @@ cleanup() {
   local command_status=$? teardown_status=0
   set +e
   if [[ "$report_exported" != true ]]; then
-    export_demo_artifacts >/dev/null 2>&1 || true
+    if docker image inspect "$api_image" >/dev/null 2>&1; then
+      export_demo_artifacts >"$artifacts/artifact-export.log" 2>&1 || true
+    else
+      printf 'skipped artifact export: API image %s is unavailable locally\n' "$api_image" \
+        >"$artifacts/artifact-export.log"
+    fi
   fi
   capture_compose_evidence
   if [[ "$teardown_acceptance" == true ]]; then
