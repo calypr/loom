@@ -1,6 +1,7 @@
 package aql
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -203,5 +204,20 @@ func TestRenderExtractFlattensTerminalRepeatedFallbackWithoutChangingDistinctPat
 	}
 	if !strings.HasPrefix(distinctQuery, "SORTED_UNIQUE(") || strings.Contains(distinctQuery, "FLATTEN(") {
 		t.Fatalf("ordinary repeated-leaf DISTINCT path changed shape unexpectedly:\n%s", distinctQuery)
+	}
+}
+
+func TestRenderReturnQuotesReservedAndUnsafePhysicalPathSegments(t *testing.T) {
+	const unusual = "quote\"and`backtick"
+	query, err := newSelectorTestRenderer().renderReturn(ir.PhysicalReturn{Projections: []ir.PhysicalProjection{{
+		Name:  "result",
+		Value: ir.PhysicalValue{Variable: "row", Path: []string{"ordinary", "RETURN", "null", unusual}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "row.ordinary[\"RETURN\"][\"null\"][" + strconv.Quote(unusual) + "]"
+	if !strings.Contains(query, want) {
+		t.Fatalf("rendered return missing safely addressed path %q:\n%s", want, query)
 	}
 }

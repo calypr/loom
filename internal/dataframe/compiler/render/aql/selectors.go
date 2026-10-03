@@ -436,5 +436,45 @@ func (r *physicalPlanRenderer) renderValue(value ir.PhysicalValue) (string, erro
 	if len(value.Path) == 0 {
 		return value.Variable, nil
 	}
-	return value.Variable + "." + strings.Join(value.Path, "."), nil
+	var path strings.Builder
+	path.WriteString(value.Variable)
+	for _, segment := range value.Path {
+		if isSafeAQLPropertyIdentifier(segment) {
+			path.WriteByte('.')
+			path.WriteString(segment)
+			continue
+		}
+		path.WriteByte('[')
+		path.WriteString(strconv.Quote(segment))
+		path.WriteByte(']')
+	}
+	return path.String(), nil
+}
+
+func isSafeAQLPropertyIdentifier(segment string) bool {
+	if len(segment) == 0 || !isAQLIdentifierStart(segment[0]) {
+		return false
+	}
+	for index := 1; index < len(segment); index++ {
+		char := segment[index]
+		if !isAQLIdentifierStart(char) && (char < '0' || char > '9') {
+			return false
+		}
+	}
+	_, reserved := aqlReservedWords[strings.ToUpper(segment)]
+	return !reserved
+}
+
+func isAQLIdentifierStart(char byte) bool {
+	return char == '_' || char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z'
+}
+
+var aqlReservedWords = map[string]struct{}{
+	"AGGREGATE": {}, "ALL": {}, "ALL_SHORTEST_PATHS": {}, "AND": {}, "ANY": {}, "ASC": {},
+	"COLLECT": {}, "DESC": {}, "DISTINCT": {}, "FALSE": {}, "FILTER": {}, "FOR": {},
+	"GRAPH": {}, "IN": {}, "INBOUND": {}, "INSERT": {}, "INTO": {}, "K_PATHS": {},
+	"K_SHORTEST_PATHS": {}, "LET": {}, "LIKE": {}, "LIMIT": {}, "NONE": {}, "NOT": {},
+	"NULL": {}, "OR": {}, "OUTBOUND": {}, "REMOVE": {}, "REPLACE": {}, "RETURN": {},
+	"SHORTEST_PATH": {}, "SORT": {}, "TRUE": {}, "UPDATE": {}, "UPSERT": {}, "WINDOW": {},
+	"WITH": {}, "CURRENT": {}, "NEW": {}, "OLD": {},
 }
