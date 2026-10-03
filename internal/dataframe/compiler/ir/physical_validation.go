@@ -131,6 +131,9 @@ func (p PhysicalPlan) Validate() error {
 		if err := operation.validatePayload(); err != nil {
 			return fmt.Errorf("operation %d (%s): %w", i, operation.Kind, err)
 		}
+		if operation.Kind == PhysicalKeySetLookupOp {
+			return fmt.Errorf("operation %d: KEY_SET_LOOKUP is only legal inside a typed subplan", i)
+		}
 		switch operation.Kind {
 		case PhysicalRootScanOp:
 			rootScans++

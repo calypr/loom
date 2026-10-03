@@ -228,6 +228,17 @@ func TestRelatedCountAppendedToExplicitCohortUsesExactRootContributors(t *testin
 	if err := invalidKeysPlan.Validate(); err == nil {
 		t.Fatal("physical validation accepted an out-of-scope contributor key-set value")
 	}
+	topLevelLookup := ir.ClonePhysicalPlan(result.Plan)
+	topLevelLookup.Operations = append([]ir.PhysicalOperation{{
+		Kind: ir.PhysicalKeySetLookupOp,
+		KeySetLookup: &ir.PhysicalKeySetLookup{
+			Variable: "root_doc", KeyVariable: "root_key", CollectionBindKey: "root_collection",
+			Keys: ir.PhysicalValue{Variable: "input", Path: []string{rootContributorSetColumn}},
+		},
+	}}, topLevelLookup.Operations...)
+	if err := topLevelLookup.Validate(); err == nil || !strings.Contains(err.Error(), "only legal inside a typed subplan") {
+		t.Fatalf("top-level KEY_SET_LOOKUP was not rejected at the physical-plan boundary: %v", err)
+	}
 	for _, omission := range []struct {
 		name  string
 		match func(ir.PhysicalOperation) bool
