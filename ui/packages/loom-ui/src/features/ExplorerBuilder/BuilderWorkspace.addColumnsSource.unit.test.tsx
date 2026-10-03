@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import {
   useApplyExplorerBuilderCommandsV2Mutation,
   useAssessExplorerRowChangeMutation,
@@ -1366,6 +1366,86 @@ describe('BuilderWorkspace Add columns source selection', () => {
       limit: 25,
     }));
     expect(await screen.findByText('patient-1')).toBeInTheDocument();
+  });
+
+  it('waits for first-table ID provisioning before resolving configured column context', async () => {
+    const { previewBuilder } = configureInitialTableFlow(
+      applyExplorerCommands,
+      [fieldCandidate('patient-id', 'patient-node', 'Patient', 'id')],
+    );
+    let releaseAddColumn: (() => void) | undefined;
+    applyExplorerCommands.mockImplementation((request: {
+      readonly commands: ReadonlyArray<ExplorerBuilderCommand>;
+    }) => ({
+      unwrap: vi.fn().mockImplementation(async () => {
+        const command = request.commands[0];
+        if (command?.type === 'CREATE_TABLE') {
+          return {
+            commandId: 'create-patient-table',
+            workspace: initialPatientWorkspace(command.title ?? 'Patient'),
+            draftVersion: 1,
+            draftDigest: 'sha256:draft-1',
+            results: [{ type: 'TABLE_CREATED', outputId: 'patients', occurrenceId: 'base' }],
+            diagnostics: [],
+          };
+        }
+        await new Promise<void>((resolve) => { releaseAddColumn = resolve; });
+        return {
+          commandId: 'add-patient-id',
+          workspace: initialPatientWorkspace('CDA Patients', [{
+            column: 'id',
+            label: 'Patient id',
+            logicalType: 'string',
+            occurrenceId: 'base',
+            source: { kind: 'field', field: { path: 'id', projectionMode: 'VALUE' } },
+            table: { visible: true },
+          }]),
+          draftVersion: 2,
+          draftDigest: 'sha256:draft-2',
+          results: [{ type: 'COLUMN_ADDED', outputId: 'patients', occurrenceId: 'base', column: 'id' }],
+          diagnostics: [],
+        };
+      }),
+    }));
+    mockLoomClient.resolveConfiguredColumnContexts.mockReset().mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      libraries: [],
+      pinnedRevisions: [],
+      columns: [],
+    }));
+
+    render(
+      <BuilderWorkspace
+        organization="HTAN_INT"
+        project="BForePC"
+        explorerId="test"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Patient rows' }));
+
+    await waitFor(() => {
+      expect(applyExplorerCommands).toHaveBeenCalledTimes(2);
+      expect(releaseAddColumn).toBeDefined();
+    });
+    // The second command is deliberately unresolved, so this is the intermediate
+    // draftVersion 1 window between CREATE_TABLE and default-ID provisioning.
+    expect(mockLoomClient.resolveConfiguredColumnContexts).not.toHaveBeenCalled();
+
+    const release = releaseAddColumn;
+    await act(async () => release?.());
+    await waitFor(() => expect(mockLoomClient.resolveConfiguredColumnContexts.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      snapshotToken: 'snapshot-1',
+      expectedDraftVersion: 2,
+      expectedDraftDigest: 'sha256:draft-2',
+    })));
+    expect(mockLoomClient.resolveConfiguredColumnContexts).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(previewBuilder).toHaveBeenCalledOnce());
   });
 
   it('creates a root table and explains when the catalog has no executable direct ID', async () => {

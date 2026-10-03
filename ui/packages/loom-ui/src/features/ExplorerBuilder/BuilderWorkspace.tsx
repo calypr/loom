@@ -536,7 +536,11 @@ const BuilderWorkspaceContent = ({
     serverDraftKey.current = builderDataKey;
   }
 
-  const interpretationContextKey = state.catalog.snapshotToken && state.draftVersion > 0 && state.draftDigest
+  const deferInterpretationContext = firstTableProgress.kind === 'running';
+  const interpretationContextKey = !deferInterpretationContext &&
+    state.catalog.snapshotToken &&
+    state.draftVersion > 0 &&
+    state.draftDigest
     ? JSON.stringify([
         ownerKey,
         state.catalog.snapshotToken,
@@ -579,13 +583,15 @@ const BuilderWorkspaceContent = ({
     };
   }, [authResourcePath, interpretationContextKey, loomClient, projectId, selectedExplorerId, state.catalog.snapshotToken, state.draftDigest, state.draftVersion]);
 
-  const interpretationPanelContextState: InterpretationContextState = !interpretationContextKey
-    ? { status: 'error', message: 'The saved draft identity is not available.' }
-    : interpretationContextLoad?.key !== interpretationContextKey || interpretationContextLoad.status === 'loading'
-      ? { status: 'loading' }
-      : interpretationContextLoad.status === 'ready'
-        ? { status: 'ready', response: interpretationContextLoad.response }
-        : { status: 'error', message: interpretationContextLoad.message };
+  const interpretationPanelContextState: InterpretationContextState = deferInterpretationContext
+    ? { status: 'loading' }
+    : !interpretationContextKey
+      ? { status: 'error', message: 'The saved draft identity is not available.' }
+      : interpretationContextLoad?.key !== interpretationContextKey || interpretationContextLoad.status === 'loading'
+        ? { status: 'loading' }
+        : interpretationContextLoad.status === 'ready'
+          ? { status: 'ready', response: interpretationContextLoad.response }
+          : { status: 'error', message: interpretationContextLoad.message };
   const interpretationContext = interpretationPanelContextState.status === 'ready'
     ? interpretationPanelContextState.response
     : undefined;
