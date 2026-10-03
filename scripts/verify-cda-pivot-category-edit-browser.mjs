@@ -3,8 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { captureSourceFreeze } from './lib/source-freeze.mjs';
 import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrowser } from './lib/browser.mjs';
 
+const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
 const project = 'loom_dev_cda_fhir';
 const explorer = `pivot-category-edit-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/loom-pivot-category-edit-browser-${Date.now()}`;
@@ -72,13 +75,13 @@ const rendered = async expectedRows => {
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="preview-table-scroll"] [role="table"]')?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, expectedRows.length) + 1))} && !document.body.innerText.includes('Loading your table…')`);
   const rows = await browserEval(browser.cdp, `return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="row"]')].slice(1).map(r=>[...r.querySelectorAll('[role="cell"]')].map(c=>c.innerText.trim())).filter(r=>r.length);`);
   assert(rows.length > 0 || expectedRows.length === 0);
-  const savedRows = editedPivotPresentation ? expectedRows.map(row=>[row[1],row[0]]) : expectedRows;
+  const savedRows = expectedRows;
   if(editedPivotPresentation){
     const headers=await browserEval(browser.cdp,`return [...document.querySelectorAll('[data-testid="preview-table-scroll"] [role="columnheader"]')].map(e=>e.innerText.trim());`);
     assert(headers.some(h=>h.toLowerCase().includes(report.oracle.source.id)),JSON.stringify(headers));
     assert(headers.some(h=>h.includes('OBSERVATION FHIR RESOURCE ID')),JSON.stringify(headers));
   }
-  for (const row of rows) assert(savedRows.some(expected=>row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
+  for (const row of rows) assert(savedRows.some(expected=>(!editedPivotPresentation||row.length===expected.length)&&row.every((cell,i)=>cell===expected[i])), 'Visible saved cells must match a CDA witness: '+JSON.stringify(row));
 };
 try {
   const query = `FOR s IN Specimen FILTER s.project == "${project}" AND s.dataset_generation == "cda-fhir-v1" LIMIT 1 RETURN {id:s.id,_id:s._id,generation:s.dataset_generation}`;
@@ -279,6 +282,15 @@ try {
   report.status = 'failed'; report.error = String(error.stack ?? error); process.exitCode = 1;
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
 } finally {
+  try {
+    report.sourceFreeze = await sourceFreeze.assertUnchanged();
+  } catch (error) {
+    if (!error.invalidatesRun) throw error;
+    report.priorStatus = report.status;
+    report.status = 'invalidated';
+    report.sourceFreeze = { unchanged: false, changedPaths: error.changedPaths, invalidatesRun: true, productFailure: false };
+    process.exitCode = 1;
+  }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();

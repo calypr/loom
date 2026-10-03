@@ -75,7 +75,18 @@ const startNativeCapture = () => {
     if (!url.pathname.includes(`/explorers/${explorer}/authoring/v2/`)) return;
     let body;
     try { body = request.postData ? JSON.parse(request.postData) : undefined; } catch { body = request.postData; }
-    const entry = { requestId, path: url.pathname, request: body, startedAt: Date.now(), status: undefined, response: undefined, complete: false };
+    const entry = {
+      requestId,
+      method: request.method,
+      url: request.url,
+      path: url.pathname,
+      query: Object.fromEntries(url.searchParams),
+      request: body,
+      startedAt: Date.now(),
+      status: undefined,
+      response: undefined,
+      complete: false,
+    };
     nativeByRequestId.set(requestId, entry);
     report.nativeRequests.push(entry);
   });
@@ -111,8 +122,9 @@ const waitNative = async (predicate, fromIndex = 0, timeoutMs = 5000) => {
     if (match) return match;
     await pause(50);
   }
-  throw new Error(`Timed out waiting for native request: ${JSON.stringify(report.nativeRequests.slice(fromIndex).map(({ path, status, request }) => ({ path, status, request })))}`);
+  throw new Error(`Timed out waiting for native request: ${JSON.stringify(report.nativeRequests.slice(fromIndex).map(({ method, url, path, query, status, request }) => ({ method, url, path, query, status, request })))}`);
 };
+const nativeRequestValue = (entry, key) => entry.request?.[key] ?? entry.query?.[key];
 const record = (name, started, details = {}) => {
   const durationMs = Date.now() - started;
   assert(durationMs <= 5000, `${name} took ${durationMs} ms`);
@@ -587,14 +599,83 @@ FOR s IN Specimen
   }
   const applyPreviewFrom = report.nativeRequests.indexOf(allCommand);
   const savedPreviewStarted = Date.now();
-  const savedPreview = await waitNative((entry) => entry.path.endsWith('/preview') && entry.request?.outputId === outputId, applyPreviewFrom);
-  assert.equal(savedPreview.response.rowCount, witnesses.length);
+  const proposalPreview = allProposal.response.preview;
+  assert(proposalPreview, 'The accepted ALL proposal did not retain its candidate preview');
+  assert.equal(allProposal.response.candidateWorkspaceDigest, builder.draftDigest, 'The saved builder digest must equal the applied proposal digest');
+  assert.equal(allProposal.response.outputId, outputId);
+  assert.equal(allCommand.response.draftVersion, builder.draftVersion);
+  assert.equal(allCommand.response.draftDigest, builder.draftDigest);
+  const acceptedReconcile = await waitNative((entry) => entry.path.endsWith('/reconcile') &&
+    entry.request?.draftVersion === builder.draftVersion && entry.request?.draftDigest === builder.draftDigest, applyPreviewFrom);
+  assert.equal(acceptedReconcile.status, 200, JSON.stringify(acceptedReconcile.response));
+  assert.equal(acceptedReconcile.response.snapshotToken, allProposal.response.snapshotToken);
+  assert.equal(acceptedReconcile.response.intentDigest, builder.draftDigest);
+  assert(acceptedReconcile.response.outputs?.some((output) => output.outputId === outputId), 'The saved reconcile receipt does not include the edited output');
+  assert.equal(acceptedReconcile.response.receiptId, proposalPreview.receiptId, 'The applied proposal preview receipt must be accepted for the saved builder');
+  assert.equal(proposalPreview.outputId, outputId);
+  await waitForBrowser(browser.cdp, `(() => {const preview=document.querySelector('[data-testid="construction-preview"]');return preview?.dataset.previewStatus==='ready'&&preview?.dataset.previewReceiptId===${JSON.stringify(acceptedReconcile.response.receiptId)}&&preview?.dataset.previewOutputId===${JSON.stringify(outputId)}&&preview?.dataset.currentDraftVersion===${JSON.stringify(String(builder.draftVersion))}&&preview?.dataset.currentDraftDigest===${JSON.stringify(builder.draftDigest)};})()`, 5000);
+  const activePreview = await browserEval(browser.cdp, `const preview=document.querySelector('[data-testid="construction-preview"]');return {status:preview?.dataset.previewStatus,receiptId:preview?.dataset.previewReceiptId,outputId:preview?.dataset.previewOutputId,draftVersion:preview?.dataset.currentDraftVersion,draftDigest:preview?.dataset.currentDraftDigest};`);
+  assert.deepEqual(activePreview, {
+    status: 'ready',
+    receiptId: acceptedReconcile.response.receiptId,
+    outputId,
+    draftVersion: String(builder.draftVersion),
+    draftDigest: builder.draftDigest,
+  }, 'The rendered table must be the active preview for the exact saved draft and accepted receipt');
+  const applyPreviewRequests = report.nativeRequests.slice(applyPreviewFrom).filter((entry) => entry.path.endsWith('/preview'));
+  for (const entry of applyPreviewRequests) {
+    assert(nativeRequestValue(entry, 'outputId'), `Captured ${entry.method} ${entry.path} without outputId body/query: ${JSON.stringify(entry)}`);
+    const requestDeadline = Date.now() + 5000;
+    while (!entry.complete && Date.now() < requestDeadline) await pause(25);
+    assert(entry.complete, `Timed out waiting for captured preview response: ${JSON.stringify({ method: entry.method, url: entry.url, query: entry.query, request: entry.request })}`);
+  }
+  const targetPreviewRequests = applyPreviewRequests.filter((entry) => nativeRequestValue(entry, 'outputId') === outputId);
+  for (const entry of targetPreviewRequests) {
+    assert.equal(nativeRequestValue(entry, 'receiptId'), acceptedReconcile.response.receiptId, 'A post-Apply native preview must use the accepted saved receipt');
+    assert.equal(entry.status, 200, JSON.stringify(entry.response));
+    assert.equal(entry.response?.receiptId, acceptedReconcile.response.receiptId);
+    assert.equal(entry.response?.outputId, outputId);
+  }
+  const previewSource = targetPreviewRequests.length === 0 ? 'accepted-choice-proposal-preview-reused' : 'post-apply-native-preview';
+  const savedPreview = targetPreviewRequests.at(-1)?.response ?? proposalPreview;
+  if (targetPreviewRequests.length > 0) {
+    assert.deepEqual(savedPreview.rows, proposalPreview.rows, 'Post-Apply Preview differs from the accepted proposal preview for the same receipt');
+  }
+  report.savedPreviewVerification = {
+    source: previewSource,
+    outputId,
+    receiptId: acceptedReconcile.response.receiptId,
+    savedDraftVersion: builder.draftVersion,
+    savedDraftDigest: builder.draftDigest,
+    candidateWorkspaceDigest: allProposal.response.candidateWorkspaceDigest,
+    proposalRequestId: allProposal.requestId,
+    reconcileRequestId: acceptedReconcile.requestId,
+    activePreview,
+    postApplyPreviewRequests: applyPreviewRequests.map((entry) => ({
+      requestId: entry.requestId,
+      method: entry.method,
+      url: entry.url,
+      path: entry.path,
+      query: entry.query,
+      request: entry.request,
+      status: entry.status,
+      responseReceiptId: entry.response?.receiptId,
+      responseOutputId: entry.response?.outputId,
+      rowCount: entry.response?.rowCount,
+      complete: entry.complete,
+    })),
+  };
+  assert.equal(savedPreview.rowCount, witnesses.length);
   for (const witness of witnesses) {
-    const row = savedPreview.response.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
+    const row = savedPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
     assert(row, `Saved native Preview omitted ${witness.category} witness`);
     assert.deepEqual(row[relatedColumn.column], witness.observationIds, `${witness.category} saved values differ from independent CDA`);
   }
-  record('native-preview-matches-available-cda-witness-oracle', savedPreviewStarted, { receiptId: savedPreview.response.receiptId });
+  record('native-preview-matches-available-cda-witness-oracle', savedPreviewStarted, {
+    receiptId: savedPreview.receiptId,
+    source: previewSource,
+    postApplyPreviewRequestCount: targetPreviewRequests.length,
+  });
 
   const reloadedPreview = await openTable(addedRows, 'reload-related-all-available-cardinality-values');
   for (const witness of witnesses) {
@@ -618,7 +699,15 @@ FOR s IN Specimen
   const restoredRows = groupedRows;
   await rendered(restoredRows);
   record('remove-related-column-restores-native-group-table', removeStarted, { commandStatus: removeCommand.status });
-  await openTable(restoredRows, 'reload-restored-available-witness-group-table');
+  const restoredPreview = await openTable(restoredRows, 'reload-restored-available-witness-group-table');
+  assert.equal(restoredPreview.rowCount, witnesses.length);
+  assert(!restoredPreview.columns.some((column) => column.column === relatedColumn.column), 'Reloaded Group preview still contains the removed related value');
+  for (const witness of witnesses) {
+    const row = restoredPreview.rows.find((candidate) => candidate[groupKeyName] === witness.patient.id);
+    assert(row, `Reloaded Group preview omitted ${witness.category} witness`);
+    assert.equal(row.row_count, witness.expectedContributorRows, `${witness.category} grouped count differs from the raw CDA oracle`);
+    assert.equal(Object.hasOwn(row, relatedColumn.column), false, `${witness.category} restored row still contains the removed related value`);
+  }
 
   const expectedHttpFailures = report.nativeRequests.filter((entry) => entry.path.endsWith('/construction-choice-proposals') && entry.status === 422 && entry.response?.error?.code === 'CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES');
   const unexpectedHttp = report.nativeRequests.filter((entry) => entry.status >= 400 && !expectedHttpFailures.includes(entry));

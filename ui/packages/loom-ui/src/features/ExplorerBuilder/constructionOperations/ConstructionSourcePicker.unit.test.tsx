@@ -216,7 +216,7 @@ describe('Add columns source selection', () => {
     const confirm = within(dialog).getByRole('button', { name: 'Add 1 column' });
     expect(confirm).toBeDisabled();
     fireEvent.click(within(dialog).getByRole('radio', {
-      name: 'Report identifier: Direct relationship: Patient to DiagnosticReport via Encounter',
+      name: 'Report identifier: Patient <-[encounter]- DiagnosticReport',
     }));
     const technicalPath = within(dialog).getAllByText('Technical path details')[1]!;
     fireEvent.click(technicalPath);

@@ -20,10 +20,12 @@ import BuilderWorkspace from './BuilderWorkspace';
 import type { SelectionRevision } from '../../selection';
 import type {
   ConstructionCategoryDiscoveryResponse,
+  Construction,
   ConstructionProposalResponse,
   ExplorerBuilderDocument,
   ExplorerBuilderWorkspace,
 } from '../../types';
+import type { ConstructionCandidateIntent } from './constructionWorkspace/useConstructionLifecycle';
 import type {
   ProposeConstructionArgs,
   ProposeConstructionChoicesArgs,
@@ -194,6 +196,10 @@ vi.mock('./components/PreviewTable', () => ({
   PreviewTable: () => <div>Preview table</div>,
   formatPreviewCell: (value: unknown) => String(value ?? ''),
   previewCellTitle: (value: unknown) => String(value ?? ''),
+  sortByPresentationOrder: <T,>(values: ReadonlyArray<T>, orderOf: (value: T, index: number) => number) => values
+    .map((value, index) => ({ value, index, order: orderOf(value, index) }))
+    .sort((left, right) => left.order - right.order || left.index - right.index)
+    .map(({ value }) => value),
 }));
 
 vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
@@ -203,12 +209,14 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
     capabilities,
     pivotDiscovery,
     onDiscoverCategories,
+    onCandidateChange,
   }: {
     readonly editingStep?: { readonly id: string; readonly operation: { readonly kind: string } };
     readonly construction: { readonly steps: ReadonlyArray<unknown> };
     readonly capabilities: { readonly selectedStage: { readonly id: string } };
     readonly pivotDiscovery?: { readonly status: string };
     readonly onDiscoverCategories?: (request: { readonly stageId: string; readonly categoryColumnId: string; readonly valueColumnId: string }) => void;
+    readonly onCandidateChange?: (intent: ConstructionCandidateIntent | undefined) => void;
   }) => (
     <div
       data-testid="construction-reshape-editor"
@@ -222,6 +230,25 @@ vi.mock('./constructionOperations/ConstructionReshapeEditor', () => ({
         categoryColumnId: 'status-id',
         valueColumnId: 'value-id',
       })}>Find category values in construction editor</button> : null}
+      {onCandidateChange ? <button type="button" onClick={() => onCandidateChange({
+        changedStepId: 'pivot-proposal-step',
+        candidateConstruction: {
+          version: 1,
+          steps: [{
+            id: 'pivot-proposal-step',
+            inputs: [{ kind: 'SOURCE_PROJECTION' }],
+            operation: { kind: 'PIVOT' },
+            outputs: [
+              { id: 'd-output', name: 'd', label: 'Observed quantity d', type: 'integer', table: { order: 0 } },
+              { id: 'specimen-output', name: 'specimen_id', label: 'Specimen ID', type: 'string', table: { order: 1 } },
+              { id: 'patient-output', name: 'patient_id', label: 'Patient FHIR ID', type: 'string', table: { order: 2 } },
+              { id: 'observation-output', name: 'observation_id', label: 'Observation FHIR ID', type: 'string', table: { order: 3 } },
+              { id: 'value-output', name: 'related_value', label: 'Observation value', type: 'string', table: { order: 4 } },
+              { id: 'null-output', name: 'null_value', label: 'Null', type: 'string', table: { order: 5 } },
+            ],
+          }],
+        } as unknown as Construction,
+      })}>Emit Pivot presentation proposal</button> : null}
     </div>
   ),
 }));
@@ -877,6 +904,107 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
       expect.any(AbortSignal),
     ));
     await waitFor(() => expect(screen.getByTestId('construction-reshape-editor')).toHaveAttribute('data-discovery-status', 'complete'));
+  });
+
+  it('uses candidate Pivot output presentation when rendering the construction proposal preview', async () => {
+    const sourceStage = {
+      id: 'source_projection',
+      inputStageId: '',
+      rowIdentityColumn: 'source-row-id',
+      columns: [
+        { id: 'specimen-id', name: 'specimen_id', label: 'Specimen ID', type: 'string' },
+        { id: 'patient-id', name: 'patient_id', label: 'Patient FHIR ID', type: 'string' },
+        { id: 'observation-id', name: 'observation_id', label: 'Observation FHIR ID', type: 'string' },
+        { id: 'value-id', name: 'related_value', label: 'Observation value', type: 'string' },
+      ],
+      capabilities: [
+        { kind: 'PIVOT' as const, supported: true },
+        { kind: 'FILTER' as const, supported: true },
+      ],
+    };
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => ({
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      outputId: args.outputId,
+      stageId: args.stageId,
+      baseConstruction: { version: 1, steps: [] },
+      stages: [sourceStage],
+      selectedStage: sourceStage,
+    }));
+    mockLoomClient.proposeConstruction.mockImplementation(async (args: ProposeConstructionArgs): Promise<ConstructionProposalResponse> => ({
+      proposalId: 'pivot-presentation-proposal',
+      outputId: args.outputId,
+      snapshotToken: args.snapshotToken,
+      draftVersion: args.expectedDraftVersion,
+      draftDigest: args.expectedDraftDigest,
+      baseDocumentDigest: 'document-1',
+      candidateWorkspaceDigest: 'candidate-workspace-1',
+      changedStepId: args.changedStepId ?? '',
+      candidateConstruction: args.candidateConstruction,
+      dependencyImpact: { affectedStepIds: [] },
+      stages: [sourceStage],
+      previewStatus: 'READY',
+      previewDurationMs: 3,
+    }));
+    mockLoomClient.preview.mockResolvedValue({
+      apiVersion,
+      kind: 'ExplorerBuilderPreview',
+      rowLineageCapability: { status: 'UNAVAILABLE', reasonCode: 'TEST_FIXTURE' },
+      receiptId: 'pivot-presentation-proposal',
+      outputId: 'specimens',
+      columns: [
+        { column: 'specimen_id', label: 'Specimen ID', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'patient_id', label: 'Patient FHIR ID', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'observation_id', label: 'Observation FHIR ID', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'related_value', label: 'Observation value', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'null_value', label: 'Null', logicalType: 'string', filterable: true, chartable: false },
+        { column: 'd', label: 'd', logicalType: 'integer', filterable: true, chartable: false },
+      ],
+      rows: [{
+        specimen_id: 'specimen-1',
+        patient_id: 'patient-1',
+        observation_id: 'observation-1',
+        related_value: 'value-1',
+        null_value: null,
+        d: 7,
+      }],
+      rowCount: 1,
+      diagnostics: [],
+    });
+
+    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Configure rows' }));
+    const rowSettings = await screen.findByRole('dialog', { name: 'Row definition settings' });
+    fireEvent.click(within(rowSettings).getByTestId('construction-action-pivot-rows'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Emit Pivot presentation proposal' }));
+
+    const proposalPreview = await screen.findByTestId('construction-proposal-preview');
+    expect(within(proposalPreview).getAllByRole('columnheader').map((header) => header.firstElementChild?.textContent)).toEqual([
+      'Observed quantity d',
+      'Specimen ID',
+      'Patient FHIR ID',
+      'Observation FHIR ID',
+      'Observation value',
+      'Null',
+    ]);
+    expect(within(proposalPreview).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '7',
+      'specimen-1',
+      'patient-1',
+      'observation-1',
+      'value-1',
+      '',
+    ]);
+    view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    mockLoomClient.proposeConstruction.mockClear();
   });
 
   it('keeps a gender filter proposal alive across BuilderWorkspace rerenders', async () => {

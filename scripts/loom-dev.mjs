@@ -8,6 +8,7 @@ import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
+import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
@@ -31,7 +32,7 @@ const PORT_SLOT_COUNT = 8000;
 const API_PORT_BASE = 8180;
 const UI_PORT_BASE = 30000;
 const PORT_LOCK_TIMEOUT_MS = 30000;
-export const AUTHORING_SEMANTICS_VERSION = 9;
+export const AUTHORING_SEMANTICS_VERSION = EXPLORER_AUTHORING_SEMANTICS_VERSION;
 
 export const explicitGroupPreviewRows = (rows) => rows.map((row) => {
   const identity = row.__loom_row_id;
@@ -893,6 +894,9 @@ const assertFreshProject = async (target) => {
 
 const bootstrapAuthoringURL = (target, explorerId) => `${target.apiUrl}/api/v1/projects/${encodeURIComponent(target.fixtureProject)}/explorers/${encodeURIComponent(explorerId)}/authoring/v2`;
 
+export const authoringCommandSemanticsVersion = (builder) =>
+  builder?.workspace?.semanticsVersion ?? AUTHORING_SEMANTICS_VERSION;
+
 export const bootstrapWorkspaceNeedsSeed = (state) => {
   if (!state || state.draftVersion === undefined) return false;
   if (state.lifecycleState === 'NEW' && state.workspace === null && state.draftVersion === 0) return true;
@@ -925,7 +929,7 @@ const applyBootstrapCommands = async (target, explorerId, state, commandId, comm
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       commandId,
-      semanticsVersion: state.workspace?.semanticsVersion ?? AUTHORING_SEMANTICS_VERSION,
+      semanticsVersion: authoringCommandSemanticsVersion(state),
       snapshotToken: state.catalog.snapshotToken,
       expectedDraftVersion: state.draftVersion,
       ...(state.draftDigest ? { expectedDraftDigest: state.draftDigest } : {}),
@@ -2608,7 +2612,7 @@ const verifyJ02BrowserScenario = async (target, report, entryTarget = target) =>
       const commandId = randomUUID();
       const body = {
         commandId,
-        semanticsVersion: before.workspace?.semanticsVersion ?? AUTHORING_SEMANTICS_VERSION,
+        semanticsVersion: authoringCommandSemanticsVersion(before),
         snapshotToken: before.catalog.snapshotToken,
         expectedDraftVersion: before.draftVersion,
         expectedDraftDigest: before.draftDigest,

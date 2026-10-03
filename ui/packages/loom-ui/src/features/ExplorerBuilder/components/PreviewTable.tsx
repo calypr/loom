@@ -66,6 +66,14 @@ const withPresentationTable = (
   };
 };
 
+export const sortByPresentationOrder = <T,>(
+  values: ReadonlyArray<T>,
+  orderOf: (value: T, index: number) => number,
+): T[] => values
+  .map((value, index) => ({ value, index, order: orderOf(value, index) }))
+  .sort((left, right) => left.order - right.order || left.index - right.index)
+  .map(({ value }) => value);
+
 const withConstructionOutputTable = (
   entry: PreviewPresentationColumn,
   constructionStep: ConstructionStep | undefined,
@@ -297,6 +305,21 @@ export const PreviewTable = ({
       (constructionOrderByName.get(left.name) ?? left.table?.order ?? Number.MAX_SAFE_INTEGER) -
       (constructionOrderByName.get(right.name) ?? right.table?.order ?? Number.MAX_SAFE_INTEGER),
   );
+  const removableColumnName = (entry: PreviewPresentationColumn): string | undefined => {
+    switch (entry.change.kind) {
+      case 'AUTHORED_COLUMN':
+        return entry.change.column.column;
+      case 'CONSTRUCTION_OUTPUT': {
+        const output = entry.change.column;
+        if (!rowValueOutputIds.has(output.id)) return undefined;
+        return authoredByColumn.get(output.name)?.column;
+      }
+      default: {
+        const exhaustive: never = entry.change;
+        return exhaustive;
+      }
+    }
+  };
   const orderForEmission = (column: ExplorerBuilderEmission): number => {
     const outputOrder = constructionOrderByName.get(column.column);
     if (outputOrder !== undefined) return outputOrder;
@@ -308,7 +331,7 @@ export const PreviewTable = ({
       cohortOrderByName.get(column.column) ?? Number.MAX_SAFE_INTEGER,
     );
   };
-  const orderedColumns: ExplorerBuilderEmission[] = (preview?.columns ?? [])
+  const unorderedColumns: ExplorerBuilderEmission[] = (preview?.columns ?? [])
     .map((column) => {
       const authored = (column.authoredColumns ?? [column.column])
         .map((name) => authoredByColumn.get(name))
@@ -328,17 +351,19 @@ export const PreviewTable = ({
         emissionId: column.column,
         publicColumn: column.column,
       };
-    })
-    .sort(
-      (left, right) => {
-        const leftCohortOrder = cohortTerminal ? cohortOrderByName.get(left.column) : undefined;
-        const rightCohortOrder = cohortTerminal ? cohortOrderByName.get(right.column) : undefined;
-        if (leftCohortOrder !== undefined || rightCohortOrder !== undefined) {
-          return (leftCohortOrder ?? Number.MAX_SAFE_INTEGER) - (rightCohortOrder ?? Number.MAX_SAFE_INTEGER);
-        }
-        return orderForEmission(left) - orderForEmission(right);
-      },
-    );
+    });
+  const hasCohortColumns = cohortTerminal && unorderedColumns.some(
+    (column) => cohortOrderByName.has(column.column),
+  );
+  const orderedColumns = sortByPresentationOrder(
+    unorderedColumns,
+    (column) => {
+      const leftCohortOrder = cohortTerminal ? cohortOrderByName.get(column.column) : undefined;
+      return hasCohortColumns
+        ? leftCohortOrder ?? Number.MAX_SAFE_INTEGER
+        : orderForEmission(column);
+    },
+  );
   const columns = orderedColumns.filter((column) => {
     const constructionOutput = constructionOutputByName.get(column.column);
     if (constructionOutput) {
@@ -434,6 +459,7 @@ export const PreviewTable = ({
               >
                 {configuredColumns.map((column, index) => {
                   const visible = column.table?.visible ?? column.visibleByDefault;
+                  const removeTarget = removableColumnName(column);
                   return (
                     <div
                       key={column.name}
@@ -543,13 +569,12 @@ export const PreviewTable = ({
                           }}
                         />
                       </div>
-                      {onRemoveColumn &&
-                      column.change.kind === 'AUTHORED_COLUMN' ? (
+                      {onRemoveColumn && removeTarget ? (
                         <button
                           type="button"
                           aria-label={`Remove ${column.label} column`}
                           disabled={disabled}
-                          onClick={() => onRemoveColumn(column.name)}
+                          onClick={() => onRemoveColumn(removeTarget)}
                           className="shrink-0 rounded px-1.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
                           Remove

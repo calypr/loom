@@ -1577,6 +1577,14 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 	if construction.FinalStageID != sequence.FinalStageID || construction.RowIdentityColumn != sequence.FinalRowIdentity {
 		return fmt.Errorf("final stage or row identity does not match the construction sequence")
 	}
+	if !validConstructionCellTraceIdentityFields(sequence, construction.RowIdentityFields) {
+		return fmt.Errorf("construction trace identity fields do not match the published row identity")
+	}
+	if len(construction.RowIdentityFields) == 2 {
+		if err := requireNonEmptyStringBind(bindVars, "project"); err != nil {
+			return fmt.Errorf("canonical project/key construction identity: %w", err)
+		}
+	}
 	finalColumns := stageColumnsByID(sequence.FinalColumns)
 	output, exists := finalColumns[construction.OutputColumnID]
 	if !exists || output.Name != construction.OutputColumn || output.Internal {
@@ -1642,6 +1650,13 @@ func validatePhysicalStageCellTrace(sequence PhysicalStageSequence, terminal Phy
 		}
 	}
 	return nil
+}
+
+func validConstructionCellTraceIdentityFields(sequence PhysicalStageSequence, fields []string) bool {
+	if len(fields) == 1 {
+		return fields[0] != "" && fields[0] == sequence.FinalRowIdentity
+	}
+	return sequence.FinalRowIdentity == "_key" && len(fields) == 2 && fields[0] == "project" && fields[1] == "_key"
 }
 
 func findPhysicalStageProjection(projections []PhysicalProjection, name string) (PhysicalProjection, bool) {

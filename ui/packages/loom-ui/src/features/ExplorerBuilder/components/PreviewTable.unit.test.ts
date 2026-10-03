@@ -791,6 +791,80 @@ describe('PreviewTable column controls', () => {
     expect(sourceColumn.label).toBe('CDA specimen_type values');
   });
 
+  it('removes a grouped row-value output through its authored source column', () => {
+    const observationColumn = {
+      ...column('observation_id', 'Observation ID', 1),
+      columnId: 'observation-id-source',
+    };
+    const construction: Construction = {
+      version: 1,
+      steps: [{
+        id: 'group-patients',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'GROUP',
+          group: { constructionId: 'group-patients' },
+        },
+        rowValues: [{
+          inputColumnId: 'observation-id-source',
+          outputColumnId: 'grouped-observation-ids',
+          policy: 'ALL',
+        }],
+        outputs: [
+          { id: 'patient-key', name: 'patient_id', label: 'Patient ID', type: 'string' },
+          { id: 'patient-count', name: 'row_count', label: 'Row count', type: 'integer' },
+          { id: 'grouped-observation-ids', name: 'observation_id', label: 'Observation ID', type: 'array' },
+        ],
+      }],
+    };
+    const groupedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        columns: [observationColumn],
+        construction,
+      },
+    };
+    const groupedPreview: ExplorerBuilderPreviewResult = {
+      ...preview,
+      columns: [
+        {
+          column: 'patient_id', label: 'Patient ID', logicalType: 'string', filterable: true, chartable: false,
+        },
+        {
+          column: 'row_count', label: 'Row count', logicalType: 'integer', filterable: true, chartable: false,
+        },
+        {
+          column: 'observation_id', label: 'Observation ID', logicalType: 'array', filterable: false, chartable: false,
+        },
+      ],
+      rows: [{
+        patient_id: 'patient-1',
+        row_count: 2,
+        observation_id: ['observation-1', 'observation-2'],
+      }],
+    };
+    const onRemoveColumn = vi.fn();
+
+    render(React.createElement(PreviewTable, {
+      preview: groupedPreview,
+      table: groupedTable,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+      onRemoveColumn,
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Observation ID column' }));
+
+    expect(onRemoveColumn).toHaveBeenCalledOnce();
+    expect(onRemoveColumn).toHaveBeenCalledWith('observation_id');
+    expect(screen.queryByRole('button', { name: 'Remove Patient ID column' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Row count column' })).not.toBeInTheDocument();
+  });
+
   it('keeps a same-name row-value visibility control aligned with the preview when source visibility is saved', () => {
     const sourceColumn = {
       ...column('specimen_type', 'CDA specimen_type values', 0),

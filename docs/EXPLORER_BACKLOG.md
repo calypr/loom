@@ -11,6 +11,17 @@ do not make further harness polish a prerequisite for product work.
 
 ## Delivery order
 
+### Restore joins and appends after the current bug pass
+
+User requested on 2026-10-03: the currently disabled Join and Append controls
+are temporary. Restore their complete workflows, then run another bounded
+verification wave using owned QA Explorers and independent source oracles.
+Verify join key matching, unmatched rows, duplicate keys and multiplicity;
+verify append column alignment, types, nulls and membership. Exercise native
+Preview/Cancel/Apply, editing, removal, reload, and composition with existing
+row operations within five seconds. Preserve authorization, project and
+generation scope. Disabled controls do not count as completed coverage.
+
 ### Active Builder regression: related Observation quantity Pivot
 
 User-reported on 2026-10-02 in “CDA indirect route QA 1790619839496”:

@@ -131,6 +131,11 @@ type PhysicalCellTraceReturn struct {
 type PhysicalCellTraceConstruction struct {
 	FinalStageID      string
 	RowIdentityColumn string
+	// RowIdentityFields preserve the ordered public identity contract used by
+	// Preview. Construction stages can keep a narrower internal row identity
+	// column (for example _key) while the public identity also includes the
+	// project bind.
+	RowIdentityFields []string
 	OutputColumnID    string
 	OutputColumn      string
 	ProducerStageID   string

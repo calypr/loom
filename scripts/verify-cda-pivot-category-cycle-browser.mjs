@@ -405,6 +405,21 @@ try {
       requestTrace,
       dom,
     };
+    const savedAfterSecondApply = structuredClone(builder);
+    await open(expected);
+    builder = await api(base + '/builder');
+    assert.equal(builder.draftVersion, savedAfterSecondApply.draftVersion, 'Reload must preserve the accepted second Apply draft version.');
+    assert.equal(builder.draftDigest, savedAfterSecondApply.draftDigest, 'Reload must preserve the accepted second Apply draft digest.');
+    assert.deepEqual(builder.workspace, savedAfterSecondApply.workspace, 'Reload must preserve both expansions and the exact selected source membership.');
+    const reloaded = await captureRelatedApplyDOM();
+    assert.equal(reloaded.preview?.status, 'ready');
+    assert.equal(reloaded.preview?.outputId, outputId);
+    assert.equal(reloaded.preview?.loading, false);
+    assert.equal(reloaded.preview?.rows.length, Math.min(25, expected.length));
+    for (const row of reloaded.preview?.rows ?? []) {
+      assert(expectedRows.has(JSON.stringify(row.values)), `Reloaded row must match an independent CDA witness: ${JSON.stringify(row.values)}`);
+    }
+    report.relatedApplyOnly.reloaded = reloaded;
   } else {
   const expanded=builder;
   assert(expected.length>1,'Require multiple related category records');

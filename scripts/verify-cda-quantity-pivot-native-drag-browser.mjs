@@ -728,7 +728,10 @@ try {
     const editPreview=await proposalPreviewFor(editProposal);
     const editExpected=expectedPivotFor(editProposal,editPreview);
     const editedColumnOrder=draggedLabels.map(label=>label==='d'?'Observed quantity d':label);
-    assert.deepEqual(editExpected.columns.map(column=>column.label),editedColumnOrder,'Editing the Pivot must retain the saved native column order');
+    const editedOutputs=editProposal.response.candidateConstruction.steps.at(-1).outputs;
+    const editedOrder=new Map(editedOutputs.map((output,index)=>[output.name,output.table?.order??index]));
+    editExpected.columns=[...editExpected.columns].sort((left,right)=>editedOrder.get(left.column)-editedOrder.get(right.column));
+    assert.deepEqual(editExpected.columns.map(column=>column.label),editedColumnOrder,'Edited candidate must retain the saved native column order');
     assert.equal(editExpected.operation.duplicatePolicy,'ERROR');
     assert.equal(editExpected.duplicateBuckets,0);
     await assertExactRows({name:'pivot-edit-preview-independent-values-and-ids',columns:editExpected.columns,rows:editExpected.rows,rowLimit:100,panel:true});

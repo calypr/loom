@@ -11,6 +11,11 @@ import { browserEval, click, launchBrowser, navigate, selectOption, waitForBrows
 
 const project = 'loom_dev_cda_fhir';
 const generation = 'cda-fhir-v1';
+const afterUnpivotCase = process.env.LOOM_RELATED_AFTER_UNPIVOT_CASE ?? 'gender-all';
+assert(['gender-all', 'id-count'].includes(afterUnpivotCase), `Unsupported LOOM_RELATED_AFTER_UNPIVOT_CASE: ${afterUnpivotCase}`);
+const afterUnpivotFieldPath = afterUnpivotCase === 'id-count' ? 'id' : 'gender';
+const afterUnpivotForm = afterUnpivotCase === 'id-count' ? 'COUNT' : 'ALL';
+const requireGenderWitness = afterUnpivotCase === 'gender-all';
 const protectedExplorer = 'cda-builder-full-qa-1790440983382';
 const explorer = `related-field-after-unpivot-${randomUUID()}`;
 assert.notEqual(explorer, protectedExplorer);
@@ -24,7 +29,12 @@ const report = {
   explorer,
   project,
   generation,
-  scenario: 'Patient.id RELATED_SOURCE before UNPIVOT; add Patient.gender after UNPIVOT on the same exact Specimen.subject->Patient route.',
+  scenario: afterUnpivotCase === 'id-count'
+    ? 'Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.id COUNT after UNPIVOT on the same exact Specimen.subject->Patient route.'
+    : 'Patient.id RELATED_SOURCE ALL before UNPIVOT; unpivot Specimen ID while retaining the Patient.id array; add Patient.gender ALL after UNPIVOT on the same exact Specimen.subject->Patient route.',
+  coverageLimitations: afterUnpivotCase === 'id-count'
+    ? ['This case proves retained Patient.id ALL values across UNPIVOT and same-route Patient.id COUNT after UNPIVOT. It does not prove non-id Patient field-value access after UNPIVOT.', 'The bounded first-2,000-Specimen inventory found project_id and resourceType as populated Patient payload scalars besides id; this is not a project-wide absence claim.']
+    : ['The gender case requires a populated Patient.gender witness in the bounded candidate scan. A missing witness does not establish project-wide absence.', 'This verifier does not claim restricted-auth coverage.'],
   authorizationClaim: 'Exact selected resource membership is checked. The local project-scoped CDA oracle does not claim restricted-auth coverage.',
   started: new Date().toISOString(),
   protectedExplorerUntouched: true,
@@ -192,16 +202,18 @@ const linkedPatientWitnessQuery = `FOR specimenKey IN @specimenKeys
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.id, _id: patient._id, gender: patient.payload.gender }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender }
   )
   FILTER LENGTH(patients) == 1
-  FILTER IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0
+  FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
+  FILTER @requireGender == false OR (IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0)
   SORT specimen._key
   LIMIT 1
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
     patient: { id: patient.id, _id: patient._id, gender: patient.gender },
+    patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
     generation: specimen.dataset_generation
@@ -223,14 +235,16 @@ const exactLinkedPatientQuery = `LET specimen = DOCUMENT(@specimenKey)
       FILTER patient != null
         AND patient.project == @project
         AND patient.dataset_generation == @generation
-      RETURN DISTINCT { id: patient.id, _id: patient._id, gender: patient.payload.gender }
+      RETURN DISTINCT { id: patient.payload.id, _id: patient._id, gender: patient.payload.gender }
   )
   FILTER LENGTH(patients) == 1
-  FILTER IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0
+  FILTER IS_STRING(patients[0].id) AND LENGTH(patients[0].id) > 0
+  FILTER @requireGender == false OR (IS_STRING(patients[0].gender) AND LENGTH(patients[0].gender) > 0)
   LET patient = patients[0]
   RETURN {
     specimen: { id: specimen.id, _id: specimen._id },
     patient: { id: patient.id, _id: patient._id, gender: patient.gender },
+    patientCount: LENGTH(patients),
     route: "Specimen -[subject]-> Patient",
     project: specimen.project,
     generation: specimen.dataset_generation
@@ -326,6 +340,18 @@ const previewValueFor = (preview, label, rowIndex) => {
   return preview.rows[rowIndex][column.column];
 };
 
+// Matches PreviewTable's formatPreviewCell for this verifier's string and integer values.
+const formatPreviewCell = (value) => {
+  if (value === undefined || value === null) return '—';
+  if (typeof value === 'string') return value.trim() || '—';
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (Array.isArray(value)) {
+    const items = value.map(formatPreviewCell).filter((item) => item !== '—');
+    return items.length > 0 ? items.join('; ') : '—';
+  }
+  throw new TypeError(`Unexpected preview value type in focused verifier: ${Object.prototype.toString.call(value)}`);
+};
+
 const assertPreviewRows = (response, expectedRows, name) => {
   assert.equal(response.status, 200, `${name}: proposal HTTP status`);
   assert.equal(response.response?.previewStatus, 'READY', `${name}: ${JSON.stringify(response.response)}`);
@@ -334,7 +360,10 @@ const assertPreviewRows = (response, expectedRows, name) => {
   assert.equal(preview.receiptId, response.response.proposalId, `${name}: preview must belong to the current proposal`);
   assert.equal(preview.rowCount, expectedRows.length, `${name}: ${JSON.stringify(preview)}`);
   assert.equal(preview.rows.length, expectedRows.length, `${name}: bounded fixture must include every row`);
-  const labels = [...new Set(expectedRows.flatMap((row) => Object.keys(row)))];
+  const labels = preview.columns.map((column) => column.label);
+  assert.equal(new Set(labels).size, labels.length, `${name}: preview labels must be unique for oracle and DOM matching: ${JSON.stringify(labels)}`);
+  const expectedLabels = [...new Set(expectedRows.flatMap((row) => Object.keys(row)))];
+  assert.deepEqual([...labels].sort(), [...expectedLabels].sort(), `${name}: oracle columns must exactly match the declared preview columns`);
   const projected = preview.rows.map((row, rowIndex) => Object.fromEntries(labels.map((label) => [
     label, previewValueFor(preview, label, rowIndex),
   ])));
@@ -374,16 +403,37 @@ const proposal = async (name, startedAt, expectedRowsOrFactory) => {
   return { panel, request, preview, expectedRows };
 };
 
-const visibleTable = async (rowCount, columnCount, name, startedAt) => {
+const visibleTable = async (expectedRows, preview, name, startedAt) => {
+  const labels = preview.columns.map((column) => column.label);
+  const rowCount = expectedRows.length;
+  const columnCount = labels.length;
   await waitForBrowser(browser.cdp, `
     (() => {
       const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+      const dataRows = [...(table?.querySelectorAll('[role="row"]') ?? [])]
+        .filter((row) => row.querySelector('[role="cell"]'));
       return table?.getAttribute('aria-rowcount') === ${JSON.stringify(String(Math.min(25, rowCount) + 1))}
         && table?.getAttribute('aria-colcount') === ${JSON.stringify(String(columnCount))}
+        && dataRows.length === ${JSON.stringify(rowCount)}
         && !document.body.innerText.includes('Loading your table…')
         && !document.body.innerText.includes('Preview failed:');
     })()
   `, 5000);
+  const rendered = await browserEval(browser.cdp, `
+    const table = document.querySelector('[data-testid="preview-table-scroll"] [role="table"]');
+    return {
+      headers: [...(table?.querySelectorAll('[role="columnheader"]') ?? [])].map((cell) => cell.textContent.trim()),
+      rows: [...(table?.querySelectorAll('[role="row"]') ?? [])]
+        .filter((row) => row.querySelector('[role="cell"]'))
+        .map((row) => [...row.querySelectorAll('[role="cell"]')].map((cell) => cell.textContent.trim())),
+    };
+  `);
+  assert.deepEqual(rendered.headers, labels, `${name}: visible Builder headers must match declared preview labels`);
+  assert.equal(rendered.rows.length, rowCount, `${name}: visible Builder row count`);
+  assert(rendered.rows.every((row) => row.length === columnCount), `${name}: visible Builder rows must include every declared preview column`);
+  const renderedByLabel = rendered.rows.map((cells) => Object.fromEntries(rendered.headers.map((label, index) => [label, cells[index]])));
+  const expectedByLabel = expectedRows.map((row) => Object.fromEntries(labels.map((label) => [label, formatPreviewCell(row[label])])));
+  assert.deepEqual(renderedByLabel, expectedByLabel, `${name}: visible Builder cells must display the independently expected strings, ID arrays, and counts`);
   record(name, startedAt, { rowCount, columnCount });
 };
 
@@ -396,12 +446,11 @@ const reloadTable = async (expectedRows, name) => {
   await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
   const state = await api(base + '/builder');
   builder = state;
-  const columnCount = doc().columns.length;
   const preview = await waitNative('/preview', startedAt, (entry) => entry.outputId === outputId);
   assert.equal(preview.status, 200, `${name}: ${JSON.stringify(preview.response)}`);
   assert.equal(preview.response?.rowCount, expectedRows.length);
   assertPreviewRows({ status: preview.status, response: { proposalId: preview.response?.receiptId, previewStatus: 'READY', preview: preview.response } }, expectedRows, name);
-  await visibleTable(expectedRows.length, columnCount, name + '-render', startedAt);
+  await visibleTable(expectedRows, preview.response, name + '-render', startedAt);
   return preview.response;
 };
 
@@ -422,7 +471,7 @@ const applyProposal = async (expectedRows, name) => {
   assert.equal(applied.response?.rowCount, expectedRows.length, `${name}: saved row count`);
   assertPreviewRows({ status: applied.status, response: { proposalId: applied.response?.receiptId, previewStatus: 'READY', preview: applied.response } }, expectedRows, name);
   builder = await api(base + '/builder');
-  await visibleTable(expectedRows.length, doc().columns.length, name, startedAt);
+  await visibleTable(expectedRows, applied.response, name, startedAt);
   return applied.response;
 };
 
@@ -461,12 +510,12 @@ const outputForStep = (step, columnId) => {
   return output;
 };
 
-const assertDirectPatientRoute = (step, path) => {
+const assertDirectPatientRoute = (step, path, expectedForm = 'ALL') => {
   const related = step.operation.relatedSource;
   assert(related, `Step ${step.id} lost its RELATED_SOURCE payload`);
   assert.equal(related.source.resourceType, 'Patient');
   assert(related.source.path === path || related.source.path.endsWith('.' + path), `Unexpected source path: ${related.source.path}`);
-  assert.equal(related.form, 'ALL');
+  assert.equal(related.form, expectedForm);
   assert.equal(related.route.length, 1, JSON.stringify(related.route));
   const [hop] = related.route;
   assert.equal(hop.fromResourceType, 'Specimen');
@@ -475,7 +524,7 @@ const assertDirectPatientRoute = (step, path) => {
   assert.equal(hop.storageDirection, 'OUTBOUND');
 };
 
-const openRelatedField = async (fieldPath) => {
+const openRelatedField = async (fieldPath, desiredForm = 'ALL') => {
   await click(browser.cdp, '[data-testid="construction-action-add-columns"]');
   await click(browser.cdp, '[aria-label="Column types"] button', { includes: 'Fields and related data' });
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector('[data-testid="construction-add-columns-source"]'))`, 5000);
@@ -508,12 +557,15 @@ const openRelatedField = async (fieldPath) => {
   `);
   const route = controls.radios.find((radio) =>
     radio.aria.includes('Specimen -[subject]-> Patient'));
-  const form = controls.radios.find((radio) => radio.aria.includes('Keep all matching values'));
+  const formLabel = desiredForm === 'COUNT' ? 'Count matching records' : 'Keep all matching values';
   assert(route, `No exact Specimen.subject -> Patient choice: ${JSON.stringify(controls.radios)}`);
-  assert(form, `No ALL values choice for Patient.${fieldPath}: ${JSON.stringify(controls.radios)}`);
   await click(browser.cdp, `[role="dialog"] input[aria-label=${JSON.stringify(route.aria)}]`);
-  await click(browser.cdp, `[role="dialog"] input[aria-label=${JSON.stringify(form.aria)}]`);
-  if (controls.groupedPolicy !== undefined) {
+  await waitForBrowser(browser.cdp, `Boolean([...document.querySelectorAll('[role="dialog"] input[type="radio"]')].find(input=>(input.getAttribute('aria-label')??'').includes(${JSON.stringify(formLabel)})))`, 5000);
+  const formChoices = await browserEval(browser.cdp, `return [...document.querySelectorAll('[role="dialog"] input[type="radio"]')].map(input=>input.getAttribute('aria-label')??'');`);
+  const formChoice = formChoices.find(label=>label.includes(formLabel));
+  assert(formChoice, `No ${desiredForm} choice for Patient.${fieldPath}: ${JSON.stringify(formChoices)}`);
+  await click(browser.cdp, `[role="dialog"] input[aria-label=${JSON.stringify(formChoice)}]`);
+  if (desiredForm === 'ALL' && controls.groupedPolicy !== undefined) {
     await selectOption(browser.cdp, '[role="dialog"] select[aria-label="Values per grouped row"]', 'ALL');
   }
   await click(browser.cdp, '[role="dialog"] button', { name: 'Add 1 column' });
@@ -523,9 +575,9 @@ const openRelatedField = async (fieldPath) => {
 const beginUnpivot = async (sourceLabel) => {
   await click(browser.cdp, '[data-testid="construction-rows-settings-trigger"]');
   await waitForBrowser(browser.cdp,
-    `Boolean([...document.querySelectorAll('button')].find((button) => button.innerText.trim() === 'Turn columns into rows' && !button.disabled))`,
+    `Boolean(document.querySelector('[data-testid="construction-action-unpivot-rows"]:not(:disabled)'))`,
     5000);
-  await click(browser.cdp, 'button', { name: 'Turn columns into rows' });
+  await click(browser.cdp, '[data-testid="construction-action-unpivot-rows"]');
   const selector = `input[aria-label=${JSON.stringify(`Unpivot ${sourceLabel}`)}]`;
   await waitForBrowser(browser.cdp, `Boolean(document.querySelector(${JSON.stringify(selector + ':not(:disabled)')}))`, 5000);
   const startedAt = Date.now();
@@ -587,6 +639,7 @@ try {
     witnesses = rawQuery(linkedPatientWitnessQuery, {
       ...oracleScope,
       specimenKeys: candidates.map(candidate => candidate._id),
+      requireGender: requireGenderWitness,
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
@@ -604,7 +657,7 @@ try {
       linkedPatientWitnesses: 0,
       result: 'no-witness-within-bounded-candidate-scan',
     };
-    const unavailable = new Error('No qualifying direct Patient link with populated gender was found among the first 2000 scoped Specimens by _key; this does not establish absence from the full project generation.');
+    const unavailable = new Error('No direct Patient witness matching the selected mode was found among the first 2000 scoped Specimens by _key; this does not establish absence from the full project generation.');
     unavailable.name = 'RawOracleUnavailableError';
     unavailable.rawOracleFailure = true;
     unavailable.unverifiedKind = 'bounded-linked-patient-witness-not-found';
@@ -619,6 +672,7 @@ try {
       ...oracleScope,
       specimenKey: candidateWitness.specimen._id,
       specimenID: candidateWitness.specimen.id,
+      requireGender: requireGenderWitness,
     });
   } catch (error) {
     if (!error.rawOracleFailure) throw error;
@@ -636,6 +690,7 @@ try {
     exactRows[0].patient.id === candidateWitness.patient.id &&
     exactRows[0].patient._id === candidateWitness.patient._id &&
     exactRows[0].patient.gender === candidateWitness.patient.gender &&
+    exactRows[0].patientCount === candidateWitness.patientCount &&
     exactRows[0].project === candidateWitness.project &&
     exactRows[0].generation === candidateWitness.generation;
   if (!exactRereadMatches) {
@@ -655,8 +710,10 @@ try {
     throw unavailable;
   }
   const source = exactRows[0];
-  assert(source?.specimen?.id && source?.patient?.id && source?.patient?.gender,
-    'The scoped CDA oracle needs one Specimen with exactly one linked Patient whose gender is populated.');
+  assert(source?.specimen?.id && source?.patient?.id && source?.patientCount === 1,
+    'The scoped CDA oracle needs one Specimen with exactly one direct linked Patient and populated Patient.id.');
+  if (requireGenderWitness) assert(typeof source.patient.gender === 'string' && source.patient.gender.length > 0,
+    'The gender mode requires a populated Patient.gender witness.');
   assert.equal(source.project, project);
   assert.equal(source.generation, generation);
   report.oracle = {
@@ -671,14 +728,15 @@ try {
     source: {
       specimenID: source.specimen.id,
       patientID: source.patient.id,
-      patientGender: source.patient.gender,
+      ...(source.patient.gender == null ? {} : { patientGender: source.patient.gender }),
+      directPatientCount: source.patientCount,
       project: source.project,
       generation: source.generation,
     },
     patientMatches: 1,
   };
 
-  await api(apiRoot, { name: explorer, title: 'Related field after Unpivot QA' });
+  await api(apiRoot, { name: explorer, title: afterUnpivotCase === 'id-count' ? 'Related ID count after Unpivot QA' : 'Related field after Unpivot QA' });
   builder = await api(base + '/builder');
   assert.equal(builder.catalog.generation, generation);
   const rootNode = builder.catalog.nodes.find((node) => node.resourceType === 'Specimen');
@@ -697,6 +755,8 @@ try {
     initialPresentation: 'TABLE',
     title: 'Specimen ID',
   }]);
+  const authoredSpecimenID = doc().columns.find((column) => column.label === 'Specimen ID');
+  assert(authoredSpecimenID, 'The authored root Specimen.id column is missing.');
   const selection = await api(`${apiRoot}/${explorer}/selections`, {
     snapshotToken: builder.catalog.snapshotToken,
     idempotencyKey: explorer,
@@ -762,7 +822,7 @@ try {
   assertDirectPatientRoute(patientIDStep, 'id');
   const savedPatientIDLabel = outputForStep(patientIDStep, patientIDStep.operation.relatedSource.outputColumnId).label;
   assert.equal(savedPatientIDLabel, patientIDLabel, 'Apply changed the proposed Patient.id output label.');
-  assert(/patient/i.test(patientIDLabel) && /\bid\b/i.test(patientIDLabel),
+  assert(/patient/i.test(patientIDLabel) && /\bids?\b/i.test(patientIDLabel),
     `Unexpected Patient ID output label: ${patientIDLabel}`);
   previewRows = [{ 'Specimen ID': source.specimen.id, [patientIDLabel]: [source.patient.id] }];
   await reloadTable(previewRows, 'reload-related-Patient-ID-before-Unpivot');
@@ -811,133 +871,144 @@ try {
   }];
   await reloadTable(previewRows, 'reload-Unpivot-retained-related-Patient-binding');
 
-  const beforeGender = structuredClone(builder);
-  start = await openRelatedField('gender');
-  let genderLabel;
-  const genderLabelProposal = await proposal('add-Patient-gender-after-Unpivot-preview', start, (response) => {
+  assert.deepEqual(savedUnpivot.inputs, [{ kind: 'STEP_OUTPUT', stepId: savedPatientID.id }],
+    'UNPIVOT must consume the compiler stage represented by the retained related-source step.');
+  const unpivotInputStage = await api(base + '/construction-capabilities', {
+    snapshotToken: builder.catalog.snapshotToken,
+    expectedDraftVersion: builder.draftVersion,
+    expectedDraftDigest: builder.draftDigest,
+    outputId,
+    stageId: savedPatientID.id,
+  });
+  assert.equal(unpivotInputStage.selectedStage.id, savedPatientID.id,
+    'The compiler stage used by the Unpivot editor must be the applied related-source stage.');
+  const compilerSpecimenIDColumns = unpivotInputStage.selectedStage.columns.filter((column) =>
+    column.label === authoredSpecimenID.label);
+  assert.equal(compilerSpecimenIDColumns.length, 1,
+    `Expected one Specimen ID column in the compiler stage used by Unpivot, got ${JSON.stringify(compilerSpecimenIDColumns)}`);
+  const specimenIDColumn = compilerSpecimenIDColumns[0];
+  assert(specimenIDColumn.id && specimenIDColumn.name,
+    `The Unpivot compiler stage omitted stable identity for Specimen ID: ${JSON.stringify(specimenIDColumn)}`);
+  const specimenIDColumnId = specimenIDColumn.id;
+  report.unpivotInputStage = {
+    stageId: unpivotInputStage.selectedStage.id,
+    rootColumn: { id: specimenIDColumn.id, name: specimenIDColumn.name, label: specimenIDColumn.label },
+    patientIDColumnId: savedPatientID.operation.relatedSource.outputColumnId,
+  };
+
+  const savedUnpivotOutputs = new Set(savedUnpivot.outputs.map((output) => output.id));
+  const retainedPatientIDOutputId = patientIDStep.operation.relatedSource.outputColumnId;
+  assert.deepEqual(savedUnpivot.operation.unpivot.inputs.map((input) => input.columnId), [specimenIDColumnId],
+    'UNPIVOT must consume only the exact Specimen ID source column.');
+  assert(!savedUnpivotOutputs.has(specimenIDColumnId),
+    'The consumed Specimen ID source must not remain in the UNPIVOT output schema.');
+  assert(savedUnpivotOutputs.has(retainedPatientIDOutputId),
+    'The original Patient.id ALL binding output must remain in the UNPIVOT output schema.');
+  assert(savedUnpivotOutputs.has(savedUnpivot.operation.unpivot.keyOutputColumnId));
+  assert(savedUnpivotOutputs.has(savedUnpivot.operation.unpivot.valueOutputColumnId));
+  assert.equal(savedPatientID.operation.relatedSource.form, 'ALL');
+  assertDirectPatientRoute(savedPatientID, 'id', 'ALL');
+  const savedPatientIDOutput = outputForStep(savedPatientID, retainedPatientIDOutputId);
+  assert.equal(savedPatientIDOutput.label, patientIDLabel);
+
+  const reshapedRetainedPatientRow = structuredClone(previewRows[0]);
+  const postUnpivotValue = afterUnpivotCase === 'id-count' ? source.patientCount : [source.patient.gender];
+  const postUnpivotValueForRow = (label) => ({ ...reshapedRetainedPatientRow, [label]: postUnpivotValue });
+  const beforePostUnpivotField = structuredClone(builder);
+  start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  let postUnpivotLabel;
+  const postUnpivotLabelProposal = await proposal(`add-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preview`, start, (response) => {
     const step = response.candidateConstruction.steps.findLast((candidate) =>
       candidate.operation.kind === 'RELATED_SOURCE' &&
-      (candidate.operation.relatedSource?.source?.path === 'gender' || candidate.operation.relatedSource?.source?.path?.endsWith('.gender')));
-    assert(step, 'Post-Unpivot Patient.gender access did not produce a related source operation.');
-    genderLabel = outputForStep(step, step.operation.relatedSource.outputColumnId).label;
-    return [{
-      [patientIDLabel]: [source.patient.id],
-      [keyLabel]: 'Specimen ID',
-      [valueLabel]: source.specimen.id,
-      [genderLabel]: [source.patient.gender],
-    }];
+      candidate.operation.relatedSource?.source?.resourceType === 'Patient' &&
+      (candidate.operation.relatedSource?.source?.path === afterUnpivotFieldPath ||
+        candidate.operation.relatedSource?.source?.path?.endsWith('.' + afterUnpivotFieldPath)));
+    assert(step, `Post-Unpivot Patient.${afterUnpivotFieldPath} did not produce a related source operation.`);
+    assert.equal(step.operation.relatedSource.form, afterUnpivotForm, 'The post-Unpivot related source form changed.');
+    const candidateOutput = outputForStep(step, step.operation.relatedSource.outputColumnId);
+    assert.notEqual(candidateOutput.id, retainedPatientIDOutputId);
+    if (afterUnpivotForm === 'COUNT') assert.equal(candidateOutput.type, 'integer');
+    postUnpivotLabel = candidateOutput.label;
+    assert(!Object.hasOwn(reshapedRetainedPatientRow, postUnpivotLabel),
+      'The new related output label collides with a retained or Unpivot output label.');
+    return [postUnpivotValueForRow(postUnpivotLabel)];
   });
-  const genderStepProposal = genderLabelProposal.request.response.candidateConstruction.steps.findLast((step) =>
+  const postUnpivotStepProposal = postUnpivotLabelProposal.request.response.candidateConstruction.steps.findLast((step) =>
     step.operation.kind === 'RELATED_SOURCE' &&
-    (step.operation.relatedSource?.source?.path === 'gender' || step.operation.relatedSource?.source?.path?.endsWith('.gender')));
-  assert(genderStepProposal, 'Post-Unpivot Patient.gender access did not produce a related source operation.');
-  assertDirectPatientRoute(genderStepProposal, 'gender');
-  assert.equal(outputForStep(genderStepProposal, genderStepProposal.operation.relatedSource.outputColumnId).label, genderLabel);
-  await cancelProposal(beforeGender.workspace, 'cancel-Patient-gender-after-Unpivot-preserves-existing-binding');
+    step.operation.relatedSource?.source?.resourceType === 'Patient' &&
+    (step.operation.relatedSource?.source?.path === afterUnpivotFieldPath ||
+      step.operation.relatedSource?.source?.path?.endsWith('.' + afterUnpivotFieldPath)));
+  assert(postUnpivotStepProposal, `Post-Unpivot Patient.${afterUnpivotFieldPath} proposal is missing.`);
+  assert.equal(postUnpivotStepProposal.operation.relatedSource.form, afterUnpivotForm);
+  assertDirectPatientRoute(postUnpivotStepProposal, afterUnpivotFieldPath, afterUnpivotForm);
+  assert.equal(outputForStep(postUnpivotStepProposal, postUnpivotStepProposal.operation.relatedSource.outputColumnId).label, postUnpivotLabel);
+  assert.notEqual(postUnpivotStepProposal.operation.relatedSource.outputColumnId, retainedPatientIDOutputId,
+    'The new source operation must have its own output identity.');
+  await cancelProposal(beforePostUnpivotField.workspace, `cancel-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preserves-existing-binding`);
 
-  start = await openRelatedField('gender');
-  const genderProposal = await proposal('confirm-Patient-gender-after-Unpivot-preview', start, [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [genderLabel]: [source.patient.gender],
-  }]);
-  await applyProposal([{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [genderLabel]: [source.patient.gender],
-  }], 'apply-Patient-gender-after-Unpivot');
-  let genderBaseline = structuredClone(builder);
-  let savedGender = relatedSourceStepFor(genderBaseline, 'gender');
-  assert(savedGender, 'Applied post-Unpivot Patient.gender binding is missing.');
-  assertDirectPatientRoute(savedGender, 'gender');
-  const savedGenderOutput = outputForStep(savedGender, savedGender.operation.relatedSource.outputColumnId);
-  assert.equal(savedGenderOutput.label, genderLabel);
-  assert.deepEqual(savedGender.operation.relatedSource.route, savedPatientID.operation.relatedSource.route,
-    'Post-Unpivot source selection changed the existing exact Patient route.');
-  assert.deepEqual(savedPatientID.operation.relatedSource.route, patientIDStep.operation.relatedSource.route,
-    'The pre-Unpivot Patient route did not survive the reshape.');
-  previewRows = [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [genderLabel]: [source.patient.gender],
-  }];
-  await reloadTable(previewRows, 'reload-related-Patient-gender-after-Unpivot');
+  start = await openRelatedField(afterUnpivotFieldPath, afterUnpivotForm);
+  await proposal(`confirm-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot-preview`, start,
+    [postUnpivotValueForRow(postUnpivotLabel)]);
+  await applyProposal([postUnpivotValueForRow(postUnpivotLabel)], `apply-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot`);
+  let postUnpivotBaseline = structuredClone(builder);
+  let savedPostUnpivotStep = relatedSourceStepFor(postUnpivotBaseline, afterUnpivotFieldPath);
+  assert(savedPostUnpivotStep, `Applied post-Unpivot Patient.${afterUnpivotFieldPath} binding is missing.`);
+  assert.notEqual(savedPostUnpivotStep.id, patientIDStep.id, 'The post-Unpivot binding must be a new source operation.');
+  assert.equal(savedPostUnpivotStep.operation.relatedSource.form, afterUnpivotForm);
+  assertDirectPatientRoute(savedPostUnpivotStep, afterUnpivotFieldPath, afterUnpivotForm);
+  const savedPostUnpivotOutput = outputForStep(savedPostUnpivotStep, savedPostUnpivotStep.operation.relatedSource.outputColumnId);
+  assert.equal(savedPostUnpivotOutput.label, postUnpivotLabel);
+  assert.notEqual(savedPostUnpivotOutput.id, retainedPatientIDOutputId);
+  assert.notEqual(savedPostUnpivotOutput.name, savedPatientIDOutput.name);
+  if (afterUnpivotForm === 'COUNT') assert.equal(savedPostUnpivotOutput.type, 'integer');
+  assert(!Object.hasOwn(reshapedRetainedPatientRow, savedPostUnpivotOutput.label),
+    'The COUNT/ALL output label must not collide with retained output labels.');
+  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.route, savedPatientID.operation.relatedSource.route,
+    'Post-Unpivot field selection changed the exact Patient source route.');
+  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.source, savedPatientID.operation.relatedSource.source,
+    'Post-Unpivot field selection changed the exact Patient source candidate.');
+  assert.deepEqual(steps(postUnpivotBaseline).find((step) => step.id === savedUnpivot.id), savedUnpivot,
+    'Adding the related source changed the saved Unpivot operation.');
+  previewRows = [postUnpivotValueForRow(postUnpivotLabel)];
+  await reloadTable(previewRows, `reload-related-Patient-${afterUnpivotFieldPath}-${afterUnpivotForm}-after-Unpivot`);
 
   const beforeEdit = structuredClone(builder);
-  const editedLabel = 'Patient gender after Unpivot';
-  start = await editRelatedLabel(savedGender, editedLabel);
-  await proposal('edit-related-source-label-after-Unpivot-preview', start, [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [editedLabel]: [source.patient.gender],
-  }]);
+  const editedLabel = `Patient ${afterUnpivotFieldPath} ${afterUnpivotForm.toLowerCase()} after Unpivot`;
+  assert(!Object.hasOwn(reshapedRetainedPatientRow, editedLabel));
+  start = await editRelatedLabel(savedPostUnpivotStep, editedLabel);
+  await proposal('edit-related-source-label-after-Unpivot-preview', start, [postUnpivotValueForRow(editedLabel)]);
   await cancelProposal(beforeEdit.workspace, 'cancel-related-source-edit-preserves-route-and-output');
 
-  savedGender = relatedSourceStepFor(builder, 'gender');
-  start = await editRelatedLabel(savedGender, editedLabel);
-  await proposal('confirm-related-source-label-edit-after-Unpivot-preview', start, [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [editedLabel]: [source.patient.gender],
-  }]);
-  await applyProposal([{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [editedLabel]: [source.patient.gender],
-  }], 'apply-related-source-label-edit-after-Unpivot');
-  genderBaseline = structuredClone(builder);
-  savedGender = relatedSourceStepFor(genderBaseline, 'gender');
-  assert(savedGender);
-  assert.equal(outputForStep(savedGender, savedGender.operation.relatedSource.outputColumnId).label, editedLabel);
-  assertDirectPatientRoute(savedGender, 'gender');
-  assert.deepEqual(savedGender.operation.relatedSource.source, genderStepProposal.operation.relatedSource.source);
-  assert.deepEqual(savedGender.operation.relatedSource.route, genderStepProposal.operation.relatedSource.route);
-  assert.deepEqual(steps(genderBaseline).find((step) => step.id === savedUnpivot.id), savedUnpivot,
+  savedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
+  start = await editRelatedLabel(savedPostUnpivotStep, editedLabel);
+  await proposal('confirm-related-source-label-edit-after-Unpivot-preview', start, [postUnpivotValueForRow(editedLabel)]);
+  await applyProposal([postUnpivotValueForRow(editedLabel)], 'apply-related-source-label-edit-after-Unpivot');
+  postUnpivotBaseline = structuredClone(builder);
+  savedPostUnpivotStep = relatedSourceStepFor(postUnpivotBaseline, afterUnpivotFieldPath);
+  assert(savedPostUnpivotStep);
+  assert.equal(outputForStep(savedPostUnpivotStep, savedPostUnpivotStep.operation.relatedSource.outputColumnId).label, editedLabel);
+  assert.equal(savedPostUnpivotStep.operation.relatedSource.form, afterUnpivotForm);
+  assertDirectPatientRoute(savedPostUnpivotStep, afterUnpivotFieldPath, afterUnpivotForm);
+  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.source, postUnpivotStepProposal.operation.relatedSource.source);
+  assert.deepEqual(savedPostUnpivotStep.operation.relatedSource.route, postUnpivotStepProposal.operation.relatedSource.route);
+  assert.deepEqual(steps(postUnpivotBaseline).find((step) => step.id === savedUnpivot.id), savedUnpivot,
     'Editing the related source changed the saved Unpivot operation.');
-  previewRows = [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-    [editedLabel]: [source.patient.gender],
-  }];
+  previewRows = [postUnpivotValueForRow(editedLabel)];
   await reloadTable(previewRows, 'reload-edited-related-source-after-Unpivot');
 
-  await removeStep(savedGender, 'remove-post-Unpivot-Patient-gender-preview', [
-    {
-      [patientIDLabel]: [source.patient.id],
-      [keyLabel]: 'Specimen ID',
-      [valueLabel]: source.specimen.id,
-    },
-  ], unpivotBaseline.workspace.documents[0].construction);
-  await cancelProposal(genderBaseline.workspace, 'cancel-post-Unpivot-related-source-removal-preserves-binding');
+  await removeStep(savedPostUnpivotStep, 'remove-post-Unpivot-related-source-preview', previewRows.map(({ [editedLabel]: _removed, ...row }) => row),
+    unpivotBaseline.workspace.documents[0].construction);
+  await cancelProposal(postUnpivotBaseline.workspace, 'cancel-post-Unpivot-related-source-removal-preserves-binding');
 
-  savedGender = relatedSourceStepFor(builder, 'gender');
-  await removeStep(savedGender, 'confirm-remove-post-Unpivot-Patient-gender-preview', [
-    {
-      [patientIDLabel]: [source.patient.id],
-      [keyLabel]: 'Specimen ID',
-      [valueLabel]: source.specimen.id,
-    },
-  ], unpivotBaseline.workspace.documents[0].construction);
-  await applyProposal([{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-  }], 'remove-post-Unpivot-Patient-gender');
+  savedPostUnpivotStep = relatedSourceStepFor(builder, afterUnpivotFieldPath);
+  const reshapedRowsWithoutPostField = previewRows.map(({ [editedLabel]: _removed, ...row }) => row);
+  await removeStep(savedPostUnpivotStep, 'confirm-remove-post-Unpivot-related-source-preview', reshapedRowsWithoutPostField,
+    unpivotBaseline.workspace.documents[0].construction);
+  await applyProposal(reshapedRowsWithoutPostField, 'remove-post-Unpivot-related-source');
   assert.deepEqual(doc().construction, doc(unpivotBaseline).construction,
     'Removing the post-Unpivot field must restore the exact saved Unpivot construction.');
   assert.deepEqual(doc().population, doc(unpivotBaseline).population);
-  previewRows = [{
-    [patientIDLabel]: [source.patient.id],
-    [keyLabel]: 'Specimen ID',
-    [valueLabel]: source.specimen.id,
-  }];
+  previewRows = reshapedRowsWithoutPostField;
   await reloadTable(previewRows, 'reload-after-removing-post-Unpivot-field');
 
   const currentUnpivot = lastStep(builder, 'UNPIVOT');
@@ -974,10 +1045,11 @@ try {
   report.error = String(error.stack ?? error);
   if (builder) {
     const state = await api(base + '/builder').catch((readError) => ({ error: String(readError) }));
+    const savedDocument = state.workspace?.documents?.find((document) => document.output.id === outputId);
     report.savedStateSummary = state.workspace ? {
       draftVersion: state.draftVersion,
-      stepKinds: state.workspace.documents?.find((document) => document.output.id === outputId)?.construction.steps.map((step) => step.operation.kind),
-      columnLabels: state.workspace.documents?.find((document) => document.output.id === outputId)?.columns.map((column) => column.label),
+      stepKinds: savedDocument?.construction?.steps?.map((step) => step.operation.kind),
+      columnLabels: savedDocument?.columns?.map((column) => column.label),
     } : state;
   }
   if (!error.rawOracleFailure || error.unverifiedKind === 'raw-source-command' || error.unverifiedKind === 'exact-record-reread-command') {

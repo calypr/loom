@@ -49,6 +49,18 @@ class AcceptanceDeploymentContractTest(unittest.TestCase):
         self.assertIn("${LOOM_DEMO_FIXTURE_CACHE_DIR:-fixture_cache}:/var/cache/loom", source)
         self.assertIn("demo_artifacts:/var/lib/loom/artifacts", source)
 
+    def test_demo_seed_reads_only_group_readable_host_fixture_cache(self) -> None:
+        compose = COMPOSE.read_text(encoding="utf-8")
+        demo_seed = compose.split("  demo-seed:\n", 1)[1].split("\n  loom-ui:\n", 1)[0]
+        launcher = (ROOT / "scripts" / "demo-up.sh").read_text(encoding="utf-8")
+
+        self.assertIn("group_add:\n      - ${LOOM_DEMO_FIXTURE_CACHE_GID:-arango-fhir}", demo_seed)
+        self.assertIn("${LOOM_DEMO_FIXTURE_CACHE_DIR:-fixture_cache}:/var/cache/loom", demo_seed)
+        self.assertIn('chgrp -R "$fixture_cache_gid" "$fixture_cache_dir"', launcher)
+        self.assertIn('chmod -R g+rX "$fixture_cache_dir"', launcher)
+        self.assertIn('export LOOM_DEMO_FIXTURE_CACHE_GID="$fixture_cache_gid"', launcher)
+        self.assertNotIn("chmod -R 777", launcher)
+
     def test_performance_isolates_projects_ports_images_and_cleanup(self) -> None:
         source = PERFORMANCE.read_text(encoding="utf-8")
 

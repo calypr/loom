@@ -397,14 +397,25 @@ func renderPhysicalStageSequence(plan ir.PhysicalPlan, options physicalRenderOpt
 			Kind:  ir.PhysicalValueExpression,
 			Value: &ir.PhysicalValue{Variable: finalRow, Path: []string{terminal.Construction.RowIdentityColumn}},
 		}
-		if terminal.Construction.RowIdentityColumn == "__loom_row_id" {
+		identityFields := terminal.Construction.RowIdentityFields
+		if len(identityFields) == 1 && identityFields[0] == terminal.Construction.RowIdentityColumn && terminal.Construction.RowIdentityColumn == "__loom_row_id" {
 			terminal.ExplicitIdentity = &identity
 			terminal.IdentityParts = nil
-		} else {
+		} else if len(identityFields) == 2 && identityFields[0] == "project" && identityFields[1] == "_key" && terminal.Construction.RowIdentityColumn == "_key" {
+			terminal.ExplicitIdentity = nil
+			terminal.IdentityParts = []ir.PhysicalPopulationMappingIdentityPart{
+				{Name: "project", Expression: ir.PhysicalExpression{
+					Kind: ir.PhysicalValueExpression, Value: &ir.PhysicalValue{BindKey: "project"},
+				}},
+				{Name: "_key", Expression: identity},
+			}
+		} else if len(identityFields) == 1 && identityFields[0] == terminal.Construction.RowIdentityColumn {
 			terminal.ExplicitIdentity = nil
 			terminal.IdentityParts = []ir.PhysicalPopulationMappingIdentityPart{{
 				Name: terminal.Construction.RowIdentityColumn, Expression: identity,
 			}}
+		} else {
+			return RenderedPhysicalPlan{}, fmt.Errorf("construction trace has an unsupported published row identity")
 		}
 		traceLines, traceErr := renderer.renderCellTraceReturn(terminal)
 		if traceErr != nil {

@@ -3001,6 +3001,15 @@ const BuilderWorkspaceContent = ({
   const proposalResponse = 'response' in constructionLifecycle.proposal
     ? constructionLifecycle.proposal.response
     : undefined;
+  const proposalPresentationTable = !choicePreview && table && proposalResponse
+    ? {
+        ...table,
+        document: {
+          ...table.document,
+          construction: proposalResponse.candidateConstruction,
+        },
+      }
+    : undefined;
   const workspacePreview = candidatePreview ?? tablePreview;
   const workspacePreviewIsCurrent = Boolean(candidatePreview) || previewIsCurrent;
   const workspacePreviewStatus = candidatePreview
@@ -3370,7 +3379,10 @@ const BuilderWorkspaceContent = ({
                       onOpenFamily={selectConstructionFamily}
                     />
                     {candidatePreview ? (
-                      <ConstructionProposalPreview preview={candidatePreview} />
+                      <ConstructionProposalPreview
+                        preview={candidatePreview}
+                        presentationTable={proposalPresentationTable}
+                      />
                     ) : (
                       <PreviewTable
                         preview={tablePreview}

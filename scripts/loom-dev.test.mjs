@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORING_SEMANTICS_VERSION, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
+import { AUTHORING_SEMANTICS_VERSION, authoringCommandSemanticsVersion, assertExternalJ01SourcesUnchanged, assertJ05ArtifactIdentity, assertJ05ArtifactRows, bootstrapSeedPlan, bootstrapWorkspaceNeedsSeed, canonicalProjectID, collectJ01SemanticConceptPages, commandEnvironment, compareJ04Evidence, createDevSession, createVerificationReport, expectedFixtureRelatedValue, explicitGroupPreviewRows, externalJ01PatientScalar, fixtureSourceDigest, generatedJ01ConceptNDJSON, generationLoadDisposition, graphQLRowsRequest, inspectJ01ArtifactRows, inspectJ05ArtifactPackage, j01ArtifactDownloadPlan, j01ColumnIdentitySnapshot, j01ConstructionChoiceCommandIdentities, j01JSONValuesEquivalent, j01OwnerLiteralSnapshot, j01SemanticInventoryRequest, j01ViewerValuesAgree, j04BrowserControlPlan, j04DefaultRecordCellTraceRowID, j04ExactEqual, j04FixtureManifest, j04PatientOperatorDOMPlan, j04PatientOperatorSourceIDs, j04PatientSelectionSeedPlan, j05ArtifactIdentityIsCurrent, loadJ04FixtureContract, normalizeJ04Surface, normalizeJ05LogicalValue, readJ05OutputRows, selectExternalJ01Manifest, shapeJ04Evidence, sourceMountMatches, summarizeTimingSamples, validateJ04FixtureContract } from './loom-dev.mjs';
 
 test('J04 fixture keeps valid Observation values, recorded absence, Patient aggregates, and pivot types in separate row scopes', () => {
   const fixtureDir = join(process.cwd(), 'testdata/devloop-fixture');
@@ -403,10 +403,18 @@ test('development commands use the current Go authoring semantics version', () =
   assert.ok(match, 'Go authoring semantics version is missing');
   assert.equal(AUTHORING_SEMANTICS_VERSION, Number(match[1]));
 
-  const uiSource = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/types.ts'), 'utf8');
-  const uiMatch = uiSource.match(/EXPLORER_AUTHORING_SEMANTICS_VERSION\s*=\s*(\d+)/);
-  assert.ok(uiMatch, 'UI authoring semantics version is missing');
+  const uiTypesSource = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/types.ts'), 'utf8');
+  assert.match(uiTypesSource, /export \{ EXPLORER_AUTHORING_SEMANTICS_VERSION \} from '\.\/authoringSemanticsVersion\.mjs';/);
+  const uiVersionSource = readFileSync(join(process.cwd(), 'ui/packages/loom-ui/src/authoringSemanticsVersion.mjs'), 'utf8');
+  const uiMatch = uiVersionSource.match(/EXPLORER_AUTHORING_SEMANTICS_VERSION\s*=\s*(\d+)/);
+  assert.ok(uiMatch, 'shared UI authoring semantics version is missing');
   assert.equal(Number(uiMatch[1]), Number(match[1]));
+});
+
+test('bootstrap commands prefer Builder workspace semantics and use the shared UI contract for a new workspace', () => {
+  assert.equal(authoringCommandSemanticsVersion({ workspace: { semanticsVersion: 7 } }), 7);
+  assert.equal(authoringCommandSemanticsVersion({ workspace: null }), AUTHORING_SEMANTICS_VERSION);
+  assert.equal(authoringCommandSemanticsVersion({}), AUTHORING_SEMANTICS_VERSION);
 });
 
 test('fixture FIRST expectation follows independently observed storage-key ordering', () => {

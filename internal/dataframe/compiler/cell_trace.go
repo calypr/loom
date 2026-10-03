@@ -161,12 +161,14 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 	if !found {
 		return nil, fmt.Errorf("cell trace column %q is not a public construction output", column)
 	}
-	if output.RowIdentity == nil || len(output.RowIdentity.Fields) != 1 || output.RowIdentity.Fields[0] != sequence.FinalRowIdentity {
+	identityFields, err := constructionCellTraceIdentityFields(output, sequence)
+	if err != nil {
 		return nil, fmt.Errorf("construction cell trace row identity does not match the final stage")
 	}
 	lineage := &ir.PhysicalCellTraceConstruction{
 		FinalStageID: sequence.FinalStageID, RowIdentityColumn: sequence.FinalRowIdentity,
-		OutputColumnID: selected.ID, OutputColumn: selected.Name,
+		RowIdentityFields: identityFields,
+		OutputColumnID:    selected.ID, OutputColumn: selected.Name,
 	}
 	finalByID := make(map[string]ir.PhysicalStageColumn, len(sequence.FinalColumns))
 	for _, finalColumn := range sequence.FinalColumns {
@@ -277,6 +279,39 @@ func constructionCellTraceLineage(output lower.CompiledRecipeOutput, sequence ir
 		}
 	}
 	return lineage, nil
+}
+
+func constructionCellTraceIdentityFields(output lower.CompiledRecipeOutput, sequence ir.PhysicalStageSequence) ([]string, error) {
+	identity := output.RowIdentity
+	if identity == nil || identity.Validate() != nil || identity.Grain != output.RowGrain {
+		return nil, fmt.Errorf("compiled row identity is malformed")
+	}
+	if len(identity.Fields) == 1 && identity.Fields[0] == sequence.FinalRowIdentity {
+		return append([]string(nil), identity.Fields...), nil
+	}
+	defaultIdentity, ok := spec.DefaultRowIdentity(output.RowGrain)
+	if !ok || len(identity.Fields) != len(defaultIdentity.Fields) ||
+		identity.Fields[0] != defaultIdentity.Fields[0] || identity.Fields[1] != defaultIdentity.Fields[1] ||
+		defaultIdentity.Fields[0] != "project" || defaultIdentity.Fields[1] != "_key" {
+		return nil, fmt.Errorf("compiled row identity is not the construction final identity or canonical project/key identity")
+	}
+	switch sequence.FinalRowIdentity {
+	case "_key":
+		project, ok := output.Plan.BindVars["project"].(string)
+		if !ok || strings.TrimSpace(project) == "" {
+			return nil, fmt.Errorf("canonical project/key identity requires the pinned project bind")
+		}
+		return append([]string(nil), identity.Fields...), nil
+	case "__loom_row_id":
+		for _, column := range sequence.FinalColumns {
+			if column.Name == "__loom_row_id" && column.Internal && column.Identity && column.Kind == "string" && column.Cardinality == "required_one" {
+				return []string{"__loom_row_id"}, nil
+			}
+		}
+		return nil, fmt.Errorf("compiler-generated construction identity is not a required scalar string")
+	default:
+		return nil, fmt.Errorf("canonical project/key identity is incompatible with final stage identity %q", sequence.FinalRowIdentity)
+	}
 }
 
 func constructionRelatedSourceTrace(stage ir.PhysicalConstructionStage, outputColumn string) (*ir.PhysicalCellTraceRelatedSource, bool) {

@@ -566,6 +566,7 @@ func clonePhysicalOperation(operation PhysicalOperation) PhysicalOperation {
 		}
 		if operation.CellTraceReturn.Construction != nil {
 			construction := *operation.CellTraceReturn.Construction
+			construction.RowIdentityFields = append([]string(nil), operation.CellTraceReturn.Construction.RowIdentityFields...)
 			construction.Inputs = append([]PhysicalCellTraceConstructionInput(nil), operation.CellTraceReturn.Construction.Inputs...)
 			if construction.RelatedSource != nil {
 				relatedSource := *construction.RelatedSource

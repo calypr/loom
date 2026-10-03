@@ -78,6 +78,8 @@ services:
   demo-seed:
     image: ${LOOM_API_IMAGE:-loom-demo-api:local}
     entrypoint: ["/app/loom-acceptance"]
+    group_add:
+      - ${LOOM_DEMO_FIXTURE_CACHE_GID:-arango-fhir}
     command:
       - --run-id
       - ${LOOM_DEMO_RUN_ID:-d000000000000001}
