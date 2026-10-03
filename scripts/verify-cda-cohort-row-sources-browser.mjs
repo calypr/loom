@@ -173,7 +173,7 @@ const traceCohortCell = async (name, inspection, cellColumn) => {
   assert.equal(cellTrace.trace.column, cellColumn);
   assert.equal(cellTrace.trace.complete, true, JSON.stringify(cellTrace.trace));
   assert.equal(cellTrace.trace.status, 'VALUE', JSON.stringify(cellTrace.trace));
-  assert.equal(cellTrace.trace.value, resourceType, 'The receipt-bound member field trace must return Specimen');
+  assert.deepEqual(cellTrace.trace.value, [resourceType], 'The ALL member-field trace must return exactly the distinct scoped Specimen value');
   const expectedRefs = report.oracle.sources.map(source => `${resourceType}/${source.id}`).sort();
   const tracedRefs = (cellTrace.trace.contributions ?? [])
     .filter(item => item.resourceType && item.resourceId)
@@ -372,6 +372,7 @@ try {
   assert.equal(fieldDocument.rows.groups.source.explicit.revisionId, cohort.revisionId, 'Adding a member field must retain the named cohort row binding');
   assert.equal(fieldDocument.population.selectionRevisionId, selection.id, 'Adding a member field must retain the pinned source selection');
   assert.deepEqual(doc(beforeField).rows.groups, groupedDocument.rows.groups);
+  assert.deepEqual(fieldDocument.rows.groups.rowValues.map(value => value.policy), ['ALL'], 'The saved resourceType member field must retain its native ALL policy');
   const resourceTypeColumn = fieldDocument.columns.find(column => column.source.kind === 'field' && column.source.field?.path === 'resourceType');
   assert(resourceTypeColumn?.column, 'The saved cohort must expose the applied Specimen.resourceType output column');
   const savedFieldInspection = await inspectCohortRow('inspect-saved-cohort-row-after-field-apply');

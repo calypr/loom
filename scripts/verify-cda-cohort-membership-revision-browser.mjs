@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { captureSourceFreeze } from './lib/source-freeze.mjs';
+import { ApiBuildFreezeError, captureApiBuildFreeze, checkContainerApiBuildStamp, localCDAApiContainer } from './lib/api-build-freeze.mjs';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -12,6 +13,7 @@ const generation = 'cda-fhir-v1';
 const resourceType = 'Specimen';
 const groupLabel = 'Cohort';
 const memberFieldLabel = 'Specimen ID';
+const changeSourceCollection = process.env.LOOM_COHORT_SOURCE_COLLECTION_CHANGE === '1';
 const explorer = `cohort-membership-revision-browser-${Date.now()}`;
 const evidence = process.argv[2] ?? `/tmp/${explorer}`;
 const apiOrigin = process.env.LOOM_CDA_API_ORIGIN ?? 'http://127.0.0.1:8188';
@@ -21,11 +23,14 @@ const root = `/api/v1/projects/${project}/explorers`;
 const base = `${root}/${explorer}/authoring/v2`;
 const selections = base.replace('/authoring/v2', '/selections');
 const report = {
-  project, generation, resourceType, explorer, groupLabel, memberFieldLabel,
+  project, generation, resourceType, explorer, groupLabel, memberFieldLabel, changeSourceCollection,
   cases: [], errors: [], requests: [], nativeRequests: [], revisions: [], started: new Date().toISOString(),
 };
 await mkdir(evidence, { recursive: true });
 const sourceFreeze = await captureSourceFreeze(fileURLToPath(new URL('..', import.meta.url)));
+const apiBuildTarget = 'local-cda-api';
+const readApiBuildStamp = () => checkContainerApiBuildStamp(localCDAApiContainer());
+let frozenApiBuild;
 
 let browser;
 let builder;
@@ -269,6 +274,10 @@ const inspectFirstRow = async (name, expectedIDs) => {
 };
 
 try {
+  const apiBuildStartedAt = new Date().toISOString();
+  report.apiBuildFreeze = { target: apiBuildTarget, startedAt: apiBuildStartedAt };
+  frozenApiBuild = await captureApiBuildFreeze(readApiBuildStamp);
+  report.apiBuildFreeze = { ...report.apiBuildFreeze, initial: frozenApiBuild.initial };
   const query = `FOR s IN Specimen FILTER s.project=="${project}" AND s.dataset_generation=="${generation}" SORT s._key LIMIT 2 RETURN {id:s.id,resourceType:s.resourceType,generation:s.dataset_generation,project:s.project}`;
   const raw = spawnSync('rtk', [
     'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
@@ -318,6 +327,8 @@ try {
   const memberKeyByID = new Map(selectionPage.members.map(member => [member.ref.id, member.memberKey]));
   assert.equal(memberKeyByID.size, 2);
   assert([...memberKeyByID.values()].every(Boolean));
+  let finalSelectionRevisionID = selection.id;
+  let finalSourceIDs = report.oracle.sourceIDs;
   report.oracle.selection = selection;
   report.oracle.members = selectionPage.members.map((member, index) => ({
     memberKey: member.memberKey, ref: member.ref, uiLabel: `Record ${index + 1} · ${member.ref.id}`,
@@ -346,7 +357,7 @@ try {
     const entry = nativeById.get(requestId);
     if (!entry) return;
     entry.completedAt = Date.now();
-    if (!(/explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|preview/.test(pathOf(entry)) || entry.status >= 400)) return;
+    if (!(/explicit-groups|row-definition-proposals|construction-choice-proposals|construction-proposals|construction-capabilities|row-lineage|population-mapping|preview/.test(pathOf(entry)) || entry.status >= 400)) return;
     const read = browser.cdp.send('Network.getResponseBody', { requestId }).then(result => {
       const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
       try {
@@ -501,6 +512,133 @@ try {
   const reloadedIdentity = await inspectFirstRow('inspect-reloaded-one-member-revision', [report.oracle.sourceIDs[0]]);
   assert.equal(reloadedIdentity, replacementIdentity, 'Reload must preserve the replacement revision row identity');
 
+  if (changeSourceCollection) {
+    const excludedSourceID = report.oracle.sourceIDs[1];
+    const coverageStart = Date.now();
+    const rowSelectorForCoverage = await openRows();
+    assert(rowSelectorForCoverage);
+    await click(browser.cdp, '[aria-label="Starting collection"] button', { name: 'Check selected-resource coverage' });
+    const coverageRequest = await waitNative('/population-mapping', coverageStart);
+    report.populationCoverageRequest = {
+      requestId: coverageRequest.requestId,
+      status: coverageRequest.status,
+      body: coverageRequest.body,
+      response: coverageRequest.response,
+    };
+    assert.equal(coverageRequest.status, 200,
+      `Native population coverage request failed: ${JSON.stringify(report.populationCoverageRequest)}`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="population-coverage-report"]')?.innerText.includes('2 selected · 1 produce rows · 1 needs attention')`, 5000);
+    const coverage = await browserEval(browser.cdp, `const report=document.querySelector('[data-testid="population-coverage-report"]');return {summary:report?.querySelector('p')?.innerText,unmapped:[...(report?.querySelectorAll('li span')??[])].map(item=>item.innerText.trim())};`);
+    assert.equal(coverage.summary, '2 selected · 1 produce rows · 1 needs attention');
+    assert.deepEqual(coverage.unmapped, [`${resourceType}/${excludedSourceID}`],
+      'Independent exact one-member cohort rows must identify only the other raw selected Specimen as unaccounted for');
+    recordRender('identify-source-collection-member-to-remove', coverageStart);
+
+    const collectionChangeStart = Date.now();
+    await click(browser.cdp, '[aria-label="Starting collection"] button', { name: 'Remove from collection' });
+    const populationCommand = await waitNative('/commands', collectionChangeStart, entry =>
+      entry.status === 200 && entry.body?.commands?.some(command => command.type === 'SET_TABLE_POPULATION'));
+    const populationChange = populationCommand.body.commands.find(command => command.type === 'SET_TABLE_POPULATION');
+    const nativeSelectionCreate = report.nativeRequests.findLast(entry => pathOf(entry).endsWith('/selections') &&
+      entry.startedAt >= collectionChangeStart && entry.method === 'POST');
+    assert(nativeSelectionCreate, 'Removing a native uncovered record must create a derived source collection revision');
+    assert.equal(nativeSelectionCreate.body?.source?.kind, 'selectionRevision');
+    assert.equal(nativeSelectionCreate.body?.source?.selectionRevision?.selectionRevisionId, selection.id,
+      'The source collection revision must derive from the exact two-member pinned selection');
+    assert.deepEqual(nativeSelectionCreate.body?.exclusions?.map(ref => ref.id), [excludedSourceID],
+      'Native collection removal must exclude exactly the independently identified unaccounted-for Specimen');
+    const variantID = populationChange.selectionRevisionId;
+    assert(variantID && variantID !== selection.id, 'The authored table must attach a new immutable source collection revision');
+    assert.equal(populationChange.outputId, outputId);
+    await waitSavedPreview(collectionChangeStart);
+    const settingsOpen = await browserEval(browser.cdp, `return Boolean(document.querySelector('[aria-label="Row definition settings"]'));`);
+    if (settingsOpen) {
+      await click(browser.cdp, '[aria-label="Row definition settings"] button', { name: 'Back to table' });
+      await waitForBrowser(browser.cdp, `!document.querySelector('[aria-label="Row definition settings"]')`);
+    }
+    const oneMemberTable = await waitTable(1);
+    assertGroupRow(oneMemberTable, [report.oracle.sourceIDs[0]]);
+    recordRender('apply-source-collection-two-to-one-under-filter-and-field', collectionChangeStart);
+
+    builder = await api(base + '/builder');
+    const afterCollectionChange = structuredClone(doc(builder));
+    assert.equal(afterCollectionChange.population.selectionRevisionId, variantID);
+    assert.equal(afterCollectionChange.rows.groups.source.explicit.revisionId, second.revision.revisionId,
+      'Changing the starting collection must leave the separately pinned one-member cohort revision intact');
+    assert.equal(afterCollectionChange.rows.groups.source.explicit.unassignedMemberPolicy, 'EXCLUDE');
+    assert.deepEqual(afterCollectionChange.construction, beforeReplacement.construction,
+      'Changing the starting collection must preserve the authored downstream GroupLabel filter');
+    assert.deepEqual(afterCollectionChange.columns, beforeReplacement.columns,
+      'Changing the starting collection must preserve source and member-field column bindings');
+    assert.deepEqual(afterCollectionChange.rows.groups.rowValues, beforeReplacement.rows.groups.rowValues,
+      'Changing the starting collection must preserve the authored cohort member-field policy');
+
+    const derivedSelectionPage = await api(`${selections}/${variantID}?limit=100`);
+    assert.equal(derivedSelectionPage.revision.id, variantID);
+    assert.equal(derivedSelectionPage.revision.source.kind, 'SELECTION_REVISION');
+    assert.equal(derivedSelectionPage.revision.source.revisionId, selection.id);
+    assert.equal(derivedSelectionPage.revision.source.membershipDigest, selection.membershipDigest);
+    assert.equal(derivedSelectionPage.revision.scopeDigest, scopeDigest);
+    assert.equal(derivedSelectionPage.revision.generation, generation);
+    assert.equal(derivedSelectionPage.revision.resourceType, resourceType);
+    assert.equal(derivedSelectionPage.revision.memberCount, 1);
+    assert.notEqual(derivedSelectionPage.revision.membershipDigest, selection.membershipDigest);
+    assert.deepEqual(derivedSelectionPage.revision.exclusions, [
+      { project, generation, resourceType, id: excludedSourceID },
+    ], 'The immutable source revision must preserve the exact excluded-resource scope');
+    assert.deepEqual(derivedSelectionPage.members.map(member => member.ref), [
+      { project, generation, resourceType, id: report.oracle.sourceIDs[0] },
+    ], 'The native collection revision must retain exactly the surviving raw scoped Specimen');
+    const rawMembershipQuery = `FOR member IN loom_explorer_selection_members FILTER member.selectionId == ${JSON.stringify(variantID)} AND member.project == ${JSON.stringify(project)} AND member.generation == ${JSON.stringify(generation)} AND member.resourceType == ${JSON.stringify(resourceType)} SORT member.id RETURN {memberKey:member.memberKey,id:member.id,project:member.project,generation:member.generation,resourceType:member.resourceType}`;
+    const rawMembership = spawnSync('rtk', [
+      'proxy', 'docker', 'exec', arangoContainer, 'arangosh', '--server.database', 'loom_dev',
+      '--javascript.execute-string', `print(JSON.stringify(db._query(${JSON.stringify(rawMembershipQuery)}).toArray()));`,
+    ], { encoding: 'utf8', timeout: 30000 });
+    assert.equal(rawMembership.status, 0, rawMembership.stderr);
+    const opening = rawMembership.stdout.indexOf('[');
+    assert(opening >= 0, `Raw selection membership did not return JSON: ${rawMembership.stdout.slice(0, 500)}`);
+    const rawVariantMembers = JSON.parse(rawMembership.stdout.slice(opening));
+    assert.deepEqual(rawVariantMembers, [{
+      memberKey: derivedSelectionPage.members[0].memberKey,
+      id: report.oracle.sourceIDs[0], project, generation, resourceType,
+    }], 'Independent Arango membership rows must prove the exact one-member source collection revision');
+    assertGroupRow(oneMemberTable, [report.oracle.sourceIDs[0]]);
+    const collectionIdentity = await inspectFirstRow('inspect-one-source-under-filter-and-field', [report.oracle.sourceIDs[0]]);
+    assert.equal(collectionIdentity, replacementIdentity,
+      'The source collection revision must preserve the existing named-cohort output row identity');
+    report.sourceCollectionChange = {
+      previousSelectionRevisionId: selection.id,
+      previousMembershipDigest: selection.membershipDigest,
+      selectionRevisionId: variantID,
+      membershipDigest: derivedSelectionPage.revision.membershipDigest,
+      exactIDs: [report.oracle.sourceIDs[0]],
+      excludedID: excludedSourceID,
+      rawMembershipQuery,
+      rawMembers: rawVariantMembers,
+      retainedGroupRevisionId: second.revision.revisionId,
+      retainedFilterStepId: savedFilter.id,
+      retainedMemberField: memberFieldLabel,
+      rowIdentity: collectionIdentity,
+    };
+    finalSelectionRevisionID = variantID;
+    finalSourceIDs = [report.oracle.sourceIDs[0]];
+
+    const collectionReloadStart = Date.now();
+    await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
+    await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
+    await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
+    table = await waitTable(1);
+    assertGroupRow(table, finalSourceIDs);
+    builder = await api(base + '/builder');
+    assert.equal(doc(builder).population.selectionRevisionId, finalSelectionRevisionID);
+    assert.equal(doc(builder).rows.groups.source.explicit.revisionId, second.revision.revisionId);
+    assert.deepEqual(doc(builder).construction, beforeReplacement.construction);
+    recordRender('reload-one-member-source-collection-with-downstream-operations', collectionReloadStart);
+    const reloadedCollectionIdentity = await inspectFirstRow('inspect-reloaded-source-collection-revision', finalSourceIDs);
+    assert.equal(reloadedCollectionIdentity, collectionIdentity,
+      'Reload must preserve both the new source collection and named-cohort row identity');
+  }
+
   await click(browser.cdp, `[data-testid="construction-history-step-${savedFilter.id}"]`);
   start = Date.now();
   await click(browser.cdp, `[data-testid="construction-remove-step-${savedFilter.id}"]`);
@@ -543,29 +681,42 @@ try {
   assert.equal(recordsProposal.status, 200, JSON.stringify(recordsProposal.response));
   await waitForBrowser(browser.cdp, `[...document.querySelectorAll('[aria-label="Row definition settings"] button')].some(button=>button.innerText==='Apply row definition'&&!button.disabled)`);
   recordRender('preview-remove-cohort-row-definition', recordsStart);
-  const restoredTable = await applyRowDefinition(sources.length, [], 'remove-cohort-row-definition');
-  assert.deepEqual(sorted(restoredTable.rows.map(row => row[0])), sorted(report.oracle.sourceIDs));
+  const restoredTable = await applyRowDefinition(finalSourceIDs.length, [], 'remove-cohort-row-definition');
+  assert.deepEqual(sorted(restoredTable.rows.map(row => row[0])), sorted(finalSourceIDs));
   builder = await api(base + '/builder');
   assert.equal(doc(builder).rows.kind, 'RECORDS');
-  assert.equal(doc(builder).population.selectionRevisionId, selection.id);
+  assert.equal(doc(builder).population.selectionRevisionId, finalSelectionRevisionID);
   assert(!doc(builder).construction.steps.some(step => step.id === savedFilter.id));
   const reloadedBaselineStart = Date.now();
   await navigate(browser.cdp, `${uiOrigin}/?project=${project}&explorer=${explorer}&mode=builder`);
   await waitForBrowser(browser.cdp, `document.querySelector('[data-testid="construction-table-${outputId}"]')`);
   await click(browser.cdp, `[data-testid="construction-table-${outputId}"]`);
-  const finalTable = await waitTable(sources.length);
-  assert.deepEqual(sorted(finalTable.rows.map(row => row[0])), sorted(report.oracle.sourceIDs));
+  const finalTable = await waitTable(finalSourceIDs.length);
+  assert.deepEqual(sorted(finalTable.rows.map(row => row[0])), sorted(finalSourceIDs));
   builder = await api(base + '/builder');
   assert.equal(doc(builder).rows.kind, 'RECORDS');
-  assert.equal(doc(builder).population.selectionRevisionId, selection.id);
-  recordRender('reload-restored-exact-source-scope', reloadedBaselineStart);
+  assert.equal(doc(builder).population.selectionRevisionId, finalSelectionRevisionID);
+  recordRender(changeSourceCollection ? 'reload-restored-one-member-source-scope' : 'reload-restored-exact-source-scope', reloadedBaselineStart);
 
   await Promise.allSettled([...pendingNetworkReads]);
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
 } catch (error) {
-  report.status = 'failed';
+  const apiBuildInvalidated = error instanceof ApiBuildFreezeError;
+  report.status = apiBuildInvalidated ? 'invalidated' : 'failed';
   report.error = String(error.stack ?? error);
+  if (apiBuildInvalidated) {
+    report.apiBuildFreeze = {
+      ...report.apiBuildFreeze,
+      initial: error.before,
+      ...(error.after?.checked ? { after: error.after } : {}),
+      unchanged: false,
+      invalidatesRun: true,
+      productFailure: false,
+      reason: error.reason,
+    };
+    report.priorStatus = 'not-started';
+  }
   process.exitCode = 1;
   report.savedBuilderAtFailure = await api(base + '/builder').catch(fetchError => ({ readError: String(fetchError) }));
   report.failureUI = browser ? await browserEval(browser.cdp, 'return document.body.innerText;').catch(String) : undefined;
@@ -580,6 +731,58 @@ try {
     process.exitCode = 1;
   }
   await Promise.allSettled([...pendingNetworkReads]);
+  const apiBuildFinishedAt = new Date().toISOString();
+  if (frozenApiBuild) {
+    try {
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze,
+        ...(await frozenApiBuild.assertUnchanged()),
+        finishedAt: apiBuildFinishedAt,
+      };
+    } catch (error) {
+      report.priorStatus = report.status;
+      if (report.error) report.priorError = report.error;
+      report.status = 'invalidated';
+      report.error = String(error.stack ?? error);
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze,
+        ...(error.before ? { initial: error.before } : {}),
+        ...(error.after ? { after: error.after } : {}),
+        unchanged: false,
+        invalidatesRun: true,
+        productFailure: false,
+        ...(error.reason ? { reason: error.reason } : {}),
+        error: String(error),
+        finishedAt: apiBuildFinishedAt,
+      };
+      process.exitCode = 1;
+    }
+  } else {
+    try {
+      const finalOnly = await captureApiBuildFreeze(readApiBuildStamp);
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze,
+        after: finalOnly.initial,
+        unchanged: false,
+        invalidatesRun: true,
+        productFailure: false,
+        finishedAt: apiBuildFinishedAt,
+      };
+    } catch (error) {
+      report.apiBuildFreeze = {
+        ...report.apiBuildFreeze,
+        ...(error.before ? { after: error.before } : {}),
+        unchanged: false,
+        invalidatesRun: true,
+        productFailure: false,
+        ...(error.reason ? { reason: error.reason } : {}),
+        finishedAt: apiBuildFinishedAt,
+      };
+    }
+    report.priorStatus ??= report.status;
+    report.status = 'invalidated';
+    process.exitCode = 1;
+  }
   report.finished = new Date().toISOString();
   await writeFile(join(evidence, 'report.json'), JSON.stringify(report, null, 2));
   await browser?.close();
